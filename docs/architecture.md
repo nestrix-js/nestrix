@@ -23,7 +23,7 @@ Supported: NestJS 12.0+ (microservice propagation needs `@nestjs/microservices` 
 | Capability | Decision | Phase |
 |---|---|---|
 | HTTP monitoring | Build, on Nest's adapter hooks | 1 |
-| Exception monitoring | Build: handler exceptions first; guard and filter exceptions when enhancer spans are opted in (D-47) | 1, 3 |
+| Exception monitoring | Build: handler exceptions first; guard and filter exceptions when enhancer spans are opted in (D-57) | 1, 3 |
 | Outbound HTTP | Small first-party subscribers for fetch/undici and `node:http` (D-42) | 1 |
 | Custom tracing | Thin helpers over the OpenTelemetry API | 1 |
 | Embedded dashboard | Build | 2 |
@@ -84,7 +84,7 @@ Read [nest-hooks.md](nest-hooks.md) first; the rules here are consequences of it
 - A global interceptor (`APP_INTERCEPTOR`), registered by the module, sets `code.function.name` (`Controller.handler`), marks the request as having reached a handler (the 404 rule), and records the first exception thrown by a handler or pipe as an exception event. It calls `next.handle()` once and returns it through a `tap` whose error callback is guarded, so values, completion and the error object pass through unchanged. It acts only on `http` contexts with a Nestrix server span.
 - Error status is decided at `close`, not in the interceptor: `ERROR` when the status sent is 5xx, or, when nothing was sent, when the recorded exception maps to 5xx (an `HttpException`'s own status, duck-typed; anything else counts as 500). `error.type` is the exception's class name when that exception maps to 5xx, otherwise the status code. So an `HttpException` below 500 is an event with status unset, and an error a filter turns into a 200 is an event with status unset (conformance table; `test/http-server.test.ts` on all three adapters).
 - Interceptor order (P1-06/07 review, `test/http-interceptor-order.test.ts`, Express): Nest runs `APP_INTERCEPTOR` providers in module order, so a host module imported before `NestrixModule` puts its global interceptor before Nestrix's. Whatever such an interceptor throws never reaches Nestrix's interceptor: a 404 it throws ends as `GET` with no route and no exception event, and a 500 it throws sets error status from the status code but records no exception event. With `NestrixModule` imported first, the same 404 keeps the route and is recorded. The docs recommend importing `NestrixModule` first in the root module.
-- No global exception filter. Exceptions thrown by guards are captured when guard spans are opted in at level 2 (D-47); at level 1 a guard rejection keeps its route name and records no exception.
+- No global exception filter. Exceptions thrown by guards are captured when guard spans are opted in at level 2 (D-57); at level 1 a guard rejection keeps its route name and records no exception.
 - Process-level errors: an `uncaughtExceptionMonitor` listener only. It sees uncaught exceptions and, under Node's default `--unhandled-rejections=throw`, unhandled rejections too (`origin === "unhandledRejection"`; run on 22.15 and 26.13). An `unhandledRejection` or `uncaughtException` listener is never added: adding either stops the default crash (run: with an empty `unhandledRejection` listener the process stays alive and exits 0 on 22.15 and 26.13). Best effort: inside a traced request the error becomes an exception event on Nestrix's server span; otherwise a short span named after `origin`. The process usually exits right after the monitor, before the batch processor exports, so these reach the exporter only when the host handles the error and the process survives. `test/process-errors.test.ts` shows, in a child process, that Nestrix adds exactly one `uncaughtExceptionMonitor` listener and that an unhandled rejection and an uncaught exception still exit with status 1, as without Nestrix.
 - Known limit (P1-06): on platform-node, `Content-Type` and `Content-Length` that the adapter's `writeBody` passes to `writeHead(status, headers)` are not visible through `getHeaders()`, so those response headers are missing from its spans. Reading them would need the private `_header` field or patching the response; Nestrix does neither.
 
@@ -118,7 +118,7 @@ Implemented in `packages/nestjs/src/microservices/` (P4-01; mechanism and eviden
 **Sharing hooks with another tool**
 - Nest's request hook is a single slot with no getter. Nestrix does not try to chain it. Only one hook-based APM can run per process; Nestrix checks at bootstrap whether another is installed and warns clearly.
 - For the `instrument` slot, Nestrix exports `composeInstrument(a, b)`.
-- A microservice client's dispatch hook (`setOnDispatchHook`) is also a single slot whose current value is `protected`. Nestrix takes it on each client it instruments; a hook set later replaces Nestrix's, which Nestrix notices only when a call completes without its hook having run for that client, and then logs once.
+- A microservice client's dispatch hook (`setOnDispatchHook`) is also a single slot, and its typings mark the current value `protected`. When Nestrix instruments a client it reads the slot (`client.onDispatchHook`, a runtime read the typings forbid); if a host hook is already set, Nestrix keeps it, injects no context for that client (spans are still made) and logs once (`microservices.host-dispatch-hook`, `src/microservices/client.ts`). Otherwise it takes the slot; a hook set later replaces Nestrix's, which Nestrix notices only when a call completes without its hook having run for that client, and then logs once.
 
 **Rules for every hook and subscriber**
 - Wrap the whole body. A request hook that throws fails the user's request; a diagnostics-channel subscriber that throws raises `uncaughtException`.
@@ -163,7 +163,7 @@ Wrappers skip span creation when the parent span context is valid and lacks `Tra
 | mysql2 3.20+ | Subscribe to its TracingChannels. Query and execute spans are children of the caller, on pool and connection, with `database, query, serverAddress, serverPort, values` in the context. **Context bug (P0-S2 Q3):** when the pool queues a caller, `mysql2:query` is published inside the releasing caller's async context, so a queued handler's query lands in another handler's trace. Fix (implemented, P3-01): lend the caller's context from `mysql2:pool:connect` (published in the caller's context; its `asyncStart`/`asyncEnd` bracket the callback) to queries started synchronously inside the pool callback, unless the callback switched context itself. Verified: two concurrent requests on a one-connection pool get 3 and 3 query spans; without the lend, 6 and 0. Later work in that callback is still misparented. The fuller fix, verified on Node 26 only, is `tracingChannel('mysql2:pool:connect').asyncStart.bindStore(als, msg => callerContext)` on the AsyncLocalStorage behind the context manager, which needs Nestrix to own the context manager (§4.5); not used. The span starts at `start` and ends at `asyncStart` (before the caller's callback runs), so it excludes pool wait time. `query()` interpolates values into the text before publishing; the statement sanitiser removes them (MySQL mode honours backslash escapes). Bind values on the channel are never read. **Opt-in (D-49)**, because subscribing changes mysql2's behaviour (below). | No |
 | ioredis 5.11+ | Subscribe to its channels (`args` already sanitised by ioredis). Known gaps (P0-S2 Q4): a command issued before the connection is ready is traced only when the offline queue flushes, so it is a root span in its own trace, and handshake commands (`HELLO`, `CLIENT SETINFO`, `INFO`) are root spans. Decided (D-60) and implemented: a command with no active span produces no span unless `integrations.ioredis.rootSpans` is `true`; ioredis 6.0.0's handshake (`HELLO`, `CLIENT` twice, `INFO`) is dropped by default (verified). `db.query.text` is the command and its first argument as ioredis sanitised it (`GET user:1`), never values; `AUTH` and `HELLO` record the command only. `ioredis:batch` (MULTI) and `ioredis:connect` are not subscribed or tested. **Opt-in (D-49)**, because subscribing changes ioredis's behaviour (below). | No |
 | `pg` | Wrap `Client.prototype.query` and `Pool.prototype.query` after load. Verified (P0-S2 Q5): the module object that `createRequire` reaches is the same one ESM `import pg from 'pg'` and CJS `require('pg')` give the app (pg's `esm/index.mjs` wraps the CJS module). Raw `pg`, `pg-cursor`, `pg-query-stream`, TypeORM, Drizzle and Prisma on `@prisma/adapter-pg` are traced, in ESM and CJS apps. The wrapper changes nothing observable (P0-S2 Q7). Needs pool/client de-duplication: wrapping both prototypes counts every `pool.query` twice, and under contention the inner client span lands in another caller's trace. The pool wrapper hands pg-pool a per-call object and records the caller's context in a token keyed by that object; the client wrapper takes the token for the config object it is given, so a pooled client's span lands under the right caller. For a config object that is not a submittable the per-call object is `Object.create(config)` (pg reads its fields through the prototype; pg 8.23.1 clones the config anyway; on pg < 8.23 pg's own writes of `values` and `callback` land on the per-call copy, not on the caller's object); a string becomes `{ text }` per call; a submittable (single-use) is passed as it is. Because the key is unique to the call, concurrent `pool.query` calls sharing one config object (a named prepared statement, on one pool or on two pools such as primary and replica) never take each other's token, and a direct `client.query(sameConfig)` on a checked-out client while a `pool.query` with that object is queued no longer consumes the pool's token: there is no residual ambiguity, so one token per object suffices and no reference counting is needed. Only a pooled client (one pg-pool gave a `release` function) consumes a token. Tokens carry the caller's context (D-59, below). A pool call that fails before its query reaches a client (connection refused, pool closed) gets a span from the call to the failure, with the error. Callbacks are run in the caller's OpenTelemetry context, because pg invokes them from socket events (without this, a query issued in a callback had no parent). `client.query({ text, callback })` (callback inside the config) is not traced. Wrapping is permanent and idempotent; a disposed integration's wrappers pass straight through. Replace with channels when `pg` ships them. | Yes: `pg` is declared as an optional peer so strict package managers let Nestrix resolve it. pnpm 12.16.1 links the optional peer to the `pg` in the graph, even when the app never lists `pg` and with `hoist: false`; with no `pg` anywhere the integration reports itself disabled. **Nested copies are not reached by `createRequire`**, and they are common: MikroORM 7.2.8 pins `pg` exactly (8.23.1), so an app on any other `pg` gets a nested copy, and a forced override produced 0 MikroORM spans. Decided (D-50): also wrap every `…/node_modules/pg/lib/index.js` already in `require.cache`, with no double wrapping, at enable and again at `onApplicationBootstrap`. Timing verified in a Nest app (P3-01, ESM and CommonJS apps, a CommonJS and an ESM stand-in ORM loading a separate copy; research.md "Level 3 integrations"): a copy loaded at import time is found by the scan at `NestrixCore`'s constructor; one loaded in a provider factory with no dependencies is found there too (Nest builds all modules' providers concurrently, so such a factory runs before `NestrixCore`'s constructor wherever its module is); one loaded in a factory that awaits work first is found by the `onApplicationBootstrap` scan; one first loaded during a request is missed. Copies loaded after the last scan stay untraced, and the docs say so. |
-| BullMQ | Its own `telemetry` option with `bullmq-otel`; `@nestjs/bullmq` forwards it to workers. Nestrix documents it and renders the spans. | No Nestrix code |
+| BullMQ | Its own `telemetry` option, `new BullMQOtel({ tracerName })` from `bullmq-otel`; `@nestjs/bullmq` forwards it to queues and workers. Nestrix documents it and renders the spans. Verified (P3-08, BullMQ 6.7, `bullmq-otel` 2.0, real Redis and Postgres): BullMQ's consumer span is a **child** of the producer span, with no span link, so a job queued in a request is part of the request's trace; a job queued with no active span starts its own trace. The `@Processor` method span is a child of the consumer span (D-62). | No Nestrix code |
 
 Subscribing to a channel nobody publishes costs nothing, so the channel integrations are effectively free when the library is absent. Each integration is a small file with no dependencies of its own, loaded lazily. `pg` is on when present; `mysql2` and `ioredis` are off until the user enables them (D-49).
 
@@ -311,7 +311,7 @@ Added by D-52: TanStack Table, with filtering and sorting done by the server; nu
 
 ## 7. Developer experience
 
-Phases 1 and 2 settled the API below (names and shapes are `packages/nestjs/src/options.ts`, `docs/backlog/phase-1.md` and `docs/backlog/phase-2.md`, "Public API"); it freezes at 1.0. What the user reads is `packages/nestjs/README.md`, whose code samples are typechecked against the real exports. Level 2 and library integrations are still illustrative and are marked as such.
+Phases 1 to 4 settled the API below (names and shapes are `packages/nestjs/src/options.ts` and the "Public API" sections of `docs/backlog/phase-1.md` to `phase-4.md`); it freezes at 1.0. What the user reads is `packages/nestjs/README.md`, whose code samples are typechecked against the real exports.
 
 ```bash
 pnpm add @nestrix/nestjs @opentelemetry/api@~1.10.0    # headless: tracing and OTLP export
@@ -395,17 +395,34 @@ NestrixModule.forRoot({
 new TracerProvider({ spanProcessors: [exportProcessor, nestrixSpanProcessor()] });
 ```
 
-Not available yet (`integrations` is not in `NestrixModuleOptions`, so TypeScript rejects it; the shapes are illustrative):
+Phases 3 and 4 add the following (shapes in `packages/nestjs/src/options.ts`; the README samples are typechecked):
 
 ```ts
-// level 2 (phase 3): spans for controller methods and jobs
+// Level 2 (§4.3): spans for the app's own controllers, services, repositories, processors and scheduled methods
 const app = await NestFactory.create(AppModule, { instrument: NestrixInstrument });
+// next to another tool's instrument: { instrument: composeInstrument(NestrixInstrument, other) }
 
-// phase 3: library spans; mysql2 and ioredis are opt-in (D-49)
-NestrixModule.forRoot({ integrations: { ioredis: true } });
+NestrixModule.forRoot({
+  serviceVersion: process.env.GIT_SHA, // default chain: D-63
+  user: (request) => (request as { user?: { id?: string } }).user?.id, // off unless set; recorded as user.id
+  methods: {
+    include: [PaymentsGateway, /Client$/], // added to the own classes (D-58, D-67)
+    exclude: ['HealthService'],            // wins over include
+    enhancers: ['guard'],                  // default false; true is all four
+  },
+  integrations: {
+    pg: true,                              // default; false turns it off
+    mysql2: true,                          // default false (D-49)
+    ioredis: { rootSpans: false },         // default false (D-49); rootSpans keeps commands outside a trace (D-60)
+  },
+});
 
-// BullMQ jobs, with BullMQ's own option
-BullModule.forRoot({ connection, telemetry: new BullMQOtel('my-api') });
+// BullMQ jobs, with BullMQ's own option (§4.4): the job is one trace with the request that queued it
+BullModule.forRoot({ connection, telemetry: new BullMQOtel({ tracerName: 'my-api' }) });
+
+// Microservices (§4.2): a hybrid app adds one line (D-68); a client outside DI is wrapped (D-38)
+app.connectMicroservice(options, { deferInitialization: true }).registerPreRequestHook(nestrixPreRequestHook);
+const client = instrumentClient(ClientProxyFactory.create({ transport: Transport.TCP, options }));
 ```
 
 ## 8. Repository

@@ -2,7 +2,7 @@
 
 Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app produces a server span per request, outgoing HTTP spans, and your own spans, exported over OTLP to whatever backend you run (Jaeger, Tempo, an OpenTelemetry Collector, a vendor that accepts OTLP).
 
-> **Status: 0.1.0-alpha.** Tracing with OTLP export, and an embedded dashboard served by your own app. The `instrument` hook for controller, guard and job spans, library spans (`pg`, `mysql2`, `ioredis`) and microservice spans come in later releases. Option names may still change before 1.0.
+> **Status: alpha.** Tracing with OTLP export, an embedded dashboard served by your own app, method spans for your own classes, database and cache spans (`pg`, `mysql2`, `ioredis`), BullMQ job traces and microservice spans. Option names may still change before 1.0.
 
 ## Contents
 
@@ -12,7 +12,11 @@ Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app pro
 - [Options](#options)
 - [Environment variables](#environment-variables)
 - [What is traced](#what-is-traced)
+- [Method spans (level 2)](#method-spans-level-2)
+- [Database and cache spans (level 3)](#database-and-cache-spans-level-3)
 - [Background jobs (BullMQ)](#background-jobs-bullmq)
+- [Microservices](#microservices)
+- [Releases and users](#releases-and-users)
 - [Metrics](#metrics)
 - [Custom spans](#custom-spans)
 - [Logs](#logs)
@@ -30,7 +34,7 @@ Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app pro
 pnpm add @nestrix/nestjs @opentelemetry/api@~1.10.0
 ```
 
-`@opentelemetry/api` is a peer dependency, so your app and Nestrix share one copy. Nestrix needs NestJS 12, `reflect-metadata` and `rxjs`, which a Nest app already has. `@nestjs/microservices` and `pg` are optional peers that this release does not use yet.
+`@opentelemetry/api` is a peer dependency, so your app and Nestrix share one copy. Nestrix needs NestJS 12, `reflect-metadata` and `rxjs`, which a Nest app already has. `@nestjs/microservices` and `pg` are optional peers: Nestrix traces microservice messages when the first is installed and `pg` queries when the second is.
 
 The dashboard is a separate, optional package, installed at the same version as `@nestrix/nestjs`; see [Dashboard](#dashboard).
 
@@ -114,7 +118,7 @@ Nestrix registers its OpenTelemetry globals during `NestFactory.create`, never a
 
 ## Dashboard
 
-With `@nestrix/ui` installed, `NestrixModule` serves a read-only dashboard from inside your app, at `/_nestrix` by default: recent requests, one request's spans as a waterfall, errors, and per-route request counts, error rates and latency percentiles. It polls for new data every two seconds. It works on Express, Fastify and `@nestjs/platform-node`. It shows only what this process has seen since it started; nothing is written to disk and nothing is sent anywhere.
+With `@nestrix/ui` installed, `NestrixModule` serves a read-only dashboard from inside your app, at `/_nestrix` by default: recent requests, one request's spans as a waterfall, errors, per-route request counts, error rates and latency percentiles, a [classes view and an app map](#classes-view-and-app-map). It polls for new data every two seconds. It works on Express, Fastify and `@nestjs/platform-node`. It shows only what this process has seen since it started; nothing is written to disk and nothing is sent anywhere.
 
 ```bash
 pnpm add @nestrix/ui
@@ -263,6 +267,14 @@ The request list and the error list come from stored spans, so they **are sample
 
 **What is an error.** A span is an error when its status code is `error`. For a server span that means a 5xx response, or a handler exception that maps to 5xx. A thrown `NotFoundException` (404) keeps its exception event in the trace detail but counts as no error in route statistics, the error list or the error filter. The error list holds every stored span with error status, client spans and your own spans included.
 
+### Classes view and app map
+
+Both depend on other parts of Nestrix and say so when their data is missing.
+
+**Classes.** One row per class (controller, service, repository, processor, and guards and the like when `methods.enhancers` is on), expandable to its methods: calls, errors, average time, total time and **own time** (time not spent in the method's children), over the last 15 or 60 minutes. Calls, errors and total time are counted for every call **before sampling**, like the Routes view, so they are right at any `sampleRate`. Own time is estimated from the sampled spans in the store, and the view says so. The view is empty, with the line to add to `main.ts`, until [method spans](#method-spans-level-2) are on. A method called outside a trace is counted here although it gets no span.
+
+**Map.** The app in the centre and what it called: databases (by system, host and database name), Redis as a cache, HTTP hosts and message queues, each with calls, errors, p50 and p95 over the last 15 or 60 minutes. It is built from the **sampled** traces in the store, so its counts are proportional to `sampleRate` (the dashboard says so). It shows at most 200 targets; the rest are folded into one `other` node.
+
 ### When something else answers first (shadowing)
 
 A host route can answer a request under the dashboard path before Nestrix's route sees it: a catch-all route on Express, or `@nestjs/serve-static`'s fallback on Express and platform-node. Nest has no public route table, so Nestrix detects it passively: the first time a `GET` or `HEAD` under the dashboard path is answered, with a status other than 404, without a dashboard handler having run, it logs one line per process.
@@ -316,7 +328,7 @@ Redaction runs shortly after the span ends, not in the request, so a span waits 
 
 Every option is optional. `NestrixModule.forRoot(options?)` and the object `forRootAsync`'s factory returns take the same shape. Invalid values (for example a `sampleRate` outside 0 to 1, or a non-positive queue size) throw. With `forRoot`, that happens when `forRoot()` is called, which is when your module file loads, and also with `enabled: false`. With `forRootAsync`, it happens when the factory's result is resolved during `NestFactory.create`. `export.otlp.timeoutMillis` is validated only when an endpoint resolves.
 
-The package exports these types: `NestrixModuleOptions`, `NestrixModuleAsyncOptions`, `NestrixExportOptions`, `NestrixOtlpOptions`, `NestrixQueueOptions`, `NestrixIgnoreOptions`, `NestrixHttpOptions`, `RedactHook`, `RedactableSpan`, `UrlMatcher`, `SpanOptions`, `NestrixUiOptions`, `NestrixUiTokenAuth`, `NestrixUiCustomAuth`, `NestrixStoreOptions` and `NestrixMetricsOptions`. The package also exports the function `nestrixSpanProcessor`.
+The package exports these types: `NestrixModuleOptions`, `NestrixModuleAsyncOptions`, `NestrixExportOptions`, `NestrixOtlpOptions`, `NestrixQueueOptions`, `NestrixIgnoreOptions`, `NestrixHttpOptions`, `RedactHook`, `RedactableSpan`, `UrlMatcher`, `SpanOptions`, `NestrixUiOptions`, `NestrixUiTokenAuth`, `NestrixUiCustomAuth`, `NestrixStoreOptions`, `NestrixMetricsOptions`, `NestrixLogsOptions`, `NestrixMethodOptions`, `NestrixIntegrationOptions`, `NestrixEnhancerKind`, `ClassMatcher` and `NestInstrument`. The package also exports `nestrixSpanProcessor`, `NestrixInstrument`, `composeInstrument`, `nestrixPreRequestHook` and `instrumentClient`.
 
 <!-- sample: all-options -->
 
@@ -369,6 +381,10 @@ That sample sets most options to their defaults, except where a default is "unse
 | `serviceName` | `OTEL_SERVICE_NAME`, then the SDK's default | The `service.name` resource attribute. |
 | `resourceAttributes` | none | Extra resource attributes. `OTEL_RESOURCE_ATTRIBUTES` is honoured too; these win. |
 | `sampleRate` | `1` | Head sampling ratio for new root traces, 0 to 1. Implemented as a parent-based ratio sampler, so an incoming sampled `traceparent` is honoured whatever the ratio. Ignored when your app owns the SDK. |
+| `serviceVersion` | the chain in [Releases and users](#releases-and-users) | The `service.version` every trace carries. |
+| `user` | none (off) | A synchronous function that returns the user id for a request, recorded as `user.id`. See [Releases and users](#releases-and-users). |
+| `methods` | see below | Method spans for your own classes. Needs `NestrixInstrument`. See [`methods`](#methods). |
+| `integrations` | see below | Database and cache spans. See [`integrations`](#integrations). |
 | `export` | see below | Export settings. |
 | `ignore` | none | Requests that get no span. |
 | `http` | none | Extra allowlisted headers and redacted query keys. |
@@ -378,6 +394,29 @@ That sample sets most options to their defaults, except where a default is "unse
 | `logs` | `{ export: false }` | Log export over OTLP. See [Logs](#logs). |
 | `logs.export` | `false` | Send `NestrixLogger` records over OTLP to `/v1/logs`. Needs `@opentelemetry/sdk-logs` and `@opentelemetry/exporter-logs-otlp-http`. See [Logs](#logs). |
 | `metrics` | on | Request-duration and runtime metrics. See [Metrics](#metrics) and [`metrics`](#metrics-option). |
+
+### `methods`
+
+Method spans need `instrument: NestrixInstrument` in `main.ts`; see [Method spans](#method-spans-level-2). Without it these options do nothing.
+
+| Option | Default | |
+|---|---|---|
+| `methods` | an object | Which methods get spans. |
+| `methods.enabled` | `true` | `false` turns method spans off. |
+| `methods.include` | none | Classes traced in addition to your own: a class, an exact name or a `RegExp`. |
+| `methods.exclude` | none | Classes never traced, in the same forms. Wins over `include`. |
+| `methods.enhancers` | `false` | `true` for guard, pipe, interceptor and filter spans, or an array such as `['guard']` for some. |
+
+### `integrations`
+
+| Option | Default | |
+|---|---|---|
+| `integrations` | an object | Database and cache spans. See [Database and cache spans](#database-and-cache-spans-level-3). |
+| `integrations.pg` | `true` | On when `pg` is installed. `false` turns it off. |
+| `integrations.mysql2` | `false` | Opt-in. Once on, mysql2 swallows an unhandled query error instead of crashing. |
+| `integrations.ioredis` | `false` | Opt-in, with the same kind of swallowed error. `true`, or `{ rootSpans: true }` to also keep commands that run outside any trace (dropped by default). |
+
+An invalid `methods` or `integrations` value throws, like the other options.
 
 ### `export.otlp`
 
@@ -483,6 +522,7 @@ Ignored while the dashboard is off. See [Memory and the `store` option](#memory-
 | `NESTRIX_ENABLED` | `false` or `0` (any case) registers nothing at all. |
 | `OTEL_SERVICE_NAME` | Default for `serviceName`. |
 | `OTEL_RESOURCE_ATTRIBUTES` | `key=value,key2=value2`, merged into the resource; `resourceAttributes` wins. |
+| `GIT_SHA` | The release (`service.version`) when no option or `OTEL_RESOURCE_ATTRIBUTES` sets one. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Base endpoint; `/v1/traces` is appended. Setting it switches export on. |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Full traces URL, used as given. Wins over the generic endpoint. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | `key=value,key2=value2`, values percent-decoded. |
@@ -507,15 +547,147 @@ When your app owns the SDK, the export variables are your SDK's business, not Ne
 - **Outgoing HTTP.** `node:http` and `fetch` (undici) calls get a client span named `METHOD`, and a `traceparent` header unless the request already has one. A request made with no active parent span gets no span and no header, so background traffic (a health poller, an error reporter's transport outside a request) is not traced. If the response body is never read, the span ends at the response head and carries `nestrix.http.body = "not consumed"`: for `node:http`, on the next turn of the event loop if nothing is reading; for `fetch` and undici, after 30 seconds. The 30 seconds restart with each body chunk. A `node:http` caller that starts reading on a later tick also gets a head-only span. A body the caller cancels after the response head is marked `"cancelled"` and is not an error. A request whose method is not in the HTTP conventions' list gets the span name `HTTP` and `http.request.method = "_OTHER"`; this applies to server spans too.
 - **Exceptions.** A handler's or pipe's exception is recorded on the server span. An exception thrown by a guard is not: guards run before Nestrix's interceptor, so a guard rejection keeps its route name and records no exception event.
 - **Process errors.** An uncaught exception becomes an exception event on the active request span, or a short span of its own. An unhandled rejection is seen only under Node's default `--unhandled-rejections=throw`. Best effort: the process usually exits before that span is exported. Nestrix adds an `uncaughtExceptionMonitor` listener only and never changes whether the process crashes.
-- **Your own spans.** See below.
+- **Your own classes' methods.** With one line in `main.ts`; see [Method spans](#method-spans-level-2).
+- **Database and cache calls.** `pg` by default, `mysql2` and `ioredis` on request; see [Database and cache spans](#database-and-cache-spans-level-3).
+- **Background jobs.** See [BullMQ](#background-jobs-bullmq); scheduled methods are in [Method spans](#method-spans-level-2).
+- **Microservice messages.** See [Microservices](#microservices).
+- **Your own spans.** See [Custom spans](#custom-spans).
 
 Server spans carry no `client.address` (the caller's IP is personal data), `server.address` or `server.port`. Client spans record `server.address` and `server.port` of the host they call.
 
 Known limit: on `@nestjs/platform-node`, the `Content-Type` and `Content-Length` response headers are missing from server spans, because that adapter hands them to Node in a way public API cannot read.
 
+## Method spans (level 2)
+
+HTTP spans need no setup. To also get a span for each method your own classes run, pass Nestrix's `instrument` object to `NestFactory.create`. This is Nest's own `instrument` option, which hands every instance to a decorator as it is created.
+
+<!-- sample: main-instrument -->
+
+```ts
+import { NestFactory } from "@nestjs/core";
+import { NestrixInstrument } from "@nestrix/nestjs";
+import { AppModule } from "./app.module";
+
+export async function bootstrap(): Promise<void> {
+  const app = await NestFactory.create(AppModule, {
+    // Level 2: lets Nestrix wrap your own classes' methods as they are created.
+    instrument: NestrixInstrument,
+  });
+  await app.listen(3000);
+}
+```
+
+Nest accepts one `instrument` object. If another tool needs it too, combine them with `composeInstrument`; each decorator is guarded, so one that throws leaves the instance as it was and does not stop the others:
+
+<!-- sample: compose-instrument -->
+
+```ts
+import { NestFactory } from "@nestjs/core";
+import { composeInstrument, NestrixInstrument } from "@nestrix/nestjs";
+import { AppModule } from "./app.module";
+
+// Another tool's `instrument` object, with the same `instanceDecorator` shape.
+declare const otherTool: { instanceDecorator: (instance: unknown) => unknown };
+
+export async function bootstrap(): Promise<void> {
+  const app = await NestFactory.create(AppModule, {
+    instrument: composeInstrument(NestrixInstrument, otherTool),
+  });
+  await app.listen(3000);
+}
+```
+
+A method span is named `Class.method` and carries `code.function.name`, `nestrix.class`, `nestrix.method` and `nestrix.component` (`controller`, `service`, `repository`, `processor`, `guard`, `pipe`, `interceptor`, `filter` or `provider`; a class is a `service` or `repository` when its name ends in `Service` or `Repository`). A throw is recorded on the span and rethrown unchanged. Spans nest under the request's server span: controller, then service, then repository, then the database span.
+
+**What is traced by default: your own classes.** Nestrix traces the controllers, services, repositories and queue processors that **your application's modules list**. It finds them from the static `@Module()` metadata: starting at the root module, it follows `imports` entries that are module classes and takes the classes listed in `controllers` and `providers`. So:
+
+- Providers that come from a library are not traced. Libraries register theirs through dynamic modules (`ConfigModule.forRoot()`, `TypeOrmModule.forFeature()`, `BullModule.registerQueue()`), and tracing them would put `@nestjs/schedule`'s and `@nestjs/config`'s internals in every trace.
+- A module that defines `forRoot`, `forRootAsync`, `forFeature`, `forFeatureAsync`, `register` or `registerAsync` is not entered, even when you import it by class. So a service provided by **your own** dynamic module is not traced until you `include` it. Library modules that list providers in plain `@Module()` metadata (`HttpModule`, `TerminusModule`) are left out for the same reason.
+- Guards, pipes, interceptors and filters get no span by default; set `methods.enhancers`. A guard's exception is then recorded too.
+
+<!-- sample: methods-options -->
+
+```ts
+import { Injectable, Module } from "@nestjs/common";
+import { NestrixModule } from "@nestrix/nestjs";
+
+// Provided by your own dynamic module, so not traced unless included.
+@Injectable()
+export class PaymentsGateway {}
+
+@Module({
+  imports: [
+    NestrixModule.forRoot({
+      methods: {
+        // A class, an exact name or a RegExp. Added to the app's own classes.
+        include: [PaymentsGateway, /Client$/],
+        // Never traced. Wins over `include`.
+        exclude: ["HealthService"],
+        // Guards, pipes, interceptors and filters. Default false; true is all four.
+        enhancers: ["guard"],
+      },
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+`exclude` wins over `include`, which wins over `enhancers`, which wins over the own-class default. `methods.enabled: false` turns method spans off. Nestrix's own providers are never traced.
+
+**Only inside a trace.** A method called with no active span, such as startup work in `onModuleInit` or a WebSocket gateway handler, gets no span: a root span there would only fill the trace list. It is still counted in the [classes view](#classes-view-and-app-map). Two kinds of method are the exception, because they start work of their own:
+
+- **Scheduled methods** (`@Cron`, `@Interval` and `@Timeout` from `@nestjs/schedule`) start a new root trace on every run, with `nestrix.entry = "scheduled"`, linked to whatever span was active when the timer fired. They never hang under one old trace.
+- **A BullMQ `@Processor`'s `process`** is a child of the job's consumer span when BullMQ's telemetry is on, and a new root with `nestrix.entry = "job"` otherwise. See [BullMQ](#background-jobs-bullmq).
+
+Things to know:
+
+- The wrappers are installed as each instance is created, before Nest reads your routes, so a method-level `@UseGuards` keeps applying and a guarded route still returns 403. There is no `Proxy`: `this` stays the real instance (`#private` members work) and the class's prototype is untouched.
+- **The promise a traced method returns must be handled by its caller.** The caller gets a promise derived from the original. A method that handles its own promise (`p.catch(log); return p`) while its caller ignores the return value turns a rejection into an unhandled one, and under Node's default `--unhandled-rejections=throw` the process exits where it would not have without the span. A method that returns a memoised promise returns a new promise object on each call. Observables and other thenables are returned untouched, and their span ends when the method returns.
+- **`@nestjs/testing` is not supported.** Nest gives the testing module no `instrument` option, so under `Test.createTestingModule` there are no method spans (HTTP spans still work), and the classes view stays empty.
+
+## Database and cache spans (level 3)
+
+A database span is a child of the method or request that ran the query, so a slow query appears under the service that issued it. Spans use the OpenTelemetry database conventions: `db.system.name` (`postgresql`, `mysql` or `redis`), `db.operation.name`, `db.query.text`, `db.namespace`, `server.address` and `server.port`.
+
+<!-- sample: integrations -->
+
+```ts
+import { Module } from "@nestjs/common";
+import { NestrixModule } from "@nestrix/nestjs";
+
+@Module({
+  imports: [
+    NestrixModule.forRoot({
+      integrations: {
+        pg: true, // the default; false turns it off
+        mysql2: true, // opt-in: mysql2 then swallows unhandled query errors
+        ioredis: { rootSpans: false }, // opt-in; true keeps commands outside any trace
+      },
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+| Library | Default | How |
+|---|---|---|
+| `pg` | on, when `pg` is installed | Wraps `Client.prototype.query` and `Pool.prototype.query`. Covers raw `pg`, `pg-cursor`, `pg-query-stream` and ORMs built on `pg` (TypeORM, Drizzle, Prisma on `@prisma/adapter-pg`, MikroORM). |
+| `mysql2` | **off** | Subscribes to mysql2's tracing channels (mysql2 3.20 or later). |
+| `ioredis` | **off** | Subscribes to ioredis's channels (ioredis 5.11 or later). |
+
+**`pg` and nested copies.** An ORM may bring its own copy of `pg` (MikroORM pins one exactly). Nestrix wraps copies that are already loaded when it starts, and again at `onApplicationBootstrap`. A copy loaded at import time, or in a provider factory during startup, is traced. **A copy first loaded during a request is not**, and neither is any copy loaded after the last scan: its queries get no span.
+
+**Why `mysql2` and `ioredis` are opt-in.** Both libraries change behaviour once anything subscribes to their tracing channels, and no way of subscribing avoids it. With `mysql2`, an event-emitter query that fails with no `'error'` listener raises `uncaughtException` and closes the connection when nothing is subscribed, and is **silently swallowed** when Nestrix subscribes. With `ioredis`, a failing command that nobody awaits raises `unhandledRejection` normally, and nothing when Nestrix subscribes. In a default app that is a crash turned into silence. Enable them only if you accept that: a bug that would have crashed in development will not.
+
+**`ioredis` and root commands.** A command that runs with no active span (the connection handshake, or commands queued before the connection was ready) is dropped by default, because it belongs to no request. `integrations.ioredis: { rootSpans: true }` keeps them as root spans.
+
+**What a span records.** The statement with literals replaced by `?` (strings, numbers, hex and boolean literals; `IN (...)` lists collapsed; comments dropped; cut to 2,048 characters). If Nestrix cannot parse a statement safely, it records a fixed placeholder, never the raw text. **Bind parameters are never recorded**, and there is no option to. For Redis the span records the command and its first argument (`GET user:1`), never values. A database span **covers the query only**: time spent waiting for a pooled connection is not in it, so a saturated pool shows as a gap before the span, not as a slow query.
+
+If the library is not installed the integration reports itself disabled and does nothing. An integration that is off subscribes to nothing.
+
 ## Background jobs (BullMQ)
 
-*(Draft for P3-10.)* BullMQ has its own OpenTelemetry support. Give it a `BullMQOtel` from `bullmq-otel` (a separate package; Nestrix does not depend on it) and it records its own spans and puts the trace context in each job:
+BullMQ has its own OpenTelemetry support. Give it a `BullMQOtel` from `bullmq-otel` (a separate package; Nestrix does not depend on it) and it records its own spans and puts the trace context in each job:
 
 <!-- sample: bullmq -->
 
@@ -546,11 +718,11 @@ export class EmailProcessor extends WorkerHost {
 export class AppModule {}
 ```
 
-`telemetry` set on `BullModule.forRoot()` reaches the queues and the workers `@nestjs/bullmq` creates. With `NestrixInstrument` (level 2), a `@Processor` class's `process` method also gets a method span with `nestrix.entry = "job"`.
+`telemetry` set on `BullModule.forRoot()` reaches the queues and the workers `@nestjs/bullmq` creates. `BullMQOtel` takes an options object, `{ tracerName }`. With `NestrixInstrument` ([level 2](#method-spans-level-2)), a `@Processor` class's `process` method also gets a method span with `nestrix.entry = "job"`. Nestrix adds no code of its own for jobs: BullMQ makes the spans and Nestrix shows them.
 
-The trace shape, checked against BullMQ 6.7 and `bullmq-otel` 2.0 with real Redis (`test/e2e-phase3/jobs.test.ts`): a job added during a request stays in that request's trace.
+The trace shape, checked against BullMQ 6.7 and `bullmq-otel` 2.0 with real Postgres and Redis (`test/e2e-phase3/`): a job added during a request stays in that request's trace.
 
-```
+```text
 GET /orders                      server
   OrderController.place
     OrderService.place
@@ -560,7 +732,94 @@ GET /orders                      server
           complete emails        (BullMQ)
 ```
 
-The consumer span is a **child** of the producer span in the same trace, with no span link, so a request and the jobs it queued show as one trace, however much later the worker ran them. A job added outside a request (no active span) starts a trace of its own. Without `telemetry`, the processor's method span (if `NestrixInstrument` is on) is a root span: nothing connects it to the request that queued the job.
+The consumer span is a **child** of the producer span in the same trace, with no span link, so a request and the jobs it queued show as one trace, however much later the worker ran them. A job added outside a request (no active span) starts a trace of its own. Without `telemetry`, the processor's method span (if `NestrixInstrument` is on) is a root span: nothing connects it to the request that queued the job. In the dashboard's request list, the `jobs` type filter shows traces that a job started.
+
+## Microservices
+
+With `@nestjs/microservices` installed, Nestrix traces messages in both directions and connects them to the request that sent them. The trace context travels in the message's metadata: inside the packet for TCP and Redis, in headers for NATS, RabbitMQ, Kafka and MQTT 5.
+
+- **Handler spans.** A `@MessagePattern` handler gets a `SERVER` span and an `@EventPattern` handler a `CONSUMER` span, named `<transport> <pattern>` (`tcp sum`, `kafka orders.created`), with `messaging.system`, `messaging.destination.name` and `messaging.operation.type = "process"`. The span is a child of the caller's span when the message carries trace context, and ends when the handler's stream completes or errors. A trace that a message handler starts shows in the request list as type `other`, not `http`.
+- **Client spans.** `send` gets a `CLIENT` span per subscription and `emit` a `PRODUCER` span. Nestrix adds the active trace context to each outgoing packet's metadata. With no active span (a message sent from a bare timer, say) there is no span and no metadata.
+- **No setup** for clients registered through `ClientsModule` (found at startup; a call made before that is not traced), for microservice-only apps (`NestFactory.createMicroservice`), or for a hybrid app whose microservice is connected with `inheritAppConfig: true`.
+
+**Hybrid apps.** By default `app.connectMicroservice(options)` gives the microservice its own configuration, which does not include the global interceptor that `NestrixModule` registers, so its handlers get no span. One line fixes that, and it also covers messages a guard rejects:
+
+<!-- sample: microservices-hybrid -->
+
+```ts
+import { NestFactory } from "@nestjs/core";
+import { Transport } from "@nestjs/microservices";
+import { nestrixPreRequestHook } from "@nestrix/nestjs";
+import { AppModule } from "./app.module";
+
+export async function bootstrap(): Promise<void> {
+  const app = await NestFactory.create(AppModule);
+  app
+    .connectMicroservice(
+      { transport: Transport.TCP, options: { port: 4000 } },
+      // Defers listener registration so the hook below is set in time.
+      { deferInitialization: true },
+    )
+    .registerPreRequestHook(nestrixPreRequestHook);
+  await app.startAllMicroservices();
+  await app.listen(3000);
+}
+```
+
+Without it, a hybrid app's handlers get no Nestrix span, and a span you start inside one is a new root although the trace context arrived. A message that both the hook and the interceptor see is traced once.
+
+**Clients outside dependency injection.** A client built with `ClientProxyFactory.create()` or `new ClientTCP()` is not found automatically. Wrap it; `instrumentClient` returns the same client:
+
+<!-- sample: microservices-client -->
+
+```ts
+import { ClientProxyFactory, Transport } from "@nestjs/microservices";
+import { instrumentClient } from "@nestrix/nestjs";
+
+// A client made outside dependency injection. `ClientsModule` clients need nothing.
+export const client = instrumentClient(
+  ClientProxyFactory.create({
+    transport: Transport.TCP,
+    options: { host: "localhost", port: 4000 },
+  }),
+);
+```
+
+**Another tool's dispatch hook.** A client has one dispatch-hook slot, and Nest offers no public way to read it. If a hook was already set on a client when Nestrix instruments it, Nestrix keeps yours, injects no trace context for that client and logs one line; that client still gets spans. If something sets a hook after Nestrix, it replaces Nestrix's, and Nestrix logs once when it notices a call completing without its hook.
+
+**Transports.** Tested end to end with real brokers, as one connected trace across an HTTP request, a `send` and an `emit`: TCP, Redis, NATS, RabbitMQ, Kafka and MQTT 5.
+
+- **MQTT 3** has no header channel, so handler spans there start new traces.
+- **gRPC** was not tested. Its clients have no `send` or `emit`, so they get no client span, and its server handlers receive gRPC metadata that Nestrix does not read, so handler spans are roots.
+- A custom transport is traced but named `rpc <pattern>` with no `messaging.system`. Kafka's `emitBatch` injects context but gets no span.
+- `emit` is dispatched when it is called, whether or not anyone subscribes, so its span starts at the call.
+
+## Releases and users
+
+**Release.** Every trace carries `service.version`, so the request list can be filtered by release and a deploy that made things worse shows up. Nestrix takes the first of these that is set: the `serviceVersion` option, `service.version` in `resourceAttributes`, `service.version` in `OTEL_RESOURCE_ATTRIBUTES`, the `GIT_SHA` environment variable, then `npm_package_version` (set by `npm run` and `pnpm run`, not by `node dist/main.js`). When your app owns the SDK, its resource wins and these are ignored.
+
+**User.** Which user made a request is personal data, so it is **off** unless you give `user`: a function that reads the request and returns a string or number. It runs once per sampled request, as the response closes, with the object your guards get from `context.switchToHttp().getRequest()` (Express's `req`, Fastify's `FastifyRequest`, platform-node's `IncomingMessage`). Guards have run by then, so a `request.user` set by Passport's `AuthGuard` or your own guard is visible. It is `undefined` on a route with no guard, and when a guard rejected the request. The result is recorded as `user.id`, cut to 256 characters, and goes through `redact`. The function must be synchronous; a throw, a promise or any other result records nothing and never affects the request.
+
+<!-- sample: release-user -->
+
+```ts
+import { Module } from "@nestjs/common";
+import { NestrixModule } from "@nestrix/nestjs";
+
+@Module({
+  imports: [
+    NestrixModule.forRoot({
+      // The release shown in the dashboard. Without it Nestrix reads GIT_SHA, then npm_package_version.
+      serviceVersion: process.env.GIT_SHA,
+      // Off unless set. `request` is what your guards get; a guard sets `request.user`.
+      user: (request) => (request as { user?: { id?: string } }).user?.id,
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+The dashboard's request list shows release and user columns when any stored trace has them, and filters by release, user and trace type (HTTP, jobs, scheduled).
 
 ## Metrics
 
@@ -752,8 +1011,9 @@ Shutdown is bounded: Nestrix waits at most 5 seconds for the collector. When sev
 Notes:
 
 - Header versioning with two versions of one route does not boot on Fastify with Nest 12.0.0. That is Nest itself, not Nestrix.
-- An app with no HTTP adapter (a pure microservice) boots; no HTTP spans are produced.
-- Under `@nestjs/testing`, HTTP spans work.
+- An app with no HTTP adapter (a pure microservice) boots; it has no HTTP spans and no dashboard, and its message handlers are traced ([Microservices](#microservices)).
+- Under `@nestjs/testing`, HTTP spans work; method spans do not ([Method spans](#method-spans-level-2)).
+- Library spans were tested against `pg` 8.23, `mysql2` 3.24, `ioredis` 6.0 and BullMQ 6.7 with `bullmq-otel` 2.0, and microservices against `@nestjs/microservices` 12.4.
 
 ## OpenTelemetry SDK 3 only
 

@@ -85,6 +85,17 @@ const OPTIONS = [
   "logs.export",
   "metrics",
   "metrics.runtime",
+  "serviceVersion",
+  "user",
+  "methods",
+  "methods.enabled",
+  "methods.include",
+  "methods.exclude",
+  "methods.enhancers",
+  "integrations",
+  "integrations.pg",
+  "integrations.mysql2",
+  "integrations.ioredis",
 ];
 
 describe("README options", () => {
@@ -97,6 +108,7 @@ describe("README options", () => {
       "NESTRIX_ENABLED",
       "OTEL_SERVICE_NAME",
       "OTEL_RESOURCE_ATTRIBUTES",
+      "GIT_SHA",
       "OTEL_EXPORTER_OTLP_ENDPOINT",
       "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
       "OTEL_EXPORTER_OTLP_HEADERS",
