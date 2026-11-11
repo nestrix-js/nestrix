@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+*.tsbuildinfo
+
+# tests
+coverage/
+playwright-report/
+test-results/
+
+# environment
+.env
+.env.*
+!.env.example
+
+# logs and OS files
+*.log
+.DS_Store
+
+# local agent state (shared agent definitions in .claude/agents are tracked)
+.claude/settings.local.json
+.claude/agent-memory-local/
+.claude/worktrees/
