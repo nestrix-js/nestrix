@@ -36,6 +36,7 @@ import type { TelemetryHandle } from "../src/otel/types.js";
 import { buildRedactedQueryKeys, scrubSpanAttributes } from "../src/privacy.js";
 import { resolveOptions } from "../src/resolve-options.js";
 import { RouteStatistics } from "../src/stats/route-stats.js";
+import { NESTRIX_OPTIONS } from "../src/tokens.js";
 
 export const DASHBOARD_PATH = "/_nestrix";
 
@@ -196,6 +197,7 @@ export function statsModule(o: StatsModuleOptions): Type {
     providers: [
       StatsCore,
       FakeDashboard,
+      { provide: NESTRIX_OPTIONS, useValue: { enabled: true } },
       { provide: APP_INTERCEPTOR, useClass: NestrixInterceptor },
     ],
   })

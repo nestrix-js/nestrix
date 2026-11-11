@@ -23,8 +23,10 @@ import {
   propagation,
   type Span,
   SpanKind,
+  SpanStatusCode,
   trace,
 } from "@opentelemetry/api";
+import { ATTR_ERROR_TYPE } from "@opentelemetry/semantic-conventions";
 import { Observable, type Subscriber, type Subscription } from "rxjs";
 import { diagnostics } from "../diagnostics.js";
 import { parentContext } from "../outbound/rules.js";
@@ -331,6 +333,19 @@ function observeEmit(state: ClientState, span: Span, result: unknown): void {
   }
 }
 
+function recordInvalidMessage(span: Span): void {
+  try {
+    span.recordException({
+      name: "InvalidMessageException",
+      message: "The pattern or the data of the message is null or undefined",
+    });
+    span.setAttribute(ATTR_ERROR_TYPE, "InvalidMessageException");
+    span.setStatus({ code: SpanStatusCode.ERROR });
+  } catch (error) {
+    diagnostics.countFailure("microservices.client", error);
+  }
+}
+
 function wrapEmit(state: ClientState, original: Method): Method {
   const wrapper = {
     emit(this: unknown, pattern: unknown, data: unknown): unknown {
@@ -346,6 +361,17 @@ function wrapEmit(state: ClientState, original: Method): Method {
         return Reflect.apply(original, this, [pattern, data]);
 
       const { span, ctx } = started;
+      if (
+        pattern === null ||
+        pattern === undefined ||
+        data === null ||
+        data === undefined
+      ) {
+        // Nest returns a `throwError` observable and sends nothing (`InvalidMessageException`).
+        recordInvalidMessage(span);
+        endSpan(span);
+        return Reflect.apply(original, this, [pattern, data]);
+      }
       let result: unknown;
       let called = false;
       try {
@@ -390,6 +416,17 @@ function install(client: ClientLike, state: ClientState): void {
   });
 }
 
+function clientName(client: object): string {
+  try {
+    const name = (client as { constructor?: { name?: unknown } }).constructor
+      ?.name;
+    if (typeof name === "string" && name !== "") return name;
+  } catch {
+    // Fall through.
+  }
+  return "a client";
+}
+
 /**
  * Instruments a microservice client created outside dependency injection
  * (`ClientProxyFactory.create(...)`, or `new ClientTCP(...)`): propagates the active trace context
@@ -415,8 +452,17 @@ export function instrumentClient<T>(client: T): T {
       },
     };
     instrumented.set(client, state);
-    client.setOnDispatchHook?.(dispatchHookFor(state));
-    hookSet = true;
+    const existing = (client as { onDispatchHook?: unknown }).onDispatchHook;
+    if (typeof existing === "function") {
+      // The slot is single; a host hook set before us is kept, and this client gets spans only.
+      diagnostics.logOnce(
+        "microservices.host-dispatch-hook",
+        `a dispatch hook is already set on ${clientName(client)}; Nestrix keeps it and does not inject trace context for this client`,
+      );
+    } else {
+      client.setOnDispatchHook?.(dispatchHookFor(state));
+      hookSet = true;
+    }
     install(client, state);
   } catch (error) {
     diagnostics.countFailure("microservices.instrument", error);

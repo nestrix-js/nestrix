@@ -61,6 +61,16 @@ describe("trace type", () => {
     expect(traceTypeOf(record("server", { "nestrix.entry": "job" }))).toBe(
       "http",
     );
+    // Messaging roots: a `@MessagePattern` SERVER span is not HTTP; an `@EventPattern` CONSUMER
+    // span stays a job.
+    expect(
+      traceTypeOf(record("server", { "messaging.operation.type": "process" })),
+    ).toBe("other");
+    expect(
+      traceTypeOf(
+        record("consumer", { "messaging.operation.type": "process" }),
+      ),
+    ).toBe("job");
     expect(traceTypeOf(record("consumer"))).toBe("job");
     expect(traceTypeOf(record("internal", { "nestrix.entry": "job" }))).toBe(
       "job",

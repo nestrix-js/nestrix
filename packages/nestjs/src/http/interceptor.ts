@@ -15,6 +15,7 @@
 import {
   type CallHandler,
   type ExecutionContext,
+  Inject,
   Injectable,
   type NestInterceptor,
 } from "@nestjs/common";
@@ -22,6 +23,8 @@ import { ATTR_CODE_FUNCTION_NAME } from "@opentelemetry/semantic-conventions";
 import { type Observable, tap } from "rxjs";
 import { diagnostics } from "../diagnostics.js";
 import { interceptRpc } from "../microservices/server.js";
+import type { ResolvedOptions } from "../resolve-options.js";
+import { NESTRIX_OPTIONS } from "../tokens.js";
 import {
   getStateForRequest,
   maybeFault,
@@ -108,11 +111,19 @@ function requestOf(context: ExecutionContext): unknown {
 
 @Injectable()
 export class NestrixInterceptor implements NestInterceptor {
+  // `options` is absent only when built by hand (tests); the module always injects it.
+  constructor(
+    @Inject(NESTRIX_OPTIONS) private readonly options?: ResolvedOptions,
+  ) {}
+
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     // Microservice handlers (P4-01): traced in `microservices/server.ts`; never throws, and calls
     // `next.handle()` only when it returns a stream.
-    const rpc = interceptRpc(context, next);
-    if (rpc !== undefined) return rpc;
+    // Skipped when this app is disabled: the microservices switch is process-wide.
+    if (this.options?.enabled !== false) {
+      const rpc = interceptRpc(context, next);
+      if (rpc !== undefined) return rpc;
+    }
     let state: RequestState | undefined;
     try {
       maybeFault("interceptor");
