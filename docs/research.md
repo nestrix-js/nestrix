@@ -185,6 +185,21 @@ Trace-waterfall components: a few React packages exist with little adoption; non
 - GitHub: `github.com/nestrix` is a dormant organisation (created 2012, linked to nestrixcorp.com). The owner chose the `nestrix-js` organisation; repository `github.com/nestrix-js/nestrix`.
 - A company called Nestrix appears to exist. A trademark search is advisable before a public release.
 
+## Delivery cut, `writableFinished` and Node versions (found 2026-11-11, CI on Node 22.15.0)
+
+Measured with a plain `node:http` server: the handler calls `res.end(Buffer.alloc(N, 97))` (16, 64 and 256 MiB), the client destroys its socket after the first bytes arrive, and the `close` listener reads the response. `bytesWritten` is the full size on every version, so it does not tell delivery from queueing.
+
+| Node | `writableEnded` | `writableFinished` | `req.destroyed` / `req.aborted` |
+|---|---|---|---|
+| 22.15.0, 22.16.0, 22.18.0, 22.20.0, 22.23.4 (latest 22.x) | true | **true** | false / false |
+| 24.0.0, 24.4.0, 24.8.0, 24.12.0, 24.16.0, 24.19.0 | true | **true** | not measured |
+| 24.20.0, 24.21.0, 24.22.1 | true | false | true / true |
+| 26.13.0 | true | false | true / true |
+
+On Node 22.x and on 24 before 24.20, destroying the socket completes the pending write callbacks, so the response emits `finish` a few milliseconds after `end()` and `writableFinished` is true although the client never received the body. The rule "`writableEnded && !writableFinished` means delivery was cut" (architecture.md section 4.2, nest-hooks.md, P0-S1) therefore holds only from Node 24.20. `engines` allows 22.15, so on 22.x a cut delivery of a response the app already ended is indistinguishable from a completed one by those two flags. A response aborted before the app ended (`writableEnded: false`) is still detected on every version (the P0-S1 abort tests pass on 22.15.0).
+
+Observed on 22.15.0 in a small probe (not yet a spike result): at `close`, `req.socket.destroyed` was true for the cut response and false for a completed keep-alive response and for one sent with `Connection: close`; `req.destroyed` and `req.aborted` were false in all three. Whether the socket check holds in general is not verified. The P0-S1 test asserts `writableFinished` per version (`CUT_DELIVERY_VISIBLE` in `spikes/p0-s1/test/q4-close.test.ts`), so the behaviour is pinned on both sides of the change.
+
 ## 11. Open questions
 
 These are not known. Each is assigned to a spike in [backlog/phase-0.md](backlog/phase-0.md) or a later phase.

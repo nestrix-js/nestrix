@@ -24,6 +24,16 @@ afterEach(async () => {
   resetObservations();
 });
 
+// Node 22.x (through 22.23.4) and 24.0 to 24.19 report writableFinished: true at `close` even when the
+// client destroyed the socket before the body left: destroying the socket completes the pending write
+// callbacks, and the response emits 'finish'. Node 24.20 and later report false. Measured with a plain
+// node:http server, see docs/research.md.
+const [nodeMajor = 0, nodeMinor = 0] = process.versions.node
+  .split(".")
+  .map(Number);
+const CUT_DELIVERY_VISIBLE =
+  nodeMajor >= 25 || (nodeMajor === 24 && nodeMinor >= 20);
+
 function get(path: string, probe: string): string {
   return `GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nx-probe: ${probe}\r\nConnection: close\r\n\r\n`;
 }
@@ -205,7 +215,8 @@ describe.each(ADAPTERS)(
       expect(close.data?.statusCode).toBe(201);
       // the app ended the response, the bytes did not all leave
       expect(close.data?.writableEnded).toBe(true);
-      expect(close.data?.writableFinished).toBe(false);
+      // where the runtime reports it; older Node reports true here (see CUT_DELIVERY_VISIBLE)
+      expect(close.data?.writableFinished).toBe(!CUT_DELIVERY_VISIBLE);
       expect(
         observations.filter((o) => o.point === "close" && o.probe === "big"),
       ).toHaveLength(1);
