@@ -1,7 +1,7 @@
 import type { RouteStats } from "@nestrix/protocol";
 
 import type { ChartSeries } from "@/components/chart";
-import type { SamplingMeta } from "@/lib/format";
+import { type SamplingMeta, STANDALONE_STATISTICS_NOTE } from "@/lib/format";
 
 /** What the server calls requests that matched no route, and the overflow bucket past 500 keys. */
 export const UNMATCHED_ROUTE = "(unmatched)";
@@ -86,7 +86,11 @@ export function chartData(stats: RouteStats): RouteCharts {
 }
 
 /** The sentence under the routes heading; null when every request is stored. */
-export function statisticsNote(sampling: SamplingMeta): string | null {
+export function statisticsNote(
+  sampling: SamplingMeta,
+  mode?: "embedded" | "standalone",
+): string | null {
+  if (mode === "standalone") return STANDALONE_STATISTICS_NOTE;
   if (sampling.rate === null)
     return "Route statistics count every request. The host application owns the sampler, so the request and error lists may hold fewer.";
   if (sampling.rate < 1)

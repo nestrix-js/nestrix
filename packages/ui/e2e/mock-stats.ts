@@ -69,7 +69,7 @@ export class ErrorStore {
   answer(q: URLSearchParams): { status: number; body: unknown } {
     if (this.fixed) return { status: 200, body: this.fixed };
     for (const key of q.keys())
-      if (!["limit", "before", "after", "route"].includes(key))
+      if (!["limit", "before", "after", "route", "service"].includes(key))
         return {
           status: 400,
           body: {

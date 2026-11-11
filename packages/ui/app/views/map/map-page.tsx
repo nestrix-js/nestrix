@@ -23,10 +23,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getMap } from "@/lib/api";
-import { formatDuration } from "@/lib/format";
+import { getMap, getMeta } from "@/lib/api";
+import { formatDuration, STANDALONE_STATISTICS_NOTE } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser } from "@/lib/params";
+import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
 import {
   type ErrorLevel,
@@ -79,9 +80,13 @@ export function MapPage() {
   const windowMinutes = query.windowMinutes ?? DEFAULT_WINDOW;
   const [paused] = usePaused();
 
+  const [service] = useService();
+  const meta = useQuery({ queryKey: ["meta"], queryFn: getMeta });
+  const standalone = meta.data?.mode === "standalone";
+
   const map = useQuery({
-    queryKey: ["map", windowMinutes],
-    queryFn: () => getMap({ windowMinutes }),
+    queryKey: ["map", windowMinutes, service],
+    queryFn: () => getMap({ windowMinutes, service }),
     refetchInterval: pollInterval(paused),
     refetchIntervalInBackground: false,
     placeholderData: keepPreviousData,
@@ -95,6 +100,7 @@ export function MapPage() {
     () => new Map(layout.nodes.map((n) => [n.id, n.name])),
     [layout],
   );
+  const serviceCount = layout.nodes.filter((n) => n.kind === "app").length;
   const shownWindow = map.data?.windowMinutes ?? windowMinutes;
 
   return (
@@ -139,6 +145,7 @@ export function MapPage() {
       >
         The map is built from sampled traces: calls, error rates and percentiles
         describe the traces in the store, not every call.
+        {standalone && ` ${STANDALONE_STATISTICS_NOTE}`}
       </p>
 
       {map.isPending && <DataTableSkeleton columnCount={7} />}
@@ -170,7 +177,11 @@ export function MapPage() {
                 data-testid="map"
                 viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}
                 role="img"
-                aria-label={`Map of the app and the ${layout.nodes.length - 1} services it calls; the same data is in the table below`}
+                aria-label={
+                  serviceCount > 1
+                    ? `Map of ${serviceCount} services and what they call; the same data is in the table below`
+                    : `Map of the app and the ${layout.nodes.length - 1} services it calls; the same data is in the table below`
+                }
                 className="h-auto w-full"
               >
                 {layout.edges.map((e) => {
@@ -180,11 +191,15 @@ export function MapPage() {
                       key={`${e.from}>${e.to}`}
                       data-testid="map-edge"
                       data-level={level}
+                      data-service-edge={e.serviceToService}
                       x1={e.x1}
                       y1={e.y1}
                       x2={e.x2}
                       y2={e.y2}
-                      strokeWidth={level === "none" ? 1.5 : 2.5}
+                      strokeWidth={
+                        e.serviceToService || level !== "none" ? 2.5 : 1.5
+                      }
+                      strokeDasharray={e.serviceToService ? "6 4" : undefined}
                       className={EDGE_STROKE[level]}
                     />
                   );

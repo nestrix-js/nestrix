@@ -61,6 +61,9 @@ export const errorFilterParsers = {
   route: stringParser(errorListParams.route),
 };
 
+/** The service the standalone server's views are narrowed to; absent means all services. */
+export const serviceParser = stringParser({ maxLength: 256 });
+
 /** For P2-10: the routes view's window. */
 export const routeWindowParser = numberParser({
   ...routeStatsParams.windowMinutes,

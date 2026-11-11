@@ -154,3 +154,43 @@ export const mapEmpty = (windowMinutes: number): AppMapResponse => ({
   nodes: [{ id: "app", kind: "app", name: "demo-service" }],
   edges: [],
 });
+
+/** The standalone server's map with no `service` filter: three services, calls between them, plus targets. */
+export function multiServiceMap(windowMinutes: number): AppMapResponse {
+  const edge = (
+    from: string,
+    to: string,
+    calls: number,
+    errors = 0,
+  ): AppMapResponse["edges"][number] => ({
+    from,
+    to,
+    calls,
+    errors,
+    p50Ms: 5,
+    p95Ms: 40,
+  });
+  return {
+    windowMinutes,
+    fromUnixMs: 0,
+    toUnixMs: 0,
+    nodes: [
+      { id: "service:orders", kind: "app", name: "orders" },
+      { id: "service:billing", kind: "app", name: "billing" },
+      { id: "service:gateway", kind: "app", name: "gateway" },
+      {
+        id: "db:postgresql:shop",
+        kind: "database",
+        name: "postgresql shop",
+        system: "postgresql",
+      },
+      { id: "cache:redis", kind: "cache", name: "redis", system: "redis" },
+    ],
+    edges: [
+      edge("service:gateway", "service:orders", 80, 4),
+      edge("service:orders", "service:billing", 60),
+      edge("service:orders", "db:postgresql:shop", 200),
+      edge("service:billing", "cache:redis", 90),
+    ],
+  };
+}

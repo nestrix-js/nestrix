@@ -1,13 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Pause, Play } from "lucide-react";
+import { LogOut, Pause, Play } from "lucide-react";
 import type * as React from "react";
 
 import { Button } from "@/components/ui/button";
-import { getMeta } from "@/lib/api";
+import { getMeta, signOut } from "@/lib/api";
 import { readConfig } from "@/lib/config";
 import { samplingNotice } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
+import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
 
 const nav = [
@@ -43,8 +44,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       : paused
         ? "paused"
         : "live";
-  const service = meta.data?.service.name ?? readConfig().service;
+  const serviceName = meta.data?.service.name ?? readConfig().service;
   const notice = meta.data ? samplingNotice(meta.data.sampling) : null;
+  const standalone = meta.data?.mode === "standalone";
+  const services = meta.data?.services ?? [];
+  const [selected, setSelected] = useService();
+  // Links keep the chosen service: the hash holds it, and a plain link would drop it.
+  const keep = selected ? `?service=${encodeURIComponent(selected)}` : "";
 
   return (
     <div className="min-h-screen">
@@ -53,9 +59,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <h1 className="text-base font-semibold">
             Nestrix{" "}
             <span className="font-mono font-normal text-muted-foreground">
-              {service ?? ""}
+              {serviceName ?? ""}
             </span>
           </h1>
+          {standalone && (
+            <span
+              data-testid="mode"
+              className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground"
+            >
+              standalone server
+            </span>
+          )}
           {notice && (
             <span
               data-testid="sampling-notice"
@@ -65,6 +79,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </span>
           )}
           <div className="ml-auto flex items-center gap-3">
+            {services.length > 1 && (
+              <select
+                aria-label="Service"
+                data-testid="service-select"
+                value={selected ?? ""}
+                onChange={(e) => void setSelected(e.target.value || undefined)}
+                className="h-8 rounded-lg border border-input bg-background px-2 text-sm"
+              >
+                <option value="">All services</option>
+                {services.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            )}
             <span
               data-testid="connection"
               data-state={connection}
@@ -91,6 +121,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {paused ? <Play /> : <Pause />}
               {paused ? "Resume live" : "Pause live"}
             </Button>
+            {standalone && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void signOut()}
+              >
+                <LogOut />
+                Sign out
+              </Button>
+            )}
           </div>
         </div>
         <nav
@@ -100,7 +140,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {nav.map((item) => (
             <Link
               key={item.to}
-              to={item.to}
+              to={`${item.to}${keep}` as typeof item.to}
               activeOptions={{ exact: item.to === "/" }}
               className="border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground hover:text-foreground"
               activeProps={{

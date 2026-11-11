@@ -93,3 +93,57 @@ describe("truncate", () => {
     expect(truncate("abcdefghij", 5)).toBe("abcd…");
   });
 });
+
+describe("layoutMap with several services", () => {
+  const nodes = [
+    node("service:a", "app"),
+    node("service:b", "app"),
+    node("service:c", "app"),
+    node("db"),
+    node("cache", "cache"),
+  ];
+  const edges = [
+    edge("service:b", { from: "service:a" }),
+    edge("db", { from: "service:b" }),
+  ];
+  const layout = layoutMap(nodes, edges);
+  const at = (id: string) => layout.nodes.find((n) => n.id === id);
+  const fromCentre = (id: string) => {
+    const n = at(id);
+    if (!n) throw new Error(id);
+    return Math.hypot(
+      (n.x - MAP_WIDTH / 2) / MAP_WIDTH,
+      (n.y - MAP_HEIGHT / 2) / MAP_HEIGHT,
+    );
+  };
+
+  it("places every node once, with services nearer the middle than targets", () => {
+    expect(layout.nodes).toHaveLength(5);
+    expect(new Set(layout.nodes.map((n) => `${n.x},${n.y}`)).size).toBe(5);
+    for (const s of ["service:a", "service:b", "service:c"])
+      for (const t of ["db", "cache"])
+        expect(fromCentre(s)).toBeLessThan(fromCentre(t));
+  });
+
+  it("keeps every node inside the drawing", () => {
+    for (const n of layout.nodes) {
+      expect(n.x).toBeGreaterThan(0);
+      expect(n.x).toBeLessThan(MAP_WIDTH);
+      expect(n.y).toBeGreaterThan(0);
+      expect(n.y).toBeLessThan(MAP_HEIGHT);
+    }
+  });
+
+  it("marks only service to service edges", () => {
+    expect(layout.edges.map((e) => e.serviceToService)).toEqual([true, false]);
+  });
+
+  it("keeps a single app in the centre and its edges as target edges", () => {
+    const single = layoutMap([node("app", "app"), node("db")], [edge("db")]);
+    expect(single.edges[0]?.serviceToService).toBe(false);
+    expect(single.nodes.find((n) => n.id === "app")).toMatchObject({
+      x: MAP_WIDTH / 2,
+      y: MAP_HEIGHT / 2,
+    });
+  });
+});

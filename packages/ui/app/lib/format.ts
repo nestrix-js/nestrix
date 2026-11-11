@@ -24,6 +24,13 @@ export type SamplingMeta =
   | { owner: "nestrix"; rate: number }
   | { owner: "host"; rate: null };
 
+/**
+ * In the standalone server, statistics come from the stored spans, not from counters in the
+ * senders, so they reflect whatever sampling the senders apply (D-61).
+ */
+export const STANDALONE_STATISTICS_NOTE =
+  "Statistics are counted from the stored spans, so they reflect the sampling of the services that send them.";
+
 /** The notice for lists; null when every request is stored. */
 export function samplingNotice(sampling: SamplingMeta): string | null {
   if (sampling.rate === null) return "lists may be sampled";

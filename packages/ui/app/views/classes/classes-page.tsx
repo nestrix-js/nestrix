@@ -14,10 +14,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getClasses } from "@/lib/api";
-import { formatDuration } from "@/lib/format";
+import { getClasses, getMeta } from "@/lib/api";
+import { formatDuration, STANDALONE_STATISTICS_NOTE } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser } from "@/lib/params";
+import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
 import {
   DEFAULT_DIR,
@@ -57,11 +58,14 @@ export function ClassesPage() {
   const sort = query.sort ?? DEFAULT_SORT;
   const dir = query.dir ?? DEFAULT_DIR;
   const [paused] = usePaused();
+  const [service] = useService();
+  const meta = useQuery({ queryKey: ["meta"], queryFn: getMeta });
+  const standalone = meta.data?.mode === "standalone";
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
 
   const stats = useQuery({
-    queryKey: ["classes", windowMinutes],
-    queryFn: () => getClasses({ windowMinutes }),
+    queryKey: ["classes", windowMinutes, service],
+    queryFn: () => getClasses({ windowMinutes, service }),
     refetchInterval: pollInterval(paused),
     refetchIntervalInBackground: false,
     placeholderData: keepPreviousData,
@@ -174,9 +178,9 @@ export function ClassesPage() {
             data-testid="own-note"
             className="rounded-lg bg-secondary px-3 py-2 text-sm text-secondary-foreground"
           >
-            Calls, errors and durations count every call. Own time (duration
-            minus time in child spans) is estimated from sampled traces, so it
-            is a guide, and a dash means no sampled call is in the store.
+            {standalone
+              ? `${STANDALONE_STATISTICS_NOTE} Own time (duration minus time in child spans) is a guide, and a dash means no stored call has it.`
+              : "Calls, errors and durations count every call. Own time (duration minus time in child spans) is estimated from sampled traces, so it is a guide, and a dash means no sampled call is in the store."}
           </p>
           <div className="rounded-lg border border-border">
             <Table data-testid="classes">

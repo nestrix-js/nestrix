@@ -84,6 +84,16 @@ describe("chartData", () => {
   });
 });
 
+describe("statisticsNote in standalone mode", () => {
+  it("says the statistics come from stored spans, whatever the sampling", () => {
+    for (const sampling of [
+      { owner: "host", rate: null },
+      { owner: "nestrix", rate: 1 },
+    ] as const)
+      expect(statisticsNote(sampling, "standalone")).toMatch(/stored spans/);
+  });
+});
+
 describe("statisticsNote", () => {
   it("is silent at full sampling and states the rate otherwise", () => {
     expect(statisticsNote({ owner: "nestrix", rate: 1 })).toBeNull();
