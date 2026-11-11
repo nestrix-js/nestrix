@@ -14,6 +14,8 @@ const nav = [
   { to: "/", label: "Requests" },
   { to: "/errors", label: "Errors" },
   { to: "/routes", label: "Routes" },
+  { to: "/classes", label: "Classes" },
+  { to: "/map", label: "Map" },
 ] as const;
 
 type Connection = "connecting" | "live" | "paused" | "disconnected";

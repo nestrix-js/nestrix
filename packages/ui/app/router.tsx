@@ -8,7 +8,9 @@ import {
 
 import { AppShell } from "@/components/app-shell";
 import { NuqsHashAdapter } from "@/lib/nuqs-hash-adapter";
+import { ClassesPage } from "@/views/classes/classes-page";
 import { ErrorsPage } from "@/views/errors/errors-page";
+import { MapPage } from "@/views/map/map-page";
 import { RequestsPage } from "@/views/requests/requests-page";
 import { RoutesPage } from "@/views/routes/routes-page";
 import { TracePage } from "@/views/trace/trace-page";
@@ -38,6 +40,16 @@ const routesRoute = createRoute({
   path: "/routes",
   component: RoutesPage,
 });
+const classesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/classes",
+  component: ClassesPage,
+});
+const mapRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/map",
+  component: MapPage,
+});
 const traceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/traces/$traceId",
@@ -51,6 +63,8 @@ export const router = createRouter({
     requestsRoute,
     errorsRoute,
     routesRoute,
+    classesRoute,
+    mapRoute,
     traceRoute,
   ]),
   history: createHashHistory(),
