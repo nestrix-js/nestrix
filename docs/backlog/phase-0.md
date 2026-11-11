@@ -19,7 +19,7 @@ Update this table as work moves. One line of notes at most; detail goes in the t
 | P0-S4 | Spike: CommonJS consumption | sonnet | P0-02 | done | Loads clean on 22.15/24.22/26.13; `pnpm check:tla` in verify; Jest needs `--experimental-vm-modules` (24.9+) or a transform on 22.x. Reviewed; doc edits applied. |
 | P0-S5 | Spike: dashboard mounting | opus | P0-05 | review | [Result](../spikes/P0-S5.md): works on 3 adapters + testing; raw writes + hijack needed; host CORS/filters leak; loopback-rule limit; D-31 trade-offs for owner. |
 | P0-S6 | Spike: instance-decorator wrapping | opus | P0-05 | doing | |
-| P0-06 | Release plumbing, without publishing | sonnet | P0-03 | todo | |
+| P0-06 | Release plumbing, without publishing | sonnet | P0-03 | doing | |
 | P0-07 | Phase report and doc updates | lead | all | todo | |
 
 Statuses: `todo`, `doing`, `review`, `done`, `blocked` (say on what).
