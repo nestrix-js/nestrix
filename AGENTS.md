@@ -4,7 +4,7 @@ Instructions for AI coding agents working on this repository. This is the one sh
 
 Open-source observability for NestJS 12+: Nest-aware OpenTelemetry tracing, with an optional dashboard served by the host application. Apache-2.0. Pre-release.
 
-**Current state:** phase 0. The repository holds documentation and workspace root files only; no package code exists yet. Next work: `docs/backlog/phase-0.md`.
+**Current state:** phase 0. The repository holds documentation, the workspace toolchain and package skeletons (`packages/nestjs`, `packages/ui`, `packages/protocol`, placeholder exports only); no instrumentation exists yet. Next work: `docs/backlog/phase-0.md`.
 
 **Remote:** `github.com/nestrix-js/nestrix`, private, already configured (`docs/decisions.md`, "GitHub: what is set up"). There is nothing left to set up on GitHub before implementing.
 
@@ -57,7 +57,8 @@ pnpm build          # pnpm -r --if-present build: each package's own build scrip
 pnpm test           # vitest run --passWithNoTests; every workspace dir with a package.json is a Vitest project
 pnpm lint           # biome check . (lint and format; Markdown is not checked)
 pnpm typecheck      # tsc -b --noEmit over the references in the root tsconfig.json
-pnpm verify         # build, test, lint, typecheck in that order, stopping at the first failure
+pnpm check:packages # publint + attw --pack --profile esm-only on each published package (their check:package script)
+pnpm verify         # build, check:packages, test, lint, typecheck in that order, stopping at the first failure
 ```
 
 TypeScript config: every package has its own `tsconfig.json` that extends `tsconfig.base.json`, sets `composite`, `rootDir` and `outDir`, and is added to `references` in the root `tsconfig.json`. `verbatimModuleSyntax` is on: import types with `import type`, but import classes used as Nest constructor parameters as values (an `import type` there makes `design:paramtypes` silently `Function`).
@@ -65,8 +66,8 @@ TypeScript config: every package has its own `tsconfig.json` that extends `tscon
 ## Layout
 
 ```
-packages/nestjs/      @nestrix/nestjs        (to be created, P0-02)
-packages/ui/          @nestrix/ui            (to be created, P0-02)
+packages/nestjs/      @nestrix/nestjs
+packages/ui/          @nestrix/ui
 packages/protocol/    private query-API types
 apps/server/          phase 5
 examples/             fixture apps, one per adapter and module format

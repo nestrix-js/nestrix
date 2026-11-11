@@ -1,4 +1,8 @@
 {
   "include": [],
-  "references": []
+  "references": [
+    { "path": "packages/protocol" },
+    { "path": "packages/nestjs" },
+    { "path": "packages/ui" }
+  ]
 }

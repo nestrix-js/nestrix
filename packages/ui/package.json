@@ -1,0 +1,30 @@
+{
+  "name": "@nestrix/ui",
+  "version": "0.0.0",
+  "description": "Prebuilt Nestrix dashboard assets",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nestrix-js/nestrix.git",
+    "directory": "packages/ui"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "scripts": {
+    "build": "tsc -b && node scripts/build-assets.mjs",
+    "check:package": "publint && attw --pack . --profile esm-only"
+  }
+}
