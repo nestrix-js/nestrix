@@ -52,7 +52,7 @@ Which version introduced which hook (checked in the published `.d.ts` files on u
 | Setup: `ObserveModule.forRoot(...)` plus `NestFactory.create(AppModule, { instrument: ObserveInstrument })`. No preload flag. | V |
 | It records database spans at the driver (`pg`, `mysql2`, `mssql`, `mongodb`) and outbound HTTP from Node's diagnostics channels. One runtime dependency; no OpenTelemetry SDK. | V (docs; manifest) |
 | It exports traces only over OTLP/HTTP, and does not ingest OTLP. | V (docs.nestjs.com/observability/opentelemetry) |
-| Licence: MIT up to and including 0.3.20 (2026-10-29). From 0.3.21 (2026-10-30) the "NestJS Observe Agent License": use only to send telemetry to their service; may not be used "to develop, test, document or operate a collector, backend or service that receives Telemetry from the Software, or that substitutes for the Service". | V (LICENSE in the 0.3.25 tarball; registry `license` field per version) |
+| Licence: MIT up to and including 0.3.20 (2026-10-29). From 0.3.21 (2026-10-30) the "NestJS Observe Agent License": use only to send telemetry to their service; may not be used "to develop, test, document or operate a collector, backend or service that receives Telemetry from the Software, or that substitutes for the Service". | V (npm registry `license` field per version, registry.npmjs.org/@nestjs/observe) |
 
 Consequence: the clean-room rule in [CONTRIBUTING.md](../CONTRIBUTING.md). Nobody working on Nestrix, human or model, opens, installs or runs `@nestjs/observe` later than 0.3.20.
 
@@ -66,7 +66,7 @@ Consequence: the clean-room rule in [CONTRIBUTING.md](../CONTRIBUTING.md). Nobod
 | `module.registerHooks()` is Release Candidate (added 22.15 / 23.5). `module.register()` is runtime-deprecated in 26 (DEP0205). `--experimental-loader` is "discouraged and may be removed". | V |
 | `TracingChannel` stable since 26.8.0. `AsyncLocalStorage` uses `AsyncContextFrame` by default since 24.0. | V |
 | Built-in HTTP diagnostics channels (plain channels, Experimental): `http.client.request.created` ("emitted before the request has been sent"), `http.client.request.start`, `http.client.request.error`, `http.client.response.finish`, `http.server.request.start`, `http.server.response.created`, `http.server.response.finish`. Present in the Node 22 docs. | V (nodejs.org/docs/latest-v22.x/api/diagnostics_channel.html) |
-| Whether a subscriber may set headers on the `ClientRequest` in `http.client.request.created` is not documented. | U (spike 2) |
+| A subscriber may call `setHeader` on the `ClientRequest` in `http.client.request.created` on 22.15.0, 24.22.2 and 26.13.0 (not documented; run). It throws `ERR_HTTP_HEADERS_SENT` when the caller passed `headers` as an array. All four client channels (`request.created`, `request.start`, `request.error`, `response.finish`) are published on all three versions. `http.client.response.finish` fires when the response head is parsed, not at the end of the body. A response body nobody reads never emits `close`. | V (spike P0-S2) |
 | A subscriber that throws raises `'uncaughtException'`. Subscribers run synchronously in the publisher's context. | V |
 | `node:sqlite` is Release Candidate. | V |
 
@@ -77,6 +77,10 @@ Consequence: the clean-room rule in [CONTRIBUTING.md](../CONTRIBUTING.md). Nobod
 | SDK 3.x is current: 3.0.0 / 0.300.0 on 2026-10-20; 3.1.1 / 0.301.1 on 2026-11-09. Engines `node >=22.15.0`. | V (npm) |
 | `@opentelemetry/api` is 1.10.0. SDK 3.x peers `>=1.10.0 <1.11.0`; SDK 2.x peers `<1.10.0`. The two generations cannot share one install. SDK 2.x gets fixes until 2027-09-30. | V |
 | Every OpenTelemetry JS package checked has dual builds (`.cjs` for `require`, `.mjs` for `default`; `require` listed first, no `module-sync`). A CommonJS host and the ESM `@nestrix/nestjs` therefore load two instances of `@opentelemetry/api` and of the SDK. They share the global provider and the context keys (`Symbol.for`), so spans and parents cross the boundary, but `instanceof` across it is `false`. | V (spike P0-S4) |
+| `@opentelemetry/api` 1.10.0 is dual-packaged (`exports`: `require` to `dist/index.cjs`, `default` to `dist/index.mjs`). Each instance keeps its own private `ProxyTracerProvider`, and `setGlobalTracerProvider` sets the delegate on the registering instance's proxy only. A tracer taken early from the other instance stays a no-op forever; one taken after registration works from either. | V (spikes P0-S2, P0-S3) |
+| api 1.x global-version rule: the first registration of any kind (even a diag logger or a context manager) stamps the global with that copy's version. api 1.10.0 refuses to read a 1.9 global (`isCompatible`) or write to one (`registerGlobal`), and api 1.9.1 likewise rejects a global stamped by another version, silently in both directions because each diag logger lives in the global the other side cannot use (`api@1.10.0/dist/internal/global-utils.mjs:15-41`). With an SDK 2 host (api 1.9.1), npm refuses to install a package peering `>=1.10.0 <1.11.0` (`ERESOLVE`); pnpm installs with a warning. | V (spike P0-S3) |
+| SDK 3's `TracerProvider` has no `register()`; hosts register through the API. `sdk-trace` exports `StackContextManager` only. `@opentelemetry/context-async-hooks` 3.1.1 is the SDK-3-compatible AsyncLocalStorage context manager (peer `@opentelemetry/api >=1.0.0 <1.11.0`). | V (spikes P0-S2, P0-S3) |
+| `InstrumentationBase` (`@opentelemetry/instrumentation` 0.301.1) takes its tracer in its constructor (`dist/instrumentation.mjs:20`), and `registerInstrumentations` uses that copy's own `getTracerProvider()`. Constructing it installs the require-in-the-middle hook (`Module.prototype.require` is replaced) even for `instrumentation-undici`, which patches nothing. | V (spikes P0-S2, P0-S3) |
 | SDK 3's `TracerProvider` defaults to `ParentBased(AlwaysOn)` (`sdk-trace/dist/TracerProvider.mjs:24`, 3.1.1). `Span.isRecording()` is `!this._ended` (`Span.mjs:202`), so it turns false when a sampled span ends. | V (spike P0-S6) |
 | `sdk-trace-base` and `sdk-trace-node` are gone; use `@opentelemetry/sdk-trace`. Every package has an `exports` map; deep imports fail. | V (3.x announcement and changelog) |
 | Traces and metrics are stable. Logs: `sdk-logs` marked stable in 3.0.0, while opentelemetry.io still says "Development". | V (conflicting sources) |
@@ -92,7 +96,7 @@ Consequence: the clean-room rule in [CONTRIBUTING.md](../CONTRIBUTING.md). Nobod
 | `@opentelemetry/otlp-transformer` 0.301.1 exports serialisers only (`serializeRequest`, `deserializeResponse`). It cannot decode an incoming OTLP request, and it no longer depends on protobufjs. | V |
 | `auto-instrumentations-node` 0.83.0 has 49 direct dependencies, 41 of them instrumentations. | V |
 | Overhead: one synthetic benchmark (Node 24.4) puts `AsyncLocalStorage` alone near 7% throughput on a trivial Fastify route, and full auto-instrumentation at 18.6% of baseline throughput. | S (blog.platformatic.dev/the-hidden-cost-of-context) |
-| `@sentry/node` 11.12 no longer registers a tracer provider by default; it depends only on `@opentelemetry/api ^1.9.1`. Its documented custom setup: initialise OpenTelemetry first, then `Sentry.init({ enableOpenTelemetrySetup: false, integrations: [Sentry.openTelemetryIntegration()] })`. Sentry's blog calls the integration `otlpIntegration()`: the two sources conflict. | V / conflicting |
+| `@sentry/node` 11.11.0 and 11.12 do not register a tracer provider, context manager or propagator by default (`enableOpenTelemetrySetup` defaults to `false`, `@sentry/node@11.11.0/build/esm/sdk/index.js:144`); it depends only on `@opentelemetry/api ^1.9.1`. The integration is `openTelemetryIntegration()`; `otlpIntegration` exists in no 11.11.0 or 11.12.0 build or type file (Sentry's blog uses that name; the name does not exist in these builds). Documented setup (JSDoc in `@sentry/server-utils@11.11.0`): register your provider first, then `Sentry.init({ dsn, integrations: [Sentry.openTelemetryIntegration()] })`. The JSDoc says "An active Sentry span still takes precedence", and with default integrations a non-recording Sentry span is always active, even without `tracesSampleRate`, so the error event and the outgoing `sentry-trace` stay on Sentry's trace. Its example calls `provider.register()`, which does not exist on SDK 3. Sentry 11 warns that `--require` initialisation is no longer supported and continues (`sdk/index.js:78-84`); whether a CJS host must use `--import` is unverified. Sentry 11 instruments `node:http` and undici through diagnostics channels and injects headers in `http.client.request.created`. Its transport does not set OpenTelemetry's suppress-tracing key. | V (spike P0-S3); `--import` U |
 
 ## 5. Libraries that publish their own tracing events
 
@@ -100,8 +104,8 @@ Consequence: the clean-room rule in [CONTRIBUTING.md](../CONTRIBUTING.md). Nobod
 |---|---|---|
 | undici / global `fetch` | `undici:request:*` channels | V |
 | Fastify 5 | `fastify.initialization`, TracingChannel `tracing:fastify.request.handler` | V |
-| mysql2 | TracingChannels `mysql2:query`, `execute`, `connect`, `pool:connect` since 3.20.0 (2026-03-14) | V (PR #4178) |
-| ioredis | `ioredis:command`, `ioredis:connect` since 5.11.0 (2026-05-26) | V (PR #2089) |
+| mysql2 | TracingChannels `mysql2:query`, `execute`, `connect`, `pool:connect` since 3.20.0 (2026-03-14). In 3.24.6 the query context has exactly `database, query, serverAddress, serverPort, values` (bind values present for `execute`), and errors arrive on `ctx.error`. When the pool queues a caller, `mysql2:query` is published in the releasing caller's async context (wrong parent); `mysql2:pool:connect` is published in the caller's context and its `asyncStart`/`asyncEnd` bracket the callback synchronously. The query span excludes pool wait. Once any sub-channel of `mysql2:query` has a subscriber, mysql2 takes its `tracePromise` path and adds an `'error'` listener, so an event-emitter query that failed with no listener (an `uncaughtException` and a closed connection) is silently swallowed. | V (PR #4178; spike P0-S2) |
+| ioredis | `ioredis:command`, `ioredis:connect` since 5.11.0 (2026-05-26). 6.0.0 is the registry's `latest` and has the same channels as 5.11.1 (its sanitiser adds `GETSET`/`PSETEX` to the first-argument-safe group). Context has `args, command, database, serverAddress, serverPort`; `args` are sanitised by ioredis. A command issued before the connection is ready is traced when the offline queue flushes, as a root span; handshake commands (`HELLO` on 6.x, `CLIENT SETINFO`, `INFO`) are root spans. Once any sub-channel of `ioredis:command` has a subscriber (`built/tracing.js:67-80`, `hasSubscribers`), ioredis adds `traced.catch(noop)`, so an unawaited failing command no longer raises `unhandledRejection`. `ioredis:batch` (MULTI) was not subscribed. | V (PR #2089; spike P0-S2) |
 | node-redis | Channels merged 2026-04-02; release version not confirmed | V merge |
 | mongoose | TracingChannel merged 2026-06-03; release not confirmed | V merge |
 | graphql-js 17 | TracingChannel merged 2026-06-02 | V merge |
@@ -112,8 +116,10 @@ Consequence: the clean-room rule in [CONTRIBUTING.md](../CONTRIBUTING.md). Nobod
 | BullMQ 6.7 | Built-in telemetry: `telemetry: new BullMQOtel('name')` on Queue and Worker options (`bullmq-otel` 2.0.1, MIT, peers `bullmq >=6.0.0`, depends on `@opentelemetry/api ^1.9.1`). | V |
 | `@nestjs/bullmq` 12.0.1 | `BullRootModuleOptions extends Bull.QueueOptions`, so `telemetry` is accepted at `forRoot`; shared config is spread into each queue's options; the explorer forwards `queueOpts.telemetry` to workers and queue events. | V (nestjs/bull source) |
 | Drizzle ORM 0.45.4 | Emits no spans: the `@opentelemetry/api` import in its `tracing.ts` is commented out. Driver-level spans are what you get. | V |
-| Prisma 7 | With `@prisma/adapter-pg` the query engine runs its SQL "via the JavaScript database driver" (`pg`). Whether adapters are mandatory in v7 was not stated on the page read. `@prisma/instrumentation` 7.10.1 depends on `@opentelemetry/instrumentation ^0.207`, a second copy beside a 0.301 host. | V / U |
-| MikroORM 7 | No OpenTelemetry package found. | U (negative search) |
+| Prisma 7 | With `@prisma/adapter-pg` the query engine runs its SQL "via the JavaScript database driver" (`pg`). Prisma 7.10.1 with `@prisma/adapter-pg` 7.10.1: `$queryRaw`, `create` and `findMany` run through `pg.Pool.prototype.query`, so a wrapped pool traces them (run, ESM and CJS). `@prisma/adapter-pg` declares `pg ^8.16.3` as a dependency. Whether adapters are mandatory in v7 was not checked. The registry's `latest` for `prisma` is `8.0.0-rc.33`, a release candidate (`@prisma/client` and `@prisma/adapter-pg` `latest` are 7.10.1), so `npm view prisma version` does not pick Prisma 7. `@prisma/instrumentation` 7.10.1 depends on `@opentelemetry/instrumentation ^0.207`, a second copy beside a 0.301 host. | V / U |
+| MikroORM 7 | No OpenTelemetry package found (U, negative search). 7.2.8 depends on `pg` 8.23.1 exactly, so an app on another `pg` gets a nested copy; with a forced nested `pg@8.20.0` the `pg` prototype wrap produced 0 spans. | V (manifest; spike P0-S2) |
+| TypeORM 1.1.2, Drizzle ORM 0.45.4 | TypeORM peers `pg ^8.5.1`. Drizzle has an optional peer `pg >=8`. Both are traced through a wrapped `pg` (run). | V (manifests; spike P0-S2) |
+| pnpm 12.16.1 | Links an optional peer to a matching package anywhere in the graph, including with `hoist: false` and when the app never lists it (`pg` through `@prisma/adapter-pg`). Its bin shims (`node_modules/.bin/*`) export `NODE_PATH` including `node_modules/.pnpm/node_modules`, so an app started through a shim can resolve any hoisted package. With two `pg` versions in the graph and none listed by the app, which one is linked was not tested; npm's and Yarn's layouts were not tested. | V (spike P0-S2); rest U |
 
 ## 6. Existing NestJS tools
 
@@ -184,12 +190,12 @@ Trace-waterfall components: a few React packages exist with little adoption; non
 These are not known. Each is assigned to a spike in [backlog/phase-0.md](backlog/phase-0.md) or a later phase.
 
 - Does async context survive body parsing on each adapter when the request hook wraps `done()`?
-- Can a `http.client.request.created` subscriber set headers?
-- Does the `pg` wrapper reach the right module instance when an ORM carries a nested copy of `pg`?
-- Does Prisma 7 always go through the `pg` adapter?
+- ~~Can a `http.client.request.created` subscriber set headers?~~ Answered (P0-S2): yes, on Node 22.15, 24.22 and 26.13, except when the caller passed headers as an array.
+- ~~Does the `pg` wrapper reach the right module instance when an ORM carries a nested copy of `pg`?~~ Answered (P0-S2): no; a scan of `require.cache` reaches already-loaded copies (plain-node probes; timing in a Nest app unverified, later-loaded copies missed).
+- Does Prisma 7 always go through the `pg` adapter? Partly answered (P0-S2): with `@prisma/adapter-pg`, yes, through `Pool.query`. Whether an adapter is mandatory in v7 was not checked.
 - Does a module-registered global interceptor cover microservice handlers in a hybrid app?
 - Under `@nestjs/testing`, is the HTTP adapter available when providers are constructed?
-- How do OpenTelemetry SDK 2.x hosts adopt Nestrix, given the peer ranges do not overlap?
+- ~~How do OpenTelemetry SDK 2.x hosts adopt Nestrix, given the peer ranges do not overlap?~~ The facts are in P0-S3 (Q5; §4.5). Which option to take is O-1, open: owner decision (phase 0 report).
 - Install size and startup cost of the dependency set, and of `auto-instrumentations-node` for comparison.
 
 ## Re-verifying

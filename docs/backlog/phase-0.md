@@ -14,13 +14,13 @@ Update this table as work moves. One line of notes at most; detail goes in the t
 | P0-04 | Example apps | sonnet, then haiku | P0-01 | done | Four apps pass `check:run`; Express apps add `POST /upload-multer` (multer interceptor path for P0-S1 Q2). |
 | P0-05 | Test harness | sonnet | P0-02, P0-04 | done | `packages/testing`: `bootApp` on 3 adapters (+ `@nestjs/testing`), in-memory spans; no context manager registered; Vitest's oxc honours `emitDecoratorMetadata` from tsconfig. |
 | P0-S1 | Spike: HTTP adapter hooks | opus | P0-05 | done | Mechanism holds on all 3 adapters (12.0.0, 12.3.2, 12.4.2); reviewed, fixes applied, docs updated. platform-node floor 12.3.2 is an owner question. |
-| P0-S2 | Spike: library spans without a preload | opus | P0-05 | review | `docs/spikes/P0-S2.md`: Q1, Q2, Q6 pass; Q3, Q4, Q5, Q7 partly (mysql2 pool context, ioredis offline queue, nested `pg` missed, library behaviour changes on subscribe). Needs owner input. |
-| P0-S3 | Spike: coexistence with a host SDK and Sentry | opus | P0-S1 | review | Host SDK 3 + duck-typed processor pass (ESM/CJS, 3 adapters, Node 22.15/26); Sentry: no one-trace setup with defaults (O-2); SDK 2 facts for O-1. Review fixes applied. |
+| P0-S2 | Spike: library spans without a preload | opus | P0-05 | done | `docs/spikes/P0-S2.md`: Q1, Q2, Q6 pass; Q3, Q4, Q5, Q7 partly (mysql2 pool context, ioredis offline queue, nested `pg` missed, library behaviour changes on subscribe). Reviewed, fixes applied, docs updated; owner decisions in the phase report. |
+| P0-S3 | Spike: coexistence with a host SDK and Sentry | opus | P0-S1 | done | Host SDK 3 + duck-typed processor pass (ESM/CJS, 3 adapters, Node 22.15/26); Sentry: no one-trace setup with defaults (O-2); SDK 2 facts for O-1. Reviewed, fixes applied, docs updated; owner decisions in the phase report. |
 | P0-S4 | Spike: CommonJS consumption | sonnet | P0-02 | done | Loads clean on 22.15/24.22/26.13; `pnpm check:tla` in verify; Jest needs `--experimental-vm-modules` (24.9+) or a transform on 22.x. Reviewed; doc edits applied. |
 | P0-S5 | Spike: dashboard mounting | opus | P0-05 | done | Works on all 3 adapters + testing; reviewed, fixes applied, docs updated. D-31 and the `ui: 'auto'` token are owner decisions. |
 | P0-S6 | Spike: instance-decorator wrapping | opus | P0-05 | done | Own-property wrappers work on 3 adapters; reviewed, fixes applied, docs updated. O-3, enhancer-span conflict, @nestjs/testing coverage are owner decisions. |
 | P0-06 | Release plumbing, without publishing | sonnet | P0-03 | done | Changesets (fixed: nestjs + ui), release workflow gated on `vars.NPM_PUBLISH_ENABLED` (unset), PR changeset check; `pnpm release` refuses outside CI. Nothing published. Owner steps in RELEASING.md. |
-| P0-07 | Phase report and doc updates | lead | all | todo | |
+| P0-07 | Phase report and doc updates | lead | all | done | `docs/phase-0-report.md`: acceptance results, design changes, 12 owner decisions with recommendations. Phase 1 waits for the owner. |
 
 Statuses: `todo`, `doing`, `review`, `done`, `blocked` (say on what).
 
