@@ -142,6 +142,8 @@ This is a deliberate, narrow exception to "do not duplicate mature infrastructur
 
 **Sentry.** `@sentry/node` 11 registers no provider by default, so two tracers would each start a trace. The supported setup is decided in spike 3.
 
+**No `instanceof` on OpenTelemetry classes.** A CommonJS host loads the `.cjs` builds of the API and SDK while Nestrix, being ESM, loads the `.mjs` builds: two instances that share globals but not classes (spike P0-S4). Nothing in Nestrix may use `instanceof` on API or SDK classes (spans, providers, processors, exporters, contexts); `nestrixSpanProcessor()` and any check on a host-supplied provider or processor are duck-typed.
+
 **Dependency budget.** At runtime `@nestrix/nestjs` depends on the SDK, resources, the OTLP exporter, `instrumentation-undici` and semantic conventions, with `@opentelemetry/api` as a peer and `pg` as an optional peer. Install size and startup cost are measured in phase 1 and published.
 
 ### 4.6 Embedded dashboard
@@ -272,7 +274,7 @@ nestrix/
 
 - pnpm workspaces. No Turborepo until CI time justifies it.
 - TypeScript 6, `module` and `moduleResolution: nodenext`, legacy decorators with `emitDecoratorMetadata`. The SDK is built with `tsc` only.
-- ESM-only output. No top-level `await` in any published entry point, so CommonJS Nest 12 apps can `require()` it.
+- ESM-only output. No top-level `await` in any published entry point, so CommonJS Nest 12 apps can `require()` it. Enforced by `pnpm check:tla` (`scripts/check-no-tla.mjs`, part of `verify`, so it runs on every Node in the CI matrix): it `require()`s each published entry and every built file in a child process. Users of CommonJS projects running Jest need `--experimental-vm-modules` (Nest's own CommonJS starter sets it) and Node 24.9+, or a transform on 22.x; this is how Nest 12 itself loads under Jest.
 - Vitest 4. Integration tests boot real Nest apps on all three adapters and assert on spans captured by an in-memory exporter.
 - Biome for lint and format. `publint` and `@arethetypeswrong/cli` in CI.
 - Changesets with fixed versioning. Publishing from GitHub Actions through npm trusted publishing with provenance.
