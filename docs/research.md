@@ -15,7 +15,7 @@ Hook signatures and per-adapter behaviour have their own file: [nest-hooks.md](n
 |---|---|---|
 | Stable. 12.0.0 published 2026-08-27; latest 12.4.2 (2026-11-09). 11.x still gets backports (11.2.9). | V | registry.npmjs.org/@nestjs/core |
 | Every `@nestjs/*` v12 package is ESM-only: `"type": "module"`, `exports` has no `require` condition. Core's `exports`: `"."`, `"./*"`, `"./*.js"`, `"./internal"`, `"./package.json"`. | V | registry manifest of 12.4.2 |
-| CommonJS apps keep working through `require(esm)`. Known gotchas: AWS Lambda disables it on its Node 20/22/24 runtimes (needs `NODE_OPTIONS=--experimental-require-module`); Jest loads v12 only on Node 24.9+ (`ERR_REQUIRE_ASYNC_MODULE` before that). | V | docs.nestjs.com/migration-guide |
+| CommonJS apps keep working through `require(esm)`. Known gotchas: AWS Lambda disables it on its Node 20/22/24 runtimes (needs `NODE_OPTIONS=--experimental-require-module`); Jest needs `--experimental-vm-modules` (the `@nestjs/schematics` 12.0.13 CommonJS starter runs `node --experimental-vm-modules ./node_modules/jest/bin/jest.js`) and then loads v12 on Node 24.9+; on 22.x it needs a transform such as `@swc/jest`. Without the flag Jest 30.5.2 fails on every Node with `Must use import to load ES Module` (also with its default babel-jest transform). The gate is `jest-runtime@30.5.2/build/index.js:4442-4444` (`vm.SourceTextModule?.prototype.hasAsyncGraph`, absent on 22.15.0). Vitest works unchanged. | V | migration guide; spike P0-S4, 2026-11-11 |
 | Runtime: Node 20.19+ or 22.12+ (21.x unsupported). The CLI needs `^22.22.3 \|\| ^24.15.0 \|\| >=26`. | V | migration guide; @nestjs/schematics manifest |
 | TypeScript 6 (`@nestjs/schematics` peers `typescript >=6.0.0`). Decorators are still the legacy kind: the starter sets `experimentalDecorators` and `emitDecoratorMetadata`. | V | starter tsconfig; manifests |
 | The registry's `latest` has moved past the majors this project targets: `typescript` 7.0.2 (newest 6.x: 6.0.3) and `vitest` 5.1.0 (newest 4.x: 4.1.12). The workspace pins `^6.0.3` and `^4.1.12` (P0-01); moving to either new major is a separate decision. | V | `npm view`, 2026-11-11 |
@@ -57,7 +57,8 @@ Consequence: the clean-room rule in [CONTRIBUTING.md](../CONTRIBUTING.md). Nobod
 | Fact | Tag |
 |---|---|
 | Release lines: 26 Active LTS since 2026-10-28; 24 maintenance (EOL 2028-04-30); 22 maintenance (EOL 2027-04-30); 20 EOL 2026-04-30. | V (nodejs/Release schedule.json) |
-| `require(esm)` unflagged from 20.19 / 22.12; stable since 25.4. It fails on modules with top-level `await`. | V (nodejs.org/api/modules.html) |
+| `require(esm)` unflagged from 20.19 / 22.12; stable since 25.4. It fails on modules with top-level `await` (`ERR_REQUIRE_ASYNC_MODULE`, also when the `await` is in a statically re-exported module). | V (nodejs.org/api/modules.html; spike P0-S4) |
+| On 22.15.0, 24.22.2 and 26.13.0, `require()` of an ESM-only graph (Nest 12, OpenTelemetry SDK 3 packages, `instrumentation-undici`) prints no warning and needs no flag. | V (spike P0-S4) |
 | `module.registerHooks()` is Release Candidate (added 22.15 / 23.5). `module.register()` is runtime-deprecated in 26 (DEP0205). `--experimental-loader` is "discouraged and may be removed". | V |
 | `TracingChannel` stable since 26.8.0. `AsyncLocalStorage` uses `AsyncContextFrame` by default since 24.0. | V |
 | Built-in HTTP diagnostics channels (plain channels, Experimental): `http.client.request.created` ("emitted before the request has been sent"), `http.client.request.start`, `http.client.request.error`, `http.client.response.finish`, `http.server.request.start`, `http.server.response.created`, `http.server.response.finish`. Present in the Node 22 docs. | V (nodejs.org/docs/latest-v22.x/api/diagnostics_channel.html) |
@@ -71,6 +72,7 @@ Consequence: the clean-room rule in [CONTRIBUTING.md](../CONTRIBUTING.md). Nobod
 |---|---|
 | SDK 3.x is current: 3.0.0 / 0.300.0 on 2026-10-20; 3.1.1 / 0.301.1 on 2026-11-09. Engines `node >=22.15.0`. | V (npm) |
 | `@opentelemetry/api` is 1.10.0. SDK 3.x peers `>=1.10.0 <1.11.0`; SDK 2.x peers `<1.10.0`. The two generations cannot share one install. SDK 2.x gets fixes until 2027-09-30. | V |
+| Every OpenTelemetry JS package checked has dual builds (`.cjs` for `require`, `.mjs` for `default`; `require` listed first, no `module-sync`). A CommonJS host and the ESM `@nestrix/nestjs` therefore load two instances of `@opentelemetry/api` and of the SDK. They share the global provider and the context keys (`Symbol.for`), so spans and parents cross the boundary, but `instanceof` across it is `false`. | V (spike P0-S4) |
 | `sdk-trace-base` and `sdk-trace-node` are gone; use `@opentelemetry/sdk-trace`. Every package has an `exports` map; deep imports fail. | V (3.x announcement and changelog) |
 | Traces and metrics are stable. Logs: `sdk-logs` marked stable in 3.0.0, while opentelemetry.io still says "Development". | V (conflicting sources) |
 | `addSpanProcessor` was removed in SDK 2.0. A `TracerProvider` takes `spanProcessors` only in its constructor. There is no public way to add a processor to a provider someone else built. | V |

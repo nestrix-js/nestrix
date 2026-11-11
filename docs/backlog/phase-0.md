@@ -16,7 +16,7 @@ Update this table as work moves. One line of notes at most; detail goes in the t
 | P0-S1 | Spike: HTTP adapter hooks | opus | P0-05 | doing | |
 | P0-S2 | Spike: library spans without a preload | opus | P0-05 | doing | |
 | P0-S3 | Spike: coexistence with a host SDK and Sentry | opus | P0-S1 | todo | |
-| P0-S4 | Spike: CommonJS consumption | sonnet | P0-02 | review | Loads clean on 22.15/24.22/26.13; `pnpm check:tla` added; Jest needs `--experimental-vm-modules` (Node 24.9+) or a transform on 22.x. See `docs/spikes/P0-S4.md`. |
+| P0-S4 | Spike: CommonJS consumption | sonnet | P0-02 | done | Loads clean on 22.15/24.22/26.13; `pnpm check:tla` in verify; Jest needs `--experimental-vm-modules` (24.9+) or a transform on 22.x. Reviewed; doc edits applied. |
 | P0-S5 | Spike: dashboard mounting | opus | P0-05 | doing | |
 | P0-S6 | Spike: instance-decorator wrapping | opus | P0-05 | doing | |
 | P0-06 | Release plumbing, without publishing | sonnet | P0-03 | todo | |
