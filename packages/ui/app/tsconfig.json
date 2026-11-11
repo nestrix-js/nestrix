@@ -1,0 +1,21 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": ".",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "lib": ["es2024", "dom", "dom.iterable"],
+    "experimentalDecorators": false,
+    "emitDecoratorMetadata": false,
+    "paths": {
+      "@/*": ["./*"]
+    },
+    "tsBuildInfoFile": "../node_modules/.cache/tsconfig.app.tsbuildinfo",
+    "emitDeclarationOnly": true,
+    "outDir": "../node_modules/.cache/tsc-app"
+  },
+  "include": ["."],
+  "references": [{ "path": "../../protocol" }]
+}

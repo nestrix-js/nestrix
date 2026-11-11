@@ -4,6 +4,7 @@ packages:
   - examples/*
   - spikes/*
   - benchmarks
+  - e2e
 # D-51: fail an install that needs a too-new release instead of pnpm adding minimumReleaseAgeExclude entries itself.
 minimumReleaseAgeStrict: true
 allowBuilds:
