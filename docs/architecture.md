@@ -270,59 +270,87 @@ React 19, Vite 8, TypeScript. TanStack Router with hash history; TanStack Query 
 
 ## 7. Developer experience
 
-These APIs are illustrative until phase 1 settles the names; they freeze at 1.0.
+Phase 1 settled the headless API below (names and shapes are `packages/nestjs/src/options.ts` and `docs/backlog/phase-1.md`, "Public API"); it freezes at 1.0. What the user reads is `packages/nestjs/README.md`. The dashboard, level 2 and library integrations are still illustrative and are marked as such.
 
 ```bash
-pnpm add @nestrix/nestjs @nestrix/ui    # SDK plus dashboard assets
-pnpm add @nestrix/nestjs                # headless only
+pnpm add @nestrix/nestjs @opentelemetry/api@~1.10.0    # headless: tracing and OTLP export
+pnpm add @nestrix/ui                                   # phase 2: dashboard assets
 ```
 
 ```ts
 // app.module.ts
+import { Module } from '@nestjs/common';
 import { NestrixModule } from '@nestrix/nestjs';
 
 @Module({ imports: [NestrixModule.forRoot({ serviceName: 'my-api' })] })
 export class AppModule {}
 ```
 
-Locally the dashboard is then at `http://localhost:3000/_nestrix`, and spans are exported if `OTEL_EXPORTER_OTLP_ENDPOINT` is set. The standard `OTEL_*` variables are honoured. At startup Nestrix logs one line: the dashboard URL, or the command to install the assets.
+The module is global. It is imported before other modules that register global interceptors (§4.2, interceptor order). With no endpoint configured nothing is exported, and one log line says so; export is on when `export.otlp.endpoint`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT` is set. The standard `OTEL_*` variables listed in the README are honoured, and `NESTRIX_ENABLED=false` registers nothing.
 
 ```ts
-// main.ts: level 2
-import { NestrixInstrument } from '@nestrix/nestjs';
-
-const app = await NestFactory.create(AppModule, { instrument: NestrixInstrument });
-app.enableShutdownHooks();
-```
-
-```ts
-NestrixModule.forRoot({
-  serviceName: 'my-api',
-  sampleRate: 0.1,
-  export: { otlp: { endpoint: 'http://otel-collector:4318' } },
-  ui: { enabled: true, path: '/_nestrix', auth: { token: process.env.NESTRIX_UI_TOKEN } },
-  ignore: { routes: ['/health', '/metrics'] },
-  integrations: { ioredis: true }, // mysql2 and ioredis are opt-in (D-49)
+// Options from another provider; useFactory may be async.
+NestrixModule.forRootAsync({
+  imports: [ConfigModule],
+  inject: [ConfigService],
+  useFactory: (config: ConfigService) => ({
+    serviceName: 'my-api',
+    export: { otlp: { endpoint: config.get('COLLECTOR_URL') } },
+  }),
 });
 ```
 
 ```ts
-// BullMQ jobs, with BullMQ's own option
-import { BullMQOtel } from 'bullmq-otel';
+NestrixModule.forRoot({
+  enabled: true,
+  serviceName: 'my-api',
+  resourceAttributes: { 'deployment.environment.name': 'production' },
+  sampleRate: 0.1, // ParentBased(TraceIdRatioBased); ignored when the host owns the SDK
+  export: {
+    otlp: { endpoint: 'http://otel-collector:4318', headers: {}, timeoutMillis: 10_000 }, // or `otlp: false`
+    queue: { maxQueueSize: 2048, maxExportBatchSize: 512, scheduledDelayMillis: 5000 },
+  },
+  ignore: {
+    routes: ['/health', /^\/metrics/],            // a string is the exact path
+    outgoing: ['https://o123.ingest.sentry.io/'], // a string is a prefix of url.full
+  },
+  http: { requestHeaders: [], responseHeaders: [], redactQueryKeys: [] }, // added to the defaults
+  redact: (span) => { /* synchronous; return false to drop the span */ },
+});
+```
 
-BullModule.forRoot({ connection, telemetry: new BullMQOtel('my-api') });
+```ts
+// main.ts
+const app = await NestFactory.create(AppModule);
+app.enableShutdownHooks(); // only so SIGTERM and SIGINT close the app; app.close() flushes without it
 ```
 
 ```ts
 import { Span, withSpan } from '@nestrix/nestjs';
 
-@Span('billing.reconcile')
+@Span('billing.reconcile') // default name: Class.method
 async reconcile() { /* … */ }
 
-await withSpan('load-rates', () => fetchRates());
+await withSpan('load-rates', (span) => fetchRates());
 ```
 
-`Span` and `withSpan` are thin wrappers over `@opentelemetry/api`. Code that uses the OpenTelemetry API directly joins the same traces.
+`Span` and `withSpan` are thin wrappers over `@opentelemetry/api`. Code that uses the OpenTelemetry API directly joins the same traces. The promise a traced method returns must be handled by its caller (§4.3).
+
+Not available yet (`ui` and `integrations` are not in `NestrixModuleOptions`, so TypeScript rejects them; the shapes are illustrative):
+
+```ts
+// phase 2: the dashboard. Locally at http://localhost:3000/_nestrix; one log line gives the URL or the install command.
+NestrixModule.forRoot({ ui: { enabled: true, path: '/_nestrix', auth: { token: process.env.NESTRIX_UI_TOKEN } } });
+
+// level 2 (phase 2): spans for controller methods and jobs
+const app = await NestFactory.create(AppModule, { instrument: NestrixInstrument });
+
+// phase 3: library spans; mysql2 and ioredis are opt-in (D-49)
+NestrixModule.forRoot({ integrations: { ioredis: true } });
+
+// BullMQ jobs, with BullMQ's own option
+BullModule.forRoot({ connection, telemetry: new BullMQOtel('my-api') });
+```
 
 ## 8. Repository
 
