@@ -273,13 +273,31 @@ All values are in MB unless the column says otherwise.
 - **Module loading is small.** Export off still loads the exporter graph: +265 files (sdk-metrics 51, otlp-transformer 29, otlp-exporter-base 25, the exporter 4, plus api, core, sdk-trace, resources). On top of the SDK packages needed anyway, the exporter graph costs 3.2 MB RSS and 1.26 MB heap (isolated import, 3 runs). `@opentelemetry/semantic-conventions` root loads the deprecated `SemanticAttributes`/`SemanticResourceAttributes` tables (about 0.8 MB heap). Replacing Nestrix's own imports with string literals saves nothing: `@opentelemetry/core` (`sdk-info`), `resources` (`ResourceImpl`, detectors) and `sdk-trace` (`Span`, `SpanProcessorMetrics`) import the root themselves. Incubating is not loaded.
 - **With export on (sink),** old space reaches 44 MB: the batch queue (up to 2048 spans) plus serialization. That is the configured bound, not a leak.
 
+## Level 3 integrations (checked 2026-11-11, P3-01)
+
+Node 26.13.0, darwin-arm64. NestJS 12.4.2 (`@nestjs/platform-express`), `pg` 8.23.1, `pg-cursor` 2.22.1, `pg-query-stream` 4.17.1, `mysql2` 3.24.6, `ioredis` 6.0.0, against `postgres:18-alpine` (18.6), `mysql:8.4` (8.4.13) and `redis:8-alpine` (8.10.3) in Docker 29.5.2. Tests in `packages/nestjs/test/integrations/`.
+
+| Fact | Tag |
+|---|---|
+| **D-50 timing, in a real Nest app.** A separate on-disk copy of `pg` (the workspace's 8.23.1 and its dependency closure, copied to a temporary `node_modules`) loaded by a stand-in ORM, CommonJS (`require('pg')`) or ESM (`import pg from 'pg'`), in an ESM and a CommonJS Nest app (plain `node`, no flags, `NODE_OPTIONS` and `NODE_PATH` removed), Nestrix from the built package. Where the copy was found: loaded at import time, by the scan at `NestrixCore`'s constructor; loaded in a dependency-free `useFactory` of the root module or of a module imported after `NestrixModule`, also by the constructor scan; loaded in a factory that first awaits 20 ms, by the `onApplicationBootstrap` scan; loaded in the handler on the first request, not at all (no spans). Same in all four app/ORM combinations; every wrapped copy gave both queries as children of the server span. `timing.test.ts`. | V (run) |
+| An ESM `import pg from 'pg'` puts `…/pg/lib/index.js` in `require.cache` (pg's `esm/index.mjs` imports the CommonJS file), so the cache scan reaches copies loaded by ESM ORMs too. | V (run, `timing.test.ts`, "orm esm" rows) |
+| Nest builds every module's providers concurrently: `InstanceLoader.createInstances` maps all modules through `Promise.all` (`@nestjs/core` 12.4.2 `injector/instance-loader.js:40-44`). Which provider is constructed first therefore depends on how many microtask turns its dependency resolution takes, not on module order. `NestrixCore` waits for `NESTRIX_OPTIONS` and `HttpAdapterHost`, so a dependency-free factory anywhere in the app has run before its constructor. | V (source; run) |
+| pnpm's bin-shim `NODE_PATH` (P0-S2) also reaches processes started by Vitest under pnpm: `createRequire` from an empty temporary directory still resolved the workspace's `pg`. A test of "no `pg`" must run in a child without `NODE_PATH`. | V (run, `pg-absent.test.ts`) |
+| `pg` 8.23.1 invokes query callbacks from the connection's socket events, so a callback does not run in the caller's async context: a query issued inside a `client.query` callback had no parent until the wrapper bound the callback to the caller's context (as upstream's pg instrumentation does). | V (run) |
+| `pg` 8.23.1's `normalizeQueryConfig` clones an object config before setting `callback` (`lib/utils.js:154-169`), so it no longer writes onto the caller's object. Older 8.x versions not checked. | V (source) |
+| pg-pool 3.x (`pg` 8.23.1) calls `client.query(text, values, cb)` from its `connect` callback and assigns `client.release` on pooled clients (`pg-pool/index.js:342, 449-484`). Under contention that callback runs in the releasing caller's context; with the integration's per-call token, two concurrent requests on a one-connection pool each got their own three query spans (without it, the contention tests fail). | V (source; run) |
+| mysql2 3.24.6 `query()` formats the values into the SQL text client-side before publishing (`lib/base/connection.js:704-717`), so `mysql2:query`'s `query` field holds the values (escaped with backslashes). The sanitiser must handle backslash escapes in MySQL mode; `execute()` keeps `?` placeholders. | V (source; run) |
+| mysql2 pool contention, with the `mysql2:pool:connect` lend: two concurrent requests on a one-connection pool got 3 and 3 query spans; without the lend, 6 and 0. | V (run, `mysql2.test.ts`) |
+| ioredis 6.0.0's connection handshake publishes `HELLO`, `CLIENT` (SETINFO) twice and `INFO` on `ioredis:command`, all with no active span. With root spans dropped (D-60) none of them produce a span; with `rootSpans: true` they are root spans. | V (run, `ioredis.test.ts`) |
+| `postgres:18-alpine`, `mysql:8.4` and `redis:8-alpine` exist on Docker Hub (`docker manifest inspect`). | V (run) |
+
 ## 11. Open questions
 
 These are not known. Each is assigned to a spike in [backlog/phase-0.md](backlog/phase-0.md) or a later phase.
 
 - Does async context survive body parsing on each adapter when the request hook wraps `done()`?
 - ~~Can a `http.client.request.created` subscriber set headers?~~ Answered (P0-S2): yes, on Node 22.15, 24.22 and 26.13, except when the caller passed headers as an array.
-- ~~Does the `pg` wrapper reach the right module instance when an ORM carries a nested copy of `pg`?~~ Answered (P0-S2): no; a scan of `require.cache` reaches already-loaded copies (plain-node probes; timing in a Nest app unverified, later-loaded copies missed).
+- ~~Does the `pg` wrapper reach the right module instance when an ORM carries a nested copy of `pg`?~~ Answered (P0-S2): no; a scan of `require.cache` reaches already-loaded copies. Timing in a Nest app verified in P3-01 ("Level 3 integrations" above): the scans at `NestrixCore`'s constructor and at `onApplicationBootstrap` catch a copy loaded at import time or in a provider factory; a copy loaded on the first request is missed.
 - Does Prisma 7 always go through the `pg` adapter? Partly answered (P0-S2): with `@prisma/adapter-pg`, yes, through `Pool.query`. Whether an adapter is mandatory in v7 was not checked.
 - Does a module-registered global interceptor cover microservice handlers in a hybrid app?
 - Under `@nestjs/testing`, is the HTTP adapter available when providers are constructed?

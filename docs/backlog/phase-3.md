@@ -7,7 +7,7 @@ Objective, deliverables and acceptance: [roadmap.md](../roadmap.md#phase-3-provi
 | ID | Task | Tier | Depends on | Status | Notes |
 |---|---|---|---|---|---|
 | P3-00 | Backlog, option types, method-call sink, query API v1 additions (classes, map) | lead | — | done | This file; `methods`, `integrations`, `serviceVersion`, `user` in `options.ts` (types only); `src/methods/sink.ts`; protocol `ClassStats*`, `AppMap*`. |
-| P3-01 | Level 3: `pg` (timing check first), `mysql2`, `ioredis`; statement sanitising; container tests | opus | P3-00 | todo | |
+| P3-01 | Level 3: `pg` (timing check first), `mysql2`, `ioredis`; statement sanitising; container tests | opus | P3-00 | review | D-50 timing verified in a Nest app (research.md "Level 3 integrations"); awaiting P3-09 review. |
 | P3-02 | Level 2: `NestrixInstrument`, `composeInstrument`, own-class rule, entry methods, enhancers, awkward-class corpus | opus | P3-00 | todo | |
 | P3-03 | Releases and users; trace `type`; traces filters `type`, `release`, `user` | opus | P3-00 | todo | Owns the `TraceSummary` / `traceListParams` additions. |
 | P3-04 | Class statistics (pre-sampling) and `GET api/v1/classes` | sonnet | P3-00 | todo | Implements the sink; own time from the store. |

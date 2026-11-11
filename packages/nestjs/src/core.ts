@@ -2,6 +2,7 @@ import {
   Inject,
   Injectable,
   Logger,
+  type OnApplicationBootstrap,
   type OnApplicationShutdown,
   type OnModuleInit,
   Optional,
@@ -16,6 +17,10 @@ import {
 } from "./dashboard/mount.js";
 import { diagnostics } from "./diagnostics.js";
 import { installHttpInstrumentation } from "./http/server.js";
+import {
+  installIntegrations,
+  rescanIntegrations,
+} from "./integrations/index.js";
 import { setupTelemetry } from "./otel/setup.js";
 import type { TelemetryHandle } from "./otel/types.js";
 import { installOutbound } from "./outbound/index.js";
@@ -33,7 +38,9 @@ import { NESTRIX_OPTIONS } from "./tokens.js";
  * Option validation is not here; it already happened in the module factory.
  */
 @Injectable()
-export class NestrixCore implements OnModuleInit, OnApplicationShutdown {
+export class NestrixCore
+  implements OnModuleInit, OnApplicationBootstrap, OnApplicationShutdown
+{
   /** Undefined when disabled or when setup failed. */
   readonly telemetry: TelemetryHandle | undefined;
   private readonly disposers: Array<() => void> = [];
@@ -72,6 +79,8 @@ export class NestrixCore implements OnModuleInit, OnApplicationShutdown {
         );
         // Outbound subscribers work with or without an HTTP adapter, and with a host-owned SDK.
         this.disposers.push(installOutbound(options, diagnostics));
+        // Level 3 (P3-01): pg wrapped now, and again at onApplicationBootstrap (D-50).
+        this.disposers.push(installIntegrations(options, diagnostics));
         // HTTP hooks now, or from `init$` under @nestjs/testing; nothing without an adapter.
         this.disposers.push(
           installHttpInstrumentation(
@@ -114,6 +123,15 @@ export class NestrixCore implements OnModuleInit, OnApplicationShutdown {
       }
     } catch (error) {
       diagnostics.countFailure("core.module-init", error);
+    }
+  }
+
+  /** Wraps `pg` copies loaded while the app was built (D-50). Never throws. */
+  onApplicationBootstrap(): void {
+    try {
+      if (this.options.enabled) rescanIntegrations();
+    } catch (error) {
+      diagnostics.countFailure("core.bootstrap", error);
     }
   }
 
