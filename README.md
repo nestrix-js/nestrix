@@ -7,7 +7,7 @@ Open-source observability for NestJS 12+: Nest-aware OpenTelemetry traces, in a 
 ## What it is for
 
 - **A local dashboard with nothing else to run (planned).** Import one module and open `/_nestrix`: recent requests, their trace waterfall, errors, slow routes. No account, no collector, no database.
-- **Standard OpenTelemetry out.** OTLP to Jaeger, Tempo, Grafana, Datadog or an OpenTelemetry Collector, with spans that understand NestJS: route templates, controllers, guards, message patterns.
+- **Standard OpenTelemetry out.** OTLP to Jaeger, Tempo, Grafana, Datadog or an OpenTelemetry Collector, with spans that understand NestJS: route templates and controller handlers now; guards and message patterns are planned.
 - **No loader flags.** Built on NestJS 12's own instrumentation hooks and on the tracing events libraries now publish, so there is no `node --import` or `--experimental-loader` step.
 - **Yours to run.** Apache-2.0. Send the telemetry wherever you like.
 

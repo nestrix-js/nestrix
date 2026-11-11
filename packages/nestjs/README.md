@@ -96,13 +96,17 @@ With `forRootAsync`, an `enabled: false` returned from the factory disables Nest
 
 ### A host that already runs an OpenTelemetry SDK
 
-If your app registers its own tracer provider before Nestrix starts (that is, before `NestFactory.create` constructs the module), Nestrix does not create an SDK. Its spans go through your provider and your exporters. In that case `sampleRate` and every `export.*` option are ignored, `redact` is not applied (see [Privacy](#privacy)), and Nestrix logs one line saying so. Your SDK must be OpenTelemetry JS SDK 3.
+If your app registers its own tracer provider before Nestrix starts (that is, before `NestFactory.create` constructs the module), Nestrix does not create an SDK. Its spans go through your provider and your exporters. In that case `serviceName`, `resourceAttributes`, `OTEL_RESOURCE_ATTRIBUTES`, `sampleRate`, every `export.*` option and `redact` are ignored (the resource, sampler, exporters and redaction are your SDK's; see [Privacy](#privacy)), and Nestrix logs one line saying so. `ignore` and `http` still apply. Your SDK must be OpenTelemetry JS SDK 3.
+
+**Several Nestrix apps in one process** (an e2e suite, for example) share what the first one set up: its `export`, `sampleRate`, resource and `redact` settings, and the outbound `ignore.outgoing` and `http` settings. Later apps' values for those are ignored; Nestrix logs one line when that happens.
 
 Nestrix registers its OpenTelemetry globals during `NestFactory.create`, never at import time or when `forRoot()` runs. If you start your SDK in the body of `main.ts` after importing `AppModule`, start it before `NestFactory.create`.
 
 ## Options
 
-Every option is optional. `NestrixModule.forRoot(options?)` and the object `forRootAsync`'s factory returns take the same shape. Invalid values (for example a `sampleRate` outside 0 to 1, or a non-positive queue size) throw when the module is created, at startup.
+Every option is optional. `NestrixModule.forRoot(options?)` and the object `forRootAsync`'s factory returns take the same shape. Invalid values (for example a `sampleRate` outside 0 to 1, or a non-positive queue size) throw. With `forRoot`, that happens when `forRoot()` is called, which is when your module file loads, and also with `enabled: false`. With `forRootAsync`, it happens when the factory's result is resolved during `NestFactory.create`. `export.otlp.timeoutMillis` is validated only when an endpoint resolves.
+
+The package exports these types: `NestrixModuleOptions`, `NestrixModuleAsyncOptions`, `NestrixExportOptions`, `NestrixOtlpOptions`, `NestrixQueueOptions`, `NestrixIgnoreOptions`, `NestrixHttpOptions`, `RedactHook`, `RedactableSpan`, `UrlMatcher` and `SpanOptions`.
 
 <!-- sample: all-options -->
 
@@ -187,7 +191,7 @@ All three must be positive integers.
 | `ignore.routes` | none | Incoming requests that get no server span. Matched against the request path without the query string. A string must equal the path exactly: `"/health"` does not match `"/health/live"`. |
 | `ignore.outgoing` | none | Outgoing requests that get no client span and no `traceparent` header. Matched against the recorded `url.full` (credentials removed, listed query values already `REDACTED`). A string is a **prefix**, for example `"https://o123.ingest.sentry.io/"`. |
 
-A matcher is a string, a `RegExp` or a function. A `RegExp` is tested with `search`, so the `g` flag and `lastIndex` do not matter. A function receives the path or URL and must return `true` to match. A matcher that throws counts as a match, and the failure is counted.
+A matcher is a string, a `RegExp` or a function. In `ignore.routes` a `RegExp` is applied with `search`, so the `g` flag and `lastIndex` do not matter. In `ignore.outgoing` its `lastIndex` is reset to 0 and `test` is called. A function receives the path or URL and must return `true` to match. A matcher that throws counts as a match, and the failure is counted. Counts are internal for now: there is no public accessor, and drops because the queue is full are counted but not logged.
 
 <!-- sample: ignore -->
 
@@ -238,13 +242,20 @@ A hook for the spans Nestrix exports. See [Privacy](#privacy).
 | `OTEL_EXPORTER_OTLP_HEADERS` | `key=value,key2=value2`, values percent-decoded. |
 | `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | Same, for traces; wins over the generic variable key by key. |
 
-An option always wins over the variable of the same meaning. Other `OTEL_*` variables are not read by Nestrix. When your app owns the SDK, the export variables are your SDK's business, not Nestrix's.
+An option always wins over the variable of the same meaning. Nestrix itself reads no other `OTEL_*` variables, but the OTLP exporter it uses reads some on its own:
+
+- `OTEL_EXPORTER_OTLP_COMPRESSION` and `OTEL_EXPORTER_OTLP_TRACES_COMPRESSION` take effect (read by `@opentelemetry/otlp-exporter-base` 0.301.1; found in its source, not run through Nestrix).
+- `OTEL_EXPORTER_OTLP_TIMEOUT` has no effect: Nestrix always passes `timeoutMillis` (default 10000).
+- `OTEL_EXPORTER_OTLP_CERTIFICATE`, `…_CLIENT_CERTIFICATE` and `…_CLIENT_KEY` (and their `_TRACES_` forms) have no effect through Nestrix: the exporter uses them only to build its default HTTP agent, and Nestrix supplies its own agent factory, which wins in the exporter's configuration merge. Use a collector or proxy in front for mutual TLS.
+
+When your app owns the SDK, the export variables are your SDK's business, not Nestrix's.
 
 ## What is traced
 
 - **Incoming HTTP.** One server span per request, named `METHOD /route/template` (or `METHOD` when no route matched, as for a 404), with the OpenTelemetry HTTP attributes, `code.function.name` (`Controller.handler`), the status, and the first exception a handler or pipe threw as an exception event. An incoming `traceparent` is continued. If the client goes away before the response finishes, the span carries `nestrix.http.aborted = true`.
-- **Outgoing HTTP.** `node:http` and `fetch` (undici) calls get a client span named `METHOD`, and a `traceparent` header unless the request already has one. A request made with no active parent span gets no span and no header, so background traffic (a health poller, an error reporter's transport outside a request) is not traced. If the response body is never read, the span ends at the response head after 30 seconds and carries `nestrix.http.body = "not consumed"`. A body the caller cancels after the response head is marked `"cancelled"` and is not an error.
-- **Process errors.** An uncaught exception or unhandled rejection becomes an exception event on the active request span, or a short span of its own. Best effort: the process usually exits before that span is exported. Nestrix adds an `uncaughtExceptionMonitor` listener only and never changes whether the process crashes.
+- **Outgoing HTTP.** `node:http` and `fetch` (undici) calls get a client span named `METHOD`, and a `traceparent` header unless the request already has one. A request made with no active parent span gets no span and no header, so background traffic (a health poller, an error reporter's transport outside a request) is not traced. If the response body is never read, the span ends at the response head and carries `nestrix.http.body = "not consumed"`: for `node:http`, on the next turn of the event loop if nothing is reading; for `fetch` and undici, after 30 seconds. On Node 24 and later (undici 7) the 30 seconds restart with each body chunk; on Node 22 a body that is still arriving 30 seconds after the head gets a head-only span (known limit). A `node:http` caller that starts reading on a later tick also gets a head-only span. A body the caller cancels after the response head is marked `"cancelled"` and is not an error. A request whose method is not in the HTTP conventions' list gets the span name `HTTP` and `http.request.method = "_OTHER"`; this applies to server spans too.
+- **Exceptions.** A handler's or pipe's exception is recorded on the server span. An exception thrown by a guard is not: guards run before Nestrix's interceptor, so a guard rejection keeps its route name and records no exception event.
+- **Process errors.** An uncaught exception becomes an exception event on the active request span, or a short span of its own. An unhandled rejection is seen only under Node's default `--unhandled-rejections=throw`. Best effort: the process usually exits before that span is exported. Nestrix adds an `uncaughtExceptionMonitor` listener only and never changes whether the process crashes.
 - **Your own spans.** See below.
 
 Server spans carry no `client.address` (the caller's IP is personal data), `server.address` or `server.port`. Client spans record `server.address` and `server.port` of the host they call.
@@ -301,7 +312,7 @@ Key-based redaction cannot clean free text. Exception messages and status messag
 
 ### The `redact` hook
 
-`redact(span)` is called for every span Nestrix exports, after Nestrix's own redaction. It receives an editable copy: `name`, `kind`, `attributes`, `events` (each with editable `attributes`) and `status` (`code`, `message`). Return `false` to drop the span; return anything else to keep it with your edits. Links and their attributes are not exposed; to keep them out, drop the span.
+`redact(span)` is called for every span Nestrix exports, after Nestrix's own redaction. It receives an editable copy: `name`, `kind`, `attributes`, `events` (each with editable `attributes`) and `status` (`code`, `message`). `name` and `kind` are read-only: edits to them are discarded, and to hide a span you drop it. Return `false` to drop the span; return anything else to keep it with your edits. Links and their attributes are not exposed; to keep them out, drop the span.
 
 <!-- sample: redact -->
 
@@ -396,11 +407,11 @@ Upgrade the host's OpenTelemetry packages to SDK 3 and API 1.10. Do not work aro
 
 ## Using it next to other tools
 
-**One hook-based APM per process.** Nest's request hook is a single slot with no getter, so two tools that install it replace each other. Nestrix checks at startup whether another tool set Nest's hooks and logs a warning. Other tools that use only the OpenTelemetry API or diagnostics channels are fine.
+**One hook-based APM per process.** Nest's request hook is a single slot with no getter, so two tools that install it replace each other. Nestrix can only notice one case: a route-triggered hook that another tool set before Nestrix installed its own (or replaced later). It then logs a message at log level, not warning level. A tool that set only the request hook goes unnoticed. Other tools that use only the OpenTelemetry API or diagnostics channels are fine.
 
 **Sentry.** Nestrix and Sentry run side by side, but with Sentry's defaults `@sentry/node` registers no OpenTelemetry provider, so each of the two starts its own trace: a request has two traces, and an outgoing call carries both Nestrix's `traceparent` and Sentry's `sentry-trace` and `baggage` headers on different trace ids. Sentry does not continue an incoming `traceparent`.
 
-If you want one trace, tested with Sentry 11 on Express: `Sentry.init({ dsn, defaultIntegrations: false, integrations: [Sentry.openTelemetryIntegration()] })`, after Nestrix has registered its provider. The cost is that Sentry loses its default integrations (uncaught exception and unhandled rejection capture, `linkedErrors`, `dedupe`, `contextLines`, `localVariables`, breadcrumbs and others), so you must add back the ones you need. With `openTelemetryIntegration()` and Sentry's default integrations, you still get two traces. Setting `enableOpenTelemetrySetup: true` is not supported: Nestrix's context does not survive Sentry's Express instrumentation there.
+If you want one trace (tested in the phase 0 spike, with Express, an ESM host and `@sentry/node` 11.11; not tested in this package): `Sentry.init({ dsn, defaultIntegrations: false, integrations: [Sentry.openTelemetryIntegration()] })`, after Nestrix has registered its provider. The cost is that Sentry loses its default integrations (uncaught exception and unhandled rejection capture, `linkedErrors`, `dedupe`, `contextLines`, `localVariables`, breadcrumbs and others), so you must add back the ones you need. With `openTelemetryIntegration()` and Sentry's default integrations, you still get two traces. Setting `enableOpenTelemetrySetup: true` is not supported: Nestrix's context does not survive Sentry's Express instrumentation there.
 
 Sentry's transport does not mark its requests as untraced, so an error event sent from inside a failing request would become a child span carrying `traceparent`. Add your Sentry ingest host to `ignore.outgoing` (see the `ignore` sample above). Requests Sentry makes outside a request are skipped already, because they have no parent span.
 

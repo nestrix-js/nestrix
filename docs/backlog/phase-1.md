@@ -23,7 +23,7 @@ Update this table as work moves. One line of notes at most; detail goes in the t
 | P1-12 | Jaeger example, two services | sonnet | P1-09 | done | `pnpm --filter jaeger-example check` passes: one trace, service-a server → client → service-b server, route names set (jaeger 2.23.0). CI job added in P1-11. |
 | P1-13 | Benchmarks: baseline, exporter outage, install size, startup | sonnet | P1-09 | doing | |
 | P1-14 | CommonJS decorated-class check | haiku | P1-02 | done | Consume fixtures boot `forRoot` and read the injected options in CJS (Node 22.15, 26) and ESM apps. |
-| P1-15 | User documentation | sonnet | P1-07, P1-09, P1-13 | doing | |
+| P1-15 | User documentation | sonnet | P1-07, P1-09, P1-13 | review | Package README (full reference) and root README; samples typechecked and kept identical by a test; doc review: 17 corrections applied. Install size and startup numbers wait for P1-13. |
 | P1-16 | Phase report | lead | all | todo | |
 
 Statuses: `todo`, `doing`, `review`, `done`, `blocked` (say on what).
