@@ -187,6 +187,40 @@ importers:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@26.6.6)(vite@8.3.7(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))
 
+  apps/server:
+    dependencies:
+      '@nestjs/common':
+        specifier: ^12.4.2
+        version: 12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
+      '@nestjs/core':
+        specifier: ^12.4.2
+        version: 12.4.2(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/microservices@12.4.2)(@nestjs/platform-express@12.4.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/platform-express':
+        specifier: ^12.4.2
+        version: 12.4.2(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)(rxjs@7.8.2)(supports-color@7.2.0)
+      '@nestrix/nestjs':
+        specifier: workspace:*
+        version: link:../../packages/nestjs
+      '@nestrix/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      '@opentelemetry/api':
+        specifier: ~1.10.0
+        version: 1.10.0
+      reflect-metadata:
+        specifier: ^0.2.2
+        version: 0.2.2
+      rxjs:
+        specifier: ^7.8.2
+        version: 7.8.2
+    devDependencies:
+      '@nestrix/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
+
   benchmarks:
     dependencies:
       '@nestjs/common':
