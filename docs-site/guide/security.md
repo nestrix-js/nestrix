@@ -58,12 +58,14 @@ The dashboard never sends CORS allow headers, whatever your CORS setup, and remo
 
 Starting a [profiler](/guide/dashboard#profiler) capture (`POST <path>/api/v1/profiles`) is the dashboard's only request that changes anything. It must first pass the same access rules as every other dashboard request (a refusal there is the bare `404`), and then all of these, or it is refused before any capture starts:
 
-- `Sec-Fetch-Site: same-origin`, sent exactly once. Browsers set this header and pages cannot; a page on another port of the same host is `same-site` and is refused.
+- `Sec-Fetch-Site: same-origin`, sent exactly once. Browsers set this header and pages cannot; a page on another port of the same host is `same-site` and is refused. Browsers send it only to HTTPS or localhost origins, so **starting a capture needs HTTPS or localhost**: over plain HTTP to another host every start gets `403` although the dashboard shows the button (the dashboard explains this). Use HTTPS, `localhost` or an SSH tunnel.
 - Exactly one `Origin` header, equal to the server's own origin: the request's `Host` with `http` or `https` (on a TLS socket, `https` only). Behind a reverse proxy, pass the original `Host` (nginx: `proxy_set_header Host $host;`), or starts are refused.
 - `Content-Type: application/json`, which a cross-site form or a plain `fetch` cannot send without a preflight.
 - A `Content-Length` of at most 1,024 bytes (no chunked body), holding a JSON object with only `durationSeconds`.
 
-Refusals are `403`, `415`, `411`, `413` or `400` with a JSON error, never with CORS headers. The profiler is only offered where the dashboard is authenticated (`enabled: true` with `auth`, or `'auto'` with the startup token or `auth`), and `ui.profiler: false` removes the route.
+Refusals are `403`, `415`, `411`, `413` or `400` with a JSON error, never with CORS headers. A start within 10 seconds of the previous capture's end is refused with `429`, a `Retry-After` header and `retryAfterSeconds` in the body.
+
+One exception to "never with CORS headers": a body parser of your host can answer first. Express, Fastify and `@nestjs/platform-node` answer malformed JSON, and Fastify answers an unsupported content type (`415`), on the start route with your CORS headers before the dashboard's access check runs. The body is the host's generic parser message, and a path that is not registered at all answers identically, so nothing about the dashboard leaks. The profiler is only offered where the dashboard is authenticated (`enabled: true` with `auth`, or `'auto'` with the startup token or `auth`), and `ui.profiler: false` removes the route.
 
 ## Where it sits
 

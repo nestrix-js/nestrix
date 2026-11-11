@@ -5,7 +5,8 @@
  * Routes, under the dashboard path, registered only where `MetaResponse.profiler.available` is
  * true (the standalone server has none):
  * - `POST api/v1/profiles` with `ProfileStartRequest` as JSON: starts a capture. `202` with
- *   `ProfileStartResponse`; `409` with `ProfileConflictError` while one runs in the process.
+ *   `ProfileStartResponse`; `409` with `ProfileConflictError` while one runs in the process; `429` with
+ *   `ProfileCooldownError` and `Retry-After` within 10 s of the previous capture's end.
  *   Besides dashboard access it needs `Sec-Fetch-Site: same-origin`, an `Origin` equal to the
  *   request's own origin, `Content-Type: application/json` and a `Content-Length` of at most
  *   1,024 bytes (`403`, `415`, `411`, `413` otherwise; architecture §4.7).
@@ -52,6 +53,12 @@ export type ProfileStartResponse = ProfileRunning;
 export interface ProfileConflictError extends ApiError {
   /** The running capture; `null` when another copy of Nestrix started it and it is not readable. */
   running: ProfileRunning | null;
+}
+
+/** `429` answer (with a `Retry-After` header): the previous capture ended less than 10 s ago. */
+export interface ProfileCooldownError extends ApiError {
+  /** Whole seconds until a capture may start. */
+  retryAfterSeconds: number;
 }
 
 /** One finished capture. */

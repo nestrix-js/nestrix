@@ -470,6 +470,12 @@ describe.each(ADAPTERS)("profiler start route on %s", (adapter) => {
     });
     if (adapter === "fastify") {
       // Fastify parses JSON whatever `bodyParser` says; its own 400 answers before the route.
+      // That answer comes from the host's parser, before the dashboard's access check runs, so
+      // it carries the host's CORS headers (`cors: true` above): the CORS assertion of
+      // `expectRefused` is skipped here on purpose. The body is Fastify's generic parser
+      // message and an unregistered path answers identically, so nothing about the dashboard
+      // leaks (architecture section 4.7). The same holds for Fastify's 415 on an unsupported
+      // content type, and for the Express and platform-node parsers on malformed JSON.
       expect(invalid.status).toBe(400);
       expect(runningCapture()).toBeNull();
     } else {
@@ -477,6 +483,26 @@ describe.each(ADAPTERS)("profiler start route on %s", (adapter) => {
     }
     const ok = await post(app, { headers: pageHeaders(app) });
     expect(ok.status, ok.body).toBe(202);
+  });
+
+  it("a start within 10 s of the previous capture's end is 429 with Retry-After and retryAfterSeconds", async () => {
+    const app = await boot(adapter, ENABLED);
+    expect((await post(app, { headers: pageHeaders(app) })).status).toBe(202);
+    const deadline = Date.now() + 5000;
+    while (runningCapture() !== null && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(runningCapture()).toBeNull();
+    const r = await post(app, { headers: pageHeaders(app) });
+    expect(r.status, r.body).toBe(429);
+    expect(errorCode(r)).toBe("too_many_requests");
+    const seconds = (JSON.parse(r.body) as { retryAfterSeconds: number })
+      .retryAfterSeconds;
+    expect(seconds).toBeGreaterThanOrEqual(1);
+    expect(seconds).toBeLessThanOrEqual(10);
+    expect(r.headers["retry-after"]).toBe(String(seconds));
+    expect(cors(r)).toEqual([]);
+    expect(runningCapture()).toBeNull();
   });
 
   it("a fault inside the start handler answers 500 itself and starts nothing", async () => {

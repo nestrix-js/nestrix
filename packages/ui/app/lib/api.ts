@@ -25,11 +25,19 @@ export type QueryParams = Record<string, string | number | undefined>;
 export class ApiRequestError extends Error {
   readonly status: number;
   readonly code: string;
-  constructor(status: number, code: string, message: string) {
+  /** From a `429` problem body (`ProfileCooldownError`). */
+  readonly retryAfterSeconds: number | undefined;
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    retryAfterSeconds?: number,
+  ) {
     super(message);
     this.name = "ApiRequestError";
     this.status = status;
     this.code = code;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -103,10 +111,13 @@ async function requestJson<T>(
   }
   if (!response.ok) {
     const error = (parsed as Partial<ApiError> | null)?.error;
+    const retry = (parsed as { retryAfterSeconds?: unknown } | null)
+      ?.retryAfterSeconds;
     throw new ApiRequestError(
       response.status,
       error?.code ?? "unknown",
       error?.message ?? `HTTP ${response.status}`,
+      typeof retry === "number" && Number.isFinite(retry) ? retry : undefined,
     );
   }
   return parsed as T;

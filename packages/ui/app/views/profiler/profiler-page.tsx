@@ -14,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  ApiRequestError,
   getMeta,
   getProfile,
   getProfiles,
@@ -203,6 +204,23 @@ function ProfileView({ id }: { id: string }) {
   );
 }
 
+/**
+ * What to show when a start is refused. A `403 forbidden` is, in practice, the browser not
+ * sending `Sec-Fetch-Site` (it does so only to HTTPS or localhost origins); a `429` is the
+ * cool-down after the previous capture.
+ */
+export function startProblem(error: Error): string {
+  if (error instanceof ApiRequestError) {
+    if (error.status === 403 && error.code === "forbidden") {
+      return "Starting a capture needs HTTPS or localhost: browsers send the Sec-Fetch-Site header the server checks only to those origins. Open the dashboard over HTTPS (or through localhost) and try again.";
+    }
+    if (error.status === 429 && error.retryAfterSeconds !== undefined) {
+      return `Available again in ${error.retryAfterSeconds} s: a new capture can start 10 s after the previous one ended.`;
+    }
+  }
+  return error.message;
+}
+
 /** The on-demand CPU profiler (P7-02): start a capture, list the last three, inspect one. */
 export function ProfilerPage() {
   const queryClient = useQueryClient();
@@ -226,7 +244,7 @@ export function ProfilerPage() {
       await queryClient.invalidateQueries({ queryKey: ["profiles"] });
       await queryClient.invalidateQueries({ queryKey: ["meta"] });
     },
-    onError: (error) => setProblem(error.message),
+    onError: (error) => setProblem(startProblem(error)),
   });
 
   if (meta.data !== undefined && !available) {

@@ -11,6 +11,7 @@ import {
 } from "../src/profiler/normalize.js";
 import {
   bufferSizeFor,
+  COOLDOWN_MS,
   type CpuProfileHandleLike,
   getProfiler,
   PROFILE_LIMITS,
@@ -225,6 +226,7 @@ describe("the process-wide slot", () => {
     a.start(2000, {});
     vi.advanceTimersByTime(2000);
     expect(runningCapture()).toBeNull();
+    now += COOLDOWN_MS;
     expect(b.start(2000, {}).outcome).toBe("started");
   });
 
@@ -246,6 +248,40 @@ describe("the process-wide slot", () => {
     expect(p.start(1000, {}).outcome).toBe("busy");
     now += STALE_SLOT_GRACE_MS + 1000;
     expect(p.start(1000, {}).outcome).toBe("started");
+  });
+});
+
+describe("the cool-down", () => {
+  it("refuses a start within 10 s of the previous capture's end, then allows it", () => {
+    profilerRuntime.loadV8 = () => fakeV8();
+    const p = new Profiler(recording());
+    expect(p.start(2000, {}).outcome).toBe("started");
+    now += 2000;
+    vi.advanceTimersByTime(2000);
+    expect(runningCapture()).toBeNull();
+    // The capture ended at `now`; 3.5 s later, 6.5 s are left, rounded up.
+    now += 3500;
+    expect(p.start(1000, {})).toEqual({
+      outcome: "cooldown",
+      retryAfterSeconds: 7,
+    });
+    expect(runningCapture()).toBeNull();
+    // Another package copy shares the slot, so it is refused too.
+    expect(new Profiler(recording()).start(1000, {}).outcome).toBe("cooldown");
+    now += 6500 - 1;
+    expect(p.start(1000, {})).toEqual({
+      outcome: "cooldown",
+      retryAfterSeconds: 1,
+    });
+    now += 1;
+    expect(p.start(1000, {}).outcome).toBe("started");
+  });
+
+  it("does not apply before the first capture or to a busy answer", () => {
+    profilerRuntime.loadV8 = () => fakeV8();
+    const p = new Profiler(recording());
+    expect(p.start(2000, {}).outcome).toBe("started");
+    expect(p.start(2000, {}).outcome).toBe("busy");
   });
 });
 
@@ -295,6 +331,7 @@ describe("the end timer", () => {
       const r = p.start(1000, {});
       if (r.outcome === "started") ids.push(r.running.id);
       vi.advanceTimersByTime(1000);
+      now += COOLDOWN_MS;
     }
     expect(p.list().profiles.map((s) => s.id)).toEqual(ids.slice(-3).reverse());
     expect(p.get(ids[0] as string)).toBeUndefined();

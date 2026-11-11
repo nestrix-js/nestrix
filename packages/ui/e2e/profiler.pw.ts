@@ -120,6 +120,38 @@ test("starts a capture with a same-origin JSON fetch, shows progress, then the c
   expect(problems).toEqual([]);
 });
 
+test("a 403 on start explains that starting a capture needs HTTPS or localhost", async ({
+  page,
+}) => {
+  await page.goto(url("profiler"));
+  await expect(page.getByTestId("profiles-empty")).toBeVisible();
+  mock.profileStartRefusal = {
+    status: 403,
+    body: { error: { code: "forbidden", message: "Refused" } },
+  };
+  await page.getByRole("button", { name: "Start capture" }).click();
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText("needs HTTPS or localhost");
+  await expect(alert).not.toContainText("Refused");
+});
+
+test("a 429 on start says when a capture is available again", async ({
+  page,
+}) => {
+  await page.goto(url("profiler"));
+  await expect(page.getByTestId("profiles-empty")).toBeVisible();
+  mock.profileStartRefusal = {
+    status: 429,
+    body: {
+      error: { code: "too_many_requests", message: "Wait" },
+      retryAfterSeconds: 7,
+    },
+    headers: { "Retry-After": "7" },
+  };
+  await page.getByRole("button", { name: "Start capture" }).click();
+  await expect(page.getByRole("alert")).toContainText("Available again in 7 s");
+});
+
 test("a refused start shows the server's message", async ({ page }) => {
   await page.goto(url("profiler"));
   await expect(page.getByTestId("profiles-empty")).toBeVisible();

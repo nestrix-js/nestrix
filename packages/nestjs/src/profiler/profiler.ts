@@ -46,6 +46,9 @@ export const SAMPLE_INTERVAL_MS = 1;
  */
 export const STALE_SLOT_GRACE_MS = 30_000;
 
+/** A start within this long of the previous capture's end is refused (`cooldown`). */
+export const COOLDOWN_MS = 10_000;
+
 /** `maxBufferSize` for a capture of `durationMs`: one sample per interval, plus headroom. */
 export function bufferSizeFor(durationMs: number): number {
   return Math.ceil(durationMs / SAMPLE_INTERVAL_MS) + 1000;
@@ -84,6 +87,8 @@ export const profilerRuntime = {
 interface SlotV1 {
   readonly version: 1;
   running: ProfileRunning | null;
+  /** When the last capture ended (optional and additive: older copies ignore it). */
+  lastEndedAtUnixMs?: number;
 }
 
 const SLOT_KEY = Symbol.for("nestrix.profiler");
@@ -133,6 +138,7 @@ interface StoredProfile {
 export type StartResult =
   | { readonly outcome: "started"; readonly running: ProfileRunning }
   | { readonly outcome: "busy"; readonly running: ProfileRunning | null }
+  | { readonly outcome: "cooldown"; readonly retryAfterSeconds: number }
   | { readonly outcome: "failed"; readonly message: string };
 
 const FAILURE_LINE =
@@ -189,6 +195,16 @@ export class Profiler {
           return { outcome: "busy", running: s.running };
         }
         s.running = null;
+      }
+      const ended = s.lastEndedAtUnixMs;
+      if (typeof ended === "number") {
+        const waitMs = ended + COOLDOWN_MS - profilerRuntime.now();
+        if (waitMs > 0) {
+          return {
+            outcome: "cooldown",
+            retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)),
+          };
+        }
       }
       if (this.v8 === undefined) this.v8 = profilerRuntime.loadV8();
       const v8 = this.v8;
@@ -294,6 +310,8 @@ export class Profiler {
     try {
       if (this.capture !== capture) return;
       this.release(capture);
+      const s = slot();
+      if (s !== undefined) s.lastEndedAtUnixMs = profilerRuntime.now();
       let raw: string | undefined;
       try {
         raw = capture.handle.stop();
@@ -370,6 +388,9 @@ export function resetProfilerForTests(): void {
     ?.capture?.owner;
   if (owner !== undefined) shared?.discard(owner);
   const s = slot();
-  if (s !== undefined) s.running = null;
+  if (s !== undefined) {
+    s.running = null;
+    delete s.lastEndedAtUnixMs;
+  }
   shared = undefined;
 }

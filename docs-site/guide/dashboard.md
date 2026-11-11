@@ -24,9 +24,9 @@ The dashboard polls for new data every two seconds.
 
 ## Profiler
 
-The **Profiler** tab takes an on-demand CPU profile of the running process. Pick a duration (the API accepts 1 to 120 seconds, default 30) and start; when the capture ends the dashboard shows a flame graph, the top functions by self time and a `.cpuprofile` download for Chrome DevTools or speedscope. Nothing runs between captures, and nothing is loaded before the first one. One capture runs at a time per process (a second start gets `409`); the last three are kept in memory until the app restarts, and a running capture is discarded when the app closes.
+The **Profiler** tab takes an on-demand CPU profile of the running process. Pick a duration (the API accepts 1 to 120 seconds, default 30) and start; when the capture ends the dashboard shows a flame graph, the top functions by self time and a `.cpuprofile` download for Chrome DevTools or speedscope. Nothing runs between captures, and nothing is loaded before the first one. One capture runs at a time per process (a second start gets `409`, and one within 10 seconds of the previous capture's end gets `429`); the last three are kept in memory until the app restarts, and a running capture is discarded when the app closes.
 
-It is offered only where the dashboard is authenticated: `ui: { enabled: true, auth }`, or `'auto'` with the startup token or `auth`. `ui.profiler: false` removes it and its routes. How a start is protected is on the [Security model](/guide/security#starting-a-cpu-capture) page.
+It is offered only where the dashboard is authenticated: `ui: { enabled: true, auth }`, or `'auto'` with the startup token or `auth`. `ui.profiler: false` removes it and its routes. Starting a capture needs HTTPS or localhost: browsers send the `Sec-Fetch-Site` header the start requires only to those origins, so over plain HTTP to another host the start is refused with `403` and the dashboard says why. How a start is protected is on the [Security model](/guide/security#starting-a-cpu-capture) page.
 
 | | |
 |---|---|

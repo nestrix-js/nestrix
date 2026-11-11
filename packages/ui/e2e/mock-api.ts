@@ -66,6 +66,12 @@ export class MockApi {
   profiles: ProfileSummary[] = [];
   profileDetails = new Map<string, ProfileDetail>();
   lastStartPauseMs: number | null = null;
+  /** When set, `POST profiles` answers it (a refusal such as 403 or 429). */
+  profileStartRefusal: {
+    status: number;
+    body: unknown;
+    headers?: Record<string, string>;
+  } | null = null;
   /** `POST profiles` requests seen: the headers the server checks and the parsed body. */
   profileStarts: {
     origin: string | undefined;
@@ -107,6 +113,7 @@ export class MockApi {
     this.profiles = [];
     this.profileDetails = new Map();
     this.lastStartPauseMs = null;
+    this.profileStartRefusal = null;
     this.profileStarts = [];
     this.errors.reset(0);
     this.push(count);
@@ -306,6 +313,7 @@ export class MockApi {
     };
     if (!this.profilerAvailable) return notFound;
     if (method === "POST" && rest === "") {
+      if (this.profileStartRefusal) return this.profileStartRefusal;
       if (this.profileRunning)
         return {
           status: 409,

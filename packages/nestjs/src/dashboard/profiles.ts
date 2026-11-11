@@ -18,6 +18,7 @@
  */
 import type {
   ProfileConflictError,
+  ProfileCooldownError,
   ProfileIdParamsSpec,
   ProfileStartBodySpec,
 } from "@nestrix-js/protocol";
@@ -388,7 +389,7 @@ function json(status: number, body: unknown): DashboardResponse {
   return { status, contentType: JSON_TYPE, body: JSON.stringify(body) };
 }
 
-/** Starts a capture and answers `202`, `409` or `503`. Never throws. */
+/** Starts a capture and answers `202`, `409`, `429` or `503`. Never throws. */
 export function startCapture(
   profiler: Profiler,
   owner: object,
@@ -406,6 +407,19 @@ export function startCapture(
       running: result.running,
     };
     return json(409, body);
+  }
+  if (result.outcome === "cooldown") {
+    const body: ProfileCooldownError = {
+      error: {
+        code: "too_many_requests",
+        message: `A new capture can start 10 s after the previous one ended; try again in ${result.retryAfterSeconds} s.`,
+      },
+      retryAfterSeconds: result.retryAfterSeconds,
+    };
+    return {
+      ...json(429, body),
+      headers: { "retry-after": String(result.retryAfterSeconds) },
+    };
   }
   return apiError(
     503,

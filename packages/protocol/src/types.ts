@@ -313,6 +313,8 @@ export type ApiErrorCode =
   | "internal"
   /** `409`: a profiler capture is already running. */
   | "conflict"
+  /** `429`: a profiler capture started within 10 s of the previous one's end. */
+  | "too_many_requests"
   /** `411`: a write without `Content-Length`. */
   | "length_required"
   /** `413`: a write body over its limit. */
