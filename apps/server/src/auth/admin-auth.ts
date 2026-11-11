@@ -50,9 +50,10 @@ import {
   passwordNotSetPage,
 } from "./pages.js";
 import {
+  PROCESS_SALT,
   RevokedSessions,
-  SESSION_COOKIE,
   SESSION_TTL_SECONDS,
+  sessionCookieName,
   sessionKey,
   sha256,
   signSession,
@@ -119,7 +120,7 @@ export class AdminAuth implements OnModuleInit {
     this.key =
       password === undefined
         ? undefined
-        : sessionKey(config.sessionSecret, password);
+        : sessionKey(config.sessionSecret, password, PROCESS_SALT);
   }
 
   onModuleInit(): void {
@@ -143,7 +144,10 @@ export class AdminAuth implements OnModuleInit {
       if (key === undefined) return undefined;
       const now = this.nowSeconds();
       let found: VerifiedSession | undefined;
-      const values = getCookieValues(req.headers.cookie, SESSION_COOKIE);
+      const values = getCookieValues(
+        req.headers.cookie,
+        sessionCookieName(req.socket?.localPort),
+      );
       for (const value of values.slice(0, MAX_SESSION_COOKIES)) {
         const session = verifySession(key, value, now);
         if (found === undefined && session && !this.revoked.has(session.nonce))
@@ -369,6 +373,7 @@ export class AdminAuth implements OnModuleInit {
       const given = sha256(typeof candidate === "string" ? candidate : "");
       const matches = timingSafeEqual(given, digest);
       if (!matches || typeof candidate !== "string") {
+        this.limiter.recordFailure();
         this.loginForm(res, 401, "wrong-password");
         return;
       }
@@ -431,6 +436,6 @@ export class AdminAuth implements OnModuleInit {
   /** `HttpOnly; SameSite=Strict; Path=/`, `Max-Age`, and `Secure` unless loopback plain HTTP. */
   private cookie(req: IncomingMessage, value: string, maxAge: number): string {
     const secure = !isLoopbackPlainHttp(req);
-    return `${SESSION_COOKIE}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Strict${secure ? "; Secure" : ""}`;
+    return `${sessionCookieName(req.socket?.localPort)}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Strict${secure ? "; Secure" : ""}`;
   }
 }

@@ -32,12 +32,45 @@ describe("LoginRateLimiter", () => {
     expect(limiter.take("a").ok).toBe(true);
   });
 
-  it("keeps at most maxClients entries, forgetting the least recently seen", () => {
-    const limiter = new LoginRateLimiter(1, 60_000, () => 0, 3);
-    for (const k of ["a", "b", "c", "d"]) limiter.take(k);
+  it("keeps a blocked client blocked after maxClients others attempt", () => {
+    let now = 0;
+    const limiter = new LoginRateLimiter(1, 60_000, () => now, 3);
+    expect(limiter.take("a").ok).toBe(true);
+    expect(limiter.take("a").ok).toBe(false);
+    for (const k of ["b", "c", "d", "e"]) limiter.take(k);
+    expect(limiter.take("a").ok).toBe(false); // not evicted by the others
+    now = 60_000;
+    expect(limiter.take("a").ok).toBe(true); // its window has passed
+  });
+
+  it("refuses new clients while the map is full of live ones, admits them once entries expire", () => {
+    let now = 0;
+    const limiter = new LoginRateLimiter(1, 60_000, () => now, 3);
+    for (const k of ["a", "b", "c"]) expect(limiter.take(k).ok).toBe(true);
+    const refused = limiter.take("d");
+    expect(refused.ok).toBe(false);
     expect(limiter.size).toBe(3);
-    expect(limiter.take("a").ok).toBe(true); // "a" was forgotten
+    now = 30_000;
     expect(limiter.take("d").ok).toBe(false);
+    now = 60_000;
+    expect(limiter.take("d").ok).toBe(true); // expired entries were dropped
+    expect(limiter.size).toBe(1);
+  });
+
+  it("stops every client once the global failure budget is spent (a /48 rotation)", () => {
+    let now = 0;
+    const limiter = new LoginRateLimiter(5, 60_000, () => now, 10_000, 60);
+    let allowed = 0;
+    for (let i = 0; i < 1000; i++) {
+      const key = clientKey(`2001:db8:1:${i.toString(16)}::1`);
+      if (!limiter.take(key).ok) break;
+      limiter.recordFailure();
+      allowed++;
+    }
+    expect(allowed).toBe(60);
+    expect(limiter.take("203.0.113.9").ok).toBe(false);
+    now = 60_000;
+    expect(limiter.take("203.0.113.9").ok).toBe(true);
   });
 });
 

@@ -4,8 +4,10 @@
  *
  * Token: `v1.<expiresAtSeconds>.<nonce>.<mac>`, where `nonce` is 16 random bytes and `mac` is
  * HMAC-SHA256 over `v1.<expiresAtSeconds>.<nonce>`, both base64url. The key is derived from the
- * session secret and a digest of the admin password, so changing the password ends every
- * session even when `NESTRIX_SESSION_SECRET` stays the same.
+ * session secret, a digest of the admin password and a random value drawn once per process. So
+ * changing the password ends every session, and so does restarting the server: logout
+ * revocations live in memory, and a fixed `NESTRIX_SESSION_SECRET` must not bring a signed-out
+ * cookie back to life.
  */
 import {
   createHash,
@@ -15,6 +17,23 @@ import {
 } from "node:crypto";
 
 export const SESSION_COOKIE = "nestrix_admin";
+
+/**
+ * The cookie name for the port the request arrived on. Cookies are not isolated by port, so a
+ * bare name would be sent to every other server on the same host (as the embedded dashboard does,
+ * architecture 4.7).
+ */
+export function sessionCookieName(localPort: unknown): string {
+  return typeof localPort === "number" &&
+    Number.isInteger(localPort) &&
+    localPort > 0 &&
+    localPort < 65536
+    ? `${SESSION_COOKIE}_${localPort}`
+    : SESSION_COOKIE;
+}
+
+/** Random per process; part of every session key. */
+export const PROCESS_SALT: Buffer = randomBytes(32);
 /** Absolute lifetime of a session. */
 export const SESSION_TTL_SECONDS = 8 * 60 * 60;
 const VERSION = "v1";
@@ -25,11 +44,16 @@ export function sha256(value: string | Buffer): Buffer {
   return createHash("sha256").update(value).digest();
 }
 
-/** The HMAC key of sessions for this secret and password. */
-export function sessionKey(secret: Buffer, password: string): Buffer {
+/** The HMAC key of sessions for this secret, password and process salt. */
+export function sessionKey(
+  secret: Buffer,
+  password: string,
+  salt: Buffer = PROCESS_SALT,
+): Buffer {
   return createHmac("sha256", secret)
     .update(`${KEY_LABEL}\0`)
     .update(sha256(password))
+    .update(salt)
     .digest();
 }
 

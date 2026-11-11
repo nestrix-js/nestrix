@@ -2,6 +2,7 @@
 // unknown paths, the guard behind the middleware, cross-site refusal, CORS, and the 503 mode
 // without NESTRIX_ADMIN_PASSWORD. Ingest is never affected.
 import "reflect-metadata";
+import { readFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { Controller, Get, Header, Logger, Module, Post } from "@nestjs/common";
 import type { NestExpressApplication } from "@nestjs/platform-express";
@@ -16,6 +17,7 @@ import { INGEST_SINK } from "../../src/ingest/tokens.js";
 import {
   fixture,
   auth as ingestAuth,
+  lastServer,
   PROTO,
   post,
   RecordingSink,
@@ -30,6 +32,7 @@ import {
   rawRequest,
   SESSION_SECRET,
   signedCookie,
+  startAuthServer,
 } from "./helpers.js";
 
 /** Stands in for the query API (P5-03), registered the way any feature module would be. */
@@ -78,6 +81,7 @@ async function start(
   if (options.configure !== false) configureApp(app);
   await app.listen(0, "127.0.0.1");
   const { port } = app.getHttpServer().address() as AddressInfo;
+  lastServer.port = port;
   return { app, baseUrl: `http://127.0.0.1:${port}` };
 }
 
@@ -253,6 +257,7 @@ describe("with an admin password", () => {
     await corsApp.listen(0, "127.0.0.1");
     try {
       const { port } = corsApp.getHttpServer().address() as AddressInfo;
+      lastServer.port = port;
       const url = `http://127.0.0.1:${port}`;
       const get = await rawRequest(url, "GET", "/api/v1/probe", {
         origin: "http://evil.example",
@@ -380,5 +385,36 @@ describe("without NESTRIX_ADMIN_PASSWORD", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it("registers no CORS layer of its own: a preflight is refused with no Access-Control-* header", async () => {
+    // `createApp` is NestFactory.create + configureApp + shutdown hooks; this boots the same
+    // pipeline (configureApp over AppModule) and nothing else.
+    const server = await startAuthServer();
+    try {
+      for (const headers of [
+        {} as Record<string, string>,
+        {
+          origin: "http://evil.example",
+          "access-control-request-method": "GET",
+        },
+      ]) {
+        const res = await rawRequest(
+          server.baseUrl,
+          "OPTIONS",
+          "/api/v1/meta",
+          headers,
+        );
+        expect(res.status).toBe(403);
+        expect(corsHeaders(res.headers)).toEqual([]);
+      }
+    } finally {
+      await server.close();
+    }
+    const source = await readFile(
+      new URL("../../src/bootstrap.ts", import.meta.url),
+      "utf8",
+    );
+    expect(source).not.toMatch(/enableCors|cors\(/i);
   });
 });

@@ -5,7 +5,7 @@ import { AppModule } from "../../src/app.module.js";
 import { configureApp } from "../../src/bootstrap.js";
 import { DenyQueryGuard, QUERY_GUARD } from "../../src/query/guard.js";
 import { ADMIN_PW, SESSION_SECRET, signedCookie } from "../auth/helpers.js";
-import { testConfig } from "../ingest/helpers.js";
+import { lastServer, testConfig } from "../ingest/helpers.js";
 
 export interface QueryServer {
   app: NestExpressApplication;
@@ -47,10 +47,16 @@ export async function startQueryServer(
   configureApp(app, config);
   await app.listen(0, "127.0.0.1");
   const { port } = app.getHttpServer().address() as AddressInfo;
+  lastServer.port = port;
   const baseUrl = `http://127.0.0.1:${port}`;
   const get = (path: string, headers: Record<string, string> = {}) =>
     fetch(`${baseUrl}${path}`, {
-      headers: signedIn ? { cookie: signedCookie(), ...headers } : headers,
+      headers: signedIn
+        ? {
+            cookie: signedCookie(undefined, undefined, undefined, port),
+            ...headers,
+          }
+        : headers,
     });
   return {
     app,

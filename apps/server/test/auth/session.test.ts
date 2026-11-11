@@ -4,15 +4,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminAuth } from "../../src/auth/admin-auth.js";
 import {
   RevokedSessions,
-  SESSION_COOKIE,
   SESSION_TTL_SECONDS,
   sessionKey,
   signSession,
   verifySession,
 } from "../../src/auth/session.js";
-import type { TestServer } from "../ingest/helpers.js";
+import { lastServer, type TestServer } from "../ingest/helpers.js";
 import {
   ADMIN_PW,
+  cookieName,
   SESSION_SECRET,
   signedCookie,
   startAuthServer,
@@ -104,7 +104,7 @@ describe("over HTTP", () => {
     expect(
       await status(
         "/",
-        `a=1; ${SESSION_COOKIE}=forged; ${signedCookie()}; b="2"`,
+        `a=1; ${cookieName()}=forged; ${signedCookie()}; b="2"`,
       ),
     ).toBe(200);
   });
@@ -114,14 +114,15 @@ describe("over HTTP", () => {
     const nowS = Math.floor(Date.now() / 1000);
     const bad = [
       undefined,
-      `${SESSION_COOKIE}=`,
-      `${SESSION_COOKIE}=${randomBytes(48).toString("base64url")}`,
-      `${SESSION_COOKIE}=${valid.slice(0, -1)}${valid.endsWith("A") ? "B" : "A"}`,
-      `${SESSION_COOKIE}=${valid.replace(/^v1\.(\d+)/, (_, e) => `v1.${Number(e) + 100}`)}`,
+      `${cookieName()}=`,
+      `${cookieName()}=${randomBytes(48).toString("base64url")}`,
+      `${cookieName()}=${valid.slice(0, -1)}${valid.endsWith("A") ? "B" : "A"}`,
+      `${cookieName()}=${valid.replace(/^v1\.(\d+)/, (_, e) => `v1.${Number(e) + 100}`)}`,
       signedCookie(nowS - 1), // expired, correctly signed
       signedCookie(nowS + 3600, "o".repeat(40)), // another secret
       signedCookie(nowS + 3600, SESSION_SECRET, "b".repeat(24)), // another password
       `nestrix_admin_other=${valid}`, // right value, wrong name
+      `nestrix_admin=${valid}`, // the port-less name is not read
     ];
     for (const cookie of bad) {
       expect(await status("/", cookie), String(cookie)).toBe(303);
@@ -137,6 +138,43 @@ describe("over HTTP", () => {
         error: { code: "unauthorized", message: "Sign in at /login." },
       });
     }
+  });
+
+  it("refuses a cookie signed by an earlier process with the same secret and password", async () => {
+    const earlier = sessionKey(
+      Buffer.from(SESSION_SECRET),
+      ADMIN_PW,
+      randomBytes(32),
+    );
+    const nowS = Math.floor(Date.now() / 1000);
+    const cookie = `${cookieName()}=${signSession(earlier, nowS + 3600)}`;
+    expect(await status("/", cookie)).toBe(303);
+    expect(await status("/api/v1/meta", cookie)).toBe(401);
+    expect(await status("/", signedCookie())).toBe(200); // this process's own key works
+  });
+
+  it("refuses a cookie that a restarted AdminAuth would not have signed", async () => {
+    const config = {
+      adminPassword: ADMIN_PW,
+      sessionSecret: Buffer.from(SESSION_SECRET),
+    };
+    const mine = server.app.get(AdminAuth);
+    const token = signedCookie().split("=")[1] as string;
+    const req = (t: string) =>
+      ({
+        headers: { cookie: `${cookieName()}=${t}` },
+        socket: { localPort: lastServer.port },
+      }) as never;
+    expect(mine.sessionOf(req(token))).toBeDefined();
+    const other = new AdminAuth(config as never) as unknown as { key: Buffer };
+    const foreign = signSession(
+      sessionKey(config.sessionSecret, ADMIN_PW, randomBytes(32)),
+      Math.floor(Date.now() / 1000) + 3600,
+    );
+    expect(mine.sessionOf(req(foreign))).toBeUndefined();
+    expect(other.key.equals(sessionKey(config.sessionSecret, ADMIN_PW))).toBe(
+      true,
+    );
   });
 
   it("fails closed when the session check itself throws", async () => {

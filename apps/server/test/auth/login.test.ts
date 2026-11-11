@@ -8,6 +8,7 @@ import { SESSION_TTL_SECONDS } from "../../src/auth/session.js";
 import type { TestServer } from "../ingest/helpers.js";
 import {
   ADMIN_PW,
+  cookieName,
   cookiePair,
   corsHeaders,
   originOf,
@@ -72,7 +73,9 @@ describe("POST /login", () => {
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toBe("/");
     const setCookie = res.headers.get("set-cookie") ?? "";
-    expect(setCookie).toMatch(/^nestrix_admin=v1\.\d+\.[\w-]{22}\.[\w-]{43};/);
+    expect(setCookie).toMatch(
+      new RegExp(`^${cookieName()}=v1\\.\\d+\\.[\\w-]{22}\\.[\\w-]{43};`),
+    );
     expect(setCookie).toContain("; Path=/");
     expect(setCookie).toContain(`; Max-Age=${SESSION_TTL_SECONDS}`);
     expect(setCookie).toContain("; HttpOnly");
@@ -252,7 +255,7 @@ describe("POST /logout", () => {
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toBe("/login");
     const cleared = res.headers.get("set-cookie") ?? "";
-    expect(cleared).toMatch(/^nestrix_admin=;/);
+    expect(cleared).toMatch(new RegExp(`^${cookieName()}=;`));
     expect(cleared).toContain("Max-Age=0");
     expect(cleared).toContain("HttpOnly");
     expect(cleared).toContain("SameSite=Strict");

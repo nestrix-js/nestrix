@@ -962,7 +962,14 @@ describe.skipIf(noDatabase)(`query API access ${skipReason}`, () => {
         error: { code: "unauthorized" },
       });
       const signedIn = await fetch(`${real.baseUrl}/api/v1/meta`, {
-        headers: { cookie: signedCookie() },
+        headers: {
+          cookie: signedCookie(
+            undefined,
+            undefined,
+            undefined,
+            Number(new URL(real.baseUrl).port),
+          ),
+        },
       });
       expect(signedIn.status).toBe(200);
     } finally {

@@ -1,10 +1,15 @@
 import { request as httpRequest } from "node:http";
 import {
-  SESSION_COOKIE,
+  sessionCookieName,
   sessionKey,
   signSession,
 } from "../../src/auth/session.js";
-import { startServer, type TestServer, testConfig } from "../ingest/helpers.js";
+import {
+  lastServer,
+  startServer,
+  type TestServer,
+  testConfig,
+} from "../ingest/helpers.js";
 
 /** Test-only admin credential and session secret (obviously not real ones). */
 export const ADMIN_PW = "a".repeat(24);
@@ -115,9 +120,10 @@ export function signedCookie(
   expiresAtSeconds = Math.floor(Date.now() / 1000) + 3600,
   secret = SESSION_SECRET,
   pw = ADMIN_PW,
+  port = lastServer.port,
 ): string {
   const key = sessionKey(Buffer.from(secret, "utf8"), pw);
-  return `${SESSION_COOKIE}=${signSession(key, expiresAtSeconds)}`;
+  return `${sessionCookieName(port)}=${signSession(key, expiresAtSeconds)}`;
 }
 
 /** Every response header name that starts with `access-control-`. */
@@ -125,4 +131,9 @@ export function corsHeaders(headers: Headers | RawResult["headers"]): string[] {
   const names =
     headers instanceof Headers ? [...headers.keys()] : Object.keys(headers);
   return names.filter((n) => n.toLowerCase().startsWith("access-control-"));
+}
+
+/** Name of the session cookie of the most recently started test server. */
+export function cookieName(port = lastServer.port): string {
+  return sessionCookieName(port);
 }

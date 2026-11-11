@@ -5,7 +5,11 @@
  * Clients are keyed by the socket peer address, never by a forwarding header a client could set:
  * IPv4 by address, IPv6 by its /64 prefix (one host usually holds a whole /64). Behind a reverse
  * proxy every visitor shares the proxy's address and therefore one limit; that is the safe side.
- * The map is bounded: past `maxClients` the least recently seen client is forgotten.
+ * The map is bounded and fails closed: only clients whose window has passed are forgotten, so
+ * once `maxClients` live clients are tracked, attempts from new clients are refused (a client
+ * cannot shed its own limit by making others crowd it out, e.g. by rotating IPv6 prefixes). A
+ * global budget of failed logins across all clients (`globalFailureLimit` per window) bounds
+ * guessing from many addresses at once.
  */
 import { isIPv4, isIPv6 } from "node:net";
 
@@ -50,39 +54,70 @@ export function clientKey(address: unknown): string {
 
 export class LoginRateLimiter {
   static readonly MAX_CLIENTS = 10_000;
+  static readonly GLOBAL_FAILURES = 60;
   private readonly attempts = new Map<string, number[]>();
+  private failures: number[] = [];
 
   constructor(
     private readonly limit = 5,
     private readonly windowMs = 60_000,
     private readonly now: () => number = () => Date.now(),
     private readonly maxClients = LoginRateLimiter.MAX_CLIENTS,
+    private readonly globalFailureLimit = LoginRateLimiter.GLOBAL_FAILURES,
   ) {}
+
+  private retryAfter(oldest: number, now: number): LoginRateDecision {
+    const waitMs = this.windowMs - (now - oldest);
+    return {
+      ok: false,
+      retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)),
+    };
+  }
 
   /** Records an attempt by `key` if allowed. */
   take(key: string): LoginRateDecision {
     const now = this.now();
-    const recent = (this.attempts.get(key) ?? []).filter(
+    this.failures = this.failures.filter(
       (t) => now - t < this.windowMs && t <= now,
     );
-    this.attempts.delete(key); // Re-inserted below: least recently seen first.
+    if (this.failures.length >= this.globalFailureLimit) {
+      return this.retryAfter(this.failures[0] as number, now);
+    }
+    const known = this.attempts.get(key);
+    const recent = (known ?? []).filter(
+      (t) => now - t < this.windowMs && t <= now,
+    );
+    if (known === undefined && this.attempts.size >= this.maxClients) {
+      this.prune(now);
+      if (this.attempts.size >= this.maxClients) {
+        // Full of live clients: refuse the newcomer rather than forget someone.
+        return {
+          ok: false,
+          retryAfterSeconds: Math.ceil(this.windowMs / 1000),
+        };
+      }
+    }
     if (recent.length >= this.limit) {
       this.attempts.set(key, recent);
-      const oldest = recent[0] as number;
-      const waitMs = this.windowMs - (now - oldest);
-      return {
-        ok: false,
-        retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)),
-      };
+      return this.retryAfter(recent[0] as number, now);
     }
     recent.push(now);
     this.attempts.set(key, recent);
-    while (this.attempts.size > this.maxClients) {
-      const oldestKey = this.attempts.keys().next().value;
-      if (oldestKey === undefined) break;
-      this.attempts.delete(oldestKey);
-    }
     return { ok: true };
+  }
+
+  /** Records a failed login (wrong password) against the global budget. */
+  recordFailure(): void {
+    this.failures.push(this.now());
+  }
+
+  private prune(now: number): void {
+    for (const [key, times] of this.attempts) {
+      const last = times[times.length - 1];
+      if (last === undefined || now - last >= this.windowMs || last > now) {
+        this.attempts.delete(key);
+      }
+    }
   }
 
   get size(): number {

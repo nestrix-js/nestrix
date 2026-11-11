@@ -61,6 +61,9 @@ export interface TestServer {
   close: () => Promise<void>;
 }
 
+/** Port of the most recently started test server (names the session cookie). */
+export const lastServer = { port: 0 };
+
 export async function startServer(
   config: ServerConfig = testConfig(),
 ): Promise<TestServer> {
@@ -78,6 +81,7 @@ export async function startServer(
   configureApp(app, config);
   await app.listen(0, "127.0.0.1");
   const { port } = app.getHttpServer().address() as AddressInfo;
+  lastServer.port = port;
   const baseUrl = `http://127.0.0.1:${port}`;
   return {
     app,
