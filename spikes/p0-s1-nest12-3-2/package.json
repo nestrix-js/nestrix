@@ -1,5 +1,5 @@
 {
-  "name": "@nestrix/spike-p0-s1-nest12-3-2",
+  "name": "@nestrix-js/spike-p0-s1-nest12-3-2",
   "version": "0.0.0",
   "private": true,
   "description": "Spike P0-S1 question 9: the P0-S1 tests re-run against Nest 12.3.2 on platform-node, the first release whose body parsers keep the async context. Never published.",

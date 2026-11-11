@@ -70,7 +70,7 @@ Attribute names follow the OpenTelemetry HTTP semantic conventions current at im
 
 **Objective.** The same app shows its own traces at `/_nestrix` with nothing else running.
 
-**Deliverables.** In-memory store; pre-sampling route counters; query API v1 and its types in `packages/protocol`; `@nestrix/ui` with request list, trace waterfall, error list, per-route latency and error rate, live updates; mounting on all three adapters under a configurable path; the security model of architecture §4.7, including the startup token for `ui: 'auto'` (D-46): a logged link with a random token that sets an HttpOnly cookie, and an explicit opt-out. Dashboard routes are registered in `onModuleInit` (D-45).
+**Deliverables.** In-memory store; pre-sampling route counters; query API v1 and its types in `packages/protocol`; `@nestrix-js/ui` with request list, trace waterfall, error list, per-route latency and error rate, live updates; mounting on all three adapters under a configurable path; the security model of architecture §4.7, including the startup token for `ui: 'auto'` (D-46): a logged link with a random token that sets an HttpOnly cookie, and an explicit opt-out. Dashboard routes are registered in `onModuleInit` (D-45).
 
 **Depends on.** Phase 1; spike 5.
 
@@ -81,7 +81,7 @@ Attribute names follow the OpenTelemetry HTTP semantic conventions current at im
 - With `NODE_ENV=production` and no `auth`, the dashboard is unreachable and the app starts.
 - With a host catch-all route on Express, Nestrix reports that the dashboard is shadowed.
 - At a sample rate of 0.1, per-route request counts match the number of requests sent, and the UI shows that lists are sampled.
-- `@nestrix/ui` is within its unpacked-size budget, checked in CI: 1 MB as the target, or the measured size plus 20% (at most 2 MB) if the first build needs more (D-52).
+- `@nestrix-js/ui` is within its unpacked-size budget, checked in CI: 1 MB as the target, or the measured size plus 20% (at most 2 MB) if the first build needs more (D-52).
 - A Playwright test opens a trace and checks the waterfall rows.
 
 **Validation.** Playwright against the example apps in CI; a security test file with one test per rule in §4.7.

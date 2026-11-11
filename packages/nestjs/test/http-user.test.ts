@@ -14,7 +14,7 @@ import {
   Param,
   UseGuards,
 } from "@nestjs/common";
-import { type BootedApp, bootApp } from "@nestrix/testing";
+import { type BootedApp, bootApp } from "@nestrix-js/testing";
 import { INVALID_SPAN_CONTEXT, trace } from "@opentelemetry/api";
 import {
   afterAll,

@@ -5,10 +5,10 @@ RUN npm install -g pnpm@12.16.1
 WORKDIR /repo
 COPY . .
 RUN pnpm install --frozen-lockfile
-# The server's own build plus the workspace packages it depends on (@nestrix/nestjs, @nestrix/ui).
-RUN pnpm --filter "@nestrix/server..." build
+# The server's own build plus the workspace packages it depends on (@nestrix-js/nestjs, @nestrix-js/ui).
+RUN pnpm --filter "@nestrix-js/server..." build
 # A production-only copy of the server and its dependencies (workspace packages are copied, not linked).
-RUN pnpm --filter @nestrix/server --prod deploy --legacy /out
+RUN pnpm --filter @nestrix-js/server --prod deploy --legacy /out
 
 FROM node:26-slim AS runtime
 ENV NODE_ENV=production

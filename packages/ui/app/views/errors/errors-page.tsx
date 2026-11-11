@@ -1,4 +1,4 @@
-import type { ErrorItem } from "@nestrix/protocol";
+import type { ErrorItem } from "@nestrix-js/protocol";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";

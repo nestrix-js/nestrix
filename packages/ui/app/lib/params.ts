@@ -2,7 +2,7 @@ import {
   errorListParams,
   routeStatsParams,
   traceListParams,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 import { createParser, type inferParserType, parseAsStringLiteral } from "nuqs";
 
 /**

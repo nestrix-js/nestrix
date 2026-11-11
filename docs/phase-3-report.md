@@ -28,7 +28,7 @@ Validation: the awkward-class corpus is a fixture; integration tests run against
 | P3-04 | Pre-sampling class statistics and `GET api/v1/classes`. |
 | P3-05 | App map and `GET api/v1/map` from the stored traces. |
 | P3-06 | Classes and map views (SVG, no new packages). |
-| P3-07 | Slow queries (> 100 ms), repeated statements (3+), span links, release/user/type in the request list. `@nestrix/ui` 783 KB of 1 MB. |
+| P3-07 | Slow queries (> 100 ms), repeated statements (3+), span links, release/user/type in the request list. `@nestrix-js/ui` 783 KB of 1 MB. |
 | P3-08 | BullMQ acceptance test and documented setup (`new BullMQOtel({ tracerName })`). |
 | P3-09 | Reviews of P3-01, P3-02, P3-03 (and the follow-up fix rounds). |
 | P3-10 | README and design docs for level 2, level 3, BullMQ, users, releases, classes, map. |

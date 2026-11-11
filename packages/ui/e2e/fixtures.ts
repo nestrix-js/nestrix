@@ -1,6 +1,9 @@
 import { fileURLToPath } from "node:url";
 
-import type { ErrorListResponse, RouteStatsResponse } from "@nestrix/protocol";
+import type {
+  ErrorListResponse,
+  RouteStatsResponse,
+} from "@nestrix-js/protocol";
 
 /**
  * The protocol fixtures, loaded by path: they sit outside this package's TypeScript root and

@@ -112,7 +112,7 @@ export interface NestrixUiCustomAuth {
   authorize(request: unknown): boolean | Promise<boolean>;
 }
 
-/** The embedded dashboard (phase 2). Requires `@nestrix/ui` to be installed. */
+/** The embedded dashboard (phase 2). Requires `@nestrix-js/ui` to be installed. */
 export interface NestrixUiOptions {
   /**
    * `'auto'` (default): served only when `NODE_ENV` is `development` or unset, to loopback

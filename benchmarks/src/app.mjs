@@ -62,11 +62,11 @@ let core;
 let storeModule;
 
 if (usesNestrix) {
-  const { NestrixModule, withSpan } = await import("@nestrix/nestjs");
+  const { NestrixModule, withSpan } = await import("@nestrix-js/nestjs");
   // Counters are not public API yet; read them from the built package next to its entry point.
   try {
     core = await import(
-      new URL("core.js", import.meta.resolve("@nestrix/nestjs")).href
+      new URL("core.js", import.meta.resolve("@nestrix-js/nestjs")).href
     );
   } catch {
     core = undefined;
@@ -77,12 +77,12 @@ if (usesNestrix) {
   if (config === "dashboard") options.ui = "auto";
   // "Before P2-14": load the exporter graph at startup, as the pipeline did before it became lazy.
   if (process.env.BENCH_EAGER_EXPORTER) {
-    // Not a dependency of this package: resolve it as @nestrix/nestjs does, and take the same ESM
+    // Not a dependency of this package: resolve it as @nestrix-js/nestjs does, and take the same ESM
     // entry its dynamic import gets (require.resolve returns the .cjs sibling).
     const { createRequire } = await import("node:module");
     const { fileURLToPath, pathToFileURL } = await import("node:url");
     const cjs = createRequire(
-      fileURLToPath(import.meta.resolve("@nestrix/nestjs")),
+      fileURLToPath(import.meta.resolve("@nestrix-js/nestjs")),
     ).resolve("@opentelemetry/exporter-trace-otlp-http");
     await import(pathToFileURL(cjs.replace(/index\.cjs$/, "index.mjs")).href);
   }
@@ -99,7 +99,7 @@ if (usesNestrix) {
   // The dashboard's store is internal; read its counters from the built package, as above.
   try {
     storeModule = await import(
-      new URL("store/index.js", import.meta.resolve("@nestrix/nestjs")).href
+      new URL("store/index.js", import.meta.resolve("@nestrix-js/nestjs")).href
     );
   } catch {
     storeModule = undefined;

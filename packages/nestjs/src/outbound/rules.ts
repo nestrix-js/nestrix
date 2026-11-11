@@ -47,7 +47,7 @@ import {
 } from "../privacy.js";
 import type { ResolvedOptions } from "../resolve-options.js";
 
-export const TRACER_NAME = "@nestrix/nestjs";
+export const TRACER_NAME = "@nestrix-js/nestjs";
 
 /**
  * OpenTelemetry's suppress-tracing key. The SDK's span processors wrap every export in a context

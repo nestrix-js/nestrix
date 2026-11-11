@@ -98,7 +98,7 @@ All tested end to end against real brokers, as one connected trace across an HTT
 | | Status | Evidence |
 |---|---|---|
 | Chromium | Tested | CI job `e2e` (`e2e/`, Playwright 1.65, against built example apps with `NestrixModule`; fails on CSP violations and console errors). |
-| Firefox | Tested locally only | `packages/ui/playwright.config.ts` has chromium and firefox projects (`pnpm --filter @nestrix/ui e2e`, against a mock API); not a CI job. |
+| Firefox | Tested locally only | `packages/ui/playwright.config.ts` has chromium and firefox projects (`pnpm --filter @nestrix-js/ui e2e`, against a mock API); not a CI job. |
 | WebKit and Safari, Edge, mobile browsers | Not tested | Expected to work in current evergreen releases (the UI is a plain static bundle); no test runs them. |
 | Layout | Desktop | No phone-width layout work was done. |
 
@@ -118,7 +118,7 @@ The server is a private workspace app in 1.0, shipped as a Docker image built fr
 
 | Package | Needed for |
 |---|---|
-| `@nestrix/ui` (same version as `@nestrix/nestjs`) | the embedded dashboard |
+| `@nestrix-js/ui` (same version as `@nestrix-js/nestjs`) | the embedded dashboard |
 | `@nestjs/microservices` | microservice spans |
 | `pg` | `pg` spans (other drivers need no package from Nestrix) |
 | `@opentelemetry/sdk-logs`, `@opentelemetry/exporter-logs-otlp-http` | `logs.export` |

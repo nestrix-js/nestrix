@@ -1,5 +1,5 @@
 // Generates a large trace for the 5,000-span tests (Playwright, and the unit test of the tree, which loads it by path).
-import type { SpanRecord, TraceResponse } from "@nestrix/protocol";
+import type { SpanRecord, TraceResponse } from "@nestrix-js/protocol";
 
 /**
  * A trace of `count` spans: one server root, then spans in chains of `fanOut` children per

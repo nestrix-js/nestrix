@@ -1,5 +1,5 @@
 import { type DynamicModule, Module } from "@nestjs/common";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 import { AlertsModule } from "./alerts/alerts.module.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { SessionQueryGuard } from "./auth/query-guard.js";

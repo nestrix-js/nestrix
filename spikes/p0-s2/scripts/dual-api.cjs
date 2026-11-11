@@ -1,6 +1,6 @@
 // Dual-package check for @opentelemetry/api 1.10.0 (exports: require -> dist/index.cjs,
 // default -> dist/index.mjs). A CommonJS app gets the CJS build; an ESM-only library
-// (like @nestrix/nestjs) gets the ESM build. Two module instances, one global registry.
+// (like @nestrix-js/nestjs) gets the ESM build. Two module instances, one global registry.
 //   node scripts/dual-api.cjs
 "use strict";
 const api = require("@opentelemetry/api");

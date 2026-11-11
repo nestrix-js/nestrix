@@ -1,10 +1,10 @@
 # Phase 2 report: embedded dashboard (0.1.0)
 
-Date: 2026-11-11. Written by the lead for the owner at the phase 2 gate. **Approved by the owner on 2026-11-11**, with one commit per task, a push, and `@nestrix/ui` confirmed as an optional peer (D-54).
+Date: 2026-11-11. Written by the lead for the owner at the phase 2 gate. **Approved by the owner on 2026-11-11**, with one commit per task, a push, and `@nestrix-js/ui` confirmed as an optional peer (D-54).
 
 ## 1. Summary
 
-A Nest 12 app with `@nestrix/nestjs` and `@nestrix/ui` installed now shows its own traces at `/_nestrix`, with nothing else running: a live request list, the trace waterfall, an error list and per-route latency and error-rate charts. The dashboard mounts on Express, Fastify and platform-node, is closed unless something positive opens it (local-only plus a startup token by default; token or custom `authorize` elsewhere), never emits CORS headers, and its route statistics stay correct at any sample rate. Every piece of request-path or access-control code had an independent review; each review found real defects, all fixed before the task was marked done.
+A Nest 12 app with `@nestrix-js/nestjs` and `@nestrix-js/ui` installed now shows its own traces at `/_nestrix`, with nothing else running: a live request list, the trace waterfall, an error list and per-route latency and error-rate charts. The dashboard mounts on Express, Fastify and platform-node, is closed unless something positive opens it (local-only plus a startup token by default; token or custom `authorize` elsewhere), never emits CORS headers, and its route statistics stay correct at any sample rate. Every piece of request-path or access-control code had an independent review; each review found real defects, all fixed before the task was marked done.
 
 Nothing is committed, pushed or published. All phase 2 work is in the working tree.
 
@@ -18,12 +18,12 @@ Nothing is committed, pushed or published. All phase 2 work is in the working tr
 | `NODE_ENV=production` with no `auth`: unreachable, the app starts | **Met** | e2e "NODE_ENV=production without auth"; security and behaviour tests (nothing registered) |
 | A host catch-all on Express is reported as shadowing | **Met** | e2e "a host catch-all"; `stats-http.test.ts`, `dashboard-behaviour.test.ts` |
 | At sample rate 0.1, per-route counts match requests sent; the UI shows lists are sampled | **Met** | e2e "sampleRate 0.1" (40 sent, 40 counted, notice shown); `stats-sampling.test.ts` on three adapters (exact counts over 400 requests incl. a 404 and a thrown 500) |
-| `@nestrix/ui` within its unpacked-size budget, checked in CI | **Met** | 762,338 bytes against 1,000,000 (D-53); `packages/ui/scripts/check-size.mjs` runs in `check:package`, which `pnpm verify` and CI run |
+| `@nestrix-js/ui` within its unpacked-size budget, checked in CI | **Met** | 762,338 bytes against 1,000,000 (D-53); `packages/ui/scripts/check-size.mjs` runs in `check:package`, which `pnpm verify` and CI run |
 | A Playwright test opens a trace and checks the waterfall rows | **Met** | Every e2e flow: the `/out` trace has 5 rows at levels 1, 2, 3, 2, 3 with their names |
 
 Validation: "Playwright against the example apps in CI" — the `e2e` job is in `.github/workflows/ci.yml` and passes under `act`; it has **not run on GitHub** (nothing pushed). "A security test file with one test per rule in §4.7" — `dashboard-security.test.ts`, 82 tests; a reviewer injected 13 different breaks into the access code and all are caught.
 
-Final checks on the working tree: `pnpm verify` exit 0 (build; publint and attw "All good!"; `check-no-tla` passed; 1,941 tests passed, 57 skipped (database tests without Docker); Biome clean apart from the 7 existing warnings in spike files; `tsc -b` clean). `pnpm --filter e2e test`: 16 passed. `pnpm --filter @nestrix/ui e2e`: 89 passed, 1 skipped (a clipboard test that only runs in Chromium). `pnpm changeset status --since=origin/main` fails only because `.changeset/embedded-dashboard.md` is untracked; it passes once committed.
+Final checks on the working tree: `pnpm verify` exit 0 (build; publint and attw "All good!"; `check-no-tla` passed; 1,941 tests passed, 57 skipped (database tests without Docker); Biome clean apart from the 7 existing warnings in spike files; `tsc -b` clean). `pnpm --filter e2e test`: 16 passed. `pnpm --filter @nestrix-js/ui e2e`: 89 passed, 1 skipped (a clipboard test that only runs in Chromium). `pnpm changeset status --since=origin/main` fails only because `.changeset/embedded-dashboard.md` is untracked; it passes once committed.
 
 ## 3. What was done
 
@@ -57,18 +57,18 @@ Decisions the lead made inside phase 2 (no decision-log entry changed):
 - **Denied requests get a bare 404** with only `Cache-Control: no-store` and `nosniff`. The default path is well known, so this hides detail, not existence.
 - **The production token may still be exchanged through the `?token=` link** (the only browser path without a form); its cookie is `Secure` outside loopback and salted per process, and the README warns that the link lands in proxy logs.
 - **Store defaults:** 5,000 traces / 32 MiB, from measurement (a typical trace is about 4 KB of heap).
-- **The e2e suite has its own app entries** under `e2e/apps/*`, importing the examples' modules: the examples are test fixtures of `@nestrix/nestjs`, so making them depend on it would be a build cycle.
-- **`@nestrix/ui` is an optional peer of `@nestrix/nestjs`** (same version), as a reading of D-3, not a new runtime dependency. Raised in the backlog; not yet confirmed by the owner.
+- **The e2e suite has its own app entries** under `e2e/apps/*`, importing the examples' modules: the examples are test fixtures of `@nestrix-js/nestjs`, so making them depend on it would be a build cycle.
+- **`@nestrix-js/ui` is an optional peer of `@nestrix-js/nestjs`** (same version), as a reading of D-3, not a new runtime dependency. Raised in the backlog; not yet confirmed by the owner.
 
 Facts that corrected the docs or the spike:
 - The spike's loopback rule let a request with two `Host` headers through (Node keeps the first in `headers`); every `Host` line on the wire is now checked.
 - Express routes are case-insensitive, so `/_NESTRIX` reached the dashboard while being traced; the hook now matches case-insensitively.
 - The "unexplained `WeakSet`" in the phase 1 memory report is the OpenTelemetry SDK's (`isAnyValue` in `@opentelemetry/core`), not Nestrix's.
-- `NODE_ENV=development` with no `ui` option now turns the dashboard on for every app that has `@nestrix/ui` installed; the whole suite was run that way and passes.
+- `NODE_ENV=development` with no `ui` option now turns the dashboard on for every app that has `@nestrix-js/ui` installed; the whole suite was run that way and passes.
 
 ## 5. Known limits and open items
 
-- **Cost of the dashboard.** With it on, a trivial route loses about 8.7% throughput (about 3.4 µs per request; it was 15% before P2-15). On any route that does real work it is under 1%. `'auto'` also turns the dashboard on when `NODE_ENV` is unset, if `@nestrix/ui` is installed.
+- **Cost of the dashboard.** With it on, a trivial route loses about 8.7% throughput (about 3.4 µs per request; it was 15% before P2-15). On any route that does real work it is under 1%. `'auto'` also turns the dashboard on when `NODE_ENV` is unset, if `@nestrix-js/ui` is installed.
 - **Preflight.** `OPTIONS` requests for dashboard paths are answered by the host's CORS layer with its allow headers (architecture §4.7). Acceptable only while the API is read-only.
 - **`Sec-Fetch-Site: same-site`** (another localhost port) is allowed, per D-30. Proposal below.
 - **CI has never run on GitHub**, including the new `e2e` job.
@@ -87,7 +87,7 @@ Opus (`architect`) built the four request-path and security pieces the first tim
 - **Review this report and decide whether phase 2 is accepted.** Phase 3 (providers, data and jobs) would start in a fresh session.
 - **Commits.** Nothing from phase 2 is committed. Say whether to commit it, and whether as one commit or per task.
 - **Push**, so CI (including the new `e2e` job) runs on GitHub for the first time.
-- **Confirm `@nestrix/ui` as an optional peer** of `@nestrix/nestjs` (lead's reading of D-3).
+- **Confirm `@nestrix-js/ui` as an optional peer** of `@nestrix-js/nestjs` (lead's reading of D-3).
 - **Optional: reject `Sec-Fetch-Site: same-site` too** (changes D-30; defence in depth only).
 - **Optional: schedule a visual design pass** on the dashboard.
 - Unchanged from earlier phases: O-4 (MongoDB spans), O-5 (trademark search), the `@nestrix` npm organisation, the `CODE_OF_CONDUCT.md` contact, and when the repository goes public.

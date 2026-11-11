@@ -1,9 +1,9 @@
-// The @nestrix/ui build served at / (backlog P5-04): manifest-based, CSP, caching, traversal.
+// The @nestrix-js/ui build served at / (backlog P5-04): manifest-based, CSP, caching, traversal.
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { PROTOCOL_VERSION as PROTOCOL } from "@nestrix/protocol";
+import { PROTOCOL_VERSION as PROTOCOL } from "@nestrix-js/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { UI_CSP } from "../../src/auth/http.js";
 import {
@@ -43,7 +43,7 @@ function get(path: string, headers: Record<string, string> = {}) {
   });
 }
 
-it("speaks the protocol version of @nestrix/protocol", () => {
+it("speaks the protocol version of @nestrix-js/protocol", () => {
   expect(PROTOCOL_VERSION).toBe(PROTOCOL);
 });
 

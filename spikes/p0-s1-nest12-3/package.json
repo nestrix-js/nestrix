@@ -1,5 +1,5 @@
 {
-  "name": "@nestrix/spike-p0-s1-nest12-3",
+  "name": "@nestrix-js/spike-p0-s1-nest12-3",
   "version": "0.0.0",
   "private": true,
   "description": "Spike P0-S1 question 9: the P0-S1 tests re-run against Nest 12.3.0, the first release with @nestjs/platform-node. Never published.",

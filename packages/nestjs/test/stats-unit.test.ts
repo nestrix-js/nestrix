@@ -1,6 +1,6 @@
 // No global state. Unit tests for the route statistics store (P2-04).
 import { describe, expect, it } from "vitest";
-// Type-only, from the built declarations: `@nestrix/nestjs` has no dependency on the private
+// Type-only, from the built declarations: `@nestrix-js/nestjs` has no dependency on the private
 // protocol package (see src/stats/route-stats.ts). Drift between the two fails `tsc`.
 import type {
   RouteSeriesPoint,

@@ -2,7 +2,7 @@
   "name": "@nestrix-spikes/p0-s4",
   "version": "0.0.0",
   "private": true,
-  "description": "P0-S4: CommonJS consumption of the ESM-only @nestrix/nestjs (throwaway)",
+  "description": "P0-S4: CommonJS consumption of the ESM-only @nestrix-js/nestjs (throwaway)",
   "type": "commonjs",
   "scripts": {
     "build": "tsc -p tsconfig.esm.json && tsc -p tsconfig.json",
@@ -11,7 +11,7 @@
   "dependencies": {
     "@nestjs/common": "^12.4.2",
     "@nestjs/core": "^12.4.2",
-    "@nestrix/nestjs": "workspace:*",
+    "@nestrix-js/nestjs": "workspace:*",
     "@opentelemetry/api": "~1.10.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.301.1",
     "@opentelemetry/instrumentation-undici": "^0.35.0",

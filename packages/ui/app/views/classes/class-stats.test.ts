@@ -1,4 +1,4 @@
-import type { ClassStats, MethodStats } from "@nestrix/protocol";
+import type { ClassStats, MethodStats } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 
 import {

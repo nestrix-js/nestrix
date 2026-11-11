@@ -21,7 +21,7 @@ import {
   MessagePattern,
   Payload,
 } from "@nestjs/microservices";
-import { type BootedApp, bootApp } from "@nestrix/testing";
+import { type BootedApp, bootApp } from "@nestrix-js/testing";
 import { context, propagation, SpanKind, trace } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";

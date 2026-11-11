@@ -85,7 +85,7 @@ Ideally, developers should be able to install the primary SDK through npm, pnpm,
 An illustrative installation might be:
 
 ```bash
-pnpm add @nestrix/nestjs
+pnpm add @nestrix-js/nestjs
 ```
 
 An illustrative integration might resemble:
@@ -128,16 +128,16 @@ Developers should only need to install the integrations they intend to use.
 Potential packages include:
 
 ```text
-@nestrix/core
-@nestrix/nestjs
-@nestrix/http
-@nestrix/prisma
-@nestrix/drizzle
-@nestrix/mikro-orm
-@nestrix/bullmq
-@nestrix/kafka
-@nestrix/otel
-@nestrix/ui
+@nestrix-js/core
+@nestrix-js/nestjs
+@nestrix-js/http
+@nestrix-js/prisma
+@nestrix-js/drizzle
+@nestrix-js/mikro-orm
+@nestrix-js/bullmq
+@nestrix-js/kafka
+@nestrix-js/otel
+@nestrix-js/ui
 ```
 
 These package names and boundaries are illustrative.

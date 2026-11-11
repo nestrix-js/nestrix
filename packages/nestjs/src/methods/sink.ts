@@ -9,7 +9,7 @@
  * wrap it in try/catch (rule 1).
  */
 
-/** Same values as `ClassKind` in `@nestrix/protocol`. */
+/** Same values as `ClassKind` in `@nestrix-js/protocol`. */
 export type MethodClassKind =
   | "controller"
   | "service"

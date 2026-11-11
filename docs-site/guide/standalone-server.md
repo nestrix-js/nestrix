@@ -1,6 +1,6 @@
 # Standalone server
 
-`@nestrix/server` is a separate process that receives OTLP/HTTP traces from one or more services, stores them in PostgreSQL 18 and serves the same dashboard. Use it when you want history beyond one process's memory, several services in one place, or a dashboard that is not inside your app.
+`@nestrix-js/server` is a separate process that receives OTLP/HTTP traces from one or more services, stores them in PostgreSQL 18 and serves the same dashboard. Use it when you want history beyond one process's memory, several services in one place, or a dashboard that is not inside your app.
 
 ::: warning Status
 The server is built and tested in the repository. It is private (not on npm) and the Docker image is built from the repository, not yet published to a registry.
@@ -20,8 +20,8 @@ The compose file sets `NESTRIX_INGEST_AUTH=none`, so any client that can reach t
 
 ```bash
 pnpm install
-pnpm --filter @nestrix/server build
-pnpm --filter @nestrix/server start
+pnpm --filter @nestrix-js/server build
+pnpm --filter @nestrix-js/server start
 ```
 
 The server listens on one port (default `4318`):
@@ -30,7 +30,7 @@ The server listens on one port (default `4318`):
 |---|---|
 | `POST /v1/traces` | OTLP/HTTP receiver |
 | `GET /api/v1/*` | Query API, same shapes as the embedded dashboard |
-| `/` | The dashboard (from `@nestrix/ui`) |
+| `/` | The dashboard (from `@nestrix-js/ui`) |
 | `/login`, `/logout` | Admin sign-in |
 
 Point each service at it with `OTEL_EXPORTER_OTLP_ENDPOINT` set to the server's address (for example `http://nestrix:4318`). When ingest keys are set, services also send a key in the `Authorization` header: use `OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer <key>` or `export.otlp.headers` in the module options.

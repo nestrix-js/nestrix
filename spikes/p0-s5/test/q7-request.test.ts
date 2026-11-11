@@ -5,7 +5,7 @@ import { NestFactory } from "@nestjs/core";
 import { ExpressAdapter } from "@nestjs/platform-express";
 import { FastifyAdapter } from "@nestjs/platform-fastify";
 import { NodeAdapter } from "@nestjs/platform-node";
-import type { AdapterName } from "@nestrix/testing";
+import type { AdapterName } from "@nestrix-js/testing";
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetProbe } from "../src/dashboard.js";
 import { hostModule } from "../src/host.js";

@@ -1,4 +1,4 @@
-import type { MapEdge, MapNode } from "@nestrix/protocol";
+import type { MapEdge, MapNode } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 
 import {

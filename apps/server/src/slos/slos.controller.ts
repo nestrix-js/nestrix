@@ -18,7 +18,7 @@ import type {
   ApiErrorCode,
   Slo,
   SloListResponse,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 import { SessionQueryGuard } from "../auth/query-guard.js";
 import {
   QUERY_HEADERS,

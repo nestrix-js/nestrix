@@ -3,7 +3,7 @@
 // cases:
 //   host-sdk2     the host registers SDK 2 (NodeTracerProvider.register(), api 1.9.x,
 //                 CommonJS copies); "Nestrix" uses whatever api and SDK resolve from
-//                 inside node_modules/@nestrix/nestjs (ESM copies)
+//                 inside node_modules/@nestrix-js/nestjs (ESM copies)
 //   nestrix-only  no host provider; Nestrix registers an SDK 3 provider on the api
 //                 the install gave it
 //   mixed-api     the host registers through its api 1.9.x; Nestrix uses this spike's
@@ -36,7 +36,7 @@ const [hostDir, which] = process.argv.slice(2);
 const hostRequire = createRequire(join(hostDir, "package.json"));
 // realpath: under pnpm the package's own dependencies sit next to its real location.
 const nxPkg = realpathSync(
-  join(hostDir, "node_modules/@nestrix/nestjs/package.json"),
+  join(hostDir, "node_modules/@nestrix-js/nestjs/package.json"),
 );
 // ESM resolution from inside the Nestrix package, as its own `import` would see it:
 // find the package directory by Node's node_modules lookup from there, then take
@@ -54,7 +54,7 @@ const importFromNestrix = async (spec) => {
     const file = pathToFileURL(join(dir, spec, target)).href;
     return { mod: await import(file), file };
   }
-  const error = new Error(`cannot resolve ${spec} from @nestrix/nestjs`);
+  const error = new Error(`cannot resolve ${spec} from @nestrix-js/nestjs`);
   error.code = "ERR_MODULE_NOT_FOUND";
   throw error;
 };

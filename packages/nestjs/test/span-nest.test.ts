@@ -8,7 +8,7 @@ import {
   SetMetadata,
   UseGuards,
 } from "@nestjs/common";
-import { bootApp } from "@nestrix/testing";
+import { bootApp } from "@nestrix-js/testing";
 import { context } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";

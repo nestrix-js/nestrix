@@ -1,5 +1,5 @@
 {
-  "name": "@nestrix/spike-p0-s1",
+  "name": "@nestrix-js/spike-p0-s1",
   "version": "0.0.0",
   "private": true,
   "description": "Spike P0-S1: HTTP adapter hooks on Express, Fastify and platform-node (never published)",

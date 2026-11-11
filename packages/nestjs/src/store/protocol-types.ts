@@ -1,8 +1,8 @@
 /**
- * The query API shapes the store produces, mirrored from `@nestrix/protocol`
+ * The query API shapes the store produces, mirrored from `@nestrix-js/protocol`
  * (`packages/protocol/src/types.ts`).
  *
- * Why a mirror: `@nestrix/protocol` is a devDependency of `@nestrix/nestjs` (private, never
+ * Why a mirror: `@nestrix-js/protocol` is a devDependency of `@nestrix-js/nestjs` (private, never
  * published), but a type-only import of it would need protocol's `dist` built before
  * `pnpm typecheck` in a fresh clone. So the shapes are mirrored here, and
  * `test/store-protocol.test.ts` fails `tsc` when they drift from protocol's built

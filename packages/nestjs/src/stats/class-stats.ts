@@ -18,7 +18,7 @@
  * Nothing here imports OpenTelemetry or Nest. `record()` and `query()` never throw on any input
  * (a non-finite or negative duration counts as 0 ms; a non-finite time is ignored).
  *
- * The result shapes are mirrored in `store/protocol-types.ts` (checked against `@nestrix/protocol`).
+ * The result shapes are mirrored in `store/protocol-types.ts` (checked against `@nestrix-js/protocol`).
  */
 import type { MethodCallSink, MethodClassKind } from "../methods/sink.js";
 import type {

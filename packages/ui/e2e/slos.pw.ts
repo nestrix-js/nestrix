@@ -1,5 +1,5 @@
 import type { Server } from "node:http";
-import type { Slo } from "@nestrix/protocol";
+import type { Slo } from "@nestrix-js/protocol";
 import { expect, test } from "@playwright/test";
 
 import { recordViolations, violations, watch } from "./helpers.ts";

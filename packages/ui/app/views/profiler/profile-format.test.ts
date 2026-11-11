@@ -1,4 +1,4 @@
-import type { FlameNode } from "@nestrix/protocol";
+import type { FlameNode } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 
 import {

@@ -8,7 +8,11 @@ import { Session } from "node:inspector/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import v8 from "node:v8";
 import { Controller, Get, Module, Param, Post, Query } from "@nestjs/common";
-import { type AdapterName, bootApp, type ReadableSpan } from "@nestrix/testing";
+import {
+  type AdapterName,
+  bootApp,
+  type ReadableSpan,
+} from "@nestrix-js/testing";
 import { context, trace } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { afterAll, describe, expect, it } from "vitest";

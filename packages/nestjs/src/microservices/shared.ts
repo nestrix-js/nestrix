@@ -9,7 +9,7 @@
  */
 import type { TextMapGetter } from "@opentelemetry/api";
 
-export const TRACER_NAME = "@nestrix/nestjs";
+export const TRACER_NAME = "@nestrix-js/nestjs";
 
 // Messaging semantic conventions, still incubating in `@opentelemetry/semantic-conventions`
 // 1.45.0 (`experimental_attributes`). Copied as the package advises for incubating names.

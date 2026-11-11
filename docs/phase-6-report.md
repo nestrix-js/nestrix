@@ -32,7 +32,7 @@ D-64 (optional peers for log and metric export), D-65 (opt-in log correlation, n
 
 ## 5. What the owner still does before 1.0 is published
 
-From `docs/backlog/phase-6.md` "1.0 readiness" and `RELEASING.md`: trademark check (O-5); create the `@nestrix` npm organisation; contact for the code of conduct; make the repository public (provenance needs it), then the post-public settings in `docs/decisions.md`; set `NPM_PUBLISH_ENABLED`; exit the Changesets pre mode and add a `major` changeset for 1.0.0; trigger the nightly workflow once.
+From `docs/backlog/phase-6.md` "1.0 readiness" and `RELEASING.md`: trademark check (O-5); create the `@nestrix-js` npm organisation; contact for the code of conduct; make the repository public (provenance needs it), then the post-public settings in `docs/decisions.md`; set `NPM_PUBLISH_ENABLED`; exit the Changesets pre mode and add a `major` changeset for 1.0.0; trigger the nightly workflow once.
 
 ## 6. Deferred
 

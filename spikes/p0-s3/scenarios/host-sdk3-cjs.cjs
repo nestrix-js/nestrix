@@ -1,6 +1,6 @@
 // CommonJS host: its SDK 3 setup comes from the .cjs builds and its AppModule from the
 // compiled CommonJS fixture (express-cjs). The Nestrix stand-in is ESM and is reached
-// through require(esm), as an ESM-only @nestrix/nestjs would be.
+// through require(esm), as an ESM-only @nestrix-js/nestjs would be.
 require("reflect-metadata");
 const { AppModule } = require("express-cjs/app.module");
 const { setupHost } = require("./lib/host-sdk3.cjs");

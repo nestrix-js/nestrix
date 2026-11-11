@@ -5,7 +5,7 @@ import type {
   ErrorListResponse,
   RouteStats,
   RouteStatsResponse,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 
 const ERROR_ROUTES = ["/orders", "/orders/:id", "/users"];
 const ERROR_TYPES = ["BadGatewayException", "TimeoutError", "TypeError"];

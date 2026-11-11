@@ -1,4 +1,4 @@
-// Stands in for decorated code that lives inside @nestrix/nestjs: an ES module
+// Stands in for decorated code that lives inside @nestrix-js/nestjs: an ES module
 // (.mts, always ESM) that a CommonJS app loads with require(). Throwaway; the real
 // package has no decorated classes yet.
 import "reflect-metadata";

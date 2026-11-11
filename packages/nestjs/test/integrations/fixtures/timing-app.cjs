@@ -15,7 +15,7 @@ run({
   common: require("@nestjs/common"),
   core: require("@nestjs/core"),
   platform: require("@nestjs/platform-express"),
-  nestrix: require("@nestrix/nestjs"),
+  nestrix: require("@nestrix-js/nestjs"),
   api: require("@opentelemetry/api"),
   sdk: require("@opentelemetry/sdk-trace"),
   contextManager: require("@opentelemetry/context-async-hooks"),

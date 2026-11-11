@@ -52,7 +52,7 @@ const brokenTracer = {
 } as unknown as Tracer;
 const provider: TracerProvider = {
   getTracer(name, version, options) {
-    return broken && name === "@nestrix/nestjs"
+    return broken && name === "@nestrix-js/nestjs"
       ? brokenTracer
       : sdkProvider.getTracer(name, version, options);
   },

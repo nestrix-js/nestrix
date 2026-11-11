@@ -19,7 +19,7 @@ The phase 3 backlog's "Rules for every task" apply (worktree per task, `git comm
 ## Public API (P4-01)
 
 ```ts
-import { instrumentClient, nestrixPreRequestHook } from '@nestrix/nestjs';
+import { instrumentClient, nestrixPreRequestHook } from '@nestrix-js/nestjs';
 
 // A client made outside DI (ClientsModule clients are instrumented automatically):
 const client = instrumentClient(ClientProxyFactory.create({ transport: Transport.TCP, options }));

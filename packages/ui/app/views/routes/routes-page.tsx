@@ -1,4 +1,4 @@
-import type { RouteStats } from "@nestrix/protocol";
+import type { RouteStats } from "@nestrix-js/protocol";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { useQueryStates } from "nuqs";

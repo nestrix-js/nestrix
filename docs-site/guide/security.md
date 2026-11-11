@@ -4,7 +4,7 @@ The dashboard is closed unless something positive opens it, and its API never em
 
 ## Local-only default (`ui: 'auto'`)
 
-`ui` defaults to `'auto'`, so installing `@nestrix/ui` is enough in development. The dashboard is served only while all of these hold:
+`ui` defaults to `'auto'`, so installing `@nestrix-js/ui` is enough in development. The dashboard is served only while all of these hold:
 
 - `NODE_ENV` is `development` or unset. Any other value, an empty string included, turns it off for the whole run, and Nestrix logs one line saying so.
 - The request's socket peer is loopback (`127.0.0.0/8`, `::1`, `::ffff:127.x.y.z`), its `Host` header names a loopback host, and none of `Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Real-IP` and `Via` is present. Nestrix reads the raw socket and raw headers, never `req.ip` or `req.hostname`, which follow client-supplied headers when your app trusts proxies.

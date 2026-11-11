@@ -34,7 +34,7 @@ function setup() {
   const provider = new TracerProvider({
     spanProcessors: [createStoreProcessor(store)],
   });
-  return { store, tracer: provider.getTracer("@nestrix/nestjs", "0.0.0") };
+  return { store, tracer: provider.getTracer("@nestrix-js/nestjs", "0.0.0") };
 }
 // A fresh heap string, as values parsed from a request (headers, URL) and computed span
 // names are in a real app; literals would be shared and under-state the cost.

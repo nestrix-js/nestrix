@@ -1,5 +1,5 @@
 // biome-ignore-all lint/a11y/useSemanticElements: flame graph bars are SVG elements, which cannot be <button>s; each is focusable and answers Enter and Space
-import type { FlameNode, ProfileDetail } from "@nestrix/protocol";
+import type { FlameNode, ProfileDetail } from "@nestrix-js/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Flame, RotateCcw } from "lucide-react";
 import { useState } from "react";

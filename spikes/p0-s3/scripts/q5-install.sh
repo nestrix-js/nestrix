@@ -1,5 +1,5 @@
 #!/bin/sh
-# Q5: install @nestrix/nestjs (packed tarball) into a host on OpenTelemetry SDK 2.x.
+# Q5: install @nestrix-js/nestjs (packed tarball) into a host on OpenTelemetry SDK 2.x.
 # Usage: sh scripts/q5-install.sh <empty dir outside the repo>
 # Needs `pnpm build` first. Writes every package-manager transcript to <dir>/logs/.
 #

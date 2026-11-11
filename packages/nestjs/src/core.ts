@@ -50,7 +50,7 @@ export class NestrixCore
   /** P6-02. Undefined with `metrics: false`, when disabled, or when setup failed. */
   readonly metrics: NestrixMetrics | undefined;
   private readonly disposers: Array<() => void> = [];
-  /** Set when the dashboard's mode is on and `@nestrix/ui` was located (P2-06). */
+  /** Set when the dashboard's mode is on and `@nestrix-js/ui` was located (P2-06). */
   private readonly dashboard: Dashboard | undefined;
   /** Why the dashboard is off although its mode allowed it; logged at `onModuleInit`. */
   private readonly dashboardUnavailable: DashboardUnavailable | undefined;
@@ -140,7 +140,7 @@ export class NestrixCore
   /**
    * Mounts the dashboard (D-45), or logs once why it is off (backlog P2, "Mode resolution"):
    * an off mode at its severity (an `info` reason only when there is an HTTP adapter, so a
-   * microservice says nothing), `@nestrix/ui` missing with the install command. No HTTP adapter:
+   * microservice says nothing), `@nestrix-js/ui` missing with the install command. No HTTP adapter:
    * nothing registered, store detached. Never throws.
    */
   onModuleInit(): void {

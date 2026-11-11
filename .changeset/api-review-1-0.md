@@ -1,6 +1,6 @@
 ---
-"@nestrix/nestjs": minor
-"@nestrix/ui": minor
+"@nestrix-js/nestjs": minor
+"@nestrix-js/ui": minor
 ---
 
 1.0 API review (D-69). Renames and removals, before anything is published:

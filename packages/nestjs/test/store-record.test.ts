@@ -12,7 +12,7 @@ describe("buildRecord on a fixed span", () => {
       duration: [0, 5_000_000],
       events: [{ name: "evt", time: [1_700_000_000, 500_000_000] }],
       links: [],
-      instrumentationScope: { name: "@nestrix/nestjs" },
+      instrumentationScope: { name: "@nestrix-js/nestjs" },
     };
     const identity: SpanIdentity = {
       traceId: "00000000000000000000000000000001",
@@ -49,6 +49,6 @@ describe("buildRecord on a fixed span", () => {
     ]);
     // Pins cleanAndMeasure's estimate for this span. Any change to the byte formula
     // in record.ts must update this number on purpose.
-    expect(built.bytes).toBe(760);
+    expect(built.bytes).toBe(763); // 760 before the scope gained "-js" (D-71)
   });
 });

@@ -17,9 +17,9 @@ jobs:
   # The architecture §8 matrix lives here, in one job per Node line. `pnpm verify` runs every
   # Vitest project, and three of them run the shared conformance files
   # (packages/nestjs/test/conformance-*.test.ts) against different Nest installs:
-  #   @nestrix/nestjs                  Nest latest 12.x, Express + Fastify + platform-node
-  #   @nestrix/conformance-nest12-0    Nest 12.0.0, Express + Fastify
-  #   @nestrix/conformance-nest12-3-2  Nest 12.3.2, platform-node
+  #   @nestrix-js/nestjs                  Nest latest 12.x, Express + Fastify + platform-node
+  #   @nestrix-js/conformance-nest12-0    Nest 12.0.0, Express + Fastify
+  #   @nestrix-js/conformance-nest12-3-2  Nest 12.3.2, platform-node
   # So Node 26 (the engines floor, D-55) x Nest (12.0, 12.3.2, latest) x adapter is covered by these three
   # cells; a second matrix axis would run the same projects again.
   verify:

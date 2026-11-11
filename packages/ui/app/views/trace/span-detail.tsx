@@ -4,7 +4,7 @@ import type {
   SpanEvent,
   SpanLink,
   SpanRecord,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { X } from "lucide-react";

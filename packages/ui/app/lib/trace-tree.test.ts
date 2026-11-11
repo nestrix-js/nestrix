@@ -1,4 +1,4 @@
-import type { SpanRecord, TraceResponse } from "@nestrix/protocol";
+import type { SpanRecord, TraceResponse } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 
 import {

@@ -110,10 +110,10 @@ export interface DashboardApp {
   close(): Promise<void>;
 }
 
-// The platform packages are dependencies of `@nestrix/testing`, not of this package (one pnpm
+// The platform packages are dependencies of `@nestrix-js/testing`, not of this package (one pnpm
 // peer set, the same `@nestjs/core` instance).
 const fromTesting = createRequire(
-  fileURLToPath(import.meta.resolve("@nestrix/testing")),
+  fileURLToPath(import.meta.resolve("@nestrix-js/testing")),
 );
 const PLATFORM = {
   express: ["@nestjs/platform-express", "ExpressAdapter"],

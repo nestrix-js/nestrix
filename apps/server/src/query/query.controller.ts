@@ -8,7 +8,7 @@ import {
   UseFilters,
   UseGuards,
 } from "@nestjs/common";
-import type { ApiError } from "@nestrix/protocol";
+import type { ApiError } from "@nestrix-js/protocol";
 import { QUERY_HEADERS, QueryExceptionFilter } from "./exception.filter.js";
 import { QueryGuardGate } from "./guard.js";
 import {

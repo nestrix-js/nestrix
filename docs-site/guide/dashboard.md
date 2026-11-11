@@ -1,8 +1,8 @@
 # Dashboard
 
-With `@nestrix/ui` installed, `NestrixModule` serves a dashboard from inside your app, at `/_nestrix` by default. Apart from starting a [profiler](#profiler) capture it is read-only. It works on Express, Fastify and `@nestjs/platform-node`. It shows only what this process has seen since it started: nothing is written to disk and nothing is sent anywhere.
+With `@nestrix-js/ui` installed, `NestrixModule` serves a dashboard from inside your app, at `/_nestrix` by default. Apart from starting a [profiler](#profiler) capture it is read-only. It works on Express, Fastify and `@nestjs/platform-node`. It shows only what this process has seen since it started: nothing is written to disk and nothing is sent anywhere.
 
-`@nestrix/ui` is an optional peer dependency. Without it the dashboard is off and Nestrix logs one line with the install command; the app starts normally. An app with no HTTP adapter (`createMicroservice`, `createApplicationContext`) has no dashboard.
+`@nestrix-js/ui` is an optional peer dependency. Without it the dashboard is off and Nestrix logs one line with the install command; the app starts normally. An app with no HTTP adapter (`createMicroservice`, `createApplicationContext`) has no dashboard.
 
 How it is opened and secured is on the [Security model](/guide/security) page. The same UI is served by the [standalone server](/guide/standalone-server), backed by PostgreSQL instead of memory.
 

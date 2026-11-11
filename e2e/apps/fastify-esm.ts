@@ -5,7 +5,7 @@ import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 import { AppModule } from "fastify-esm/app.module";
 
 // The end-to-end suite picks a variant of this app with environment variables:

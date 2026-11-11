@@ -1,4 +1,4 @@
-import type { SpanRecord } from "@nestrix/protocol";
+import type { SpanRecord } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 
 import { isDbSpan, isSlowDbSpan, repeatedQueries } from "@/lib/trace-insights";

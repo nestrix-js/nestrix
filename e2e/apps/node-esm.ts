@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { Module } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { type NestNodeApplication, NodeAdapter } from "@nestjs/platform-node";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 import { AppModule } from "node-esm/app.module";
 
 // The end-to-end suite picks a variant of this app with environment variables:

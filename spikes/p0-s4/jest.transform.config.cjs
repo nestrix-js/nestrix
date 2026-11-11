@@ -1,5 +1,5 @@
 // Variant: no --experimental-vm-modules. SWC rewrites the ESM-only packages (Nest 12,
-// @nestrix/nestjs, the probe) to CommonJS inside Jest's own module system.
+// @nestrix-js/nestjs, the probe) to CommonJS inside Jest's own module system.
 const base = require("./jest.config.cjs");
 
 module.exports = {

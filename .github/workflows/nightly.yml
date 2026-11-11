@@ -38,14 +38,14 @@ jobs:
           # The workspaces that pin an exact Nest version (the two conformance packages and the
           # spikes) are left alone: their tests assert that the pinned version is the one loaded.
           pnpm update -r "@nestjs/*@^12" \
-            --filter '!@nestrix/conformance-*' --filter '!@nestrix/spike-p0-s1*' \
+            --filter '!@nestrix-js/conformance-*' --filter '!@nestrix-js/spike-p0-s1*' \
             --filter '!spike-p0-s6' --filter '!@nestrix-spikes/p0-s4'
           pnpm list -r --depth 0 | grep '@nestjs/' || true
       # The conformance suite imports the built fixture app (examples/express-esm).
       - run: pnpm build
       - name: Conformance files and the @nestjs/testing assertion
         run: >
-          pnpm --filter @nestrix/nestjs exec vitest run
+          pnpm --filter @nestrix-js/nestjs exec vitest run
           test/conformance-http.test.ts test/conformance-apps.test.ts test/http-testing.test.ts
 
   latest-nest:
@@ -62,7 +62,7 @@ jobs:
       - name: Update @nestjs/* to the latest 12.x (not committed)
         run: |
           pnpm update -r "@nestjs/*@^12" \
-            --filter '!@nestrix/conformance-*' --filter '!@nestrix/spike-p0-s1*' \
+            --filter '!@nestrix-js/conformance-*' --filter '!@nestrix-js/spike-p0-s1*' \
             --filter '!spike-p0-s6' --filter '!@nestrix-spikes/p0-s4'
           pnpm list -r --depth 0 | grep '@nestjs/' || true
       - run: pnpm verify

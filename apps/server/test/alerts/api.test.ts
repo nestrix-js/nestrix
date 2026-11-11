@@ -10,7 +10,7 @@ import type {
   AlertRuleCreateResponse,
   AlertRuleListResponse,
   AlertTestResponse,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 import type { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AlertEvaluator } from "../../src/alerts/evaluator.js";

@@ -64,7 +64,7 @@ export function tcpOpen(a: ContainerAddress): Promise<void> {
 export function dbSpans(spans: readonly ReadableSpan[]): ReadableSpan[] {
   return spans.filter(
     (s) =>
-      s.instrumentationScope.name === "@nestrix/nestjs" &&
+      s.instrumentationScope.name === "@nestrix-js/nestjs" &&
       s.attributes["db.system.name"] !== undefined,
   );
 }

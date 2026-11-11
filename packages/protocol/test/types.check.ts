@@ -11,7 +11,7 @@ import type {
   TraceParamsSpec,
 } from "../src/index.js";
 
-// A copy that matches compiles. This is what @nestrix/nestjs writes.
+// A copy that matches compiles. This is what @nestrix-js/nestjs writes.
 export const matching: TraceListParamsSpec = {
   limit: { kind: "int", min: 1, max: 200, default: 50 },
   before: { kind: "cursor", maxLength: 256 },
@@ -104,7 +104,7 @@ export const driftedDefault: RouteStatsParamsSpec = {
   },
 };
 
-// The profiler's body spec and path-segment spec (P7-02), as @nestrix/nestjs copies them.
+// The profiler's body spec and path-segment spec (P7-02), as @nestrix-js/nestjs copies them.
 export const matchingProfileStart: ProfileStartBodySpec = {
   durationSeconds: { kind: "int", min: 1, max: 120, default: 30 },
 };

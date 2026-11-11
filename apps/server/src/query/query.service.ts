@@ -41,7 +41,7 @@ import type {
   TraceResponse,
   TraceSummary,
   TraceType,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 import type pg from "pg";
 import type { ServerConfig } from "../config.js";
 import { SERVER_CONFIG } from "../config.module.js";

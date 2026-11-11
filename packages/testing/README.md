@@ -1,9 +1,9 @@
-# @nestrix/testing
+# @nestrix-js/testing
 
 Private test harness (never published). Boots a Nest app on Express, Fastify or `@nestjs/platform-node` and captures finished spans in memory.
 
 ```ts
-import { bootApp } from "@nestrix/testing";
+import { bootApp } from "@nestrix-js/testing";
 
 const booted = await bootApp("fastify", {
   module: MyModule,                 // default: fixture AppModule from examples/express-esm

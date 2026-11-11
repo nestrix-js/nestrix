@@ -7,14 +7,14 @@ require("reflect-metadata");
 const assert = require("node:assert/strict");
 const { Controller, Get, Module } = require("@nestjs/common");
 const { NestFactory } = require("@nestjs/core");
-const { NestrixModule } = require("@nestrix/nestjs");
-const { dashboardDirectory } = require("@nestrix/ui");
+const { NestrixModule } = require("@nestrix-js/nestjs");
+const { dashboardDirectory } = require("@nestrix-js/ui");
 
 assert.equal(typeof NestrixModule.forRoot, "function");
 assert.ok(dashboardDirectory instanceof URL);
 
 const SERVICE_NAME = "consume-cjs";
-const OPTIONS_TOKEN = Symbol.for("@nestrix/nestjs:options");
+const OPTIONS_TOKEN = Symbol.for("@nestrix-js/nestjs:options");
 
 class AppController {
   hello() {

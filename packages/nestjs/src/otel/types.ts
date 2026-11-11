@@ -103,7 +103,7 @@ export interface TelemetryHandle {
   readonly store?: TraceStore | undefined;
   /**
    * Stops this app's hold on the dashboard store before shutdown (P2-06: the dashboard turned out
-   * to have no HTTP adapter, or `@nestrix/ui` could not be loaded). Idempotent; never throws.
+   * to have no HTTP adapter, or `@nestrix-js/ui` could not be loaded). Idempotent; never throws.
    * `shutdown()` still detaches as before.
    */
   detachStore(): void;

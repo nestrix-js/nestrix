@@ -1,4 +1,4 @@
-import type { MapEdge, MapNode } from "@nestrix/protocol";
+import type { MapEdge, MapNode } from "@nestrix-js/protocol";
 
 export const MAP_WIDTH = 760;
 export const MAP_HEIGHT = 440;

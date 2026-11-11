@@ -10,7 +10,7 @@ const readme = readFileSync(new URL("../README.md", here), "utf8");
 // The README shows the package name and `./app.module`; the files import the source tree.
 function forReadme(source: string): string {
   return source
-    .replaceAll("../../src/index.js", "@nestrix/nestjs")
+    .replaceAll("../../src/index.js", "@nestrix-js/nestjs")
     .replaceAll("./for-root.js", "./app.module")
     .trimEnd();
 }

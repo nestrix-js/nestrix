@@ -1,4 +1,4 @@
-import type { Slo } from "@nestrix/protocol";
+import type { Slo } from "@nestrix-js/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useState } from "react";

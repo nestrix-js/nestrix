@@ -1,8 +1,8 @@
 // Q4 (Jest): a CommonJS test file that require()s the ESM-only packages.
 // Needs `pnpm build` first (the third test loads the compiled ESM probe).
 describe("require() of ESM-only packages under Jest", () => {
-  test("@nestrix/nestjs", () => {
-    const m = require("@nestrix/nestjs");
+  test("@nestrix-js/nestjs", () => {
+    const m = require("@nestrix-js/nestjs");
     expect(typeof m.NestrixModule.forRoot).toBe("function");
   });
 

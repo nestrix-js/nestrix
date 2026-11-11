@@ -23,7 +23,7 @@ import type {
   AlertTestResponse,
   ApiError,
   ApiErrorCode,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 import { SessionQueryGuard } from "../auth/query-guard.js";
 import {
   QUERY_HEADERS,

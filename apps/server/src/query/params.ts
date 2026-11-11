@@ -3,7 +3,7 @@
  * (`packages/nestjs/src/dashboard/api.ts`, `parseQuery`): unknown, repeated, malformed or
  * out-of-range parameters and `before` together with `after` are a 400 naming the parameter
  * (never echoing its value); absent parameters take their default; an empty string filter is no
- * filter. The specs are annotated with `@nestrix/protocol`'s spec types (types only: that package
+ * filter. The specs are annotated with `@nestrix-js/protocol`'s spec types (types only: that package
  * is private), so a bound that drifts from protocol fails `tsc`.
  */
 import type {
@@ -15,7 +15,7 @@ import type {
   RouteStatsParamsSpec,
   TraceListParamsSpec,
   TraceParamsSpec,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 
 export const traceListSpec: TraceListParamsSpec = {
   limit: { kind: "int", min: 1, max: 200, default: 50 },

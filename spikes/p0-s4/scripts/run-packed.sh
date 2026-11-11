@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs the packed @nestrix/nestjs tarball into a directory OUTSIDE the workspace
+# Installs the packed @nestrix-js/nestjs tarball into a directory OUTSIDE the workspace
 # with plain npm (flat node_modules, real copies, no pnpm symlinks), then runs the
 # CommonJS app and the OpenTelemetry load check on every Node in the matrix.
 #
@@ -29,7 +29,7 @@ npm install --no-audit --no-fund "$tarball" \
   @opentelemetry/api@1.10.0 @opentelemetry/sdk-trace@3.1.1 @opentelemetry/resources@3.1.1 \
   @opentelemetry/exporter-trace-otlp-http@0.301.1 @opentelemetry/instrumentation-undici@0.35.0 \
   @opentelemetry/semantic-conventions@1.45.0 reflect-metadata@0.2.2 rxjs@7.8.2
-ls -la node_modules/@nestrix/ node_modules/@nestrix/nestjs
+ls -la node_modules/@nestrix-js/ node_modules/@nestrix-js/nestjs
 
 # 3. the same compiled app and scripts, now resolving everything from the npm install
 rm -rf dist dist-esm scripts tla

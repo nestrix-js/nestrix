@@ -301,7 +301,7 @@ function hostHandle(
       if (store.stats().processors === 0) {
         diagnostics.logOnce(
           "store.host-processor-hint",
-          "The dashboard shows only spans that reach its store. Your application registered its own OpenTelemetry provider, so add Nestrix's processor to it: spanProcessors: [..., nestrixSpanProcessor()] (imported from @nestrix/nestjs).",
+          "The dashboard shows only spans that reach its store. Your application registered its own OpenTelemetry provider, so add Nestrix's processor to it: spanProcessors: [..., nestrixSpanProcessor()] (imported from @nestrix-js/nestjs).",
         );
       }
     }

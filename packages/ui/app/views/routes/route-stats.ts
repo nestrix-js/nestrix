@@ -1,4 +1,4 @@
-import type { RouteStats } from "@nestrix/protocol";
+import type { RouteStats } from "@nestrix-js/protocol";
 
 import type { ChartSeries } from "@/components/chart";
 import { type SamplingMeta, STANDALONE_STATISTICS_NOTE } from "@/lib/format";

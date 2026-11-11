@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { Controller, Get, Module } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 import { ExpressAppModule } from "express-esm/express-app.module";
 
 // The end-to-end suite picks a variant of this app with environment variables:

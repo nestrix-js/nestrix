@@ -29,7 +29,7 @@ import { getMethodCallSink, type MethodCallSink } from "./sink.js";
 // biome-ignore lint/suspicious/noExplicitAny: any callable, whatever its receiver and parameters
 export type Fn = (this: any, ...args: any[]) => any;
 
-const TRACER_NAME = "@nestrix/nestjs";
+const TRACER_NAME = "@nestrix-js/nestjs";
 
 /** The class-level switch every wrapper of a class reads at call time. */
 export interface PlanSwitch {

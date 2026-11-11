@@ -1,6 +1,6 @@
 # benchmarks
 
-Private workspace package. Performance and reliability numbers for `@nestrix/nestjs` (architecture §4.9). Plain ESM JavaScript, no build step. Run `pnpm build` at the repository root first: the app loads the built `express-esm` and `@nestrix/nestjs`.
+Private workspace package. Performance and reliability numbers for `@nestrix-js/nestjs` (architecture §4.9). Plain ESM JavaScript, no build step. Run `pnpm build` at the repository root first: the app loads the built `express-esm` and `@nestrix-js/nestjs`.
 
 ```bash
 pnpm --filter benchmarks run all        # everything, full length (about 45 minutes with the 10-minute outage runs)

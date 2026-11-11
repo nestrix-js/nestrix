@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { type AdapterName, bootApp } from "@nestrix/testing";
+import { type AdapterName, bootApp } from "@nestrix-js/testing";
 import { beforeEach, describe, expect, it } from "vitest";
 import { probe, resetProbe, type WriteStrategy } from "../src/dashboard.js";
 import { hostModule } from "../src/host.js";

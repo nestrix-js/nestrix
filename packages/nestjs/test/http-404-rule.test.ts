@@ -3,7 +3,7 @@
 // hook fires for a request that ends in 404 because no version or host accepted it. Where it
 // fires, only the rule keeps the route off the span (http-server.test.ts asserts the span).
 import { VersioningType } from "@nestjs/common";
-import { type BootedApp, bootApp } from "@nestrix/testing";
+import { type BootedApp, bootApp } from "@nestrix-js/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpServerInstrumentation } from "../src/http/server.js";
 import {

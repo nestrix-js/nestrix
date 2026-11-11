@@ -1,6 +1,6 @@
 import { Controller, Get, Inject, Injectable, Module } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import { bootApp } from "@nestrix/testing";
+import { bootApp } from "@nestrix-js/testing";
 import { trace } from "@opentelemetry/api";
 import { AppModule } from "express-esm/app.module";
 import { afterEach, describe, expect, it, vi } from "vitest";

@@ -207,10 +207,10 @@ export function statsModule(o: StatsModuleOptions): Type {
 
 export type AdapterName = "express" | "fastify" | "node";
 
-// The platform packages are dependencies of `@nestrix/testing`, not of this package, so they
+// The platform packages are dependencies of `@nestrix-js/testing`, not of this package, so they
 // are resolved from there (the same `@nestjs/core` instance: one pnpm peer set).
 const fromTesting = createRequire(
-  fileURLToPath(import.meta.resolve("@nestrix/testing")),
+  fileURLToPath(import.meta.resolve("@nestrix-js/testing")),
 );
 const PLATFORM = {
   express: ["@nestjs/platform-express", "ExpressAdapter"],

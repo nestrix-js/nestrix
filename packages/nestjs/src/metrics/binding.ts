@@ -25,7 +25,7 @@ import type { Diagnostics } from "../diagnostics.js";
 import { type RuntimeMetrics, startRuntimeMetrics } from "./runtime.js";
 
 /** Meter name, the same as the tracer's (`TRACER_NAME` in http/server.ts). */
-export const METER_NAME = "@nestrix/nestjs";
+export const METER_NAME = "@nestrix-js/nestjs";
 
 /** Bucket boundaries the HTTP semantic conventions advise for `http.server.request.duration`, in seconds. */
 export const HTTP_DURATION_BUCKETS: readonly number[] = Object.freeze([

@@ -81,7 +81,7 @@ describe("OTLP metric export", () => {
     }
     const duration = all.find((m) => m.name === "http.server.request.duration");
     expect(duration?.unit).toBe("s");
-    expect(duration?.scope).toBe("@nestrix/nestjs");
+    expect(duration?.scope).toBe("@nestrix-js/nestjs");
     expect(duration?.resource["service.name"]).toBe("metrics-export-test");
 
     await app.close();

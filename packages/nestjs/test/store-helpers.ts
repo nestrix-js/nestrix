@@ -70,7 +70,7 @@ export function fakeSpan(init: FakeSpanInit): ReadableSpan {
     resource: {
       attributes: init.resource ?? { "service.name": "store-test" },
     } as unknown as ReadableSpan["resource"],
-    instrumentationScope: { name: init.scope ?? "@nestrix/nestjs" },
+    instrumentationScope: { name: init.scope ?? "@nestrix-js/nestjs" },
     droppedAttributesCount: 0,
     droppedEventsCount: 0,
     droppedLinksCount: 0,

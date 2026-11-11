@@ -3,7 +3,7 @@
 // when no dashboard handler ran; statistics and the dashboard check fail safe (rule 1).
 import net from "node:net";
 import type { INestApplication } from "@nestjs/common";
-import { type BootedApp, bootApp } from "@nestrix/testing";
+import { type BootedApp, bootApp } from "@nestrix-js/testing";
 import { SpanKind } from "@opentelemetry/api";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {

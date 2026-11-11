@@ -4,9 +4,9 @@ Nestrix has not been published to npm yet. The 0.x versions exist only as builds
 
 Everything below is a breaking change made before 1.0 on purpose (decision D-69, "1.0 API freeze decisions"): nothing was released, so nothing has a deprecation path. The old names are gone, not aliased. TypeScript reports the renamed options and types at compile time; the behaviour changes in the second section do not fail loudly, so read them.
 
-From 1.0, semantic versioning covers the exports of `@nestrix/nestjs`, the option names and their defaults, and the documented environment variables. It does not cover the dashboard's query API (`/_nestrix/api/v1`) or the `@nestrix/protocol` types, which belong to the bundled UI, nor the names of the runtime metrics or the default set of traced classes (a minor release may change those).
+From 1.0, semantic versioning covers the exports of `@nestrix-js/nestjs`, the option names and their defaults, and the documented environment variables. It does not cover the dashboard's query API (`/_nestrix/api/v1`) or the `@nestrix-js/protocol` types, which belong to the bundled UI, nor the names of the runtime metrics or the default set of traced classes (a minor release may change those).
 
-Install `@nestrix/nestjs` and `@nestrix/ui` at the same version; they are released together.
+Install `@nestrix-js/nestjs` and `@nestrix-js/ui` at the same version; they are released together.
 
 ## Requirements
 
@@ -59,25 +59,25 @@ NestrixModule.forRoot({ methods: false });
 
 ```ts
 // before
-import type { NestrixMethodOptions, NestrixIntegrationOptions } from "@nestrix/nestjs";
+import type { NestrixMethodOptions, NestrixIntegrationOptions } from "@nestrix-js/nestjs";
 
 // after
-import type { NestrixMethodsOptions, NestrixIntegrationsOptions } from "@nestrix/nestjs";
+import type { NestrixMethodsOptions, NestrixIntegrationsOptions } from "@nestrix-js/nestjs";
 ```
 
 The plural names match the option keys (`methods`, `integrations`).
 
 ### `SpanOptions` is no longer exported
 
-`@nestrix/nestjs` stopped re-exporting the OpenTelemetry type. Import it from the API, which is already a peer dependency.
+`@nestrix-js/nestjs` stopped re-exporting the OpenTelemetry type. Import it from the API, which is already a peer dependency.
 
 ```ts
 // before
-import { type SpanOptions, withSpan } from "@nestrix/nestjs";
+import { type SpanOptions, withSpan } from "@nestrix-js/nestjs";
 
 // after
 import type { SpanOptions } from "@opentelemetry/api";
-import { withSpan } from "@nestrix/nestjs";
+import { withSpan } from "@nestrix-js/nestjs";
 ```
 
 ### `user`, `authorize` and `redact` callbacks
@@ -129,12 +129,12 @@ The owned meter provider starts at bootstrap, so a `MeterProvider` your app regi
 
 ## The bundled UI and the query API
 
-The dashboard's query API and `@nestrix/protocol` are internal to the UI, which ships at the same version. The 0.x renames below matter only if you called `/_nestrix/api/v1` yourself or built against the protocol types. Nothing public changed.
+The dashboard's query API and `@nestrix-js/protocol` are internal to the UI, which ships at the same version. The 0.x renames below matter only if you called `/_nestrix/api/v1` yourself or built against the protocol types. Nothing public changed.
 
 - `SpanRecord.service` was added, and `MetaResponse.mode` (`embedded` or `standalone`) is now required.
 - `statistics.windowsMinutes` is now `windowMinutesOptions`.
 
-Pin the UI to the same version as `@nestrix/nestjs`, and do not script against these endpoints.
+Pin the UI to the same version as `@nestrix-js/nestjs`, and do not script against these endpoints.
 
 ## Unchanged, but easy to miss
 

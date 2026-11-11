@@ -1,8 +1,8 @@
 /**
- * The built dashboard (`@nestrix/ui`): finding it, reading its files into memory, and templating
+ * The built dashboard (`@nestrix-js/ui`): finding it, reading its files into memory, and templating
  * `index.html` (architecture §4.6 "Assets" and "Base path"; backlog P2-06).
  *
- * `@nestrix/ui` is an optional peer. It is located with `createRequire().resolve()`, which is
+ * `@nestrix-js/ui` is an optional peer. It is located with `createRequire().resolve()`, which is
  * synchronous, so nothing here needs a top-level `await` (AGENTS.md rule 4) or a dynamic
  * `import()`: its Node entry is never loaded, only the directory it lives in, where
  * `manifest.json` lists every file (path, size, sha256, content type).
@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
-export const UI_PACKAGE = "@nestrix/ui";
+export const UI_PACKAGE = "@nestrix-js/ui";
 export const BASE_HREF_PLACEHOLDER = "__NESTRIX_BASE_HREF__";
 /** With its quotes: the whole quoted token is replaced by the JSON. */
 export const CONFIG_PLACEHOLDER = '"__NESTRIX_CONFIG__"';
@@ -40,11 +40,11 @@ const ASSET_PATH = /^assets\/[A-Za-z0-9._-]+$/;
 const CONTENT_TYPE = /^[\x20-\x7e]{1,200}$/;
 
 /**
- * How `@nestrix/ui` is found. Replaceable for tests (a test sets `resolveDirectory` to simulate an
+ * How `@nestrix-js/ui` is found. Replaceable for tests (a test sets `resolveDirectory` to simulate an
  * absent package). Internal; not exported from the package entry.
  */
 export const uiPackage = {
-  /** The directory holding the built dashboard, or `undefined` when `@nestrix/ui` is not installed. */
+  /** The directory holding the built dashboard, or `undefined` when `@nestrix-js/ui` is not installed. */
   resolveDirectory(): string | undefined {
     try {
       const require = createRequire(import.meta.url);

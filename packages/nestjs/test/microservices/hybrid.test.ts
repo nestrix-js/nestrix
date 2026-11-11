@@ -1,6 +1,6 @@
 // A hybrid app (Express + a TCP microservice in one process): one HTTP request -> send and emit
 // through a DI client -> handlers, as one trace. Covers the three ways to connect the microservice
-// (spike P4-S1 Q2). Global state: @nestrix/testing's host provider, plus the ALS context manager
+// (spike P4-S1 Q2). Global state: @nestrix-js/testing's host provider, plus the ALS context manager
 // and W3C propagator registered here.
 import "reflect-metadata";
 import {
@@ -15,7 +15,7 @@ import {
   ClientsModule,
   Transport,
 } from "@nestjs/microservices";
-import { type BootedApp, bootApp } from "@nestrix/testing";
+import { type BootedApp, bootApp } from "@nestrix-js/testing";
 import {
   context,
   propagation,

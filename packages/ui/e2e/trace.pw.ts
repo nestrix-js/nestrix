@@ -1,5 +1,5 @@
 import type { Server } from "node:http";
-import type { TraceResponse } from "@nestrix/protocol";
+import type { TraceResponse } from "@nestrix-js/protocol";
 import { expect, type Page, test } from "@playwright/test";
 import { recordViolations, violations, watch } from "./helpers.ts";
 import { BASE_PATH, startServer } from "./serve.ts";

@@ -1,6 +1,6 @@
 // Stand-in for Nestrix's level-1 instrumentation. Imports @opentelemetry/api only
 // (AGENTS.md rule 5) plus Nest's public API. Plain ESM JavaScript so a CommonJS host
-// can require() it exactly as it would require() the ESM-only @nestrix/nestjs, and so
+// can require() it exactly as it would require() the ESM-only @nestrix-js/nestjs, and so
 // it runs without a build step. Decorators are applied as functions.
 //
 // Every hook and subscriber body catches everything (rule 1). Fault injection: set

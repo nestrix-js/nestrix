@@ -37,8 +37,8 @@ Order: P1-01 first. Then P1-02, P1-03, P1-04 and P1-05 in parallel (disjoint fil
 - Instrumentation imports `@opentelemetry/api` only. SDK packages are imported only under `src/otel/`.
 - No `instanceof` on OpenTelemetry classes (architecture §4.5). Tracers are obtained at use time.
 - Every file under `packages/nestjs/src/` owns one concern; the file ownership in each task below keeps parallel agents apart. `src/index.ts` (the public exports) is edited only by the lead when merging.
-- Tests live in `packages/nestjs/test/`. Tests that need the OpenTelemetry globals in a particular state (no provider, a host provider) run in their own file: Vitest isolates files, not tests. `@nestrix/testing`'s `bootApp` registers a host provider with an in-memory exporter, which exercises the host-SDK path; the Nestrix-owned path needs its own files.
-- A change to `@nestrix/nestjs` comes with a changeset (P1-02 adds the first one; later tasks extend it or add their own).
+- Tests live in `packages/nestjs/test/`. Tests that need the OpenTelemetry globals in a particular state (no provider, a host provider) run in their own file: Vitest isolates files, not tests. `@nestrix-js/testing`'s `bootApp` registers a host provider with an in-memory exporter, which exercises the host-SDK path; the Nestrix-owned path needs its own files.
+- A change to `@nestrix-js/nestjs` comes with a changeset (P1-02 adds the first one; later tasks extend it or add their own).
 - A task is `done` when its checks have been run and their output read, `pnpm verify` passes, and, where the table says so, an independent `reviewer` has passed it and its findings are resolved.
 
 ## Public API
@@ -88,7 +88,7 @@ Server span name: `METHOD /route/template`, or `METHOD` when there is no route. 
 - `resolveOptions(options, env)`: a pure function from `NestrixModuleOptions` and an environment object to a fully defaulted, frozen `ResolvedOptions`. Defaults and environment variables as documented in `options.ts`. Validates: `sampleRate` in [0, 1], queue sizes positive integers, `maxExportBatchSize <= maxQueueSize`. Invalid options are an error at module creation: a typo in configuration should fail loudly at startup, which is not a request-path failure. `enabled: false` or `NESTRIX_ENABLED=false` makes `forRoot` return a module with no providers at all.
 - `diagnostics.ts`: Nestrix's internal logger and failure counter. `logOnce(key, message)` writes through Nest's `Logger` with context `Nestrix` once per key per process; `countFailure(where, error)` increments a per-site counter and logs the first error of each site once. Both never throw. Exposed to tests through an internal function, not the public API.
 - A module-level `NestrixCore` provider whose constructor is where later tasks hook in (P1-03 registers telemetry from it; P1-06 installs HTTP hooks from it). Leave clearly marked call sites; do not implement them.
-- The first changeset: minor bump of `@nestrix/nestjs` and `@nestrix/ui` ("Headless tracing").
+- The first changeset: minor bump of `@nestrix-js/nestjs` and `@nestrix-js/ui` ("Headless tracing").
 
 **Do not.** Register any OpenTelemetry global; set any adapter hook; read `process.env` anywhere but the module factory.
 

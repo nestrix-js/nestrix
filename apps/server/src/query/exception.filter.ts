@@ -5,7 +5,7 @@ import {
   HttpException,
   Logger,
 } from "@nestjs/common";
-import type { ApiError, ApiErrorCode } from "@nestrix/protocol";
+import type { ApiError, ApiErrorCode } from "@nestrix-js/protocol";
 
 /** Headers on every query API response, errors included. There is never an `Access-Control-*`. */
 export const QUERY_HEADERS = {

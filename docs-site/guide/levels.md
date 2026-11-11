@@ -22,7 +22,7 @@ Pass Nestrix's `instrument` object to `NestFactory.create`. This is Nest's own `
 
 ```ts
 import { NestFactory } from "@nestjs/core";
-import { NestrixInstrument } from "@nestrix/nestjs";
+import { NestrixInstrument } from "@nestrix-js/nestjs";
 import { AppModule } from "./app.module";
 
 const app = await NestFactory.create(AppModule, {

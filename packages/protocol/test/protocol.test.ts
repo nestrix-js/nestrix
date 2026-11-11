@@ -164,7 +164,7 @@ describe("fixtures (types are checked by tsc via `satisfies`; this checks consis
   });
 });
 
-describe("@nestrix/nestjs declarations do not reference the private protocol package", () => {
+describe("@nestrix-js/nestjs declarations do not reference the private protocol package", () => {
   const dist = resolve(here, "..", "..", "nestjs", "dist");
   const entry = join(dist, "index.d.ts");
 
@@ -197,7 +197,7 @@ describe("@nestrix/nestjs declarations do not reference the private protocol pac
   }
 
   it.skipIf(!existsSync(entry))(
-    "no .d.ts reachable from dist/index.d.ts mentions @nestrix/protocol (skipped when packages/nestjs/dist is absent: run `pnpm --filter @nestrix/nestjs build`)",
+    "no .d.ts reachable from dist/index.d.ts mentions @nestrix-js/protocol (skipped when packages/nestjs/dist is absent: run `pnpm --filter @nestrix-js/nestjs build`)",
     () => {
       const seen = new Set<string>();
       const queue = [entry];
@@ -206,8 +206,8 @@ describe("@nestrix/nestjs declarations do not reference the private protocol pac
         if (seen.has(file)) continue;
         seen.add(file);
         const text = readFileSync(file, "utf8");
-        expect(text, `${file} references @nestrix/protocol`).not.toContain(
-          "@nestrix/protocol",
+        expect(text, `${file} references @nestrix-js/protocol`).not.toContain(
+          "@nestrix-js/protocol",
         );
         for (const spec of relativeSpecifiers(text)) {
           const next = resolveDts(file, spec);

@@ -12,7 +12,7 @@ import {
   trace,
 } from "@opentelemetry/api";
 
-const TRACER_NAME = "@nestrix/nestjs";
+const TRACER_NAME = "@nestrix-js/nestjs";
 
 function end(span: ApiSpan): void {
   try {

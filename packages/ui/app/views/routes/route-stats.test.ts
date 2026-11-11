@@ -1,4 +1,4 @@
-import type { RouteStats, RouteStatsResponse } from "@nestrix/protocol";
+import type { RouteStats, RouteStatsResponse } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 
 import {

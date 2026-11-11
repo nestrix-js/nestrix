@@ -2,7 +2,7 @@
 // Under @nestjs/testing the adapter is undefined when NestrixCore is constructed; the hooks are
 // installed from HttpAdapterHost.init$ (nest-hooks §1). This file is the regression test the
 // nightly latest-12.x job runs for that dependency on init$'s emission timing (P0-S1).
-import { type BootedApp, bootApp } from "@nestrix/testing";
+import { type BootedApp, bootApp } from "@nestrix-js/testing";
 import { SpanStatusCode } from "@opentelemetry/api";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {

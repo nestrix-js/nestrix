@@ -1,6 +1,6 @@
 /**
  * The profiler routes of the embedded dashboard (P7-02, D-70; architecture §4.6, §4.7). Shapes in
- * `@nestrix/protocol` (`profiles.ts`), imported as types only; the two specs below are local
+ * `@nestrix-js/protocol` (`profiles.ts`), imported as types only; the two specs below are local
  * copies annotated with the protocol's spec types, so a drifting bound fails `tsc`.
  *
  * `POST <path>/api/v1/profiles` is the dashboard's first state-changing request. After the read
@@ -20,7 +20,7 @@ import type {
   ProfileConflictError,
   ProfileIdParamsSpec,
   ProfileStartBodySpec,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 import type { Profiler } from "../profiler/profiler.js";
 import type { RawRequestLike } from "./access.js";
 import { apiError, parseQuery } from "./api.js";

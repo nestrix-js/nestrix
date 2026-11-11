@@ -1,6 +1,6 @@
 // Pure logic of the trace waterfall: the span tree, the visible rows, the time axis and the
 // keyboard model. No React, so it is unit-tested directly.
-import type { SpanRecord } from "@nestrix/protocol";
+import type { SpanRecord } from "@nestrix-js/protocol";
 
 /** A span is an error when its status is `error` (docs/backlog/phase-2.md "Public API"). */
 export const isErrorSpan = (span: SpanRecord): boolean =>

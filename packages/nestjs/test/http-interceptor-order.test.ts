@@ -13,7 +13,7 @@ import {
   type Type,
 } from "@nestjs/common";
 import { APP_INTERCEPTOR } from "@nestjs/core";
-import { type BootedApp, bootApp } from "@nestrix/testing";
+import { type BootedApp, bootApp } from "@nestrix-js/testing";
 import { SpanStatusCode } from "@opentelemetry/api";
 import { afterEach, describe, expect, it } from "vitest";
 import { NestrixModule } from "../src/nestrix.module.js";

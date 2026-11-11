@@ -15,7 +15,7 @@ import {
   type OnModuleInit,
 } from "@nestjs/common";
 import { type AbstractHttpAdapter, HttpAdapterHost } from "@nestjs/core";
-import { dashboardDirectory } from "@nestrix/ui";
+import { dashboardDirectory } from "@nestrix-js/ui";
 
 /**
  * Stand-in for the dashboard: a JSON route, an HTML asset and a pre-gzipped
@@ -159,7 +159,7 @@ function runSelfProbe(
   });
 }
 
-// Assets. The HTML comes from the built @nestrix/ui package; the binary is
+// Assets. The HTML comes from the built @nestrix-js/ui package; the binary is
 // random bytes, gzipped once, served with Content-Encoding: gzip.
 export const indexHtml: Buffer = readFileSync(
   new URL("index.html", dashboardDirectory),

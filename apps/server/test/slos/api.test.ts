@@ -9,7 +9,7 @@ import type {
   AlertRuleCreateResponse,
   Slo,
   SloListResponse,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AlertEvaluator } from "../../src/alerts/evaluator.js";
 import { ensurePartitions, utcDay } from "../../src/storage/partitions.js";

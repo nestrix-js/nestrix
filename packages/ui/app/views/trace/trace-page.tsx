@@ -1,4 +1,4 @@
-import type { SpanRecord, TraceResponse } from "@nestrix/protocol";
+import type { SpanRecord, TraceResponse } from "@nestrix-js/protocol";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 

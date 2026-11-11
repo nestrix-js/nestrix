@@ -1,9 +1,9 @@
-// Q3b: can CommonJS load the OpenTelemetry packages @nestrix/nestjs will depend on
+// Q3b: can CommonJS load the OpenTelemetry packages @nestrix-js/nestjs will depend on
 // (architecture.md 4.5), no flags?
 //   (1) require("@opentelemetry/x") from CJS: resolves each package's .cjs build.
 //   (2) require() of an ES module that statically imports all of them
 //       (tla/otel-graph.mjs): resolves their .mjs builds. This is the graph that
-//       matters, because @nestrix/nestjs is ESM and imports them as ESM.
+//       matters, because @nestrix-js/nestjs is ESM and imports them as ESM.
 const path = require("node:path");
 
 const packages = [

@@ -32,7 +32,7 @@ const SHAPES = {
 
 async function child(shape, fill) {
   const traces = fill ?? SHAPES[shape].traces;
-  const nestjsEntry = fileURLToPath(import.meta.resolve("@nestrix/nestjs"));
+  const nestjsEntry = fileURLToPath(import.meta.resolve("@nestrix-js/nestjs"));
   const require = createRequire(nestjsEntry);
   const dist = new URL("./", pathToFileURL(nestjsEntry)).href;
   const {
@@ -62,7 +62,7 @@ async function child(shape, fill) {
     new AsyncLocalStorageContextManager().enable(),
   );
   trace.setGlobalTracerProvider(provider);
-  const tracer = trace.getTracer("@nestrix/nestjs", "0.0.0");
+  const tracer = trace.getTracer("@nestrix-js/nestjs", "0.0.0");
   // Fresh heap strings, as values parsed from a request are in a real app; literals would be
   // shared and understate the cost.
   const fresh = (s) => [...s].join("");

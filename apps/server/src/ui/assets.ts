@@ -1,5 +1,5 @@
 /**
- * The `@nestrix/ui` build, served by the standalone server at `/` (backlog P5-04). Mirrors the
+ * The `@nestrix-js/ui` build, served by the standalone server at `/` (backlog P5-04). Mirrors the
  * embedded dashboard's loader (`packages/nestjs/src/dashboard/assets.ts`, internal to that
  * package): the package directory is found with `createRequire().resolve()`, `manifest.json`
  * lists every file, and only `index.html` and single-segment files under `assets/` are read,
@@ -11,10 +11,10 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
-export const UI_PACKAGE = "@nestrix/ui";
+export const UI_PACKAGE = "@nestrix-js/ui";
 export const BASE_HREF_PLACEHOLDER = "__NESTRIX_BASE_HREF__";
 export const CONFIG_PLACEHOLDER = '"__NESTRIX_CONFIG__"';
-/** The query-API protocol version the server speaks (`@nestrix/protocol`'s `PROTOCOL_VERSION`; a test keeps them equal). */
+/** The query-API protocol version the server speaks (`@nestrix-js/protocol`'s `PROTOCOL_VERSION`; a test keeps them equal). */
 export const PROTOCOL_VERSION = 1;
 
 export interface UiAsset {
@@ -39,7 +39,7 @@ interface ManifestEntry {
   contentType: string;
 }
 
-/** The directory of the built UI, or `undefined` when `@nestrix/ui` cannot be resolved. */
+/** The directory of the built UI, or `undefined` when `@nestrix-js/ui` cannot be resolved. */
 export function resolveUiDirectory(): string | undefined {
   try {
     return dirname(createRequire(import.meta.url).resolve(UI_PACKAGE));

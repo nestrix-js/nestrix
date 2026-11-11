@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { createServer, request as httpRequest, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { type AdapterName, bootApp } from "@nestrix/testing";
+import { type AdapterName, bootApp } from "@nestrix-js/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetProbe } from "../src/dashboard.js";
 import { hostModule, hostSeen, resetHostSeen } from "../src/host.js";

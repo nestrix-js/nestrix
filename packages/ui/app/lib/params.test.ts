@@ -1,4 +1,4 @@
-import { traceListParams } from "@nestrix/protocol";
+import { traceListParams } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 
 import {

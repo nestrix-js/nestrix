@@ -2,7 +2,7 @@
 // Rule 1 for the HTTP hooks and the interceptor: a fault anywhere in Nestrix's code leaves the
 // host's request unchanged, `done()` runs exactly once, and the fault is counted.
 import { EventEmitter } from "node:events";
-import { type BootedApp, bootApp } from "@nestrix/testing";
+import { type BootedApp, bootApp } from "@nestrix-js/testing";
 import { context, trace } from "@opentelemetry/api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {

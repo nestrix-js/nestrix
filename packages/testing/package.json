@@ -1,5 +1,5 @@
 {
-  "name": "@nestrix/testing",
+  "name": "@nestrix-js/testing",
   "version": "0.0.0",
   "private": true,
   "description": "Test harness: boots Nest apps on each adapter and captures spans in memory",

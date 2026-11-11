@@ -1,9 +1,9 @@
 # Releasing
 
-`@nestrix/nestjs` and `@nestrix/ui` are released together, always at the same version, with
+`@nestrix-js/nestjs` and `@nestrix-js/ui` are released together, always at the same version, with
 [Changesets](https://github.com/changesets/changesets) and the
-[`release.yml`](./.github/workflows/release.yml) workflow. `@nestrix/protocol` and
-`@nestrix/testing` are private and are never versioned, tagged or published.
+[`release.yml`](./.github/workflows/release.yml) workflow. `@nestrix-js/protocol` and
+`@nestrix-js/testing` are private and are never versioned, tagged or published.
 
 **Nothing is published yet, and the workflow cannot publish yet.** Every job in `release.yml` is
 skipped until the repository variable `NPM_PUBLISH_ENABLED` is set to `true` (see
@@ -52,13 +52,13 @@ Four independent layers, so a single mistake cannot publish:
    `scripts/release.mjs` is the only place that calls `changeset publish`.
 3. The publish job has no npm token. Without a trusted publisher configured on npmjs.com for the
    package, npm rejects it.
-4. The `@nestrix` npm organisation does not exist yet, so the scope cannot be published to.
+4. The `@nestrix-js` npm organisation exists, but no trusted publisher is configured until the first publish, so the scope cannot be published to.
 
 ## One-time setup (owner)
 
 None of this has been done. Do it in this order.
 
-- [ ] npm account with **2FA**, and the **`@nestrix` organisation** created on npmjs.com. This is
+- [ ] npm account with **2FA**, and the **`@nestrix-js` organisation** created on npmjs.com. This is
       also the test of whether the scope is free (`docs/decisions.md`, "Owner actions
       outstanding"). If the scope is taken, stop: the package names change.
 - [ ] Make the repository **public** (`docs/decisions.md`, "When the repository goes public").
@@ -81,7 +81,7 @@ None of this has been done. Do it in this order.
       reviewers on a private repository need a paid plan. If you add it, add
       `environment: npm` to the `publish` job and name `npm` in the trusted publisher below.
 - [ ] Optional: a ruleset on `main` and a tag ruleset protecting release tags (`v*` and
-      `@nestrix/*@*`). Rulesets are unavailable on a private repository on the Free plan.
+      `@nestrix-js/*@*`). Rulesets are unavailable on a private repository on the Free plan.
 - [ ] **First publish, by hand**, because npm only allows a trusted publisher to be configured on
       a package that already exists (`npm trust` also needs the package to exist). From a clean
       checkout of `main`:
@@ -90,11 +90,11 @@ None of this has been done. Do it in this order.
       git switch main && git pull
       pnpm install --frozen-lockfile
       pnpm verify
-      pnpm --filter @nestrix/nestjs pack --dry-run   # check the file list: only what should ship
-      pnpm --filter @nestrix/ui pack --dry-run
+      pnpm --filter @nestrix-js/nestjs pack --dry-run   # check the file list: only what should ship
+      pnpm --filter @nestrix-js/ui pack --dry-run
       npm login
-      pnpm --filter @nestrix/nestjs publish --access public
-      pnpm --filter @nestrix/ui publish --access public
+      pnpm --filter @nestrix-js/nestjs publish --access public
+      pnpm --filter @nestrix-js/ui publish --access public
       ```
 
       Both packages are at `0.0.0` today. Decide which version the first publish carries: either
@@ -118,7 +118,7 @@ None of this has been done. Do it in this order.
 
 ## A bad release
 
-`npm deprecate @nestrix/nestjs@<version> "<reason>"` (and the same for `@nestrix/ui`), then release
+`npm deprecate @nestrix-js/nestjs@<version> "<reason>"` (and the same for `@nestrix-js/ui`), then release
 a fix through the normal flow. Unpublishing is only possible within 72 hours and breaks anyone who
 installed that version.
 

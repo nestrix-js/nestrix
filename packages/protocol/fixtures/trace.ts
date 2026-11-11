@@ -41,7 +41,7 @@ export const trace = {
       ],
       status: { code: "error", message: "Payments service unavailable" },
       links: [],
-      scope: "@nestrix/nestjs",
+      scope: "@nestrix-js/nestjs",
     },
     {
       spanId: "5b8efff798038103",
@@ -57,7 +57,7 @@ export const trace = {
       events: [],
       status: { code: "unset" },
       links: [],
-      scope: "@nestrix/nestjs",
+      scope: "@nestrix-js/nestjs",
     },
     {
       spanId: "e457b5a2e4d86bd1",
@@ -82,7 +82,7 @@ export const trace = {
       ],
       status: { code: "error", message: "Payments service unavailable" },
       links: [],
-      scope: "@nestrix/nestjs",
+      scope: "@nestrix-js/nestjs",
     },
     {
       spanId: "7ce5f8b3a41d9e60",

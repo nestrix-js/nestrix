@@ -1,6 +1,6 @@
 // biome-ignore-all lint/a11y/useSemanticElements: a virtualised treegrid positions its rows absolutely, which table elements cannot do
 // biome-ignore-all lint/a11y/useFocusableInteractive: the treegrid is the single focus stop; rows are reached with the arrow keys (aria-activedescendant)
-import type { TraceResponse } from "@nestrix/protocol";
+import type { TraceResponse } from "@nestrix-js/protocol";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   AlertCircle,

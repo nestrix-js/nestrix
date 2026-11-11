@@ -19,7 +19,7 @@ import {
   UseFilters,
 } from "@nestjs/common";
 import { HttpAdapterHost } from "@nestjs/core";
-import type { BootedApp, ReadableSpan } from "@nestrix/testing";
+import type { BootedApp, ReadableSpan } from "@nestrix-js/testing";
 import { context, propagation, SpanKind } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";

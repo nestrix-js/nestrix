@@ -4,7 +4,7 @@
 //
 // P2-06: a handler fault answers 500 without reaching the host's filter; Express catch-all
 // shadowing is logged after one visit; NODE_ENV=production with 'auto' registers nothing; no
-// HTTP adapter registers nothing and detaches the store; @nestrix/ui missing or broken; the
+// HTTP adapter registers nothing and detaches the store; @nestrix-js/ui missing or broken; the
 // 'auto' startup-token flow; the startup log line; the access timeout; API parameter errors.
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -147,17 +147,17 @@ describe.each(ADAPTERS)("%s", (adapter) => {
     expect(errors.some((e) => e.includes("ui.auth is missing"))).toBe(true);
   });
 
-  it("@nestrix/ui not installed: off with the install command, nothing registered", async () => {
+  it("@nestrix-js/ui not installed: off with the install command, nothing registered", async () => {
     uiPackage.resolveDirectory = () => undefined;
     booted = await bootDashboardApp({ adapter, nestrix: ENABLED });
     expect((await get(`${booted.baseUrl}/_nestrix/`, BEARER)).status).toBe(404);
     expect(logs).toContain(
-      "Nestrix dashboard: off, because @nestrix/ui is not installed. Install it at the same version as @nestrix/nestjs to serve the dashboard: npm install @nestrix/ui",
+      "Nestrix dashboard: off, because @nestrix-js/ui is not installed. Install it at the same version as @nestrix-js/nestjs to serve the dashboard: npm install @nestrix-js/ui",
     );
     expect(getStore()?.stats().attached ?? 0).toBe(0);
   });
 
-  it("@nestrix/ui broken (a file does not match the manifest): off with an error, store detached", async () => {
+  it("@nestrix-js/ui broken (a file does not match the manifest): off with an error, store detached", async () => {
     const dir = mkdtempSync(join(tmpdir(), "nestrix-ui-"));
     const real = realResolve() as string;
     const manifest = JSON.parse(
@@ -170,7 +170,9 @@ describe.each(ADAPTERS)("%s", (adapter) => {
     expect((await get(`${booted.baseUrl}/_nestrix/`, BEARER)).status).toBe(404);
     expect(
       errors.some((e) =>
-        e.startsWith("Nestrix dashboard: off. @nestrix/ui could not be loaded"),
+        e.startsWith(
+          "Nestrix dashboard: off. @nestrix-js/ui could not be loaded",
+        ),
       ),
     ).toBe(true);
     expect(getStore()?.stats().attached).toBe(0);

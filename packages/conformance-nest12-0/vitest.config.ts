@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 // Runs the conformance suite (packages/nestjs/test/conformance-*.test.ts) with every Nest import
-// resolved to this package's 12.0.0 install. The tests, packages/nestjs/src, @nestrix/testing and
+// resolved to this package's 12.0.0 install. The tests, packages/nestjs/src, @nestrix-js/testing and
 // the fixture app (examples/express-esm) are transformed by Vite, so these aliases apply to
 // them; the Nest packages themselves are loaded by Node from this package's node_modules and
 // resolve each other there. Same wiring as spikes/p0-s1-nest12-0.
@@ -22,7 +22,7 @@ export default defineConfig({
         find: new RegExp(`^${name}$`),
         replacement: fileURLToPath(import.meta.resolve(name)),
       })),
-      // platform-node does not exist before 12.3.0; @nestrix/testing imports it, the suite never uses it here
+      // platform-node does not exist before 12.3.0; @nestrix-js/testing imports it, the suite never uses it here
       {
         find: /^@nestjs\/platform-node$/,
         replacement: fileURLToPath(

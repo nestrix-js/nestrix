@@ -18,7 +18,7 @@ Nestrix supports OpenTelemetry JS SDK 3 and `@opentelemetry/api` 1.10 only. Its 
 
 ```text
 npm error ERESOLVE unable to resolve dependency tree
-npm error peer @opentelemetry/api@">=1.10.0 <1.11.0" from @nestrix/nestjs
+npm error peer @opentelemetry/api@">=1.10.0 <1.11.0" from @nestrix-js/nestjs
 ```
 
 Upgrade the host's OpenTelemetry packages to SDK 3 and API 1.10. Do not use `--legacy-peer-deps` or `--force`: a second API copy fails silently in both directions, because a copy of another minor version can neither read nor write the global the first one registered, so spans are recorded nowhere. pnpm only warns for the same mismatch; the problem is the same.

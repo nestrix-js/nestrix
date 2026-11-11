@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { gunzipSync } from "node:zlib";
-import { type AdapterName, bootApp } from "@nestrix/testing";
+import { type AdapterName, bootApp } from "@nestrix-js/testing";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   blobGz,

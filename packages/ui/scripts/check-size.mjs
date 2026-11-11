@@ -30,7 +30,7 @@ const { unpackedSize, files } = pack;
 const largest = [...files].sort((a, b) => b.size - a.size).slice(0, 3);
 
 console.log(
-  `@nestrix/ui unpacked size ${unpackedSize} bytes, budget ${budget} bytes (${files.length} files; largest: ${largest.map((f) => `${f.path} ${f.size}`).join(", ")})`,
+  `@nestrix-js/ui unpacked size ${unpackedSize} bytes, budget ${budget} bytes (${files.length} files; largest: ${largest.map((f) => `${f.path} ${f.size}`).join(", ")})`,
 );
 if (unpackedSize > budget) {
   console.error(

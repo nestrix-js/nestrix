@@ -3,7 +3,11 @@
 // P1-06 and P1-07 on Express, Fastify and platform-node through NestFactory.create.
 import { setTimeout as sleep } from "node:timers/promises";
 import { type VersioningOptions, VersioningType } from "@nestjs/common";
-import { type BootedApp, bootApp, type ReadableSpan } from "@nestrix/testing";
+import {
+  type BootedApp,
+  bootApp,
+  type ReadableSpan,
+} from "@nestrix-js/testing";
 import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {

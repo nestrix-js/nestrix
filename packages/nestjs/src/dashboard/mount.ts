@@ -4,12 +4,12 @@
  *
  * Lifecycle, driven by `NestrixCore`:
  * 1. Constructor (`createDashboard`): the mode is already resolved (module factory). When it is on
- *    and `@nestrix/ui` can be located, a `Dashboard` is created. Its `hookConfig` (dashboard path,
+ *    and `@nestrix-js/ui` can be located, a `Dashboard` is created. Its `hookConfig` (dashboard path,
  *    route statistics, shadowing callback) goes to the request hook and the store limits to the
  *    telemetry setup, both at construction (an SDK 3 provider takes processors only in its
  *    constructor). Nothing is registered yet.
  * 2. `onModuleInit` (`mount`): with no HTTP adapter, nothing is registered and the store is
- *    detached. Otherwise `@nestrix/ui`'s files are read into memory, the startup token is created
+ *    detached. Otherwise `@nestrix-js/ui`'s files are read into memory, the startup token is created
  *    (`'auto'` mode), and every route is registered with `httpAdapter.get` (D-45).
  * 3. `HttpAdapterHost.listen$`: one log line with the real port and, in `'auto'` mode, the
  *    startup-token link. If the app has not listened shortly after init, a line without the token
@@ -22,7 +22,7 @@
  * promise to the adapter.
  */
 import { randomBytes } from "node:crypto";
-import type { MetaResponse } from "@nestrix/protocol";
+import type { MetaResponse } from "@nestrix-js/protocol";
 import type { Diagnostics } from "../diagnostics.js";
 import { markDashboardHandlerReached } from "../http/request-state.js";
 import type { AdapterHostLike, DashboardHookConfig } from "../http/server.js";
@@ -301,7 +301,7 @@ export class Dashboard {
       } catch (error) {
         telemetry?.detachStore?.();
         this.logger.error(
-          `Nestrix dashboard: off. @nestrix/ui could not be loaded (${error instanceof Error ? error.message : "unknown error"}); reinstall it, at the same version as @nestrix/nestjs. The application starts without the dashboard.`,
+          `Nestrix dashboard: off. @nestrix-js/ui could not be loaded (${error instanceof Error ? error.message : "unknown error"}); reinstall it, at the same version as @nestrix-js/nestjs. The application starts without the dashboard.`,
         );
         return;
       }
@@ -610,7 +610,7 @@ export class Dashboard {
 export type DashboardUnavailable = "ui-missing";
 
 /**
- * At the `NestrixCore` constructor: a `Dashboard` when the resolved mode is on and `@nestrix/ui`
+ * At the `NestrixCore` constructor: a `Dashboard` when the resolved mode is on and `@nestrix-js/ui`
  * can be located; otherwise why not (`undefined` reason when the mode itself is off). Never throws.
  */
 export function createDashboard(
@@ -635,4 +635,4 @@ export function createDashboard(
 }
 
 export const UI_MISSING_MESSAGE =
-  "Nestrix dashboard: off, because @nestrix/ui is not installed. Install it at the same version as @nestrix/nestjs to serve the dashboard: npm install @nestrix/ui";
+  "Nestrix dashboard: off, because @nestrix-js/ui is not installed. Install it at the same version as @nestrix-js/nestjs to serve the dashboard: npm install @nestrix-js/ui";

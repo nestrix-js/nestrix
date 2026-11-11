@@ -20,8 +20,8 @@
  * (a non-finite or negative duration counts as 0 ms; a non-finite time is ignored).
  *
  * Response shapes mirror `RouteStatsResponse`, `RouteStats` and `RouteSeriesPoint` in
- * `@nestrix/protocol` (P2-01). They are declared here rather than imported because
- * `@nestrix/nestjs` has no dependency on that private package yet; `test/stats-unit.test.ts`
+ * `@nestrix-js/protocol` (P2-01). They are declared here rather than imported because
+ * `@nestrix-js/nestjs` has no dependency on that private package yet; `test/stats-unit.test.ts`
  * checks assignability both ways, so drift fails `tsc`.
  */
 

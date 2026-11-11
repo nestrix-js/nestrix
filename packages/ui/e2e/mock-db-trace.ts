@@ -1,5 +1,5 @@
 // Traces for the query-insight and span-link tests: database spans (slow and repeated) and links.
-import type { SpanRecord, TraceResponse } from "@nestrix/protocol";
+import type { SpanRecord, TraceResponse } from "@nestrix-js/protocol";
 
 export const DB_TRACE_ID = "d1".repeat(16);
 export const LINKED_TRACE_ID = "d2".repeat(16);

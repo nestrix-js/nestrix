@@ -1,4 +1,4 @@
-import type { MapNodeKind } from "@nestrix/protocol";
+import type { MapNodeKind } from "@nestrix-js/protocol";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   Box,

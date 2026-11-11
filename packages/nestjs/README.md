@@ -1,4 +1,4 @@
-# @nestrix/nestjs
+# @nestrix-js/nestjs
 
 Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app produces a server span per request, outgoing HTTP spans, and your own spans, exported over OTLP to whatever backend you run (Jaeger, Tempo, an OpenTelemetry Collector, a vendor that accepts OTLP).
 
@@ -32,15 +32,15 @@ Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app pro
 ## Install
 
 ```bash
-pnpm add @nestrix/nestjs @opentelemetry/api@~1.10.0
+pnpm add @nestrix-js/nestjs @opentelemetry/api@~1.10.0
 ```
 
 `@opentelemetry/api` is a peer dependency, so your app and Nestrix share one copy. Nestrix needs NestJS 12, `reflect-metadata` and `rxjs`, which a Nest app already has. `@nestjs/microservices` and `pg` are optional peers: Nestrix traces microservice messages when the first is installed and `pg` queries when the second is.
 
-The dashboard is a separate, optional package, installed at the same version as `@nestrix/nestjs`; see [Dashboard](#dashboard).
+The dashboard is a separate, optional package, installed at the same version as `@nestrix-js/nestjs`; see [Dashboard](#dashboard).
 
 ```bash
-pnpm add @nestrix/ui
+pnpm add @nestrix-js/ui
 ```
 
 The package is ESM-only. A CommonJS Nest 12 app loads it with `require()`; see [CommonJS apps](#commonjs-apps).
@@ -53,7 +53,7 @@ Register the module once, in your root module. It is global: every other module 
 
 ```ts
 import { Module } from "@nestjs/common";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 
 @Module({
   imports: [
@@ -82,7 +82,7 @@ Use `forRootAsync` when options come from another provider. `useFactory` may be 
 
 ```ts
 import { Injectable, Module } from "@nestjs/common";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 
 @Injectable()
 class Settings {
@@ -121,13 +121,13 @@ Nestrix registers its OpenTelemetry globals during `NestFactory.create`, never a
 
 ## Dashboard
 
-With `@nestrix/ui` installed, `NestrixModule` serves a dashboard from inside your app, at `/_nestrix` by default: recent requests, one request's spans as a waterfall, errors, per-route request counts, error rates and latency percentiles, a [classes view and an app map](#classes-view-and-app-map), and an on-demand CPU [profiler](#profiler). Apart from starting a profiler capture it is read-only. It polls for new data every two seconds. It works on Express, Fastify and `@nestjs/platform-node`. It shows only what this process has seen since it started; nothing is written to disk and nothing is sent anywhere.
+With `@nestrix-js/ui` installed, `NestrixModule` serves a dashboard from inside your app, at `/_nestrix` by default: recent requests, one request's spans as a waterfall, errors, per-route request counts, error rates and latency percentiles, a [classes view and an app map](#classes-view-and-app-map), and an on-demand CPU [profiler](#profiler). Apart from starting a profiler capture it is read-only. It polls for new data every two seconds. It works on Express, Fastify and `@nestjs/platform-node`. It shows only what this process has seen since it started; nothing is written to disk and nothing is sent anywhere.
 
 ```bash
-pnpm add @nestrix/ui
+pnpm add @nestrix-js/ui
 ```
 
-`@nestrix/ui` is an optional peer dependency. Install it at the same version as `@nestrix/nestjs`. Without it the dashboard is off and Nestrix logs one line with the install command; the app starts normally. An app with no HTTP adapter (`createMicroservice`, `createApplicationContext`) has no dashboard, and says nothing about it.
+`@nestrix-js/ui` is an optional peer dependency. Install it at the same version as `@nestrix-js/nestjs`. Without it the dashboard is off and Nestrix logs one line with the install command; the app starts normally. An app with no HTTP adapter (`createMicroservice`, `createApplicationContext`) has no dashboard, and says nothing about it.
 
 The dashboard is closed unless something positive opens it. There are two ways to open it: `ui: 'auto'` for development, and `ui: { enabled: true, auth }` for everything else.
 
@@ -159,7 +159,7 @@ Open that link in your browser. Nestrix checks the token, sets a session cookie 
 
 ```ts
 import { Module } from "@nestjs/common";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 
 @Module({
   imports: [
@@ -191,7 +191,7 @@ With `enabled: true` the dashboard is served in any environment to requests that
 ```ts
 import type { IncomingHttpHeaders } from "node:http";
 import { Module } from "@nestjs/common";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 
 // Your own check, for example a verified session or an identity-aware proxy's signed header.
 declare function isOperator(
@@ -240,7 +240,7 @@ If your app registers its own OpenTelemetry provider before Nestrix starts, Nest
 import { trace } from "@opentelemetry/api";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { BatchSpanProcessor, TracerProvider } from "@opentelemetry/sdk-trace";
-import { nestrixSpanProcessor } from "@nestrix/nestjs";
+import { nestrixSpanProcessor } from "@nestrix-js/nestjs";
 
 // Your own SDK setup, started before NestFactory.create.
 trace.setGlobalTracerProvider(
@@ -312,7 +312,7 @@ The dashboard keeps recent traces in memory, bounded by two limits, and the olde
 
 ```ts
 import { Module } from "@nestjs/common";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 
 @Module({
   imports: [
@@ -350,7 +350,7 @@ The package exports these types: `NestrixModuleOptions`, `NestrixModuleAsyncOpti
 
 ```ts
 import { Module } from "@nestjs/common";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 
 @Module({
   imports: [
@@ -466,7 +466,7 @@ A matcher is a string, a `RegExp` or a function. In `ignore.paths` a `RegExp` is
 
 ```ts
 import { Module } from "@nestjs/common";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 
 @Module({
   imports: [
@@ -583,7 +583,7 @@ HTTP spans need no setup. To also get a span for each method your own classes ru
 
 ```ts
 import { NestFactory } from "@nestjs/core";
-import { NestrixInstrument } from "@nestrix/nestjs";
+import { NestrixInstrument } from "@nestrix-js/nestjs";
 import { AppModule } from "./app.module";
 
 export async function bootstrap(): Promise<void> {
@@ -601,7 +601,7 @@ Nest accepts one `instrument` object. If another tool needs it too, combine them
 
 ```ts
 import { NestFactory } from "@nestjs/core";
-import { composeInstrument, NestrixInstrument } from "@nestrix/nestjs";
+import { composeInstrument, NestrixInstrument } from "@nestrix-js/nestjs";
 import { AppModule } from "./app.module";
 
 // Another tool's `instrument` object, with the same `instanceDecorator` shape.
@@ -627,7 +627,7 @@ A method span is named `Class.method` and carries `code.function.name`, `nestrix
 
 ```ts
 import { Injectable, Module } from "@nestjs/common";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 
 // Provided by your own dynamic module, so not traced unless included.
 @Injectable()
@@ -671,7 +671,7 @@ A database span is a child of the method or request that ran the query, so a slo
 
 ```ts
 import { Module } from "@nestjs/common";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 
 @Module({
   imports: [
@@ -713,7 +713,7 @@ BullMQ has its own OpenTelemetry support. Give it a `BullMQOtel` from `bullmq-ot
 import { BullModule, Processor, WorkerHost } from "@nestjs/bullmq";
 import { Module } from "@nestjs/common";
 import { BullMQOtel } from "bullmq-otel";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 
 @Processor("emails")
 export class EmailProcessor extends WorkerHost {
@@ -767,7 +767,7 @@ With `@nestjs/microservices` installed, Nestrix traces messages in both directio
 ```ts
 import { NestFactory } from "@nestjs/core";
 import { Transport } from "@nestjs/microservices";
-import { nestrixPreRequestHook } from "@nestrix/nestjs";
+import { nestrixPreRequestHook } from "@nestrix-js/nestjs";
 import { AppModule } from "./app.module";
 
 export async function bootstrap(): Promise<void> {
@@ -792,7 +792,7 @@ Without it, a hybrid app's handlers get no Nestrix span, and a span you start in
 
 ```ts
 import { ClientProxyFactory, Transport } from "@nestjs/microservices";
-import { instrumentClient } from "@nestrix/nestjs";
+import { instrumentClient } from "@nestrix-js/nestjs";
 
 // A client made outside dependency injection. `ClientsModule` clients need nothing.
 export const client = instrumentClient(
@@ -822,7 +822,7 @@ export const client = instrumentClient(
 
 ```ts
 import { Module } from "@nestjs/common";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 
 @Module({
   imports: [
@@ -860,7 +860,7 @@ Without them Nestrix logs one line with that command and carries on; metrics sta
 
 ```ts
 import { Module } from "@nestjs/common";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 
 @Module({
   imports: [
@@ -882,7 +882,7 @@ export class AppModule {}
 
 ```ts
 import { Injectable } from "@nestjs/common";
-import { Span, withSpan } from "@nestrix/nestjs";
+import { Span, withSpan } from "@nestrix-js/nestjs";
 
 @Injectable()
 export class BillingService {
@@ -916,7 +916,7 @@ Nestrix patches nothing in Nest's logger. To put the trace and span id on your l
 
 ```ts
 import { NestFactory } from "@nestjs/core";
-import { NestrixLogger } from "@nestrix/nestjs";
+import { NestrixLogger } from "@nestrix-js/nestjs";
 import { AppModule } from "./app.module";
 
 export async function bootstrap(): Promise<void> {
@@ -959,7 +959,7 @@ Key-based redaction cannot clean free text. Exception messages and status messag
 
 ```ts
 import { Module } from "@nestjs/common";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 
 @Module({
   imports: [
@@ -1035,7 +1035,7 @@ Notes:
 
 ## Stability
 
-From 1.0, semantic versioning covers the exports of `@nestrix/nestjs`, the option names and their defaults, and the environment variables documented above. It does not cover the dashboard's query API (`/_nestrix/api/v1`) or the `@nestrix/protocol` types: they are internal to the bundled UI, which ships at the same version as the package. The names of the runtime metrics and the default set of traced classes may change in a minor release.
+From 1.0, semantic versioning covers the exports of `@nestrix-js/nestjs`, the option names and their defaults, and the environment variables documented above. It does not cover the dashboard's query API (`/_nestrix/api/v1`) or the `@nestrix-js/protocol` types: they are internal to the bundled UI, which ships at the same version as the package. The names of the runtime metrics and the default set of traced classes may change in a minor release.
 
 ## OpenTelemetry SDK 3 only
 
@@ -1045,7 +1045,7 @@ Its `@opentelemetry/api` peer range is `>=1.10.0 <1.11.0`. A host on `@opentelem
 
 ```text
 npm error ERESOLVE unable to resolve dependency tree
-npm error peer @opentelemetry/api@">=1.10.0 <1.11.0" from @nestrix/nestjs
+npm error peer @opentelemetry/api@">=1.10.0 <1.11.0" from @nestrix-js/nestjs
 ```
 
 Upgrade the host's OpenTelemetry packages to SDK 3 and API 1.10. Do not work around it with `--legacy-peer-deps` or `--force`: a second API copy fails silently in both directions, because a copy of another minor version can neither read nor write the global the first one registered, so spans are recorded nowhere. pnpm only prints a warning for the same mismatch; the problem is the same.
@@ -1064,7 +1064,7 @@ Sentry's transport does not mark its requests as untraced, so an error event sen
 
 ## CommonJS apps
 
-A CommonJS Nest 12 app loads `@nestrix/nestjs` with `require()` (Node's `require(esm)`), and the package has no top-level `await` so that works. Things to know:
+A CommonJS Nest 12 app loads `@nestrix-js/nestjs` with `require()` (Node's `require(esm)`), and the package has no top-level `await` so that works. Things to know:
 
 - **Jest** needs `node --experimental-vm-modules node_modules/jest/bin/jest.js`, and then loads ESM packages. Without it, Jest fails with `Must use import to load ES Module`. Vitest works unchanged.
 - **AWS Lambda** disables `require(esm)` on its Node 20, 22 and 24 runtimes; set `NODE_OPTIONS=--experimental-require-module`.
@@ -1090,7 +1090,7 @@ export async function bootstrap(): Promise<void> {
 
 Measured by the repository's `benchmarks/` workspace on an Apple Silicon Mac (darwin-arm64), Node v26.13.0, npm 11.20.0, against `examples/express-esm`. Numbers are medians and will differ on your machine; the commands are in `benchmarks/README.md`.
 
-- **Install size.** The packed `@nestrix/nestjs` tarball is 169 kB (630 kB unpacked in 122 files; `npm pack --dry-run`). The total installed size was measured on 2026-11-11: installed with `npm install --omit=dev` into a fresh directory, a Nest host stack (`@nestjs/common`, `core`, `platform-express`, `reflect-metadata`, `rxjs`) was 21.1 MB, and adding `@nestrix/nestjs` brought it to 40.9 MB: **19.8 MB added**. That includes `@opentelemetry/api`, the peer dependency, which a host without OpenTelemetry has to install anyway (1.9 MB). The largest single item is `@opentelemetry/semantic-conventions` at 9.6 MB; the rest is the OpenTelemetry SDK packages. Sizes are disk blocks (`du -sk`). The dashboard adds `@nestrix/ui`: a 255 kB tarball, about 760 kB unpacked in 11 files (one 655 kB script, one 26.7 kB stylesheet), with no dependencies of its own.
+- **Install size.** The packed `@nestrix-js/nestjs` tarball is 169 kB (630 kB unpacked in 122 files; `npm pack --dry-run`). The total installed size was measured on 2026-11-11: installed with `npm install --omit=dev` into a fresh directory, a Nest host stack (`@nestjs/common`, `core`, `platform-express`, `reflect-metadata`, `rxjs`) was 21.1 MB, and adding `@nestrix-js/nestjs` brought it to 40.9 MB: **19.8 MB added**. That includes `@opentelemetry/api`, the peer dependency, which a host without OpenTelemetry has to install anyway (1.9 MB). The largest single item is `@opentelemetry/semantic-conventions` at 9.6 MB; the rest is the OpenTelemetry SDK packages. Sizes are disk blocks (`du -sk`). The dashboard adds `@nestrix-js/ui`: a 255 kB tarball, about 760 kB unpacked in 11 files (one 655 kB script, one 26.7 kB stylesheet), with no dependencies of its own.
 - **Startup.** Time from process spawn to the first `200` on `GET /hello`, 15 fresh processes per configuration: 268.8 ms uninstrumented, 318.8 ms with Nestrix exporting to a local OTLP endpoint (**about 50 ms added**), 320.3 ms with Nestrix and no endpoint (51.5 ms added). Export is asynchronous, so a slow or absent collector does not delay startup. Those runs loaded the OTLP exporter at startup; it is now loaded only when export is on. Measured again that way (20 fresh processes, export off, a later run on the same machine): 246.1 ms uninstrumented, 278.8 ms with Nestrix and the dashboard off (**32.7 ms added**; 295.2 ms, 49.1 ms added, when the exporter is loaded eagerly as before), and 282.9 ms with the dashboard on (36.8 ms added). Idle heap is 1.1 MB lower than when the exporter was loaded at startup (export is off in both configurations).
 - **Exporter outage.** Ten minutes at 3,000 requests/s with the OTLP endpoint refusing connections, and again with it accepting requests and never answering: retained heap stayed flat (slope 0.01 and 0.03 MB/min, about 2 MB above a healthy run, which is the queue), and at most two collector connections were open at once. Spans beyond the queue are dropped and counted, not buffered.
 

@@ -1,5 +1,5 @@
 // Extra finding from Q3b: the OpenTelemetry packages ship a .cjs and a .mjs build, so a
-// CommonJS host that require()s them and @nestrix/nestjs (ESM) that imports them get
+// CommonJS host that require()s them and @nestrix-js/nestjs (ESM) that imports them get
 // TWO module instances of @opentelemetry/api and of the SDK. Here the host is a real
 // CJS host (providers from the .cjs build) and "Nestrix" only uses the ESM api copy.
 // Asserts, so a wrong assumption exits non-zero.
@@ -14,7 +14,7 @@ const hostProvider = new hostSdk.TracerProvider({
   spanProcessors: [new hostSdk.SimpleSpanProcessor({ exporter })],
 });
 
-// Nestrix side: the ESM graph (what an ESM-only @nestrix/nestjs would import).
+// Nestrix side: the ESM graph (what an ESM-only @nestrix-js/nestjs would import).
 const graph = require(path.join(__dirname, "../tla/otel-graph.mjs"));
 const esmApi = graph.api;
 

@@ -1,5 +1,5 @@
 // The store's mirror of the query API types (src/store/protocol-types.ts) must equal
-// @nestrix/protocol's. @nestrix/nestjs cannot import that private package yet (it is not
+// @nestrix-js/protocol's. @nestrix-js/nestjs cannot import that private package yet (it is not
 // linked), so this compares against its built declarations by relative path. Drift
 // fails `pnpm typecheck` (the test tsconfig covers this file); at run time there is
 // nothing to check.
@@ -60,7 +60,7 @@ const same: [
   true,
 ];
 
-describe("store types mirror @nestrix/protocol", () => {
+describe("store types mirror @nestrix-js/protocol", () => {
   it("are equal (checked by tsc)", () => {
     expect(same.every(Boolean)).toBe(true);
   });

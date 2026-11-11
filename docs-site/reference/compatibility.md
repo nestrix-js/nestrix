@@ -11,4 +11,4 @@
 
 ## Install size and startup
 
-Measured on one machine (darwin-arm64, Node 26.13, against an Express example): the packed `@nestrix/nestjs` tarball is 169 kB; installing it into a Nest host added 19.8 MB on disk including `@opentelemetry/api`; startup added about 33 to 50 ms. `@nestrix/ui` adds a 255 kB tarball and no dependencies. Numbers differ on your machine.
+Measured on one machine (darwin-arm64, Node 26.13, against an Express example): the packed `@nestrix-js/nestjs` tarball is 169 kB; installing it into a Nest host added 19.8 MB on disk including `@opentelemetry/api`; startup added about 33 to 50 ms. `@nestrix-js/ui` adds a 255 kB tarball and no dependencies. Numbers differ on your machine.

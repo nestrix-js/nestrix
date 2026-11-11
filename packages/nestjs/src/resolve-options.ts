@@ -63,7 +63,7 @@ export interface ResolvedOptions {
   readonly redact: RedactHook | undefined;
   /** Raw `OTEL_RESOURCE_ATTRIBUTES`; parsed by the telemetry setup (SDK 3 does not read it). */
   readonly otelResourceAttributes: string | undefined;
-  /** The dashboard's static mode (P2-05). Runtime conditions (HTTP adapter, `@nestrix/ui`) are P2-06's. */
+  /** The dashboard's static mode (P2-05). Runtime conditions (HTTP adapter, `@nestrix-js/ui`) are P2-06's. */
   readonly ui: ResolvedUi;
   /** Store limits, defaults applied. Meaningful only while the dashboard is on. */
   readonly store: Readonly<Required<NestrixStoreOptions>>;

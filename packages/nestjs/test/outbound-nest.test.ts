@@ -1,9 +1,9 @@
 // The fixture app's GET /out (fetch and http.get from a Nest handler) produces two client spans and
-// sends traceparent. Global state: @nestrix/testing's host provider, plus the ALS context manager
+// sends traceparent. Global state: @nestrix-js/testing's host provider, plus the ALS context manager
 // and W3C propagator registered here. P1-06's server span is not used: a middleware starts an
 // active request span as a stand-in parent.
 
-import { type BootedApp, bootApp } from "@nestrix/testing";
+import { type BootedApp, bootApp } from "@nestrix-js/testing";
 import { context, propagation, SpanKind, trace } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
@@ -58,7 +58,7 @@ describe("GET /out in the fixture app", () => {
     const request = await booted.waitForSpan("request");
     const clients = booted
       .spans()
-      .filter((s) => s.instrumentationScope.name === "@nestrix/nestjs");
+      .filter((s) => s.instrumentationScope.name === "@nestrix-js/nestjs");
     expect(clients).toHaveLength(2);
     for (const span of clients) {
       expect(span.name).toBe("GET");

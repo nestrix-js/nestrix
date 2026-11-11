@@ -30,7 +30,7 @@ export class UiFiles implements OnModuleInit {
       const directory = this.resolveDirectory();
       if (directory === undefined) {
         this.logger.error(
-          "@nestrix/ui is not installed: the dashboard answers 503. Reinstall the server.",
+          "@nestrix-js/ui is not installed: the dashboard answers 503. Reinstall the server.",
         );
         return;
       }
@@ -39,7 +39,7 @@ export class UiFiles implements OnModuleInit {
       this.bundle = undefined;
       try {
         this.logger.error(
-          `The @nestrix/ui build could not be loaded, the dashboard answers 503: ${error instanceof Error ? error.message : String(error)}`,
+          `The @nestrix-js/ui build could not be loaded, the dashboard answers 503: ${error instanceof Error ? error.message : String(error)}`,
         );
       } catch {
         // Logging must not stop the server from starting.
@@ -107,7 +107,7 @@ export class UiController {
       status: 503,
       csp: UI_CSP,
       contentType: TEXT_TYPE,
-      body: "The dashboard build (@nestrix/ui) is not available on this server.",
+      body: "The dashboard build (@nestrix-js/ui) is not available on this server.",
     });
   }
 }

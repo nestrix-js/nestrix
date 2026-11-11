@@ -27,7 +27,7 @@ import type {
   RouteStatsResponse,
   TraceListResponse,
   TraceResponse,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PostgresIngestSink } from "../../src/storage/writer.js";
 import { signedCookie } from "../auth/helpers.js";

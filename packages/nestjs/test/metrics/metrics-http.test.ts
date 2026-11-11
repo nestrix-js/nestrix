@@ -120,7 +120,7 @@ describe.each(ADAPTERS)("http.server.request.duration on %s", (adapter) => {
       ]);
 
     const rm = await collect(reader);
-    expect(scopeNames(rm)).toEqual(["@nestrix/nestjs"]);
+    expect(scopeNames(rm)).toEqual(["@nestrix-js/nestjs"]);
     const metric = rm.scopeMetrics[0]?.metrics.find(
       (m) => m.descriptor.name === "http.server.request.duration",
     );

@@ -17,7 +17,7 @@
  *
  * Sums are over the SLO's window ending now, the current partial minute included.
  */
-import type { SloStatus } from "@nestrix/protocol";
+import type { SloStatus } from "@nestrix-js/protocol";
 import {
   HISTOGRAM_BUCKETS,
   HISTOGRAM_UPPER_BOUNDS_MS,

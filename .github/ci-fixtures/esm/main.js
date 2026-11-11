@@ -6,14 +6,14 @@ import "reflect-metadata";
 import assert from "node:assert/strict";
 import { Controller, Get, Module } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
-import { NestrixModule } from "@nestrix/nestjs";
-import { dashboardDirectory } from "@nestrix/ui";
+import { NestrixModule } from "@nestrix-js/nestjs";
+import { dashboardDirectory } from "@nestrix-js/ui";
 
 assert.equal(typeof NestrixModule.forRoot, "function");
 assert.ok(dashboardDirectory instanceof URL);
 
 const SERVICE_NAME = "consume-esm";
-const OPTIONS_TOKEN = Symbol.for("@nestrix/nestjs:options");
+const OPTIONS_TOKEN = Symbol.for("@nestrix-js/nestjs:options");
 
 class AppController {
   hello() {

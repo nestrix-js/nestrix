@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import type { Slo } from "@nestrix/protocol";
+import type { Slo } from "@nestrix-js/protocol";
 import type { Pool } from "pg";
 import { rangeTotals } from "../alerts/metrics.js";
 import { STORAGE_POOL } from "../storage/storage.module.js";

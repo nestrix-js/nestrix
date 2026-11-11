@@ -32,7 +32,7 @@ ls -l "$work/tarballs"
 cp "$here/$format/"* "$work/app/"
 cd "$work/app"
 
-# Required peers of @nestrix/nestjs, with the ranges from its package.json, plus the adapter.
+# Required peers of @nestrix-js/nestjs, with the ranges from its package.json, plus the adapter.
 peers=()
 while IFS= read -r peer; do peers+=("$peer"); done < <(node -e '
   const p = require(process.argv[1]);

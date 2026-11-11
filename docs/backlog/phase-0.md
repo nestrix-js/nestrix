@@ -48,8 +48,8 @@ P0-S1, S2, S5 and S6 are independent of each other once P0-05 is done and can ru
 ### P0-02 Package skeletons
 
 **Do.** Create `packages/nestjs`, `packages/ui` and `packages/protocol` per [architecture.md](../architecture.md) §5 and §8.
-- `@nestrix/nestjs`: `"type": "module"`, an `exports` map with `types` and `default`, `files`, `engines.node >=22.15.0`, `license` Apache-2.0, `repository` pointing at `github.com/nestrix-js/nestrix`. Peers: `@nestjs/common` and `@nestjs/core` `^12`, `@opentelemetry/api` on the range SDK 3 supports, `reflect-metadata`, `rxjs`; optional peers `@nestjs/microservices`, `pg`. No runtime code beyond a placeholder export.
-- `@nestrix/ui`: publishes `dist/` only; placeholder asset and a generated manifest of its files.
+- `@nestrix-js/nestjs`: `"type": "module"`, an `exports` map with `types` and `default`, `files`, `engines.node >=22.15.0`, `license` Apache-2.0, `repository` pointing at `github.com/nestrix-js/nestrix`. Peers: `@nestjs/common` and `@nestjs/core` `^12`, `@opentelemetry/api` on the range SDK 3 supports, `reflect-metadata`, `rxjs`; optional peers `@nestjs/microservices`, `pg`. No runtime code beyond a placeholder export.
+- `@nestrix-js/ui`: publishes `dist/` only; placeholder asset and a generated manifest of its files.
 - `packages/protocol`: private, types only.
 - No top-level `await` anywhere in published entry points.
 

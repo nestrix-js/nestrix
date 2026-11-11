@@ -1,5 +1,5 @@
 import { Module } from "@nestjs/common";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 import { AppController } from "./app.controller.js";
 import { OrdersRepository } from "./orders.repository.js";
 import { OrdersService } from "./orders.service.js";

@@ -4,7 +4,7 @@
 // uncaughtExceptionMonitor, and the interceptor returns Nest's stream unchanged.
 import type { CallHandler, ExecutionContext } from "@nestjs/common";
 import { Module } from "@nestjs/common";
-import { type BootedApp, bootApp } from "@nestrix/testing";
+import { type BootedApp, bootApp } from "@nestrix-js/testing";
 import { SpanKind } from "@opentelemetry/api";
 import { AppModule } from "express-esm/app.module";
 import { afterEach, describe, expect, it, vi } from "vitest";

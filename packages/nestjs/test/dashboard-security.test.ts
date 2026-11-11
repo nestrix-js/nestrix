@@ -208,7 +208,7 @@ describe.each(ADAPTERS)("dashboard security on %s", (adapter) => {
     expect((await get(`${app.baseUrl}${API}`, { cookie })).status).toBe(200);
   });
 
-  it("@nestrix/ui absent: the dashboard is off in 'auto' and in 'enabled', and the app starts", async () => {
+  it("@nestrix-js/ui absent: the dashboard is off in 'auto' and in 'enabled', and the app starts", async () => {
     uiPackage.resolveDirectory = () => undefined;
     for (const nestrix of [AUTO_NO_TOKEN, ENABLED]) {
       const app = await boot(adapter, nestrix);
@@ -219,7 +219,7 @@ describe.each(ADAPTERS)("dashboard security on %s", (adapter) => {
         );
       }
       expect((await get(`${app.baseUrl}/h/ok`)).text).toBe("ok");
-      expect(logs.some((l) => l.includes("npm install @nestrix/ui"))).toBe(
+      expect(logs.some((l) => l.includes("npm install @nestrix-js/ui"))).toBe(
         true,
       );
       await app.close();

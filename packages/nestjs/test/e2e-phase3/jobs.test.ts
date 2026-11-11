@@ -151,7 +151,7 @@ describe.skipIf(reason !== undefined)(
         one(
           (s) =>
             s.name === name &&
-            s.instrumentationScope.name === "@nestrix/nestjs",
+            s.instrumentationScope.name === "@nestrix-js/nestjs",
         );
       const server = one((s) => s.name === "GET /orders");
       const controller = nestrix("OrderController.place");

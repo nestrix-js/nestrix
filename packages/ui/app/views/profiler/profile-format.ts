@@ -1,4 +1,4 @@
-import type { FlameNode } from "@nestrix/protocol";
+import type { FlameNode } from "@nestrix-js/protocol";
 
 /** Where a frame's code lives; the flame graph's colour (three hues, see styles.css). */
 export type FrameKind = "app" | "deps" | "runtime";

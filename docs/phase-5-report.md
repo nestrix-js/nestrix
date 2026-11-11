@@ -4,7 +4,7 @@ Date: 2026-11-11. Written by the lead under delivery mode (no approval stops; fu
 
 ## 1. Summary
 
-Several services can now send OTLP to one self-hosted Nestrix. `apps/server` (`@nestrix/server`, private, shipped as a Docker image) is a NestJS 12 app with an OTLP/HTTP trace receiver, PostgreSQL 18 storage through Drizzle with day partitions and retention, the same query API and dashboard as the embedded mode (plus a service filter and a map across services), an admin login, a Dockerfile and a `docker compose` file. The receiver and the login were independently security-reviewed; both reviews found real defects (a 64 KB request that crashed the server; a login rate limit that IPv6 address rotation bypassed), all fixed.
+Several services can now send OTLP to one self-hosted Nestrix. `apps/server` (`@nestrix-js/server`, private, shipped as a Docker image) is a NestJS 12 app with an OTLP/HTTP trace receiver, PostgreSQL 18 storage through Drizzle with day partitions and retention, the same query API and dashboard as the embedded mode (plus a service filter and a map across services), an admin login, a Dockerfile and a `docker compose` file. The receiver and the login were independently security-reviewed; both reviews found real defects (a 64 KB request that crashed the server; a login rate limit that IPv6 address rotation bypassed), all fixed.
 
 ## 2. Acceptance criteria (roadmap, phase 5)
 
@@ -32,7 +32,7 @@ Validation: receiver tests with recorded payloads from the official exporters (p
 
 ## 4. Runtime dependencies of `apps/server` (private package)
 
-`@nestjs/common`, `@nestjs/core`, `@nestjs/platform-express`, `@nestrix/nestjs`, `@nestrix/ui`, `@opentelemetry/api`, `reflect-metadata`, `rxjs` (the Nest app); `@bufbuild/protobuf` (OTLP protobuf decoding, as architecture §4.10 specifies); `drizzle-orm` and `pg` (storage, D-16).
+`@nestjs/common`, `@nestjs/core`, `@nestjs/platform-express`, `@nestrix-js/nestjs`, `@nestrix-js/ui`, `@opentelemetry/api`, `reflect-metadata`, `rxjs` (the Nest app); `@bufbuild/protobuf` (OTLP protobuf decoding, as architecture §4.10 specifies); `drizzle-orm` and `pg` (storage, D-16).
 
 ## 5. Deferred and known limits
 

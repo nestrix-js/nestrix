@@ -2,7 +2,7 @@
 // (examples/jaeger: service-a calls service-b) with only OTEL_EXPORTER_OTLP_ENDPOINT set, one
 // request, then one trace across both services through the query API.
 //
-//   NESTRIX_E2E_DOCKER=1 pnpm exec vitest run --project @nestrix/server test/e2e
+//   NESTRIX_E2E_DOCKER=1 pnpm exec vitest run --project @nestrix-js/server test/e2e
 //
 // Opt-in: it builds an image and binds port 4318. Retention is covered by the container tests in
 // test/storage/partitions.test.ts ("retention drops partitions ... older than the retention").

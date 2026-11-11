@@ -4,14 +4,14 @@
  * Each spec is an `as const` object so every bound and enum value is a literal type.
  * Two consumers, one source:
  *
- * - `@nestrix/ui` builds nuqs parsers from the values (`kind` picks the parser,
+ * - `@nestrix-js/ui` builds nuqs parsers from the values (`kind` picks the parser,
  *   `min`/`max`/`values`/`default` configure it).
- * - `@nestrix/nestjs` may only `import type` from this private package, so it cannot
+ * - `@nestrix-js/nestjs` may only `import type` from this private package, so it cannot
  *   read the values. It writes its own copy annotated with the spec type, and `tsc`
  *   fails when the copy drifts (a different bound, a missing or extra key):
  *
  *   ```ts
- *   import type { TraceListParamsSpec } from '@nestrix/protocol';
+ *   import type { TraceListParamsSpec } from '@nestrix-js/protocol';
  *   const spec: TraceListParamsSpec = { limit: { kind: 'int', min: 1, max: 200, default: 50 }, ... };
  *   ```
  *

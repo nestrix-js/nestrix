@@ -1,6 +1,6 @@
 /**
  * Alerting API of the standalone server (`/api/v1/alerts`, docs/backlog/phase-7.md P7-03).
- * The embedded dashboard has no alerts, so `@nestrix/nestjs` does not mirror these types.
+ * The embedded dashboard has no alerts, so `@nestrix-js/nestjs` does not mirror these types.
  * Types only: this file adds no runtime export.
  */
 

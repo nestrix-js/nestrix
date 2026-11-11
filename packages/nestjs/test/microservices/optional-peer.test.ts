@@ -1,5 +1,5 @@
 // `@nestjs/microservices` is an optional peer (backlog P4-01): nothing the package entry point loads
-// may import it at runtime, so an app without it still loads `@nestrix/nestjs`.
+// may import it at runtime, so an app without it still loads `@nestrix-js/nestjs`.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";

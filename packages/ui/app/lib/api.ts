@@ -15,7 +15,7 @@ import type {
   SloUpdate,
   TraceListResponse,
   TraceResponse,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 
 import { readConfig } from "@/lib/config";
 

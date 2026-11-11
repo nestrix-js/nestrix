@@ -2,7 +2,7 @@ import "reflect-metadata";
 import type { INestApplication } from "@nestjs/common";
 import { type AbstractHttpAdapter, NestFactory } from "@nestjs/core";
 import { Test } from "@nestjs/testing";
-import { type AdapterName, bootApp } from "@nestrix/testing";
+import { type AdapterName, bootApp } from "@nestrix-js/testing";
 import helmet from "helmet";
 import { beforeEach, describe, expect, it } from "vitest";
 import { type MountOptions, probe, resetProbe } from "../src/dashboard.js";

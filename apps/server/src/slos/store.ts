@@ -1,5 +1,5 @@
 /** API shapes of SLO rows and strict validation of API input. */
-import type { Slo, SloCreate, SloStatus } from "@nestrix/protocol";
+import type { Slo, SloCreate, SloStatus } from "@nestrix-js/protocol";
 import type { SloRow } from "./compute.js";
 
 export function toApiSlo(row: SloRow, status: SloStatus): Slo {

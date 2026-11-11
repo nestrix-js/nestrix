@@ -84,7 +84,7 @@ export function suppressed(ctx: Context): Context {
 export function clientSpans(exporter: InMemorySpanExporter): ReadableSpan[] {
   return exporter
     .getFinishedSpans()
-    .filter((s) => s.instrumentationScope.name === "@nestrix/nestjs");
+    .filter((s) => s.instrumentationScope.name === "@nestrix-js/nestjs");
 }
 
 export async function waitFor(

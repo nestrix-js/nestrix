@@ -3,7 +3,7 @@ import fastifyCompress from "@fastify/compress";
 import fastifyHelmet from "@fastify/helmet";
 import type { INestApplication } from "@nestjs/common";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
-import { type AdapterName, bootApp } from "@nestrix/testing";
+import { type AdapterName, bootApp } from "@nestrix-js/testing";
 import compression from "compression";
 import helmet from "helmet";
 import { beforeEach, describe, expect, it } from "vitest";

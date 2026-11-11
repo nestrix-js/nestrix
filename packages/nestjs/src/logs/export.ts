@@ -151,7 +151,7 @@ export function setupLogExport(
         // False when a host provider holds the slot: use it, drop ours.
         if (logs.setGlobalLoggerProvider(provider)) state.provider = provider;
         else void settle(() => provider.shutdown());
-        const logger = logs.getLogger("@nestrix/nestjs");
+        const logger = logs.getLogger("@nestrix-js/nestjs");
         state.sink = {
           emit(record) {
             logger.emit({

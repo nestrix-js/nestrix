@@ -17,7 +17,7 @@ const api = await import("@opentelemetry/api");
 const sdk = await import("@opentelemetry/sdk-trace");
 const contextManager = await import("@opentelemetry/context-async-hooks");
 const otelCore = await import("@opentelemetry/core");
-const nestrix = await import("@nestrix/nestjs");
+const nestrix = await import("@nestrix-js/nestjs");
 const { pgStatus } = await import("../../../dist/integrations/pg.js");
 const { run } = createRequire(import.meta.url)("./timing-shared.cjs");
 

@@ -154,4 +154,4 @@ An option always wins over the variable of the same meaning. Nestrix reads no ot
 
 ## Stability
 
-From 1.0, semantic versioning covers the exports of `@nestrix/nestjs`, the option names and their defaults, and the environment variables documented here. It does not cover the dashboard's query API (`/_nestrix/api/v1`) or the `@nestrix/protocol` types: they are internal to the bundled UI, which ships at the same version as the package. The names of the runtime metrics and the default set of traced classes may change in a minor release.
+From 1.0, semantic versioning covers the exports of `@nestrix-js/nestjs`, the option names and their defaults, and the environment variables documented here. It does not cover the dashboard's query API (`/_nestrix/api/v1`) or the `@nestrix-js/protocol` types: they are internal to the bundled UI, which ships at the same version as the package. The names of the runtime metrics and the default set of traced classes may change in a minor release.

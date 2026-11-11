@@ -1,5 +1,5 @@
 // Child process for profiler-acceptance.test.ts (P7-02): a plain-JavaScript Nest app (decorators
-// applied as functions, as in spikes/p7-s1/fixtures/app.mjs) with the built @nestrix/nestjs and
+// applied as functions, as in spikes/p7-s1/fixtures/app.mjs) with the built @nestrix-js/nestjs and
 // the dashboard on (`enabled: true` with a token). One fresh process per adapter, because a CPU
 // profile covers the whole process and code transformed by Vitest has no real file URL.
 //
@@ -46,9 +46,9 @@ Module({
   controllers: [AppController],
 })(AppModule);
 
-// The platform packages are dependencies of @nestrix/testing (one pnpm peer set, one @nestjs/core).
+// The platform packages are dependencies of @nestrix-js/testing (one pnpm peer set, one @nestjs/core).
 const fromTesting = createRequire(
-  fileURLToPath(import.meta.resolve("@nestrix/testing")),
+  fileURLToPath(import.meta.resolve("@nestrix-js/testing")),
 );
 const PLATFORM = {
   express: ["@nestjs/platform-express", "ExpressAdapter"],

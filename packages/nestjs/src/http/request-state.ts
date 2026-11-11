@@ -60,7 +60,7 @@ export interface DashboardRequestState {
  * namespaced to make a collision with another tool's key implausible.
  */
 export const REQUEST_STATE_KEY = createContextKey(
-  "@nestrix/nestjs http server request state",
+  "@nestrix-js/nestjs http server request state",
 );
 
 /** Raw `IncomingMessage` to its state. Weak, so a request never outlives its socket here. */

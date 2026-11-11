@@ -24,7 +24,7 @@ import type {
   ProfileListResponse,
   ProfileRunning,
   ProfileSummary,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 import {
   type Diagnostics,
   diagnostics as defaultDiagnostics,

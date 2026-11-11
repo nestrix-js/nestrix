@@ -1,6 +1,6 @@
 // CommonJS fixture entry. Compiled to CommonJS (cjs/package.json says "type": "commonjs")
 // and run with plain `node cjs/dist/main.js`: no flags. The stand-in Nestrix package is
-// ESM-only, as @nestrix/nestjs will be, so it is loaded with require(esm).
+// ESM-only, as @nestrix-js/nestjs will be, so it is loaded with require(esm).
 import "reflect-metadata";
 import http from "node:http";
 import type { AddressInfo } from "node:net";

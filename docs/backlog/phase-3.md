@@ -33,7 +33,7 @@ Order. Wave 1, in parallel: P3-01, P3-02, P3-03 (Opus, disjoint files), P3-04, P
 - A new query-API shape goes in `packages/protocol/src/types.ts` and is mirrored in `packages/nestjs/src/store/protocol-types.ts` with a drift check in `test/store-protocol.test.ts` (pattern already there). Parameter specs are copied in `dashboard/api.ts` annotated with the protocol spec type (pattern already there).
 - Container-backed tests (Postgres, MySQL, Redis) start containers with `docker run` from a Vitest `globalSetup` (random host ports, `--rm`), and skip with a printed reason when Docker is not reachable, except when `CI` is set, where they fail. Keep each container test file under about 30 seconds.
 - Test devDependencies are fine (`mysql2`, `ioredis`, `bullmq`, `@nestjs/bullmq`, `bullmq-otel`, `@nestjs/schedule`, `@nestjs/config`). Versions from `npm view` (rule 9). A new runtime dependency of a published package is not allowed in this phase.
-- A change to a published package comes with a changeset (`pnpm changeset`, minor for `@nestrix/nestjs` and `@nestrix/ui` together).
+- A change to a published package comes with a changeset (`pnpm changeset`, minor for `@nestrix-js/nestjs` and `@nestrix-js/ui` together).
 - Done means: the task's tests, `pnpm lint` and `pnpm typecheck` pass, and the affected package's full test suite passes; output read.
 
 ## Public API
@@ -42,7 +42,7 @@ Types are in `packages/nestjs/src/options.ts` (P3-00). Resolution is each owning
 
 ```ts
 // main.ts: level 2
-import { NestrixInstrument, composeInstrument } from '@nestrix/nestjs';
+import { NestrixInstrument, composeInstrument } from '@nestrix-js/nestjs';
 const app = await NestFactory.create(AppModule, { instrument: NestrixInstrument });
 // with another tool's instrument:
 NestFactory.create(AppModule, { instrument: composeInstrument(NestrixInstrument, other) });

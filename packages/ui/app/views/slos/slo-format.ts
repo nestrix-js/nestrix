@@ -1,4 +1,4 @@
-import type { Slo, SloCreate } from "@nestrix/protocol";
+import type { Slo, SloCreate } from "@nestrix-js/protocol";
 
 import { formatDuration } from "@/lib/format";
 

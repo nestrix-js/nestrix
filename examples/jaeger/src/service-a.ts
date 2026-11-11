@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { Controller, Get, Module, Param } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 
 const serviceBUrl = process.env.SERVICE_B_URL ?? "http://127.0.0.1:3002";
 

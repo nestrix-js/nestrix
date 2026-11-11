@@ -9,7 +9,7 @@
  * speedscope document) give a string and a `file://` URL. Both are rewritten.
  */
 import { pathToFileURL } from "node:url";
-import type { FlameNode, ProfileFunction } from "@nestrix/protocol";
+import type { FlameNode, ProfileFunction } from "@nestrix-js/protocol";
 
 interface CallFrame {
   functionName: string;

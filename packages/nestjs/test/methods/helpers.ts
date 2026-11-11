@@ -1,6 +1,6 @@
 // Shared helpers for the level 2 tests. Not a test file itself.
 //
-// `@nestrix/testing`'s `bootApp` takes no `instrument` option, so these tests boot apps themselves.
+// `@nestrix-js/testing`'s `bootApp` takes no `instrument` option, so these tests boot apps themselves.
 // Each test file runs in its own worker, so each registers its own global provider here.
 import "reflect-metadata";
 import { createRequire } from "node:module";
@@ -66,10 +66,10 @@ export function methodSpans(): ReadableSpan[] {
   return spans().filter((s) => s.attributes["nestrix.class"] !== undefined);
 }
 
-// The platform packages are dependencies of `@nestrix/testing`, not of this package (as in
+// The platform packages are dependencies of `@nestrix-js/testing`, not of this package (as in
 // `dashboard-fixture.ts`: one pnpm peer set, the same `@nestjs/core` instance).
 const fromTesting = createRequire(
-  fileURLToPath(import.meta.resolve("@nestrix/testing")),
+  fileURLToPath(import.meta.resolve("@nestrix-js/testing")),
 );
 const PLATFORM = {
   express: ["@nestjs/platform-express", "ExpressAdapter"],

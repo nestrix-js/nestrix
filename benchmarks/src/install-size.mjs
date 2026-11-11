@@ -1,4 +1,4 @@
-// Install size of @nestrix/nestjs: `pnpm pack` the built package, install the tarball with
+// Install size of @nestrix-js/nestjs: `pnpm pack` the built package, install the tarball with
 // production dependencies (`npm install --omit=dev`) into a fresh temporary directory, and `du -sk`
 // node_modules, in total and per top-level package. The same is done for the host stack alone
 // (Nest, platform-express, reflect-metadata, rxjs), so the cost Nestrix adds is the difference.
@@ -120,7 +120,9 @@ export async function runInstallSize(args) {
     ];
     console.log("installing the host stack alone");
     const host = install(join(work, "host"), hostSpecs);
-    console.log("installing the host stack with the @nestrix/nestjs tarball");
+    console.log(
+      "installing the host stack with the @nestrix-js/nestjs tarball",
+    );
     const withNestrix = install(join(work, "with-nestrix"), [
       ...hostSpecs,
       tarball,
@@ -155,11 +157,11 @@ export async function runInstallSize(args) {
       .map(([p, kb]) => [p, withNestrix.versions[p], `${kb} KiB`]);
     const md = `# Install size
 
-\`pnpm pack\` of @nestrix/nestjs, installed with \`npm install --omit=dev\` into a fresh directory (${out.environment.platform}, Node ${out.environment.node}, npm ${execFileSync("npm", ["-v"], { encoding: "utf8" }).trim()}). Sizes are \`du -sk\` (disk blocks, KiB).
+\`pnpm pack\` of @nestrix-js/nestjs, installed with \`npm install --omit=dev\` into a fresh directory (${out.environment.platform}, Node ${out.environment.node}, npm ${execFileSync("npm", ["-v"], { encoding: "utf8" }).trim()}). Sizes are \`du -sk\` (disk blocks, KiB).
 
 - Tarball: ${tarballKb} KiB; unpacked package: ${unpacked} KiB.
 - Host stack alone (@nestjs/common, core, platform-express, reflect-metadata, rxjs): ${host.totalKb} KiB (${mb(host.totalKb)}).
-- Host stack plus @nestrix/nestjs: ${withNestrix.totalKb} KiB (${mb(withNestrix.totalKb)}).
+- Host stack plus @nestrix-js/nestjs: ${withNestrix.totalKb} KiB (${mb(withNestrix.totalKb)}).
 - **Added by Nestrix: ${out.addedByNestrixKb} KiB (${mb(out.addedByNestrixKb)})**, of which packages not in the host stack sum to ${addedKb} KiB.
 - \`@opentelemetry/api\`, a peer dependency, is counted among the added packages because the host stack above does not include it.
 

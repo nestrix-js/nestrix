@@ -134,7 +134,7 @@ function stripAuthority(target: string): string {
 }
 
 /** Tracer name for Nestrix's own spans. Tracers are obtained at use time (§4.5). */
-export const TRACER_NAME = "@nestrix/nestjs";
+export const TRACER_NAME = "@nestrix-js/nestjs";
 
 /** `nestrix.http.aborted` (backlog "Public API"). */
 export const ATTR_NESTRIX_HTTP_ABORTED = "nestrix.http.aborted";

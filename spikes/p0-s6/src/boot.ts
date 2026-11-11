@@ -1,4 +1,4 @@
-// Boots an app with `instrument.instanceDecorator`, which @nestrix/testing's bootApp cannot pass.
+// Boots an app with `instrument.instanceDecorator`, which @nestrix-js/testing's bootApp cannot pass.
 import "reflect-metadata";
 import type { AddressInfo } from "node:net";
 import type { INestApplication, Type } from "@nestjs/common";

@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { VersioningType } from "@nestjs/common";
-import { type AdapterName, bootApp } from "@nestrix/testing";
+import { type AdapterName, bootApp } from "@nestrix-js/testing";
 import { beforeEach, describe, expect, it } from "vitest";
 import { blobGz, probe, resetProbe } from "../src/dashboard.js";
 import {

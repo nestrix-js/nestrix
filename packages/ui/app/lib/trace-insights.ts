@@ -1,5 +1,5 @@
 // Pure logic of the trace insights: slow database spans and repeated statements. No React.
-import type { SpanRecord } from "@nestrix/protocol";
+import type { SpanRecord } from "@nestrix-js/protocol";
 
 /** A database span longer than this is highlighted in the waterfall. */
 export const SLOW_DB_MS = 100;

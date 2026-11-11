@@ -1,5 +1,5 @@
 /**
- * Rows of the alert tables, their API shapes (`@nestrix/protocol`, types only), the webhook
+ * Rows of the alert tables, their API shapes (`@nestrix-js/protocol`, types only), the webhook
  * payload, and strict validation of API input.
  */
 import { randomBytes } from "node:crypto";
@@ -9,7 +9,7 @@ import type {
   AlertRule,
   AlertRuleCreate,
   AlertWebhookPayload,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 import { webhookUrlProblem } from "./webhook.js";
 
 export type EventKind = "firing" | "resolved" | "test";

@@ -1,6 +1,6 @@
 ---
-"@nestrix/nestjs": minor
-"@nestrix/ui": minor
+"@nestrix-js/nestjs": minor
+"@nestrix-js/ui": minor
 ---
 
 Method spans (level 2). `NestFactory.create(AppModule, { instrument: NestrixInstrument })` traces the methods of the app's own controllers, services, repositories and BullMQ processors as `ClassName.method` spans nested under the request; `composeInstrument(NestrixInstrument, other)` combines it with another tool's `instrument`. "The app's own" classes are those the app's modules list statically, reached from the root module through static `imports`; providers registered by dynamic modules (`forRoot`, `register`, `forFeature`) and modules that define such factories are not traced unless named in `methods.include`. `methods.exclude` wins over everything, `methods.enhancers` opts in guard, pipe, interceptor and filter spans, and `methods.enabled: false` turns method spans off. `@Cron`, `@Interval` and `@Timeout` methods start a new trace per run, linked to the span active when they run; a processor's `process` is a child of BullMQ's consumer span when there is one. Methods are wrapped without `Proxy` and without touching prototypes, so method-level guards, `@HttpCode` and `Reflector` metadata keep applying. A method that returns a native promise returns a new promise that settles the same way, so the promise a traced method returns must be handled by its caller. Not applied under `@nestjs/testing`.

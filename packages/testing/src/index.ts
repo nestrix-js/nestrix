@@ -60,7 +60,7 @@ function ensureTracing(): InMemorySpanExporter {
     // Returns false (and keeps the existing provider) if something registered one first.
     if (!trace.setGlobalTracerProvider(provider)) {
       throw new Error(
-        "@nestrix/testing: a global tracer provider is already registered, spans would not reach the in-memory exporter",
+        "@nestrix-js/testing: a global tracer provider is already registered, spans would not reach the in-memory exporter",
       );
     }
   }
@@ -85,7 +85,9 @@ function createAdapter(adapter: AdapterName) {
     case "node":
       return new NodeAdapter();
     default:
-      throw new Error(`@nestrix/testing: unknown adapter "${String(adapter)}"`);
+      throw new Error(
+        `@nestrix-js/testing: unknown adapter "${String(adapter)}"`,
+      );
   }
 }
 
@@ -95,7 +97,7 @@ export async function bootApp(
 ): Promise<BootedApp> {
   if (open) {
     throw new Error(
-      "@nestrix/testing: another app is still open. Spans are captured per process, so only one app can be booted at a time; await close() first.",
+      "@nestrix-js/testing: another app is still open. Spans are captured per process, so only one app can be booted at a time; await close() first.",
     );
   }
   open = true;
@@ -121,7 +123,7 @@ export async function bootApp(
       | null;
     if (!address || typeof address === "string") {
       throw new Error(
-        "@nestrix/testing: server has no TCP address after listen",
+        "@nestrix-js/testing: server has no TCP address after listen",
       );
     }
     const booted = app;

@@ -1,7 +1,7 @@
 /**
- * The query API v1 (backlog P2, "Public API" routes; shapes in `@nestrix/protocol`, P2-01).
+ * The query API v1 (backlog P2, "Public API" routes; shapes in `@nestrix-js/protocol`, P2-01).
  *
- * `@nestrix/protocol` is private and never published, so this file imports **types only** from it
+ * `@nestrix-js/protocol` is private and never published, so this file imports **types only** from it
  * (`import type`, erased at build). The parameter specs are local copies annotated with the
  * protocol's spec types: a bound, an enum value or a key that drifts from protocol fails `tsc`.
  * Nothing exported from the package entry may reach this file's declarations (a test in
@@ -29,7 +29,7 @@ import type {
   TraceParamsSpec,
   TraceResponse,
   TraceType,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 import { methodsEnabled } from "../methods/registry.js";
 import { type ClassStatistics, ownAverages } from "../stats/class-stats.js";
 import type { RouteStatistics } from "../stats/route-stats.js";
@@ -37,7 +37,7 @@ import { buildAppMap } from "../store/app-map.js";
 import type { StoreStats, TraceStore } from "../store/store.js";
 import { type DashboardResponse, JSON_TYPE } from "./respond.js";
 
-/** `PROTOCOL_VERSION` of `@nestrix/protocol` (a value, so it cannot be imported). */
+/** `PROTOCOL_VERSION` of `@nestrix-js/protocol` (a value, so it cannot be imported). */
 export const PROTOCOL_VERSION: MetaResponse["protocolVersion"] = 1;
 
 export const traceListSpec: TraceListParamsSpec = {
@@ -303,7 +303,7 @@ export function warningsFor(
     warnings.push({
       code: "host-span-processor",
       message:
-        "No span has reached the dashboard store yet. Your application registered its own OpenTelemetry provider, so add Nestrix's processor to it: spanProcessors: [..., nestrixSpanProcessor()] (imported from @nestrix/nestjs).",
+        "No span has reached the dashboard store yet. Your application registered its own OpenTelemetry provider, so add Nestrix's processor to it: spanProcessors: [..., nestrixSpanProcessor()] (imported from @nestrix-js/nestjs).",
     });
   }
   if (sources.ignoresRoutes) {

@@ -5,7 +5,7 @@ import type {
   ClassStats,
   ClassStatsResponse,
   MethodStats,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 
 const method = (
   name: string,

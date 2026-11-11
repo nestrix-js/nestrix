@@ -1,4 +1,4 @@
-// Child process for process-errors.test.ts. Loads the built @nestrix/nestjs (dist), boots an
+// Child process for process-errors.test.ts. Loads the built @nestrix-js/nestjs (dist), boots an
 // application context with NestrixModule.forRoot(), prints the process listener counts, then
 // raises the error named by argv[2]. With NO_NESTRIX=1 it skips Nestrix (the control).
 import "reflect-metadata";

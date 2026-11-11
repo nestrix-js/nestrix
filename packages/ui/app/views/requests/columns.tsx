@@ -1,4 +1,4 @@
-import type { TraceSummary } from "@nestrix/protocol";
+import type { TraceSummary } from "@nestrix-js/protocol";
 import { Link } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 

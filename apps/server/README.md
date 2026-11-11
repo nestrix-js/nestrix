@@ -1,4 +1,4 @@
-# @nestrix/server
+# @nestrix-js/server
 
 The standalone Nestrix server. One process, one port (default `4318`), backed by PostgreSQL 18:
 
@@ -6,7 +6,7 @@ The standalone Nestrix server. One process, one port (default `4318`), backed by
 |---|---|
 | `POST /v1/traces` | OTLP/HTTP receiver (protobuf or JSON, optional gzip) |
 | `GET /api/v1/*` | Query API, the same shapes as the embedded dashboard, plus alert rules |
-| `/` | The dashboard (the `@nestrix/ui` build) |
+| `/` | The dashboard (the `@nestrix-js/ui` build) |
 | `/login`, `/logout` | Admin sign-in |
 
 Use it when you want history beyond one process's memory, several services in one place, or a dashboard that is not inside your app. It is private (not on npm) and distributed as a Docker image built from this repository. Pre-release: the image is not published to a registry yet.
@@ -171,9 +171,9 @@ Pull or rebuild the image and restart. Migrations are applied at start, in order
 - **The ingest port is the admin port.** Ingest, the login form, the dashboard and the API all share one port, so exposing it to your services exposes `/login` to them too. Login is rate limited and the password needs 12 characters, but put the server behind a TLS-terminating proxy and, where you can, restrict who can reach it.
 - Without TLS, ingest keys and the admin password cross the network in clear text.
 - `NESTRIX_INGEST_AUTH=none` is for local demos. Anyone who can reach the port can write spans.
-- The server stores the span attributes services send it; it does not scrub them. Redaction happens in each service's `@nestrix/nestjs` configuration before export.
+- The server stores the span attributes services send it; it does not scrub them. Redaction happens in each service's `@nestrix-js/nestjs` configuration before export.
 - The alert signing secret is stored in clear in the database, because the server signs with it. Protect the database.
 
 ## Checks
 
-End-to-end test (builds the image, runs two example services against it): `NESTRIX_E2E_DOCKER=1 pnpm exec vitest run --project @nestrix/server test/e2e`.
+End-to-end test (builds the image, runs two example services against it): `NESTRIX_E2E_DOCKER=1 pnpm exec vitest run --project @nestrix-js/server test/e2e`.

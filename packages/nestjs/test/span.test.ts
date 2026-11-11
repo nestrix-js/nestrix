@@ -28,7 +28,7 @@ describe("withSpan", () => {
     expect(withSpan("sync", () => 42)).toBe(42);
     expect(finished().map((s) => s.name)).toEqual(["sync"]);
     expect(finished()[0]?.status.code).toBe(SpanStatusCode.UNSET);
-    expect(finished()[0]?.instrumentationScope.name).toBe("@nestrix/nestjs");
+    expect(finished()[0]?.instrumentationScope.name).toBe("@nestrix-js/nestjs");
   });
 
   it("passes the span to the function and makes it active", () => {

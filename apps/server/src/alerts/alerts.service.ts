@@ -3,7 +3,7 @@ import type {
   AlertEvent,
   AlertRule,
   AlertRuleCreateResponse,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 import type { Pool } from "pg";
 import { STORAGE_POOL } from "../storage/storage.module.js";
 import { recordDelivery } from "./evaluator.js";

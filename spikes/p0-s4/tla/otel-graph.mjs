@@ -1,4 +1,4 @@
-// What an ESM-only @nestrix/nestjs will do: import the OpenTelemetry packages from an
+// What an ESM-only @nestrix-js/nestjs will do: import the OpenTelemetry packages from an
 // ES module. Those resolve through the "default" (ESM) condition, so this loads the
 // packages' .mjs builds, which is a different graph from require("@opentelemetry/x")
 // in a CommonJS file (that one resolves the .cjs builds).

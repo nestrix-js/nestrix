@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { Controller, Get, Module, Param } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 
 @Controller("items")
 class ItemsController {

@@ -19,7 +19,7 @@ Update this table as work moves. One line of notes at most; detail goes in the t
 | P2-08 | UI shell and request list | sonnet | P2-01, P2-02 | done | Shell, live list (poll, pause, load older, reset), nuqs filters from protocol specs; 42 e2e + 25 unit tests; 638 KB. No Testing Library (not in D-52): Vitest for logic, Playwright for rendering. |
 | P2-09 | UI trace waterfall and span detail | sonnet | P2-08 | done | Virtualised treegrid (`@tanstack/react-virtual` 3.14.26), detail panel, keyboard; 5,000 spans keep ≤60 DOM rows; row markup `data-testid="span-row"` + `aria-level`. |
 | P2-10 | UI error list and routes view | sonnet | P2-08 | done | Error list (live) and routes table + uPlot charts (15/60 min in URL), sampling note; UI total 760 KB; 89 e2e + 48 unit pass. |
-| P2-11 | Example apps, Playwright end-to-end, CI job | sonnet | P2-06, P2-09, P2-10 | done | `e2e/` workspace (app entries import the examples' modules: the examples are test fixtures of `@nestrix/nestjs`, so depending on it would be a cycle); 16 Playwright tests mapped to the acceptance list; CI job (Node 26, Chromium) passes under act. |
+| P2-11 | Example apps, Playwright end-to-end, CI job | sonnet | P2-06, P2-09, P2-10 | done | `e2e/` workspace (app entries import the examples' modules: the examples are test fixtures of `@nestrix-js/nestjs`, so depending on it would be a cycle); 16 Playwright tests mapped to the acceptance list; CI job (Node 26, Chromium) passes under act. |
 | P2-12 | Store default limits and the with-dashboard benchmark | sonnet | P2-03, P2-04 | done | Defaults 5,000 traces / 32 MiB (typical trace ~4 KB heap); dashboard costs ~6 µs/request (store processor ~7 µs/span, stats 68 ns): −15% on a trivial route. Lazy exporter: −16 ms startup, −1.1 MB heap. `benchmarks/results/dashboard.md`. |
 | P2-13 | Documentation | sonnet + lead | P2-11, P2-12 | done | README dashboard section + options, UI README, architecture §4.5–§8, nest-hooks `listen$`; doc-reviewer pass applied; install size re-measured (19.8 MB added). |
 | P2-14 | Load the OTLP exporter graph only when export is on | sonnet | P2-00 | done | Dynamic import from the pipeline; pre-load batches wait in the single in-flight slot; child-process test: 0 exporter modules with export off, 55 on. RSS/startup not yet measured (quiet window). |
@@ -38,11 +38,11 @@ If P2-02 finds that a D-52 package cannot work (the CSP blocks it, nuqs fails un
 - The rules in `AGENTS.md`, the "Rules for every hook and subscriber" in architecture §4.2, and the phase 1 backlog's "Rules for every task" still apply.
 - Dashboard handlers follow architecture §4.6 "Handlers" and "Assets" exactly: hijack on Fastify, write the raw response, strip `Access-Control-*`, catch everything and answer a 500 on the same raw response. Never `httpAdapter.reply`, `httpAdapter.end` or `reply.send()`.
 - Access decisions read the raw socket and raw headers (`(req.raw ?? req)`), never `req.ip`, `req.hostname` or `getRequestHostname()`.
-- `@nestrix/ui` has no runtime `dependencies`. Every UI package is a `devDependency` bundled at build time (D-52). Adding a package that D-52 does not list, or a runtime dependency to `@nestrix/nestjs`, is the owner's decision.
-- `@nestrix/nestjs` imports **types only** from `@nestrix/protocol` (`import type`). That package is private and never published, so a runtime import would break installs. See P2-01 for how parameter specs stay in sync without a runtime import.
+- `@nestrix-js/ui` has no runtime `dependencies`. Every UI package is a `devDependency` bundled at build time (D-52). Adding a package that D-52 does not list, or a runtime dependency to `@nestrix-js/nestjs`, is the owner's decision.
+- `@nestrix-js/nestjs` imports **types only** from `@nestrix-js/protocol` (`import type`). That package is private and never published, so a runtime import would break installs. See P2-01 for how parameter specs stay in sync without a runtime import.
 - Code copied into the repository (shadcn, tablecn, Dice UI) is MIT and keeps its notice; nothing from the owner's `nestjs-monorepo-template` except code the owner wrote (D-52).
 - File ownership below keeps parallel agents apart. `packages/nestjs/src/index.ts` is edited only by the lead when merging.
-- A change to a published package comes with a changeset (`@nestrix/nestjs` and `@nestrix/ui` share one version).
+- A change to a published package comes with a changeset (`@nestrix-js/nestjs` and `@nestrix-js/ui` share one version).
 - A task is `done` when its checks have been run and their output read, `pnpm verify` passes, and, where the table says so, an independent `reviewer` has passed it and its findings are resolved.
 
 ## Public API
@@ -72,7 +72,7 @@ nestrixSpanProcessor(): SpanProcessor // duck-typed; never throws, never rejects
 |---|---|
 | `ui: false`, or `enabled: false` | Off. No routes, no store, no route statistics. |
 | No HTTP adapter (`createMicroservice`, `createApplicationContext`) | Off, silently. |
-| `@nestrix/ui` not installed | Off. Log line gives the install command. |
+| `@nestrix-js/ui` not installed | Off. Log line gives the install command. |
 | `'auto'` and `NODE_ENV` set to anything but `development` | Off. Log line says `ui.enabled: true` plus `auth` serves it. |
 | `'auto'`, `NODE_ENV` `development` or unset | On. Per request: loopback socket, loopback `Host`, no forwarding header, startup token cookie (unless `startupToken: false`), and `auth` if given. |
 | `enabled: true` without `auth` | Off. Error logged; the app starts. |
@@ -90,7 +90,7 @@ Every mode that is on also rejects `Sec-Fetch-Site: cross-site` (D-30) and never
 |---|---|
 | `<path>` and `<path>/` | `index.html`, templated per request with `<base href="<path>/">` and a JSON config block |
 | `<path>/auth` | Token exchange (above) |
-| `<path>/assets/<file>` | One exact route per built file, from the `@nestrix/ui` manifest |
+| `<path>/assets/<file>` | One exact route per built file, from the `@nestrix-js/ui` manifest |
 | `<path>/api/v1/meta` | Service, sampling, store and statistics state, warnings |
 | `<path>/api/v1/traces` | Trace list, newest first, cursor-paged |
 | `<path>/api/v1/trace?id=<traceId>` | One trace, all stored spans |
@@ -122,12 +122,12 @@ Path parameters are not used: every parameter is in the query string, so routing
 - Shapes. Times as `startTimeUnixMs: number` (fractional milliseconds) and `durationMs: number`. `SpanRecord`: `spanId`, `parentSpanId?`, `name`, `kind` (`'server' | 'client' | 'internal' | 'producer' | 'consumer'`), times, `attributes: Record<string, AttributeValue>`, `events: { name, timeUnixMs, attributes }[]`, `status: { code: 'unset' | 'ok' | 'error', message? }`, `links: { traceId, spanId }[]`, `scope?: string`. `TraceResponse` carries the resource attributes once. `TraceSummary`: `traceId`, `rootSpanId`, `name`, `method?`, `route?`, `statusCode?`, `error`, `startTimeUnixMs`, `durationMs`, `spanCount`, `cursor`. The local root is the earliest span with no parent inside the trace (a remote parent counts as none).
 - Cursor paging: lists take `limit` (1–200, default 50) and either `before` (older page) or `after` (newer items, for polling). Cursors are opaque strings. Responses carry `head` (cursor of the newest item, for the next `after`), `older` (cursor for "load older", `null` at the end of the store) and `reset: true` when a cursor came from another process or was evicted.
 - Filters: traces take `route`, `method`, `status` (`'ok' | 'error' | '4xx' | '5xx'`), `minDurationMs`, `search` (substring of span name or route, max 200 chars); errors take `route`; routes take `windowMinutes` (`15 | 60`, default 15). Since P5-03 every list and statistics route also takes `service` (max 256 chars; the embedded dashboard answers empty for a name other than its own) and `meta` has `mode`.
-- Parameter specs as `as const` objects (`traceListParams`, `errorListParams`, `routeStatsParams`, `traceParams`), with an exported type for each (`type TraceListParamsSpec = typeof traceListParams`). The UI builds nuqs parsers from the values. `@nestrix/nestjs` cannot import the values (private package), so it declares its own copy typed against the spec type: `const spec: TraceListParamsSpec = { … }`. With literal types, any drift fails `tsc`. Write a two-line example of that in a comment.
+- Parameter specs as `as const` objects (`traceListParams`, `errorListParams`, `routeStatsParams`, `traceParams`), with an exported type for each (`type TraceListParamsSpec = typeof traceListParams`). The UI builds nuqs parsers from the values. `@nestrix-js/nestjs` cannot import the values (private package), so it declares its own copy typed against the spec type: `const spec: TraceListParamsSpec = { … }`. With literal types, any drift fails `tsc`. Write a two-line example of that in a comment.
 - `fixtures/`: one realistic JSON response per route (a trace with server, client, internal spans, an exception event and a remote parent; a route list with series), typechecked against the types by a test, for UI development and tests before the server exists.
 
 **Do not.** Add runtime dependencies or zod. Use path parameters.
 
-**Done when.** `tsc` passes; a test imports each fixture and asserts it satisfies its type (via `satisfies` in a `.ts` fixture loader); a check that no `.d.ts` reachable from `packages/nestjs/dist/index.d.ts` references `@nestrix/protocol` is written as a test (it passes trivially now, and guards P2-03/P2-06); `pnpm verify` passes.
+**Done when.** `tsc` passes; a test imports each fixture and asserts it satisfies its type (via `satisfies` in a `.ts` fixture loader); a check that no `.d.ts` reachable from `packages/nestjs/dist/index.d.ts` references `@nestrix-js/protocol` is written as a test (it passes trivially now, and guards P2-03/P2-06); `pnpm verify` passes.
 
 ### P2-02 UI foundation: build, size budget, CSP, nuqs under hash history
 
@@ -190,10 +190,10 @@ Path parameters are not used: every parameter is in the query string, so routing
 
 ### P2-06 Mounting, asset serving, query API handlers, shadowing
 
-**Owns.** `packages/nestjs/src/dashboard/**` except P2-05's files; `src/core.ts` and `src/nestrix.module.ts` wiring; `@nestrix/ui` as an optional peer of `@nestrix/nestjs` (exact version, `peerDependenciesMeta.optional`, like `pg`).
+**Owns.** `packages/nestjs/src/dashboard/**` except P2-05's files; `src/core.ts` and `src/nestrix.module.ts` wiring; `@nestrix-js/ui` as an optional peer of `@nestrix-js/nestjs` (exact version, `peerDependenciesMeta.optional`, like `pg`).
 
 **Do.**
-- Load `@nestrix/ui` at `onModuleInit` without top-level `await` (rule 4): resolve it with `import.meta.resolve` or `createRequire`, read `manifest.json` and every listed file into memory once. Not installed: off with the log line.
+- Load `@nestrix-js/ui` at `onModuleInit` without top-level `await` (rule 4): resolve it with `import.meta.resolve` or `createRequire`, read `manifest.json` and every listed file into memory once. Not installed: off with the log line.
 - Register the routes in "Public API" with `httpAdapter.get` in `onModuleInit` (D-45). Every handler: mark the request state's "dashboard handler reached" flag (P2-04); hijack (`reply.hijack()` when present); take `res.raw ?? res`; run `checkAccess` (P2-05); remove every `Access-Control-*` header; set the headers in "Public API"; write status, headers and body to the raw response; catch everything and answer 500 through the same path. On Fastify never `reply.send()`.
 - `index.html`: replace the placeholders with `<base href>` (HTML-escaped) and the config JSON (`apiBase`, `path`, protocol version; `<` escaped as `<`).
 - API handlers: parse query parameters with a local spec copy typed against P2-01's spec types; reject unknown or malformed values with `400` and an `ApiError`; serialise store and stats results to the P2-01 types.
@@ -218,7 +218,7 @@ Path parameters are not used: every parameter is in the query string, so routing
 
 **Owns.** `packages/nestjs/test/dashboard-security.test.ts` (and a fixture next to it).
 
-**Do.** One named test per rule of architecture §4.7 and "Public API", each on all three adapters, against real sockets (raw TCP where headers must be exact): auto mode off outside `development`; `@nestrix/ui` absent; non-loopback peer; foreign `Host`; missing `Host` (HTTP/1.0); each forwarding header; `Sec-Fetch-Site: cross-site` in each mode; startup token missing, wrong, right (exchange sets the cookie and redirects, then data loads); the same-host reverse proxy case (a local proxy process that rewrites `Host` and adds no forwarding header, as in `spikes/p0-s5`) denied without the cookie; `startupToken: false` admits it (documented limit); `enabled: true` without `auth` stays off and the app starts; token auth by header and by cookie; `authorize` receiving the raw request, and throwing; no CORS allow headers with permissive host CORS on success and error paths; preflight behaviour recorded as the documented limit; `X-Robots-Tag`, CSP and `nosniff` present; no inline script executes (the config block is `application/json`); a denied request reveals nothing (404, empty body).
+**Do.** One named test per rule of architecture §4.7 and "Public API", each on all three adapters, against real sockets (raw TCP where headers must be exact): auto mode off outside `development`; `@nestrix-js/ui` absent; non-loopback peer; foreign `Host`; missing `Host` (HTTP/1.0); each forwarding header; `Sec-Fetch-Site: cross-site` in each mode; startup token missing, wrong, right (exchange sets the cookie and redirects, then data loads); the same-host reverse proxy case (a local proxy process that rewrites `Host` and adds no forwarding header, as in `spikes/p0-s5`) denied without the cookie; `startupToken: false` admits it (documented limit); `enabled: true` without `auth` stays off and the app starts; token auth by header and by cookie; `authorize` receiving the raw request, and throwing; no CORS allow headers with permissive host CORS on success and error paths; preflight behaviour recorded as the documented limit; `X-Robots-Tag`, CSP and `nosniff` present; no inline script executes (the config block is `application/json`); a denied request reveals nothing (404, empty body).
 
 **Done when.** Every rule has a test that fails if the rule is removed (show it for three rules by breaking `checkAccess` locally); `pnpm verify` passes. Reviewer pass.
 
@@ -306,5 +306,5 @@ Path parameters are not used: every parameter is in the query string, so routing
 
 Not acted on; raised at the gate unless the owner answers earlier.
 
-- **Decided (D-54, owner, 2026-11-11):** `@nestrix/ui` as an optional peer of `@nestrix/nestjs` (P2-06), pinned to the same version. pnpm's isolated layout means `@nestrix/nestjs` cannot resolve `@nestrix/ui` unless it is declared; an optional peer is never installed by itself, like `pg`. The lead treats this as part of D-3 (two packages, one version), not a new runtime dependency. Say if you see it otherwise.
+- **Decided (D-54, owner, 2026-11-11):** `@nestrix-js/ui` as an optional peer of `@nestrix-js/nestjs` (P2-06), pinned to the same version. pnpm's isolated layout means `@nestrix-js/nestjs` cannot resolve `@nestrix-js/ui` unless it is declared; an optional peer is never installed by itself, like `pg`. The lead treats this as part of D-3 (two packages, one version), not a new runtime dependency. Say if you see it otherwise.
 - **Reject `Sec-Fetch-Site: same-site` too.** Pages on another port of `localhost` are same-site, not cross-site, so D-30's rule lets them send requests carrying the `SameSite=Strict` cookie. They cannot read the responses (no CORS), and the API is read-only, so this is defence in depth only. The dashboard's own requests are `same-origin`; allowing only `same-origin`, `none` and an absent header would cost nothing. It changes D-30, so it is the owner's call.

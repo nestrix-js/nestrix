@@ -1,5 +1,5 @@
 {
-  "name": "@nestrix/conformance-nest12-0",
+  "name": "@nestrix-js/conformance-nest12-0",
   "version": "0.0.0",
   "private": true,
   "description": "Runs the packages/nestjs conformance suite against Nest 12.0.0 (Express and Fastify). Never published.",

@@ -1,11 +1,11 @@
 /**
  * The node a client or producer span calls, by the same rules as the embedded app map
  * (`packages/nestjs/src/store/app-map.ts`, `targetOf`; copied because it is not public API of
- * `@nestrix/nestjs`). The query groups spans by the attributes named in {@link TARGET_KEYS}, so
+ * `@nestrix-js/nestjs`). The query groups spans by the attributes named in {@link TARGET_KEYS}, so
  * only those matter here; `url.full` is reduced to `scheme://authority` in SQL (its path and
  * query would make every request its own group, and only the host and port are read from it).
  */
-import type { MapNode, MapNodeKind } from "@nestrix/protocol";
+import type { MapNode, MapNodeKind } from "@nestrix-js/protocol";
 
 /** Attribute keys `targetOf` reads. */
 export const TARGET_KEYS = [

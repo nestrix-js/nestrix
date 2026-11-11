@@ -5,15 +5,15 @@ Nestrix needs NestJS 12 and Node.js 26.13 or later. See [Compatibility](/referen
 ## Install
 
 ```bash
-pnpm add @nestrix/nestjs @opentelemetry/api@~1.10.0
+pnpm add @nestrix-js/nestjs @opentelemetry/api@~1.10.0
 ```
 
 `@opentelemetry/api` is a peer dependency, so your app and Nestrix share one copy. Nestrix also needs `reflect-metadata` and `rxjs`, which a Nest app already has.
 
-The dashboard is a separate, optional package. Install it at the same version as `@nestrix/nestjs`:
+The dashboard is a separate, optional package. Install it at the same version as `@nestrix-js/nestjs`:
 
 ```bash
-pnpm add @nestrix/ui
+pnpm add @nestrix-js/ui
 ```
 
 The packages are ESM-only. A CommonJS Nest 12 app loads them with `require()`, which works because they have no top-level `await`.
@@ -24,7 +24,7 @@ Register the module once, in your root module. It is global.
 
 ```ts
 import { Module } from "@nestjs/common";
-import { NestrixModule } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix-js/nestjs";
 
 @Module({
   imports: [
@@ -54,7 +54,7 @@ NestrixModule.forRootAsync({
 
 ## Your first trace in the dashboard
 
-Start the app in development (`NODE_ENV` unset or `development`) with `@nestrix/ui` installed. When the app starts listening, Nestrix logs one line:
+Start the app in development (`NODE_ENV` unset or `development`) with `@nestrix-js/ui` installed. When the app starts listening, Nestrix logs one line:
 
 ```text
 Nestrix dashboard: http://localhost:3000/_nestrix/auth?token=<43 characters>

@@ -15,7 +15,7 @@ import type {
   TraceListResponse,
   TraceResponse,
   TraceSummary,
-} from "@nestrix/protocol";
+} from "@nestrix-js/protocol";
 import { generatedClasses, generatedMap } from "./mock-classes-map.ts";
 import { ErrorStore } from "./mock-stats.ts";
 

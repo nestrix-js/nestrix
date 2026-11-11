@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
-import { NestrixInstrument } from "@nestrix/nestjs";
+import { NestrixInstrument } from "@nestrix-js/nestjs";
 import { AppModule } from "./app.module.js";
 import { seed } from "./db.js";
 

@@ -13,7 +13,7 @@ import {
   writeResult,
 } from "./lib.mjs";
 
-const nestjsEntry = fileURLToPath(import.meta.resolve("@nestrix/nestjs"));
+const nestjsEntry = fileURLToPath(import.meta.resolve("@nestrix-js/nestjs"));
 const require = createRequire(nestjsEntry);
 const dist = new URL("./", pathToFileURL(nestjsEntry)).href;
 const { SpanKind } = require("@opentelemetry/api");
