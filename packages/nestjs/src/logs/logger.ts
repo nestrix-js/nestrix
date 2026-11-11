@@ -6,7 +6,10 @@ import { getTraceIds } from "./trace-ids.js";
 type JsonLogObject = ReturnType<ConsoleLogger["getJsonLogObject"]>;
 type JsonLogOptions = Parameters<ConsoleLogger["getJsonLogObject"]>[1];
 
-function bodyOf(message: unknown): string {
+/** The longest body sent over OTLP; longer ones are cut and end in `…`. */
+export const MAX_BODY_LENGTH = 8192;
+
+function rawBodyOf(message: unknown): string {
   if (typeof message === "string") return message;
   if (message instanceof Error) return message.message;
   try {
@@ -14,6 +17,13 @@ function bodyOf(message: unknown): string {
   } catch {
     return String(message);
   }
+}
+
+function bodyOf(message: unknown): string {
+  const body = rawBodyOf(message);
+  return body.length > MAX_BODY_LENGTH
+    ? `${body.slice(0, MAX_BODY_LENGTH)}…`
+    : body;
 }
 
 /**
@@ -34,14 +44,17 @@ export class NestrixLogger extends ConsoleLogger {
     errorStack?: unknown,
     params?: Record<string, unknown>,
   ): void {
+    let toPrint = messages;
     try {
+      const resolved = messages.map((m) => this.resolveMessage(m));
+      toPrint = resolved;
       const sink = getLogSink();
       if (sink) {
         const stack = typeof errorStack === "string" ? errorStack : undefined;
-        for (const message of messages) {
+        for (const r of resolved) {
           sink.emit({
             level: logLevel,
-            body: bodyOf(this.resolveMessage(message)),
+            body: bodyOf(this.redact(r)),
             context: context || undefined,
             stack,
           });
@@ -51,7 +64,7 @@ export class NestrixLogger extends ConsoleLogger {
       diagnostics.countFailure("logs.emit", error);
     }
     super.printMessages(
-      messages,
+      toPrint,
       context,
       logLevel,
       writeStreamType,
