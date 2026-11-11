@@ -1,0 +1,35 @@
+# Local demo stack: PostgreSQL 18 + the Nestrix server on http://localhost:4318.
+#   cp example.env .env   # then set NESTRIX_ADMIN_PASSWORD
+#   docker compose up --build
+# NESTRIX_INGEST_AUTH=none lets any client on the network ingest without a key. It is for local
+# demos only; for anything else set NESTRIX_INGEST_KEYS (and remove the opt-out).
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: nestrix
+      POSTGRES_DB: nestrix
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nestrix -d nestrix"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  server:
+    build:
+      context: ../..
+      dockerfile: apps/server/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://nestrix@postgres:5432/nestrix
+      NESTRIX_INGEST_AUTH: none
+      NESTRIX_ADMIN_PASSWORD: ${NESTRIX_ADMIN_PASSWORD:?set NESTRIX_ADMIN_PASSWORD (at least 12 characters), see example.env}
+      NESTRIX_RETENTION_DAYS: ${NESTRIX_RETENTION_DAYS:-7}
+    ports:
+      - "4318:4318"
+volumes:
+  pgdata:

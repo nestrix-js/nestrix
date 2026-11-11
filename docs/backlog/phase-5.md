@@ -14,7 +14,7 @@ Objective, deliverables and acceptance: [roadmap.md](../roadmap.md#phase-5-stand
 | P5-03 | Query API over Postgres; protocol additions for several services | sonnet | P5-01, P5-02 | done | As built: "P5-03 as built" below. |
 | P5-04 | UI hosting and admin login | opus | P5-01 | review | Integrated with P5-03 (query API guarded by the admin session). Security: review (P5-07) pending. As built: "P5-04 as built" below. |
 | P5-05 | UI: service selector, map across services | sonnet | P5-03 | todo | |
-| P5-06 | Docker image, `docker compose`, example apps end to end, short ingest measurement | sonnet | P5-03, P5-04 | todo | |
+| P5-06 | Docker image, `docker compose`, example apps end to end, short ingest measurement | sonnet | P5-03, P5-04 | done | `apps/server/Dockerfile`, `docker-compose.yml`, `example.env` (the `.env.example` name is blocked by a write hook), `test/e2e/docker.test.ts` (opt-in `NESTRIX_E2E_DOCKER=1`), `scripts/ingest-load.mjs`, `benchmarks/results/server-ingest.md` (preliminary). Retention test: `test/storage/partitions.test.ts`. |
 | P5-07 | Reviews of P5-01 and P5-04 | opus reviewer | each | todo | |
 | P5-08 | Documentation, phase report | sonnet + lead | all | todo | |
 
