@@ -2,7 +2,7 @@
 
 Each phase is a vertical slice that ends with something a user can run. A phase is done when its acceptance criteria pass in CI, not when the code is written. At the end of every phase, work stops for the owner's review before the next phase starts.
 
-Current phase: **3, next** (task list to be written as `backlog/phase-3.md` in a fresh session). Phase 2 is complete and approved by the owner on 2026-11-11 (task list [backlog/phase-2.md](backlog/phase-2.md), report [phase-2-report.md](phase-2-report.md)). Phase 1 is complete and approved by the owner on 2026-11-11 (task list [backlog/phase-1.md](backlog/phase-1.md), report [phase-1-report.md](phase-1-report.md)). Phase 0 is complete (task list [backlog/phase-0.md](backlog/phase-0.md), report [phase-0-report.md](phase-0-report.md), gate decisions D-40 to D-51 in [decisions.md](decisions.md)). Later phases get their task list written when they start, by whoever leads the work, from the deliverables below.
+Current phase: **3, in progress** (task list [backlog/phase-3.md](backlog/phase-3.md)). Phase 2 is complete and approved by the owner on 2026-11-11 (task list [backlog/phase-2.md](backlog/phase-2.md), report [phase-2-report.md](phase-2-report.md)). Phase 1 is complete and approved by the owner on 2026-11-11 (task list [backlog/phase-1.md](backlog/phase-1.md), report [phase-1-report.md](phase-1-report.md)). Phase 0 is complete (task list [backlog/phase-0.md](backlog/phase-0.md), report [phase-0-report.md](phase-0-report.md), gate decisions D-40 to D-51 in [decisions.md](decisions.md)). Later phases get their task list written when they start, by whoever leads the work, from the deliverables below.
 
 ## Phase 0: foundations and spikes
 

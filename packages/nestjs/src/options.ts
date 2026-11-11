@@ -140,11 +140,74 @@ export interface NestrixStoreOptions {
   maxBytes?: number;
 }
 
+/**
+ * Names a class for `methods.include` / `methods.exclude`: the class itself, its exact name, or a
+ * `RegExp` tested against its name.
+ */
+export type ClassMatcher = string | RegExp | (abstract new (...args: never[]) => unknown);
+
+/** Enhancer roles whose spans can be switched on (D-47, D-57). */
+export type NestrixEnhancerKind = "guard" | "pipe" | "interceptor" | "filter";
+
+/**
+ * Method spans (level 2, phase 3). They need `NestFactory.create(AppModule, { instrument: NestrixInstrument })`
+ * in `main.ts`; these options only shape what is traced. Not applied under `@nestjs/testing` (D-48).
+ */
+export interface NestrixMethodOptions {
+  /** Default `true` (effective only with `NestrixInstrument`). `false` turns method spans off. */
+  enabled?: boolean;
+  /**
+   * Classes traced in addition to the app's own controllers, services, repositories and processors
+   * (D-57), for example a provider from your own dynamic module or a library service you care about.
+   */
+  include?: ClassMatcher[];
+  /** Classes never traced. Wins over `include`. */
+  exclude?: ClassMatcher[];
+  /** Spans for guards, pipes, interceptors and filters. Default `false`; `true` is all four. */
+  enhancers?: boolean | NestrixEnhancerKind[];
+}
+
+/** Database and cache integrations (level 3, phase 3). */
+export interface NestrixIntegrationOptions {
+  /** `pg` query spans. Default `true`: on when `pg` is installed (D-50). */
+  pg?: boolean;
+  /**
+   * `mysql2` query spans. Default `false` (D-49): once on, mysql2 swallows an error from an
+   * event-emitter query that has no `'error'` listener, where it would otherwise crash the process.
+   */
+  mysql2?: boolean;
+  /**
+   * `ioredis` command spans. Default `false` (D-49): once on, ioredis swallows the rejection of a
+   * failing command nobody awaits, where it would otherwise raise `unhandledRejection`.
+   * `rootSpans: true` also keeps commands that run outside any trace (connection handshakes,
+   * commands queued before the connection was ready); by default they are dropped (D-60).
+   */
+  ioredis?: boolean | { rootSpans?: boolean };
+}
+
 export interface NestrixModuleOptions {
   /** Default `true`. `false`, or `NESTRIX_ENABLED=false` in the environment, registers nothing at all. */
   enabled?: boolean;
   /** `service.name`. Default `OTEL_SERVICE_NAME`, then the SDK's default resource. */
   serviceName?: string;
+  /**
+   * `service.version`: the release every trace is tagged with (D-56). Default: `service.version` in
+   * `OTEL_RESOURCE_ATTRIBUTES`, then `GIT_SHA`, then `npm_package_version`. Ignored when the host
+   * owns the SDK (its resource wins).
+   */
+  serviceVersion?: string;
+  /**
+   * Reads the user behind a request, recorded as `user.id` on the server span (D-56). Off by
+   * default: a user id is personal data. Called once per sampled request when its span ends, with
+   * the request object the adapter gives Nestrix's request hook (Express `req`, Fastify's raw
+   * request, platform-node's request), by which time guards have usually set `req.user`. Return
+   * `undefined` for none. A throw, or a non-string non-number result, records nothing and is counted.
+   */
+  user?: (request: unknown) => string | number | undefined;
+  /** Method spans (level 2). */
+  methods?: NestrixMethodOptions;
+  /** Database and cache spans (level 3). */
+  integrations?: NestrixIntegrationOptions;
   /** Extra resource attributes. `OTEL_RESOURCE_ATTRIBUTES` is honoured too; these win. */
   resourceAttributes?: Record<string, string | number | boolean>;
   /**

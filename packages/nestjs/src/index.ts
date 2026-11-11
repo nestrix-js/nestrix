@@ -3,9 +3,13 @@ export {
   type NestrixModuleAsyncOptions,
 } from "./nestrix.module.js";
 export type {
+  ClassMatcher,
+  NestrixEnhancerKind,
   NestrixExportOptions,
   NestrixHttpOptions,
   NestrixIgnoreOptions,
+  NestrixIntegrationOptions,
+  NestrixMethodOptions,
   NestrixModuleOptions,
   NestrixOtlpOptions,
   NestrixQueueOptions,

@@ -179,6 +179,92 @@ export interface RouteStatsResponse {
   routes: RouteStats[];
 }
 
+/** Statistics of one method of one class (phase 3, D-56). */
+export interface MethodStats {
+  method: string;
+  /** Calls counted before sampling. */
+  calls: number;
+  /** Calls that threw or whose promise rejected, counted before sampling. */
+  errors: number;
+  /** Sum of call durations in ms, counted before sampling. */
+  totalMs: number;
+  /** `totalMs / calls`; 0 when `calls` is 0. */
+  avgMs: number;
+  maxMs: number;
+  /**
+   * Own time per call in ms (duration minus time spent in child spans), estimated from the sampled
+   * traces in the store; `null` when no sampled call of this method is in the store.
+   */
+  ownAvgMs: number | null;
+}
+
+/** Role of a traced class, as Nestrix recognises it. */
+export type ClassKind =
+  | "controller"
+  | "service"
+  | "repository"
+  | "processor"
+  | "provider"
+  | "guard"
+  | "pipe"
+  | "interceptor"
+  | "filter";
+
+/** Statistics of one traced class: the sums over its methods. */
+export interface ClassStats {
+  className: string;
+  kind: ClassKind;
+  calls: number;
+  errors: number;
+  totalMs: number;
+  avgMs: number;
+  /** Own time in ms over the window, estimated as the sum over methods of `ownAvgMs * calls`; `null` when no method has an estimate. */
+  ownMs: number | null;
+  methods: MethodStats[];
+}
+
+/** `GET api/v1/classes` */
+export interface ClassStatsResponse {
+  windowMinutes: number;
+  fromUnixMs: number;
+  toUnixMs: number;
+  /** False when method spans are off (no `NestrixInstrument`, or under `@nestjs/testing`); `classes` is then empty. */
+  methodsEnabled: boolean;
+  classes: ClassStats[];
+}
+
+export type MapNodeKind = "app" | "database" | "cache" | "http" | "queue" | "other";
+
+/** A node of the app map: the app itself, or something it calls. */
+export interface MapNode {
+  /** Stable within a response, e.g. `db:postgresql:localhost:5432/shop`. */
+  id: string;
+  kind: MapNodeKind;
+  /** Display name, e.g. `postgresql shop`, `api.stripe.com`, `queue emails`. */
+  name: string;
+  /** `db.system.name`, `messaging.system`, or `http`. */
+  system?: string;
+}
+
+/** Calls from one node to another, from the sampled spans in the store. */
+export interface MapEdge {
+  from: string;
+  to: string;
+  calls: number;
+  errors: number;
+  p50Ms: number;
+  p95Ms: number;
+}
+
+/** `GET api/v1/map`: the app and what it calls (D-56), built from the traces in the store, so it reflects sampling. */
+export interface AppMapResponse {
+  windowMinutes: number;
+  fromUnixMs: number;
+  toUnixMs: number;
+  nodes: MapNode[];
+  edges: MapEdge[];
+}
+
 export type ApiErrorCode =
   | "bad_request"
   | "forbidden"

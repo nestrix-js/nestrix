@@ -99,6 +99,30 @@ export const routeStatsParams = {
 } as const;
 export type RouteStatsParamsSpec = typeof routeStatsParams;
 
+/** `GET <path>/api/v1/classes` */
+export const classStatsParams = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+} as const;
+export type ClassStatsParamsSpec = typeof classStatsParams;
+
+/** `GET <path>/api/v1/map` */
+export const appMapParams = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+} as const;
+export type AppMapParamsSpec = typeof appMapParams;
+
 /** `GET <path>/api/v1/trace?id=<traceId>`: a 32-character lowercase hex trace id. */
 export const traceParams = {
   id: { kind: "string", maxLength: 32, pattern: "^[0-9a-f]{32}$" },
