@@ -190,6 +190,16 @@ export interface NestrixIntegrationOptions {
   ioredis?: boolean | { rootSpans?: boolean };
 }
 
+export interface NestrixLogsOptions {
+  /**
+   * Also send every `NestrixLogger` record over OTLP/HTTP to `/v1/logs` of the configured endpoint
+   * (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is honoured). Needs the optional packages
+   * `@opentelemetry/sdk-logs` and `@opentelemetry/exporter-logs-otlp-http`; without them one log line
+   * says so. Default `false`.
+   */
+  export?: boolean;
+}
+
 export interface NestrixModuleOptions {
   /** Default `true`. `false`, or `NESTRIX_ENABLED=false` in the environment, registers nothing at all. */
   enabled?: boolean;
@@ -229,4 +239,6 @@ export interface NestrixModuleOptions {
   ui?: false | "auto" | NestrixUiOptions;
   /** Limits of the dashboard's store. Ignored while the dashboard is off. */
   store?: NestrixStoreOptions;
+  /** Log correlation and export (`NestrixLogger`). */
+  logs?: NestrixLogsOptions;
 }

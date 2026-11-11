@@ -81,6 +81,8 @@ const OPTIONS = [
   "store",
   "store.maxTraces",
   "store.maxBytes",
+  "logs",
+  "logs.export",
 ];
 
 describe("README options", () => {
@@ -97,6 +99,8 @@ describe("README options", () => {
       "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
       "OTEL_EXPORTER_OTLP_HEADERS",
       "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+      "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+      "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
     ]) {
       expect(readme).toContain(`| \`${name}\` |`);
     }

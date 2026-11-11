@@ -13,6 +13,7 @@ Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app pro
 - [Environment variables](#environment-variables)
 - [What is traced](#what-is-traced)
 - [Custom spans](#custom-spans)
+- [Logs](#logs)
 - [Privacy](#privacy)
 - [Shutdown and flushing](#shutdown-and-flushing)
 - [Supported versions](#supported-versions)
@@ -372,6 +373,8 @@ That sample sets most options to their defaults, except where a default is "unse
 | `redact` | none | A synchronous hook that sees every exported span and every span the dashboard stores. |
 | `ui` | `'auto'` | The embedded dashboard: `false`, `'auto'` or an object. See [Dashboard](#dashboard) and [`ui`](#ui). |
 | `store` | see below | Limits of the dashboard's in-memory store. See [`store`](#store). |
+| `logs` | `{ export: false }` | Log export over OTLP. See [Logs](#logs). |
+| `logs.export` | `false` | Send `NestrixLogger` records over OTLP to `/v1/logs`. Needs `@opentelemetry/sdk-logs` and `@opentelemetry/exporter-logs-otlp-http`. See [Logs](#logs). |
 
 ### `export.otlp`
 
@@ -473,6 +476,8 @@ Ignored while the dashboard is off. See [Memory and the `store` option](#memory-
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Full traces URL, used as given. Wins over the generic endpoint. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | `key=value,key2=value2`, values percent-decoded. |
 | `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | Same, for traces; wins over the generic variable key by key. |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | Full logs URL, used as given. Only read when `logs.export` is on. |
+| `OTEL_EXPORTER_OTLP_LOGS_HEADERS` | Same format, for logs; wins over the generic variable key by key. |
 
 An option always wins over the variable of the same meaning. Nestrix itself reads no other `OTEL_*` variables, but the OTLP exporter it uses reads some on its own:
 
@@ -527,6 +532,35 @@ export class BillingService {
 - Other thenables and Observables are returned untouched and their span ends when the function returns, so an Observable's span covers none of the stream.
 - **The promise a traced method returns must be handled by its caller.** The caller gets a promise derived from the original one. If your method handles its own promise (`p.catch(log); return p`) and the caller ignores the return value, the derived promise's rejection is unhandled, and under Node's default `--unhandled-rejections=throw` the process exits where it would not have without the span. A method that returns a memoised promise returns a new promise object on each call.
 - If the tracer itself fails, your function still runs exactly once.
+
+## Logs
+
+Nestrix patches nothing in Nest's logger. To put the trace and span id on your log lines, pass `NestrixLogger` (a `ConsoleLogger`) as the application logger:
+
+<!-- sample: logs -->
+
+```ts
+import { NestFactory } from "@nestjs/core";
+import { NestrixLogger } from "@nestrix/nestjs";
+import { AppModule } from "./app.module";
+
+export async function bootstrap(): Promise<void> {
+  const app = await NestFactory.create(AppModule, {
+    logger: new NestrixLogger(),
+  });
+  await app.listen(3000);
+}
+```
+
+While a span is active, text lines end with ` trace_id=… span_id=…`, and in JSON mode (`new NestrixLogger({ json: true })`) each line gets `trace_id` and `span_id` fields. Outside a span the output is `ConsoleLogger`'s. For pino, winston or `nestjs-pino`, `getTraceIds()` returns `{ traceId, spanId }` of the active span, or `undefined`; use it in a `mixin` or format function.
+
+Set `logs: { export: true }` to also send every `NestrixLogger` record over OTLP/HTTP to `/v1/logs` of the configured endpoint (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is used as given). Records carry Nest's level as OpenTelemetry severity, the logger context as `nestrix.log.context`, and the active span's context. This needs two optional packages; without them Nestrix logs one line with the command and carries on:
+
+```bash
+npm install @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http
+```
+
+If your app already registered a `LoggerProvider`, the records go to it and Nestrix registers nothing. Records logged before the packages finish loading at startup are printed but not exported. A failure in correlation or export never changes what the log call prints or throws.
 
 ## Privacy
 

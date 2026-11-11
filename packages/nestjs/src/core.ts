@@ -16,6 +16,7 @@ import {
 } from "./dashboard/mount.js";
 import { diagnostics } from "./diagnostics.js";
 import { installHttpInstrumentation } from "./http/server.js";
+import { type LogExportHandle, setupLogExport } from "./logs/export.js";
 import { setupTelemetry } from "./otel/setup.js";
 import type { TelemetryHandle } from "./otel/types.js";
 import { installOutbound } from "./outbound/index.js";
@@ -42,6 +43,8 @@ export class NestrixCore implements OnModuleInit, OnApplicationShutdown {
   /** Why the dashboard is off although its mode allowed it; logged at `onModuleInit`. */
   private readonly dashboardUnavailable: DashboardUnavailable | undefined;
   private readonly adapterHost: HttpAdapterHost | undefined;
+  /** Set when `logs.export` is on (P6-01). */
+  private readonly logExport: LogExportHandle | undefined;
   private readonly logger: DashboardLogger;
 
   constructor(
@@ -52,6 +55,7 @@ export class NestrixCore implements OnModuleInit, OnApplicationShutdown {
     this.adapterHost = adapterHost;
     this.logger = new Logger("Nestrix");
     let telemetry: TelemetryHandle | undefined;
+    let logExport: LogExportHandle | undefined;
     let dashboard: Dashboard | undefined;
     let unavailable: DashboardUnavailable | undefined;
     try {
@@ -70,6 +74,7 @@ export class NestrixCore implements OnModuleInit, OnApplicationShutdown {
           },
           diagnostics,
         );
+        logExport = setupLogExport(options, diagnostics);
         // Outbound subscribers work with or without an HTTP adapter, and with a host-owned SDK.
         this.disposers.push(installOutbound(options, diagnostics));
         // HTTP hooks now, or from `init$` under @nestjs/testing; nothing without an adapter.
@@ -87,6 +92,7 @@ export class NestrixCore implements OnModuleInit, OnApplicationShutdown {
       diagnostics.countFailure("core.constructor", error);
     }
     this.telemetry = telemetry;
+    this.logExport = logExport;
     this.dashboard = dashboard;
     this.dashboardUnavailable = unavailable;
   }
@@ -130,6 +136,11 @@ export class NestrixCore implements OnModuleInit, OnApplicationShutdown {
       } catch (error) {
         diagnostics.countFailure("core.shutdown", error);
       }
+    }
+    try {
+      await this.logExport?.shutdown();
+    } catch (error) {
+      diagnostics.countFailure("core.shutdown", error);
     }
     try {
       await this.telemetry?.shutdown();

@@ -36,6 +36,8 @@
     "@nestjs/microservices": "^12.0.0",
     "@nestrix/ui": "workspace:*",
     "@opentelemetry/api": ">=1.10.0 <1.11.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.301.1",
+    "@opentelemetry/sdk-logs": "^3.1.1",
     "pg": "^8.0.0",
     "reflect-metadata": "^0.1.12 || ^0.2.0",
     "rxjs": "^7.1.0"
@@ -45,6 +47,12 @@
       "optional": true
     },
     "@nestrix/ui": {
+      "optional": true
+    },
+    "@opentelemetry/exporter-logs-otlp-http": {
+      "optional": true
+    },
+    "@opentelemetry/sdk-logs": {
       "optional": true
     },
     "pg": {
@@ -60,6 +68,8 @@
     "@nestrix/testing": "workspace:*",
     "@nestrix/ui": "workspace:*",
     "@opentelemetry/api": "~1.10.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.301.1",
+    "@opentelemetry/sdk-logs": "^3.1.1",
     "@types/node": "^26.6.6",
     "express-esm": "workspace:*",
     "pg": "^8.23.1",
