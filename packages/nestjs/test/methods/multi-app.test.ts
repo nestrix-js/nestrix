@@ -153,10 +153,6 @@ describe("services named like enhancers", () => {
       ["FeatureFlagService.canActivate", "service"],
     ]);
   });
-
-  function NestrixApp() {
-    return NamedApp;
-  }
 });
 
 describe("a method called with no valid active span (D-67)", () => {
