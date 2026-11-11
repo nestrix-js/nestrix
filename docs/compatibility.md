@@ -42,7 +42,7 @@ The CI jobs are defined in `.github/workflows/ci.yml` (`verify`, `consume`, `jae
 
 ### `@nestjs/microservices`
 
-An optional peer. Message propagation needs 12.0.4 or later (`ClientProxy#setOnDispatchHook` and `PacketMetadata` are absent before it; `docs/research.md`). The declared peer range is `^12.0.0`, so a host on 12.0.0 to 12.0.3 installs cleanly but gets no client-side context injection.
+An optional peer. Message propagation needs 12.0.4 or later (`ClientProxy#setOnDispatchHook` and `PacketMetadata` are absent before it; `docs/research.md`). The declared peer range is `^12.0.4`, so a package manager warns on 12.0.0 to 12.0.3.
 
 | | Status | Evidence |
 |---|---|---|

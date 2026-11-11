@@ -64,7 +64,7 @@ Written for P6-05 on 2026-11-11. Detail pages: [compatibility.md](../compatibili
 None open against the acceptance criteria. Gaps and limits that are not blockers, each with where it is recorded:
 
 - **No performance numbers.** Benchmarks and soak runs were deferred by delivery mode (phase reports, "Deferred, not failed"). The README carries only one measured install size and startup cost.
-- **`@nestjs/microservices` peer range is `^12.0.0`, but message propagation needs 12.0.4+** (`docs/architecture.md`, `docs/research.md`). A host on 12.0.0 to 12.0.3 installs and runs, and gets no client-side context injection. Raising the peer range to `^12.0.4` is a one-line change that is cheap before 1.0 and a breaking change to the install contract after it. The lead or owner decides; not done here.
+- **`@nestjs/microservices` peer range raised to `^12.0.4`** (lead, 2026-11-11), the first version with `ClientProxy#setOnDispatchHook`; earlier 12.0.x installs now warn as a peer mismatch instead of silently losing propagation.
 - **Untested:** gRPC, MQTT 3 propagation, NATS servers without headers, custom transports, Firefox and WebKit in CI, Windows, Postgres older than 18 for the standalone server, other OTLP senders for the standalone server (`compatibility.md` lists each).
 - **Docs-site status banner.** `docs-site/index.md` said option names may still change before 1.0; reworded here, and to be updated again when the version is set.
 
