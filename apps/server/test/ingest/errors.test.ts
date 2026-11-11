@@ -51,7 +51,7 @@ function raw(
   url: string,
   headers: Record<string, string | number>,
   write: (req: ReturnType<typeof httpRequest>) => void,
-  options: { waitForUpload?: boolean } = {},
+  options: { waitForUpload?: boolean; tolerateReset?: boolean } = {},
 ): Promise<{ status: number; headers: Record<string, unknown>; body: Buffer }> {
   return new Promise((resolve, reject) => {
     let response:
@@ -63,9 +63,26 @@ function raw(
     const done = () => {
       if (response && uploaded) resolve(response);
     };
+    let sawResponse = false;
     const req = httpRequest(url, { method: "POST", headers }, (res) => {
+      sawResponse = true;
       const chunks: Buffer[] = [];
       res.on("data", (c: Buffer) => chunks.push(c));
+      // A server that answers 413 from the headers and closes (`Connection: close`) may reset
+      // the socket while the client is still writing; what matters is the status it sent.
+      if (options.tolerateReset) {
+        const head = () => {
+          response ??= {
+            status: res.statusCode ?? 0,
+            headers: res.headers,
+            body: Buffer.concat(chunks),
+          };
+          uploaded = true;
+          done();
+        };
+        res.on("error", head);
+        res.on("aborted", head);
+      }
       res.on("end", () => {
         response = {
           status: res.statusCode ?? 0,
@@ -79,7 +96,11 @@ function raw(
       uploaded = true;
       done();
     });
-    req.on("error", reject);
+    req.on("error", (error) => {
+      // After the response arrived, the reset of the unfinished upload is expected.
+      if (options.tolerateReset && sawResponse) return;
+      reject(error);
+    });
     write(req);
   });
 }
@@ -584,13 +605,26 @@ describe("receiver with a small body limit", () => {
   });
 
   it("refuses compressed bytes over the limit even when they inflate to less: 413", async () => {
-    const incompressible = gzipSync(randomBytes(2 * MIB), { level: 0 });
-    const res = await post(server.url, incompressible, {
-      ...auth(),
-      "content-type": PROTO,
-      "content-encoding": "gzip",
-    });
+    // Stored (level 0) gzip adds a few bytes per 64 KiB block: just over the limit compressed,
+    // just under it inflated, so only the compressed-size check can refuse it.
+    const incompressible = gzipSync(randomBytes(MIB - 8), { level: 0 });
+    expect(incompressible.length).toBeGreaterThan(MIB);
+    // Declared length over the limit: the server answers 413 and closes without reading, so
+    // the client may see a reset after (or, rarely, instead of) the response; `raw` keeps it.
+    const before = server.sink.batches.length;
+    const res = await raw(
+      server.url,
+      {
+        ...auth(),
+        "content-type": PROTO,
+        "content-encoding": "gzip",
+        "content-length": incompressible.length,
+      },
+      (req) => req.end(incompressible),
+      { tolerateReset: true },
+    );
     expect(res.status).toBe(413);
+    expect(server.sink.batches.length).toBe(before);
   });
 });
 
