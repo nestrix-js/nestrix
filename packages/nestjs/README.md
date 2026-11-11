@@ -12,6 +12,7 @@ Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app pro
 - [Options](#options)
 - [Environment variables](#environment-variables)
 - [What is traced](#what-is-traced)
+- [Background jobs (BullMQ)](#background-jobs-bullmq)
 - [Metrics](#metrics)
 - [Custom spans](#custom-spans)
 - [Logs](#logs)
@@ -510,6 +511,55 @@ When your app owns the SDK, the export variables are your SDK's business, not Ne
 Server spans carry no `client.address` (the caller's IP is personal data), `server.address` or `server.port`. Client spans record `server.address` and `server.port` of the host they call.
 
 Known limit: on `@nestjs/platform-node`, the `Content-Type` and `Content-Length` response headers are missing from server spans, because that adapter hands them to Node in a way public API cannot read.
+
+## Background jobs (BullMQ)
+
+*(Draft for P3-10.)* BullMQ has its own OpenTelemetry support. Give it a `BullMQOtel` from `bullmq-otel` (a separate package; Nestrix does not depend on it) and it records its own spans and puts the trace context in each job:
+
+<!-- sample: bullmq -->
+
+```ts
+import { BullModule, Processor, WorkerHost } from "@nestjs/bullmq";
+import { Module } from "@nestjs/common";
+import { BullMQOtel } from "bullmq-otel";
+import { NestrixModule } from "@nestrix/nestjs";
+
+@Processor("emails")
+export class EmailProcessor extends WorkerHost {
+  // With `NestrixInstrument` in main.ts, `process` gets a span named "EmailProcessor.process".
+  async process(): Promise<void> {}
+}
+
+@Module({
+  imports: [
+    BullModule.forRoot({
+      connection: { host: "localhost", port: 6379 },
+      // The one line: BullMQ records its own spans and carries the trace context in each job.
+      telemetry: new BullMQOtel({ tracerName: "my-app" }),
+    }),
+    BullModule.registerQueue({ name: "emails" }),
+    NestrixModule.forRoot(),
+  ],
+  providers: [EmailProcessor],
+})
+export class AppModule {}
+```
+
+`telemetry` set on `BullModule.forRoot()` reaches the queues and the workers `@nestjs/bullmq` creates. With `NestrixInstrument` (level 2), a `@Processor` class's `process` method also gets a method span with `nestrix.entry = "job"`.
+
+The trace shape, checked against BullMQ 6.7 and `bullmq-otel` 2.0 with real Redis (`test/e2e-phase3/jobs.test.ts`): a job added during a request stays in that request's trace.
+
+```
+GET /orders                      server
+  OrderController.place
+    OrderService.place
+      add emails.welcome         producer (BullMQ)
+        process emails           consumer (BullMQ, runs later in the worker)
+          EmailProcessor.process method span, nestrix.entry = "job"
+          complete emails        (BullMQ)
+```
+
+The consumer span is a **child** of the producer span in the same trace, with no span link, so a request and the jobs it queued show as one trace, however much later the worker ran them. A job added outside a request (no active span) starts a trace of its own. Without `telemetry`, the processor's method span (if `NestrixInstrument` is on) is a root span: nothing connects it to the request that queued the job.
 
 ## Metrics
 

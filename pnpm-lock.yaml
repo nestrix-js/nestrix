@@ -544,7 +544,7 @@ importers:
     devDependencies:
       '@nestjs/bullmq':
         specifier: ^12.0.1
-        version: 12.0.1(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)(bullmq@6.7.2(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0)))
+        version: 12.0.1(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)(bullmq@6.7.2)
       '@nestjs/common':
         specifier: ^12.4.2
         version: 12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
@@ -598,7 +598,10 @@ importers:
         version: 8.23.1
       bullmq:
         specifier: ~6.7.2
-        version: 6.7.2(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0))
+        version: 6.7.2(bullmq-otel@2.0.1)(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0))
+      bullmq-otel:
+        specifier: ^2.0.1
+        version: 2.0.1(bullmq@6.7.2)
       express-esm:
         specifier: workspace:*
         version: link:../../examples/express-esm
@@ -1131,7 +1134,7 @@ importers:
     dependencies:
       '@nestjs/bullmq':
         specifier: 12.0.1
-        version: 12.0.1(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)(bullmq@6.7.2(ioredis@5.11.1(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0)))
+        version: 12.0.1(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)(bullmq@6.7.2)
       '@nestjs/common':
         specifier: 12.4.2
         version: 12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
@@ -1173,7 +1176,7 @@ importers:
         version: 3.1.1(@opentelemetry/api@1.10.0)
       bullmq:
         specifier: 6.7.2
-        version: 6.7.2(ioredis@5.11.1(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0))
+        version: 6.7.2(bullmq-otel@2.0.1)(ioredis@5.11.1(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0))
       drizzle-orm:
         specifier: 0.45.4
         version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(@types/sql.js@1.4.11)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1)(sql.js@1.15.2)
@@ -3658,6 +3661,11 @@ packages:
 
   buffer@6.0.3:
     resolution: {integrity: sha512-FTiCpNxtwiZZHEZbcbTIcZjERVICn9yq/pDFkTl95/AxzD1naBctN7YO68riM/gLSDY7sdrMby8hofADYuuqOA==}
+
+  bullmq-otel@2.0.1:
+    resolution: {integrity: sha512-w+nO+oo3VBL62z2oVlqIPgc2g5+CNy6O3FQEy+M/220togI/NBaqanGdTQt0pvzE8o++oz5D+GtROuRqD9+8qg==}
+    peerDependencies:
+      bullmq: '>=6.0.0'
 
   bullmq@6.7.2:
     resolution: {integrity: sha512-JCoMvkTD9FAX8TY3qQXIkB+ybZYDpTqV09EshxwYjzn2oTdqagKUIF/GWjtYl9bahPO2DHm3sWjijFGHeIf6XQ==}
@@ -6853,20 +6861,12 @@ snapshots:
       '@nestjs/core': 12.4.2(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/microservices@12.4.2)(@nestjs/platform-express@12.4.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       tslib: 2.8.1
 
-  '@nestjs/bullmq@12.0.1(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)(bullmq@6.7.2(ioredis@5.11.1(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0)))':
+  '@nestjs/bullmq@12.0.1(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)(bullmq@6.7.2)':
     dependencies:
       '@nestjs/bull-shared': 12.0.1(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)
       '@nestjs/common': 12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
       '@nestjs/core': 12.4.2(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/microservices@12.4.2)(@nestjs/platform-express@12.4.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)
-      bullmq: 6.7.2(ioredis@5.11.1(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0))
-      tslib: 2.8.1
-
-  '@nestjs/bullmq@12.0.1(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)(bullmq@6.7.2(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0)))':
-    dependencies:
-      '@nestjs/bull-shared': 12.0.1(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)
-      '@nestjs/common': 12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
-      '@nestjs/core': 12.4.2(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/microservices@12.4.2)(@nestjs/platform-express@12.4.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)
-      bullmq: 6.7.2(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0))
+      bullmq: 6.7.2(bullmq-otel@2.0.1)(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0))
       tslib: 2.8.1
 
   '@nestjs/common@12.0.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)':
@@ -8373,7 +8373,13 @@ snapshots:
       base64-js: 1.5.1
       ieee754: 1.2.1
 
-  bullmq@6.7.2(ioredis@5.11.1(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0)):
+  bullmq-otel@2.0.1(bullmq@6.7.2):
+    dependencies:
+      '@opentelemetry/api': 1.10.0
+      bullmq: 6.7.2(bullmq-otel@2.0.1)(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0))
+      tslib: 2.9.1
+
+  bullmq@6.7.2(bullmq-otel@2.0.1)(ioredis@5.11.1(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0)):
     dependencies:
       cron-parser: 5.10.3
       msgpackr: 2.1.4
@@ -8381,11 +8387,12 @@ snapshots:
       semver: 7.8.6
       tslib: 2.9.1
     optionalDependencies:
+      bullmq-otel: 2.0.1(bullmq@6.7.2)
       ioredis: 5.11.1(supports-color@7.2.0)
       pg: 8.23.1
       redis: 6.3.1(@opentelemetry/api@1.10.0)
 
-  bullmq@6.7.2(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0)):
+  bullmq@6.7.2(bullmq-otel@2.0.1)(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0)):
     dependencies:
       cron-parser: 5.10.3
       msgpackr: 2.1.4
@@ -8393,6 +8400,7 @@ snapshots:
       semver: 7.8.6
       tslib: 2.9.1
     optionalDependencies:
+      bullmq-otel: 2.0.1(bullmq@6.7.2)
       ioredis: 6.0.0(supports-color@7.2.0)
       pg: 8.23.1
       redis: 6.3.1(@opentelemetry/api@1.10.0)
