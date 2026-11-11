@@ -47,6 +47,9 @@ Planned, not available yet: spans for controller methods and jobs through `NestF
 
 | | |
 |---|---|
+| [Compatibility](docs/compatibility.md) | What is tested and supported: Node, Nest, adapters, libraries, transports, browsers |
+| [Upgrading from 0.x](docs/upgrading.md) | Every rename and default change before 1.0, with before and after code |
+| [1.0 readiness](docs/backlog/phase-6.md#10-readiness) | Phase 6 acceptance status and the owner steps before release |
 | [Architecture](docs/architecture.md) | What is being built and why |
 | [Roadmap](docs/roadmap.md) | Phases and what each must prove |
 | [Decisions](docs/decisions.md) | What has been decided, and what is still open |

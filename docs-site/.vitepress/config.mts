@@ -34,6 +34,7 @@ export default defineConfig({
         items: [
           { text: "Configuration", link: "/reference/configuration" },
           { text: "Compatibility", link: "/reference/compatibility" },
+          { text: "Upgrading from 0.x", link: "/reference/upgrading" },
           { text: "FAQ", link: "/faq" },
         ],
       },

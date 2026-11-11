@@ -1014,6 +1014,7 @@ Notes:
 - Header versioning with two versions of one route does not boot on Fastify with Nest 12.0.0. That is Nest itself, not Nestrix.
 - An app with no HTTP adapter (a pure microservice) boots; it has no HTTP spans and no dashboard, and its message handlers are traced ([Microservices](#microservices)).
 - Under `@nestjs/testing`, HTTP spans work; method spans do not ([Method spans](#method-spans-level-2)).
+- The full matrix, with the test or CI job behind each row, is in [docs/compatibility.md](https://github.com/nestrix-js/nestrix/blob/main/docs/compatibility.md); coming from a 0.x build, read [docs/upgrading.md](https://github.com/nestrix-js/nestrix/blob/main/docs/upgrading.md).
 - Library spans were tested against `pg` 8.23, `mysql2` 3.24, `ioredis` 6.0 and BullMQ 6.7 with `bullmq-otel` 2.0, and microservices against `@nestjs/microservices` 12.4.
 
 ## Stability

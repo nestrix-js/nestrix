@@ -11,7 +11,7 @@ Objective, deliverables and acceptance: [roadmap.md](../roadmap.md#phase-6-logs-
 | P6-02 | Request-duration and runtime metrics over OTLP | opus | P6-00 | done | Reviewed; export starts at bootstrap (host provider wins), `metrics.export`, teardown race, `url.scheme`. |
 | P6-03 | Documentation site | sonnet | phases 3–5 | done | VitePress in `docs-site/`, `pnpm docs:build` (options reference checked against `options.ts`). Standalone page to refresh after P5-06. |
 | P6-04 | API review and fixes | opus reviewer + sonnet | phases 3–5 | done | Fixes applied per D-69 (changeset `api-review-1-0`). |
-| P6-05 | Compatibility matrix, upgrade path from 0.x, 1.0 readiness | sonnet + lead | P6-04 | todo | No version bump or publish (owner's). |
+| P6-05 | Compatibility matrix, upgrade path from 0.x, 1.0 readiness | sonnet + lead | P6-04 | done | `docs/compatibility.md`, `docs/upgrading.md`, "1.0 readiness" below. No version bump or release (owner's). |
 | P6-06 | Phase report | lead | all | todo | |
 
 ## Settled design
@@ -44,3 +44,41 @@ A `reviewer` reads the whole public surface (`packages/nestjs/src/index.ts` expo
 ## P6-05 1.0 readiness
 
 `docs/compatibility.md` (Nest, Node, adapters, OpenTelemetry SDK and API, `pg`/`mysql2`/`ioredis`/BullMQ, transports, browsers for the UI) from what CI and the tests actually run; `docs/upgrading.md` from 0.x; a "1.0 blockers" list (none open, or each one named). No version bump, tag or publish.
+
+## 1.0 readiness
+
+Written for P6-05 on 2026-11-11. Detail pages: [compatibility.md](../compatibility.md) (what is tested, per row, with the test or CI job) and [upgrading.md](../upgrading.md) (0.x to 1.0). Nothing here bumps a version or tags anything.
+
+### Phase 6 acceptance (roadmap.md)
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| A documented upgrade path from 0.x | Met | `docs/upgrading.md`: every rename, removal and default change in the changesets (chiefly `api-review-1-0.md` and `node-26-only.md`), with before and after code. Nothing was ever released, so the "0.x" in question is source builds; the page says so. |
+| The compatibility matrix published | Met | `docs/compatibility.md`, also served by the docs site at `/reference/compatibility`; the README's "Supported versions" links to it. |
+| No open issue labelled as a 1.0 blocker | Met, with a caveat | The repository has no `1.0 blocker` label and `gh issue list --state open` returned no issues (2026-11-11). The label does not exist, so the check is "no open issues at all", not "none labelled". |
+| Validation: the full matrix in CI | Met as designed | `ci.yml` on `main`: `verify`, `consume` (esm, cjs), `jaeger`, `e2e` all green (run 43046693547). The "matrix" is one Node line and three Nest versions by design (D-55, `ci.yml` header comment). The nightly workflow (latest Nest 12.x) has no run yet; trigger it once (`gh workflow run nightly.yml`) before releasing. |
+| Validation: the examples run as smoke tests against the release candidate | Partly met | `consume` installs packed tarballs into fresh ESM and CommonJS apps and boots them; `jaeger` runs two example services; `e2e` boots the example apps with `NestrixModule`. The Fastify and platform-node adapters are covered by the conformance tests, not by a packed-tarball smoke test. |
+
+### Known blockers
+
+None open against the acceptance criteria. Gaps and limits that are not blockers, each with where it is recorded:
+
+- **No performance numbers.** Benchmarks and soak runs were deferred by delivery mode (phase reports, "Deferred, not failed"). The README carries only one measured install size and startup cost.
+- **`@nestjs/microservices` peer range is `^12.0.0`, but message propagation needs 12.0.4+** (`docs/architecture.md`, `docs/research.md`). A host on 12.0.0 to 12.0.3 installs and runs, and gets no client-side context injection. Raising the peer range to `^12.0.4` is a one-line change that is cheap before 1.0 and a breaking change to the install contract after it. The lead or owner decides; not done here.
+- **Untested:** gRPC, MQTT 3 propagation, NATS servers without headers, custom transports, Firefox and WebKit in CI, Windows, Postgres older than 18 for the standalone server, other OTLP senders for the standalone server (`compatibility.md` lists each).
+- **Docs-site status banner.** `docs-site/index.md` said option names may still change before 1.0; reworded here, and to be updated again when the version is set.
+
+### Owner steps before going public and releasing
+
+Only the owner does these (`AGENTS.md`; `docs/decisions.md`, "Owner actions outstanding" and "When the repository goes public"; `RELEASING.md`, "One-time setup"):
+
+1. **Decide the version.** Both packages are `0.0.0`, `.changeset/pre.json` is in pre mode (`alpha`), and every pending changeset is `minor`. Nothing in the repository requests `1.0.0`. For 1.0.0 the owner leaves pre mode (`pnpm changeset pre exit`) and adds a `major` changeset for both packages (they are `fixed` together); with the current setup the result would be 0.1.0 alphas. Not decided here.
+2. Create the `@nestrix` npm organisation on npmjs.com with 2FA (also the test that the scope is free; if it is taken, the package names change).
+3. Trademark search for the name (O-5: a company called Nestrix appears to exist).
+4. Provide a contact for `CODE_OF_CONDUCT.md` (it still says `[INSERT CONTACT METHOD]`).
+5. Make the repository public (D-6) after reading the docs as an outsider (`docs/ai/owner-brief.md` and the notes on `@nestjs/observe` become public) and scanning the history (commands in `RELEASING.md`).
+6. Once it is public: a ruleset on `main` blocking deletion and force-push; enable private vulnerability reporting and delete the HTML comment in `SECURITY.md`; enable secret scanning and push protection.
+7. GitHub Actions settings: workflow permissions read, and "Allow GitHub Actions to create and approve pull requests" (or set `RELEASE_PAT`).
+8. The first npm release is done by hand from a clean `main`, with `RELEASING.md` as the script; then configure trusted publishing for each package (`release.yml`, "Allow direct `npm publish`", 2FA required, tokens disallowed).
+9. Set `NPM_PUBLISH_ENABLED=true` (the switch), then check the provenance badge after the first CI release.
+10. Run the nightly workflow once and read its result.
