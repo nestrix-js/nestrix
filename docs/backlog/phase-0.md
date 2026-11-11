@@ -9,9 +9,9 @@ Update this table as work moves. One line of notes at most; detail goes in the t
 | ID | Task | Tier | Depends on | Status | Notes |
 |---|---|---|---|---|---|
 | P0-01 | Workspace toolchain | sonnet | — | done | TS 6.0.3, Vitest 4.1.12, Biome 2.6.6; `pnpm verify` passes on the empty workspace. |
-| P0-02 | Package skeletons | sonnet | P0-01 | todo | |
+| P0-02 | Package skeletons | sonnet | P0-01 | done | Three packages build with `.d.ts`; publint and attw (`--profile esm-only`) pass; `pnpm verify` passes. |
 | P0-03 | CI | sonnet | P0-02 | todo | |
-| P0-04 | Example apps | sonnet, then haiku | P0-01 | todo | |
+| P0-04 | Example apps | sonnet, then haiku | P0-01 | doing | |
 | P0-05 | Test harness | sonnet | P0-02, P0-04 | todo | |
 | P0-S1 | Spike: HTTP adapter hooks | opus | P0-05 | todo | |
 | P0-S2 | Spike: library spans without a preload | opus | P0-05 | todo | |

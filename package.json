@@ -17,7 +17,8 @@
     "test": "vitest run --passWithNoTests",
     "lint": "biome check .",
     "typecheck": "tsc -b --noEmit",
-    "verify": "pnpm build && pnpm test && pnpm lint && pnpm typecheck"
+    "check:packages": "pnpm -r --if-present check:package",
+    "verify": "pnpm build && pnpm check:packages && pnpm test && pnpm lint && pnpm typecheck"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
