@@ -78,7 +78,7 @@ describe("parameter specs", () => {
       "scheduled",
       "other",
     ]);
-    expect(protocol.traceListParams.release.maxLength).toBe(128);
+    expect(protocol.traceListParams.release.maxLength).toBe(255);
     expect(protocol.traceListParams.user.maxLength).toBe(256);
     expect(protocol.routeStatsParams.windowMinutes.oneOf).toEqual([15, 60]);
     expect(protocol.routeStatsParams.windowMinutes.default).toBe(15);

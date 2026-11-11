@@ -85,6 +85,30 @@ describe("service.version chain (D-63)", () => {
     expect(resolveOptions({}, { GIT_SHA: "g" }).serviceVersion).toBe("g");
   });
 
+  it("accepts a numeric or boolean resourceAttributes service.version over GIT_SHA", () => {
+    const resolved = resolveOptions(
+      { resourceAttributes: { "service.version": 2 } },
+      { GIT_SHA: "abc" },
+    );
+    expect(resolved.serviceVersion).toBe("2");
+    expect(buildResource(resolved).attributes["service.version"]).toBe("2");
+    expect(
+      resolveServiceVersion(
+        { resourceAttributes: { "service.version": true } },
+        { GIT_SHA: "abc" },
+      ),
+    ).toBe("true");
+  });
+
+  it("rejects a serviceVersion longer than 255 characters at forRoot", () => {
+    expect(() =>
+      resolveOptions({ serviceVersion: "v".repeat(256) }, {}),
+    ).toThrow(/serviceVersion must be at most 255 characters/);
+    expect(
+      resolveOptions({ serviceVersion: "v".repeat(255) }, {}).serviceVersion,
+    ).toHaveLength(255);
+  });
+
   it("puts the resolved version on the owned resource, over OTEL_RESOURCE_ATTRIBUTES", () => {
     const env = {
       OTEL_RESOURCE_ATTRIBUTES: "service.version=from-otel-env",
@@ -203,5 +227,67 @@ describe("end to end with a Nestrix-owned provider (Express)", () => {
     expect(await items("?type=job")).toEqual([]);
     const bad = await get(`${api}/traces?type=cron`, BEARER);
     expect(bad.status).toBe(400);
+  });
+});
+
+@Injectable()
+class SetRedactedUserGuard implements CanActivate {
+  canActivate(ctx: ExecutionContext): boolean {
+    const request = ctx.switchToHttp().getRequest<Record<string, unknown>>();
+    request.user = { id: "u-redacted" };
+    return true;
+  }
+}
+
+@Controller("q")
+class RedactedUserController {
+  @Get("me")
+  @UseGuards(SetRedactedUserGuard)
+  me(): string {
+    return "me";
+  }
+}
+
+// The store is process-global, so this block uses its own route and user id.
+describe("user.id removed by redact (Express)", () => {
+  let booted: DashboardApp;
+  let api: string;
+
+  beforeAll(async () => {
+    booted = await bootDashboardApp({
+      adapter: "express",
+      controllers: [RedactedUserController],
+      nestrix: {
+        serviceName: "release-redact-test",
+        user: (request) => (request as { user?: { id?: string } }).user?.id,
+        redact: (span) => {
+          delete span.attributes["user.id"];
+          return undefined;
+        },
+        export: { otlp: false },
+        ui: { enabled: true, auth: { token: TOKEN } },
+      },
+    });
+    api = `${booted.baseUrl}/_nestrix/api/v1`;
+  });
+  afterAll(async () => {
+    await booted.close();
+  });
+
+  it("stores no user on the trace and the user filter finds nothing", async () => {
+    expect((await fetch(`${booted.baseUrl}/q/me`)).status).toBe(200);
+    let me: Item | undefined;
+    for (let i = 0; i < 100 && me === undefined; i++) {
+      const r = await get(`${api}/traces`, BEARER);
+      me = (r.json() as { items: Item[] }).items.find(
+        (item) => item.route === "/q/me",
+      );
+      if (me === undefined) await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(me).toBeDefined();
+    expect(me && "user" in me).toBe(false);
+    const r = await get(`${api}/traces?user=u-redacted`, BEARER);
+    expect(r.status).toBe(200);
+    expect((r.json() as { items: Item[] }).items).toEqual([]);
   });
 });
