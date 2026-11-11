@@ -27,6 +27,7 @@ describe("resolveOptions defaults", () => {
         path: "/_nestrix",
         startupToken: true,
         auth: undefined,
+        profiler: true,
       },
       store: { maxTraces: 5000, maxBytes: 33554432 },
       logs: { export: false, otlp: false },

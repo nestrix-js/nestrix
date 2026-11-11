@@ -103,6 +103,50 @@ export function startServer(): Promise<{
           },
           answer.body === undefined ? "" : JSON.stringify(answer.body),
         );
+      } else if (
+        path === `${BASE_PATH}/api/v1/profiles` ||
+        path.startsWith(`${BASE_PATH}/api/v1/profiles/`)
+      ) {
+        const rest = path
+          .slice(`${BASE_PATH}/api/v1/profiles`.length)
+          .replace(/^\//, "");
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(chunk as Buffer);
+        const text = Buffer.concat(chunks).toString("utf8");
+        let answer: {
+          status: number;
+          body: unknown;
+          headers?: Record<string, string>;
+        };
+        if (req.method === "POST") {
+          const origin = req.headers.origin;
+          const secFetchSite = req.headers["sec-fetch-site"];
+          const contentType = req.headers["content-type"];
+          const body = text === "" ? undefined : JSON.parse(text);
+          mock.profileStarts.push({ origin, secFetchSite, contentType, body });
+          // The embedded dashboard's write rules (architecture §4.7): same origin, JSON.
+          answer =
+            origin !== `http://${req.headers.host}` ||
+            secFetchSite !== "same-origin" ||
+            !contentType?.startsWith("application/json")
+              ? {
+                  status: 403,
+                  body: { error: { code: "forbidden", message: "Refused" } },
+                }
+              : mock.handleProfiles("POST", rest, body);
+        } else {
+          answer = mock.handleProfiles(req.method ?? "GET", rest, undefined);
+        }
+        const isText = typeof answer.body === "string";
+        send(
+          answer.status,
+          {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+            ...(answer.headers ?? {}),
+          },
+          isText ? (answer.body as string) : JSON.stringify(answer.body),
+        );
       } else if (path.startsWith(`${BASE_PATH}/api/v1/`)) {
         const answer = await mock.handle(
           path.slice(`${BASE_PATH}/api/v1/`.length),

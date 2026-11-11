@@ -104,6 +104,7 @@ Return `false` to drop the span. It must be synchronous: a promise drops the spa
 | `ui.auth.token` | none | At least 32 characters. Sent as `Authorization: Bearer <token>`, or exchanged once for a cookie at `<path>/auth?token=`. Compared in constant time. |
 | `ui.auth.authorize` | none | `(request) => boolean \| Promise<boolean>`. Called for every dashboard request with the raw request, before any Nest guard. Only `true` allows; a throw, a rejection, any other value or no answer in 10 seconds denies. |
 | `ui.startupToken` | `true` | `'auto'` mode only. `false` drops the startup token check and its log link; a same-host reverse proxy then exposes the dashboard when `NODE_ENV` is unset. |
+| `ui.profiler` | `true` | The on-demand CPU [profiler](/guide/dashboard#profiler). Offered only where the dashboard is authenticated (`enabled: true`, or `'auto'` with the startup token or `auth`). `false` removes it and its routes. A non-boolean is an invalid `ui` value. |
 
 ## `store`
 

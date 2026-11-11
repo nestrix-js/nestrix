@@ -1,5 +1,7 @@
 /** Response types of the Nestrix query API, version 1. Types only; no runtime code lives here except the version constant (see index.ts). */
 
+import type { MetaProfiler } from "./profiles.js";
+
 export type AttributeScalar = string | number | boolean;
 /** An OpenTelemetry attribute value: a scalar or a homogeneous array of scalars. */
 export type AttributeValue = AttributeScalar | readonly AttributeScalar[];
@@ -94,6 +96,8 @@ export interface MetaResponse {
    * serves one application (`service.name` names it). Filter lists and statistics with `service`.
    */
   services?: string[];
+  /** The on-demand CPU profiler (P7-02): `available: false` in the standalone server. */
+  profiler: MetaProfiler;
 }
 
 /** Fields shared by every cursor-paged list response. */
@@ -306,7 +310,15 @@ export type ApiErrorCode =
   | "forbidden"
   | "not_found"
   | "unavailable"
-  | "internal";
+  | "internal"
+  /** `409`: a profiler capture is already running. */
+  | "conflict"
+  /** `411`: a write without `Content-Length`. */
+  | "length_required"
+  /** `413`: a write body over its limit. */
+  | "payload_too_large"
+  /** `415`: a write that is not `application/json`. */
+  | "unsupported_media_type";
 
 export interface ApiError {
   error: { code: ApiErrorCode; message: string };

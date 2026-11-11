@@ -28,4 +28,5 @@ export const meta = {
     },
   ],
   mode: "embedded",
+  profiler: { available: true, running: false },
 } satisfies MetaResponse;

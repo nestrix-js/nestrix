@@ -362,6 +362,8 @@ export class QueryService {
       warnings: [],
       mode: "standalone",
       services,
+      // The CPU profiler profiles the process it runs in; it exists only in the embedded dashboard.
+      profiler: { available: false, running: false },
     };
   }
 

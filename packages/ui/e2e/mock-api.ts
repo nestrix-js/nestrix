@@ -6,6 +6,10 @@ import type {
   AppMapResponse,
   ClassStatsResponse,
   MetaResponse,
+  ProfileDetail,
+  ProfileListResponse,
+  ProfileRunning,
+  ProfileSummary,
   RouteStatsResponse,
   Slo,
   TraceListResponse,
@@ -55,6 +59,20 @@ export class MockApi {
   sloRefusal: string | null = null;
   /** Write requests to `slos` seen: method, path after `slos`, parsed body. */
   sloWrites: { method: string; id: string | null; body: unknown }[] = [];
+  /** `meta.profiler.available` (the embedded profiler, P7-02). */
+  profilerAvailable = true;
+  /** The running capture, finished profiles (newest first) and their details. */
+  profileRunning: ProfileRunning | null = null;
+  profiles: ProfileSummary[] = [];
+  profileDetails = new Map<string, ProfileDetail>();
+  lastStartPauseMs: number | null = null;
+  /** `POST profiles` requests seen: the headers the server checks and the parsed body. */
+  profileStarts: {
+    origin: string | undefined;
+    secFetchSite: string | undefined;
+    contentType: string | undefined;
+    body: unknown;
+  }[] = [];
   /** Every request seen, `traces?after=...` and so on, in order. */
   requests: string[] = [];
   private items: Item[] = []; // newest first
@@ -84,6 +102,12 @@ export class MockApi {
     this.slos = [];
     this.sloRefusal = null;
     this.sloWrites = [];
+    this.profilerAvailable = true;
+    this.profileRunning = null;
+    this.profiles = [];
+    this.profileDetails = new Map();
+    this.lastStartPauseMs = null;
+    this.profileStarts = [];
     this.errors.reset(0);
     this.push(count);
   }
@@ -266,6 +290,189 @@ export class MockApi {
     return { status: 200, body: updated };
   }
 
+  /**
+   * `profiles`, `profiles/<id>`, `profiles/<id>/download` and `POST profiles` (the same-origin
+   * checks are serve.ts's). The download answers `body` as text with `headers`.
+   */
+  handleProfiles(
+    method: string,
+    rest: string,
+    body: unknown,
+  ): { status: number; body: unknown; headers?: Record<string, string> } {
+    this.requests.push(rest === "" ? "profiles" : `profiles/${rest}`);
+    const notFound = {
+      status: 404,
+      body: { error: { code: "not_found", message: "No such profile" } },
+    };
+    if (!this.profilerAvailable) return notFound;
+    if (method === "POST" && rest === "") {
+      if (this.profileRunning)
+        return {
+          status: 409,
+          body: {
+            error: { code: "conflict", message: "A capture is running" },
+            running: this.profileRunning,
+          },
+        };
+      const seconds =
+        (body as { durationSeconds?: number } | undefined)?.durationSeconds ??
+        30;
+      const now = Date.now();
+      this.profileRunning = {
+        id: (this.profiles.length + 1).toString(16).padStart(16, "0"),
+        startedAtUnixMs: now,
+        durationMs: seconds * 1000,
+        endsAtUnixMs: now + seconds * 1000,
+        startPauseMs: 41.3,
+      };
+      this.lastStartPauseMs = 41.3;
+      return { status: 202, body: this.profileRunning };
+    }
+    if (method !== "GET") return notFound;
+    if (rest === "")
+      return {
+        status: 200,
+        body: {
+          running: this.profileRunning,
+          profiles: this.profiles,
+          lastError: null,
+          lastStartPauseMs: this.lastStartPauseMs,
+          limits: {
+            defaultDurationSeconds: 30,
+            maxDurationSeconds: 120,
+            kept: 3,
+          },
+        } satisfies ProfileListResponse,
+      };
+    const [id, tail] = rest.split("/");
+    const detail = this.profileDetails.get(id ?? "");
+    if (!detail || (tail !== undefined && tail !== "download")) return notFound;
+    if (tail === "download")
+      return {
+        status: 200,
+        body: JSON.stringify({
+          nodes: [],
+          startTime: 0,
+          endTime: 1,
+          samples: [],
+          timeDeltas: [],
+        }),
+        headers: {
+          "Content-Disposition": `attachment; filename="nestrix-2026-11-11T09-30-00Z-${detail.id}.cpuprofile"`,
+        },
+      };
+    return { status: 200, body: detail };
+  }
+
+  /** Ends the running capture as the server's timer would, with a small realistic profile. */
+  finishCapture(): void {
+    const run = this.profileRunning;
+    if (!run) return;
+    this.profileRunning = null;
+    const frame = (
+      functionName: string,
+      url: string,
+      line: number,
+      selfSamples: number,
+      totalSamples: number,
+      children: ProfileDetail["flame"][] = [],
+    ): ProfileDetail["flame"] => ({
+      functionName,
+      url,
+      line,
+      selfSamples,
+      totalSamples,
+      children,
+    });
+    const flame = frame("(root)", "", 0, 0, 1000, [
+      frame(
+        "processTicksAndRejections",
+        "node:internal/process/task_queues",
+        95,
+        10,
+        900,
+        [
+          frame(
+            "handle",
+            "file:///srv/app/node_modules/express/lib/router/layer.js",
+            152,
+            20,
+            880,
+            [
+              frame(
+                "cpu",
+                "file:///srv/app/dist/app.controller.js",
+                24,
+                30,
+                860,
+                [
+                  frame(
+                    "hotRouteWork",
+                    "file:///srv/app/dist/hot.js",
+                    18,
+                    830,
+                    830,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+      frame("(program)", "", 0, 60, 60),
+      frame("(garbage collector)", "", 0, 40, 40),
+    ]);
+    const summary: ProfileSummary = {
+      id: run.id,
+      startedAtUnixMs: run.startedAtUnixMs,
+      durationMs: run.durationMs,
+      actualDurationMs: run.durationMs + 47.5,
+      startPauseMs: run.startPauseMs,
+      samples: 1000,
+      bytes: 117_521,
+    };
+    this.profiles.unshift(summary);
+    this.profiles.length = Math.min(this.profiles.length, 3);
+    this.profileDetails.set(run.id, {
+      ...summary,
+      topFunctions: [
+        {
+          functionName: "hotRouteWork",
+          url: "file:///srv/app/dist/hot.js",
+          line: 18,
+          column: 1,
+          selfSamples: 830,
+          totalSamples: 830,
+        },
+        {
+          functionName: "(program)",
+          url: "",
+          line: 0,
+          column: 0,
+          selfSamples: 60,
+          totalSamples: 60,
+        },
+        {
+          functionName: "(garbage collector)",
+          url: "",
+          line: 0,
+          column: 0,
+          selfSamples: 40,
+          totalSamples: 40,
+        },
+        {
+          functionName: "cpu",
+          url: "file:///srv/app/dist/app.controller.js",
+          line: 24,
+          column: 5,
+          selfSamples: 30,
+          totalSamples: 860,
+        },
+      ],
+      flame,
+    });
+  }
+
   private meta(): MetaResponse {
     return {
       protocolVersion: 1,
@@ -286,6 +493,10 @@ export class MockApi {
       warnings: [],
       mode: this.mode,
       ...(this.services ? { services: this.services } : {}),
+      profiler: {
+        available: this.mode === "embedded" && this.profilerAvailable,
+        running: this.profileRunning !== null,
+      },
     };
   }
 

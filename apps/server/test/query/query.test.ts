@@ -293,6 +293,7 @@ describe.skipIf(noDatabase)(`query API ${skipReason}`, () => {
         sampling: { owner: "host", rate: null },
         statistics: { windowMinutesOptions: [15, 60] },
         warnings: [],
+        profiler: { available: false, running: false },
       });
       expect(meta.store.traces).toBe(6);
       expect(meta.store.spans).toBe(12);

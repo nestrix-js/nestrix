@@ -23,6 +23,8 @@ describe("package entry", () => {
         "classStatsParams",
         "errorListParams",
         "metaParams",
+        "profileIdParams",
+        "profileStartBody",
         "routeStatsParams",
         "traceListParams",
         "traceParams",
@@ -46,6 +48,8 @@ describe("parameter specs", () => {
       protocol.errorListParams,
       protocol.routeStatsParams,
       protocol.traceParams,
+      protocol.profileStartBody,
+      protocol.profileIdParams,
     ]) {
       for (const p of Object.values(spec) as protocol.ParamSpec[]) {
         if (p.kind === "int" || p.kind === "number") {

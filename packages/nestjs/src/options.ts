@@ -133,6 +133,12 @@ export interface NestrixUiOptions {
    * then exposes the dashboard (architecture §4.7).
    */
   startupToken?: boolean;
+  /**
+   * The on-demand CPU profiler in the dashboard (phase 7). Default `true`, but it is offered only
+   * where the dashboard is authenticated: `enabled: true` (which requires `auth`), or `'auto'` with
+   * the startup token or `auth`. `false` removes it: its routes are not registered.
+   */
+  profiler?: boolean;
 }
 
 /** The dashboard's in-memory store of recent traces. Oldest evicted first; nothing is written to disk. */

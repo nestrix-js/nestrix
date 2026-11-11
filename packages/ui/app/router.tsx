@@ -11,6 +11,7 @@ import { NuqsHashAdapter } from "@/lib/nuqs-hash-adapter";
 import { ClassesPage } from "@/views/classes/classes-page";
 import { ErrorsPage } from "@/views/errors/errors-page";
 import { MapPage } from "@/views/map/map-page";
+import { ProfilerPage } from "@/views/profiler/profiler-page";
 import { RequestsPage } from "@/views/requests/requests-page";
 import { RoutesPage } from "@/views/routes/routes-page";
 import { SlosPage } from "@/views/slos/slos-page";
@@ -51,6 +52,11 @@ const mapRoute = createRoute({
   path: "/map",
   component: MapPage,
 });
+const profilerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/profiler",
+  component: ProfilerPage,
+});
 const slosRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/slos",
@@ -71,6 +77,7 @@ export const router = createRouter({
     routesRoute,
     classesRoute,
     mapRoute,
+    profilerRoute,
     slosRoute,
     traceRoute,
   ]),

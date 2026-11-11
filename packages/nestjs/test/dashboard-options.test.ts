@@ -33,6 +33,41 @@ function expectOff(
   expect(r.message).toMatch(/^Nestrix dashboard: off/);
 }
 
+describe("ui.profiler (P7-02)", () => {
+  const token = { token: "t".repeat(40) };
+  const profilerOf = (value: unknown): unknown => {
+    const r = ui(value);
+    return r.mode === "off" ? r.mode : r.profiler;
+  };
+
+  it("defaults to on where the dashboard is authenticated", () => {
+    expect(profilerOf(undefined)).toBe(true); // 'auto' with the startup token
+    expect(profilerOf({ enabled: true, auth: token })).toBe(true);
+    expect(profilerOf({ startupToken: false, auth: token })).toBe(true);
+  });
+
+  it("is off in 'auto' without the startup token and without auth, even when asked for", () => {
+    expect(profilerOf({ startupToken: false })).toBe(false);
+    expect(profilerOf({ startupToken: false, profiler: true })).toBe(false);
+  });
+
+  it("false turns it off in every mode", () => {
+    expect(profilerOf({ profiler: false })).toBe(false);
+    expect(profilerOf({ enabled: true, auth: token, profiler: false })).toBe(
+      false,
+    );
+  });
+
+  it("a non-boolean is an invalid ui value (dashboard off, error logged)", () => {
+    const r = ui({ profiler: "yes" });
+    expect(r.mode).toBe("off");
+    if (r.mode === "off") {
+      expect(r.reason).toBe("invalid");
+      expect(r.message).toContain("ui.profiler must be a boolean");
+    }
+  });
+});
+
 describe("mode table (static rows)", () => {
   it("default (ui omitted) is 'auto' at /_nestrix with the startup token and no auth", () => {
     expect(ui(undefined)).toEqual({
@@ -40,6 +75,7 @@ describe("mode table (static rows)", () => {
       path: "/_nestrix",
       startupToken: true,
       auth: undefined,
+      profiler: true,
     });
     expect(ui("auto")).toEqual(ui(undefined));
     expect(ui({})).toEqual(ui(undefined));

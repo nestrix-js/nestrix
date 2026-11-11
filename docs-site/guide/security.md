@@ -52,15 +52,22 @@ Every mode that serves the dashboard also rejects requests with `Sec-Fetch-Site:
 
 ## No CORS
 
-The dashboard never sends CORS allow headers, whatever your CORS setup, and removes any `Access-Control-*` header a host layer added. Preflight requests are answered by your CORS layer, not Nestrix. A page on another origin could send a request but could not read the answer, and in `'auto'` mode the cookie is `SameSite=Strict`. The API is read-only, so this is a known limit and not a hole.
+The dashboard never sends CORS allow headers, whatever your CORS setup, and removes any `Access-Control-*` header a host layer added. Preflight requests are answered by your CORS layer, not Nestrix. A page on another origin could send a request but could not read the answer, and in `'auto'` mode the cookie is `SameSite=Strict`. For the read-only routes this is a known limit and not a hole; the one route that changes state has its own protection, below.
+
+## Starting a CPU capture
+
+Starting a [profiler](/guide/dashboard#profiler) capture (`POST <path>/api/v1/profiles`) is the dashboard's only request that changes anything. It must first pass the same access rules as every other dashboard request (a refusal there is the bare `404`), and then all of these, or it is refused before any capture starts:
+
+- `Sec-Fetch-Site: same-origin`, sent exactly once. Browsers set this header and pages cannot; a page on another port of the same host is `same-site` and is refused.
+- Exactly one `Origin` header, equal to the server's own origin: the request's `Host` with `http` or `https` (on a TLS socket, `https` only). Behind a reverse proxy, pass the original `Host` (nginx: `proxy_set_header Host $host;`), or starts are refused.
+- `Content-Type: application/json`, which a cross-site form or a plain `fetch` cannot send without a preflight.
+- A `Content-Length` of at most 1,024 bytes (no chunked body), holding a JSON object with only `durationSeconds`.
+
+Refusals are `403`, `415`, `411`, `413` or `400` with a JSON error, never with CORS headers. The profiler is only offered where the dashboard is authenticated (`enabled: true` with `auth`, or `'auto'` with the startup token or `auth`), and `ui.profiler: false` removes the route.
 
 ## Where it sits
 
 The dashboard's routes are registered with the HTTP adapter's own `get`, so they sit **outside the global prefix, URI versioning, guards, pipes and interceptors**. Host middleware, `helmet`, `compression` and `enableCors()` still apply. The dashboard sets its own `Content-Security-Policy` and other security headers, replacing the host's values.
-
-## What is not there yet
-
-There is no profiler. A profiler would need its own protection (it reads more than spans), and none is shipped.
 
 ## What the dashboard exposes
 

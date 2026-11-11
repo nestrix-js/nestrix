@@ -140,3 +140,18 @@ export type TraceParamsSpec = typeof traceParams;
 /** `GET <path>/api/v1/meta` takes no parameters. */
 export const metaParams = {} as const;
 export type MetaParamsSpec = typeof metaParams;
+
+/**
+ * `POST <path>/api/v1/profiles`: the JSON body's fields (not the query string). Unknown fields are
+ * a `400`; the body is at most 1,024 bytes.
+ */
+export const profileStartBody = {
+  durationSeconds: { kind: "int", min: 1, max: 120, default: 30 },
+} as const;
+export type ProfileStartBodySpec = typeof profileStartBody;
+
+/** `GET <path>/api/v1/profiles/<id>` and `.../<id>/download`: the path segment `<id>`. */
+export const profileIdParams = {
+  id: { kind: "string", maxLength: 16, pattern: "^[0-9a-f]{16}$" },
+} as const;
+export type ProfileIdParamsSpec = typeof profileIdParams;
