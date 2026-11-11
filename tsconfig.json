@@ -1,8 +1,26 @@
 {
   "include": [],
   "references": [
-    { "path": "packages/protocol" },
-    { "path": "packages/nestjs" },
-    { "path": "packages/ui" }
+    {
+      "path": "packages/protocol"
+    },
+    {
+      "path": "packages/nestjs"
+    },
+    {
+      "path": "packages/ui"
+    },
+    {
+      "path": "examples/express-esm"
+    },
+    {
+      "path": "examples/fastify-esm"
+    },
+    {
+      "path": "examples/node-esm"
+    },
+    {
+      "path": "examples/express-cjs"
+    }
   ]
 }

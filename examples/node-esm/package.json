@@ -1,0 +1,30 @@
+{
+  "name": "node-esm",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Fixture app: NestJS 12 on platform-node (node:http), ESM",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./app.module": {
+      "types": "./dist/app.module.d.ts",
+      "default": "./dist/app.module.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/main.js",
+    "check": "node ../check-routes.mjs",
+    "check:run": "node ../run-and-check.mjs"
+  },
+  "dependencies": {
+    "@nestjs/common": "^12.4.2",
+    "@nestjs/core": "^12.4.2",
+    "@nestjs/platform-node": "^12.4.2",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6"
+  }
+}

@@ -68,7 +68,7 @@ Say what is already known and what is hard. If there is an obvious approach that
 
 Tasks with no shared files can run at the same time: spawn them in one message. In phase 0, spikes S1, S2, S5 and S6 are independent once the test harness exists. Give each parallel agent that edits files its own worktree (`isolation: worktree`) so they do not collide, and merge the results yourself.
 
-Keep it to a few agents at once. More than that and checking their work becomes the bottleneck.
+The owner allows up to **10 agents at once** for genuinely independent work. Fan out only as far as you can still check every result yourself; checking is the usual bottleneck.
 
 ## Review
 
