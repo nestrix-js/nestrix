@@ -1,2 +1,16 @@
-/** Placeholder export. Replaced by the real public API in phase 1. */
-export const NESTRIX_PACKAGE = "@nestrix/nestjs";
+export {
+  NestrixModule,
+  type NestrixModuleAsyncOptions,
+} from "./nestrix.module.js";
+export type {
+  NestrixExportOptions,
+  NestrixHttpOptions,
+  NestrixIgnoreOptions,
+  NestrixModuleOptions,
+  NestrixOtlpOptions,
+  NestrixQueueOptions,
+  RedactableSpan,
+  RedactHook,
+  UrlMatcher,
+} from "./options.js";
+export { Span, type SpanOptions, withSpan } from "./span.js";

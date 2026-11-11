@@ -40,6 +40,8 @@ export interface ResolvedOptions {
     readonly redactQueryKeys: readonly string[];
   };
   readonly redact: RedactHook | undefined;
+  /** Raw `OTEL_RESOURCE_ATTRIBUTES`; parsed by the telemetry setup (SDK 3 does not read it). */
+  readonly otelResourceAttributes: string | undefined;
 }
 
 export type Environment = Readonly<Record<string, string | undefined>>;
@@ -186,6 +188,7 @@ export function resolveOptions(
       redactQueryKeys: Object.freeze([...(o.http?.redactQueryKeys ?? [])]),
     }),
     redact: o.redact,
+    otelResourceAttributes: blank(env.OTEL_RESOURCE_ATTRIBUTES),
   };
   return Object.freeze(resolved);
 }

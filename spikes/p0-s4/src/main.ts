@@ -3,7 +3,7 @@
 import "reflect-metadata";
 import { Controller, Get, Injectable, Module } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
-import { NESTRIX_PACKAGE } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix/nestjs";
 import { EsmDep, EsmProbe, reflectInfoFromEsm } from "../dist-esm/probe.mjs";
 
 process.on("warning", (w) => {
@@ -44,7 +44,7 @@ class AppModule {}
 async function main() {
   console.log(`node ${process.version}`);
   console.log(
-    `require("@nestrix/nestjs") -> NESTRIX_PACKAGE = ${NESTRIX_PACKAGE}`,
+    `require("@nestrix/nestjs") -> typeof NestrixModule.forRoot = ${typeof NestrixModule.forRoot}`,
   );
 
   // Q2: one copy of reflect-metadata?

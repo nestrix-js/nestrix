@@ -3,7 +3,7 @@
 describe("require() of ESM-only packages under Jest", () => {
   test("@nestrix/nestjs", () => {
     const m = require("@nestrix/nestjs");
-    expect(m.NESTRIX_PACKAGE).toBe("@nestrix/nestjs");
+    expect(typeof m.NestrixModule.forRoot).toBe("function");
   });
 
   test("@nestjs/core", () => {
