@@ -50,6 +50,16 @@ export interface HttpServerConfig {
   readonly headersTimeoutMs: number;
 }
 
+export interface AlertsConfig {
+  /**
+   * `NESTRIX_WEBHOOK_ALLOWED_HOSTS`: webhook hostnames (lower case; IP literals as `new URL`
+   * serializes them, IPv6 without brackets) exempt from the private-address check. Empty by default.
+   */
+  readonly allowedHosts: readonly string[];
+  /** `NESTRIX_PUBLIC_URL`: the dashboard's address for links in notifications, without a trailing slash. */
+  readonly publicUrl: string | undefined;
+}
+
 export interface ServerConfig {
   readonly port: number;
   readonly databaseUrl: string;
@@ -62,6 +72,7 @@ export interface ServerConfig {
   /** True when `sessionSecret` was generated at start (sessions do not survive a restart). */
   readonly sessionSecretGenerated: boolean;
   readonly retentionDays: number;
+  readonly alerts: AlertsConfig;
 }
 
 export type ConfigResult =
@@ -206,6 +217,47 @@ export function loadConfig(env: Env = process.env): ConfigResult {
     errors,
   );
 
+  const allowedHosts: string[] = [];
+  const allowedRaw = (env.NESTRIX_WEBHOOK_ALLOWED_HOSTS ?? "")
+    .split(",")
+    .map((h) => h.trim())
+    .filter((h) => h !== "");
+  for (const entry of allowedRaw) {
+    const host = normalizeAllowedHost(entry);
+    if (host === undefined) {
+      errors.push(
+        `NESTRIX_WEBHOOK_ALLOWED_HOSTS: "${entry}" is not a host name or IP address (no scheme, port or path).`,
+      );
+    } else {
+      allowedHosts.push(host);
+    }
+  }
+
+  let publicUrl: string | undefined;
+  const publicRaw = present(env, "NESTRIX_PUBLIC_URL")?.trim();
+  if (publicRaw !== undefined) {
+    let url: URL | undefined;
+    try {
+      url = new URL(publicRaw);
+    } catch {
+      url = undefined;
+    }
+    if (
+      url === undefined ||
+      (url.protocol !== "http:" && url.protocol !== "https:") ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.search !== "" ||
+      url.hash !== ""
+    ) {
+      errors.push(
+        "NESTRIX_PUBLIC_URL must be an http:// or https:// URL without credentials, query or fragment.",
+      );
+    } else {
+      publicUrl = url.href.replace(/\/+$/, "");
+    }
+  }
+
   if (errors.length > 0) return { ok: false, errors };
 
   return {
@@ -226,8 +278,32 @@ export function loadConfig(env: Env = process.env): ConfigResult {
           : Buffer.from(sessionSecretText, "utf8"),
       sessionSecretGenerated: sessionSecretText === undefined,
       retentionDays,
+      alerts: Object.freeze({
+        allowedHosts: Object.freeze(allowedHosts),
+        publicUrl,
+      }),
     }),
   };
+}
+
+/**
+ * An allowlist entry as `new URL(...).hostname` gives it for a webhook URL (lower case, IPv4
+ * normalized, IPv6 compressed and without brackets), or `undefined` when the entry holds
+ * anything but a host (a scheme, port, path, credentials).
+ */
+export function normalizeAllowedHost(entry: string): string | undefined {
+  if (!/^[A-Za-z0-9.\-:[\]]+$/.test(entry)) return undefined;
+  const bracketed =
+    entry.includes(":") && !entry.startsWith("[") ? `[${entry}]` : entry;
+  let url: URL;
+  try {
+    url = new URL(`http://${bracketed}/`);
+  } catch {
+    return undefined;
+  }
+  if (url.port !== "" || url.hostname === "") return undefined;
+  const host = url.hostname;
+  return host.startsWith("[") ? host.slice(1, -1) : host;
 }
 
 export function formatConfigErrors(errors: readonly string[]): string {

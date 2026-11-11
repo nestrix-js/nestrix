@@ -9,3 +9,5 @@ export const MIGRATION_LOCK = 1;
 export const MAINTENANCE_LOCK = 2;
 /** Transaction lock around the `traces` upsert (read-merge-write of summary rows). */
 export const TRACES_LOCK = 3;
+/** Session lock around one alert evaluation run (only one server instance evaluates at a time). */
+export const ALERTS_LOCK = 4;

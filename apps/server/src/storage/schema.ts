@@ -166,6 +166,50 @@ export const classMinutes = pgTable(
   ],
 );
 
+/** Alerting (migrations/0002_alerts.sql, src/alerts/). */
+export const alertRules = pgTable("alert_rules", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  serviceName: text("service_name").notNull(),
+  route: text("route"),
+  metric: text("metric").$type<"error_rate" | "p95_ms">().notNull(),
+  comparator: text("comparator").$type<">">().notNull().default(">"),
+  threshold: doublePrecision("threshold").notNull(),
+  windowMinutes: integer("window_minutes").notNull(),
+  forMinutes: integer("for_minutes").notNull().default(2),
+  minRequests: integer("min_requests").notNull().default(10),
+  webhookUrl: text("webhook_url").notNull(),
+  secret: text("secret").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
+});
+
+export const alertState = pgTable("alert_state", {
+  ruleId: bigint("rule_id", { mode: "number" }).primaryKey(),
+  state: text("state").$type<"ok" | "pending" | "firing">().notNull(),
+  since: timestamp("since", tz).notNull(),
+  lastValue: doublePrecision("last_value"),
+  lastEvaluatedAt: timestamp("last_evaluated_at", tz).notNull(),
+  lastNotifiedAt: timestamp("last_notified_at", tz),
+});
+
+export const alertEvents = pgTable("alert_events", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  ruleId: bigint("rule_id", { mode: "number" }).notNull(),
+  createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+  kind: text("kind").$type<"firing" | "resolved" | "test">().notNull(),
+  value: doublePrecision("value"),
+  threshold: doublePrecision("threshold").notNull(),
+  delivery: text("delivery")
+    .$type<"pending" | "sent" | "failed" | "refused">()
+    .notNull()
+    .default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  responseStatus: integer("response_status"),
+  error: text("error"),
+});
+
 export const schema = {
   resources,
   services,
@@ -173,5 +217,8 @@ export const schema = {
   traces,
   routeMinutes,
   classMinutes,
+  alertRules,
+  alertState,
+  alertEvents,
 };
 export type StorageSchema = typeof schema;

@@ -1,5 +1,6 @@
 import { type DynamicModule, Module } from "@nestjs/common";
 import { NestrixModule } from "@nestrix/nestjs";
+import { AlertsModule } from "./alerts/alerts.module.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { SessionQueryGuard } from "./auth/query-guard.js";
 import type { ServerConfig } from "./config.js";
@@ -58,6 +59,8 @@ export class AppModule {
               }),
               // Opened only for requests the admin login's middleware stamped as a session.
               QueryModule.forRoot({ guard: { useClass: SessionQueryGuard } }),
+              // Alert rules, evaluator and webhooks (P7-03); `/api/v1/alerts` is admin-only.
+              AlertsModule.forRoot(),
             ]),
       ],
     };
