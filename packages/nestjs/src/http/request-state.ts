@@ -33,6 +33,23 @@ export interface RequestState {
   exception: { status: number; type: string } | undefined;
   /** Set once the span has ended, so a second `close` path cannot end it twice. */
   ended: boolean;
+  /**
+   * `performance.now()` when the request hook ran, for route statistics (P2-04). Set only when
+   * statistics are on (the dashboard is on); `0` otherwise, with no clock read.
+   */
+  startedAt?: number;
+}
+
+/**
+ * The minimal state of a request under the dashboard path (P2-04). Such a request has no span,
+ * no `RequestState` and no route statistics; it is not reachable through the context key, so
+ * the route hook and the interceptor ignore it.
+ */
+export interface DashboardRequestState {
+  /** Set by a Nestrix dashboard handler (P2-06) through `markDashboardHandlerReached`. */
+  handlerReached: boolean;
+  /** Set once the `close` check has run. */
+  closed: boolean;
 }
 
 /**
@@ -79,6 +96,40 @@ export function getStateForRequest(request: unknown): RequestState | undefined {
   return undefined;
 }
 
+/** Raw `IncomingMessage` under the dashboard path to its minimal state. */
+const dashboardByRequest = new WeakMap<object, DashboardRequestState>();
+
+export function setDashboardStateForRequest(
+  rawRequest: object,
+  state: DashboardRequestState,
+): void {
+  dashboardByRequest.set(rawRequest, state);
+}
+
+/**
+ * For P2-06's dashboard handlers: marks that a Nestrix dashboard handler is answering this
+ * request, so the `close` check does not report it as shadowed. Accepts the request object an
+ * adapter hands a handler: the raw `IncomingMessage` (Express, platform-node) or a wrapper
+ * carrying it as `raw` (Fastify). Does nothing for a request the hook did not see as a
+ * dashboard request (dashboard off, or a path that only matched the router case-insensitively).
+ * Never throws.
+ */
+export function markDashboardHandlerReached(request: unknown): void {
+  try {
+    if (request === null || typeof request !== "object") return;
+    let state = dashboardByRequest.get(request);
+    if (state === undefined) {
+      const raw = (request as { raw?: unknown }).raw;
+      if (raw !== null && typeof raw === "object") {
+        state = dashboardByRequest.get(raw);
+      }
+    }
+    if (state !== undefined) state.handlerReached = true;
+  } catch {
+    // A request object with a throwing `raw` getter: nothing to mark.
+  }
+}
+
 function isState(value: unknown): value is RequestState {
   return (
     value !== null &&
@@ -100,7 +151,9 @@ export type FaultSite =
   | "interceptor"
   | "interceptor-error"
   | "init-subscriber"
-  | "process-monitor";
+  | "process-monitor"
+  | "stats-record"
+  | "dashboard-close";
 
 export const faultInjection: { site: FaultSite | undefined } = {
   site: undefined,
