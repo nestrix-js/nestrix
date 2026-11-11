@@ -16,7 +16,7 @@ Why a NestJS developer would install it:
 
 Position: the open, OpenTelemetry-native, self-hostable alternative to the Nest team's hosted `@nestjs/observe`, whose licence ties its agent to its own service.
 
-Supported: NestJS 12.0+ (microservice propagation needs `@nestjs/microservices` 12.0.4+, platform-node needs 12.3.2+, D-44), Node 22.15+, Express 5, Fastify 5 and platform-node.
+Supported: NestJS 12.0+ (microservice propagation needs `@nestjs/microservices` 12.0.4+, platform-node needs 12.3.2+, D-44), Node 26.13+ (D-55), Express 5, Fastify 5 and platform-node.
 
 ## 2. Scope
 
@@ -408,12 +408,12 @@ nestrix/
 
 - pnpm workspaces. No Turborepo until CI time justifies it.
 - TypeScript 6, `module` and `moduleResolution: nodenext`, legacy decorators with `emitDecoratorMetadata`. The SDK is built with `tsc` only.
-- ESM-only output. No top-level `await` in any published entry point, so CommonJS Nest 12 apps can `require()` it. Enforced by `pnpm check:tla` (`scripts/check-no-tla.mjs`, part of `verify`, so it runs on every Node in the CI matrix): it `require()`s each published entry and every built file in a child process. Users of CommonJS projects running Jest need `--experimental-vm-modules` (Nest's own CommonJS starter sets it) and Node 24.9+, or a transform on 22.x; this is how Nest 12 itself loads under Jest.
+- ESM-only output. No top-level `await` in any published entry point, so CommonJS Nest 12 apps can `require()` it. Enforced by `pnpm check:tla` (`scripts/check-no-tla.mjs`, part of `verify`, so it runs on every Node in the CI matrix): it `require()`s each published entry and every built file in a child process. Users of CommonJS projects running Jest need `--experimental-vm-modules` (Nest's own CommonJS starter sets it); this is how Nest 12 itself loads under Jest.
 - Vitest 4. Integration tests boot real Nest apps on all three adapters and assert on spans captured by an in-memory exporter.
 - Biome for lint and format. `publint` and `@arethetypeswrong/cli` in CI.
 - `e2e/` is its own private workspace: Playwright (Chromium) boots a built app per test on its own port and drives the dashboard in a real browser, failing on any CSP violation or console error. Its app entries (`e2e/apps`, `e2e/apps-cjs`) import the example apps' modules and add `NestrixModule`, selecting variants (global prefix, `app.useSecurityHeaders()`, host CORS, sample rate, a catch-all route) by environment variable. It is separate from `examples/` because the examples are test fixtures of `@nestrix/nestjs`, so making them depend on it would be a cycle. Specs are `*.pw.ts` so the root Vitest run never loads them. CI runs one job for it, on Node 26 only (Actions minutes) with browsers cached.
 - Changesets with fixed versioning. Publishing from GitHub Actions through npm trusted publishing with provenance.
-- CI matrix: Node 22.15, 24, 26 × Nest 12.0 and latest × Express and Fastify, plus platform-node from 12.3.2 (D-44).
+- CI matrix: Node 26 (the latest 26.x, also the engines floor) × Nest 12.0 and latest × Express and Fastify, plus platform-node from 12.3.2 (D-44, D-55).
 
 ## 9. Main risks
 

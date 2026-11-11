@@ -20,7 +20,7 @@ jobs:
   #   @nestrix/nestjs                  Nest latest 12.x, Express + Fastify + platform-node
   #   @nestrix/conformance-nest12-0    Nest 12.0.0, Express + Fastify
   #   @nestrix/conformance-nest12-3-2  Nest 12.3.2, platform-node
-  # So Node (22.15, 24, 26) x Nest (12.0, 12.3.2, latest) x adapter is covered by these three
+  # So Node 26 (the engines floor, D-55) x Nest (12.0, 12.3.2, latest) x adapter is covered by these three
   # cells; a second matrix axis would run the same projects again.
   verify:
     name: verify (node ${{ matrix.node }})
@@ -29,8 +29,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 22.15.0 is the engines floor, the first 22.x with require(esm) unflagged.
-        node: ["22.15.0", "24", "26"]
+        # One Node line: the latest 26.x, which is also the engines floor (D-55).
+        node: ["26"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,7 +42,6 @@ jobs:
 
   # Packs both published packages, installs the tarballs outside the workspace into a fresh
   # ESM app and a fresh CommonJS app, and boots a trivial Nest 12 app in each.
-  # CommonJS runs on 22.15.0 as well, because require(esm) behaves differently there.
   consume:
     name: consume (${{ matrix.format }}, node ${{ matrix.node }})
     runs-on: ubuntu-latest
@@ -52,7 +51,6 @@ jobs:
       matrix:
         include:
           - { format: esm, node: "26" }
-          - { format: cjs, node: "22.15.0" }
           - { format: cjs, node: "26" }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -485,7 +485,7 @@ When your app owns the SDK, the export variables are your SDK's business, not Ne
 ## What is traced
 
 - **Incoming HTTP.** One server span per request, named `METHOD /route/template` (or `METHOD` when no route matched, as for a 404), with the OpenTelemetry HTTP attributes, `code.function.name` (`Controller.handler`), the status, and the first exception a handler or pipe threw as an exception event. An incoming `traceparent` is continued. If the client goes away before the response finishes, the span carries `nestrix.http.aborted = true`.
-- **Outgoing HTTP.** `node:http` and `fetch` (undici) calls get a client span named `METHOD`, and a `traceparent` header unless the request already has one. A request made with no active parent span gets no span and no header, so background traffic (a health poller, an error reporter's transport outside a request) is not traced. If the response body is never read, the span ends at the response head and carries `nestrix.http.body = "not consumed"`: for `node:http`, on the next turn of the event loop if nothing is reading; for `fetch` and undici, after 30 seconds. On Node 24 and later (undici 7) the 30 seconds restart with each body chunk; on Node 22 a body that is still arriving 30 seconds after the head gets a head-only span (known limit). A `node:http` caller that starts reading on a later tick also gets a head-only span. A body the caller cancels after the response head is marked `"cancelled"` and is not an error. A request whose method is not in the HTTP conventions' list gets the span name `HTTP` and `http.request.method = "_OTHER"`; this applies to server spans too.
+- **Outgoing HTTP.** `node:http` and `fetch` (undici) calls get a client span named `METHOD`, and a `traceparent` header unless the request already has one. A request made with no active parent span gets no span and no header, so background traffic (a health poller, an error reporter's transport outside a request) is not traced. If the response body is never read, the span ends at the response head and carries `nestrix.http.body = "not consumed"`: for `node:http`, on the next turn of the event loop if nothing is reading; for `fetch` and undici, after 30 seconds. The 30 seconds restart with each body chunk. A `node:http` caller that starts reading on a later tick also gets a head-only span. A body the caller cancels after the response head is marked `"cancelled"` and is not an error. A request whose method is not in the HTTP conventions' list gets the span name `HTTP` and `http.request.method = "_OTHER"`; this applies to server spans too.
 - **Exceptions.** A handler's or pipe's exception is recorded on the server span. An exception thrown by a guard is not: guards run before Nestrix's interceptor, so a guard rejection keeps its route name and records no exception event.
 - **Process errors.** An uncaught exception becomes an exception event on the active request span, or a short span of its own. An unhandled rejection is seen only under Node's default `--unhandled-rejections=throw`. Best effort: the process usually exits before that span is exported. Nestrix adds an `uncaughtExceptionMonitor` listener only and never changes whether the process crashes.
 - **Your own spans.** See below.
@@ -611,7 +611,7 @@ Shutdown is bounded: Nestrix waits at most 5 seconds for the collector. When sev
 
 | | |
 |---|---|
-| Node.js | 22.15 and later |
+| Node.js | 26.13 and later |
 | NestJS | 12 |
 | `@nestjs/platform-express`, `@nestjs/platform-fastify` | from 12.0.0 |
 | `@nestjs/platform-node` | from 12.3.2 (12.3.0 and 12.3.1 lose the request context after JSON body parsing) |
@@ -620,7 +620,6 @@ Shutdown is bounded: Nestrix waits at most 5 seconds for the collector. When sev
 Notes:
 
 - Header versioning with two versions of one route does not boot on Fastify with Nest 12.0.0. That is Nest itself, not Nestrix.
-- Before Node 24.20, a response cut off by the client after the app finished writing is detected from the request's socket state instead. It is tested on 22.15 and 26.
 - An app with no HTTP adapter (a pure microservice) boots; no HTTP spans are produced.
 - Under `@nestjs/testing`, HTTP spans work.
 
@@ -653,7 +652,7 @@ Sentry's transport does not mark its requests as untraced, so an error event sen
 
 A CommonJS Nest 12 app loads `@nestrix/nestjs` with `require()` (Node's `require(esm)`), and the package has no top-level `await` so that works. Things to know:
 
-- **Jest** needs `node --experimental-vm-modules node_modules/jest/bin/jest.js`, and then loads ESM packages on Node 24.9 and later. On Node 22.x it needs a transform that compiles ESM dependencies, such as `@swc/jest`. Without either, Jest fails with `Must use import to load ES Module`. Vitest works unchanged.
+- **Jest** needs `node --experimental-vm-modules node_modules/jest/bin/jest.js`, and then loads ESM packages. Without it, Jest fails with `Must use import to load ES Module`. Vitest works unchanged.
 - **AWS Lambda** disables `require(esm)` on its Node 20, 22 and 24 runtimes; set `NODE_OPTIONS=--experimental-require-module`.
 - **Upstream instrumentations must be constructed after `NestFactory.create`.** In a CommonJS app where Nestrix owns the provider, an `@opentelemetry/instrumentation-*` instance constructed before Nestrix registers takes its tracer too early and produces no spans. Construct it after `NestFactory.create`, or own the tracer provider yourself.
 
