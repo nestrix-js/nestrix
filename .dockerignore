@@ -1,0 +1,13 @@
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.git
+.claude
+.env
+.env.*
+!.env.example
+coverage
+benchmarks/results
+spikes
+**/playwright-report
+**/test-results
