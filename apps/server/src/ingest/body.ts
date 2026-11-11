@@ -11,7 +11,7 @@ export type ContentEncoding = "identity" | "gzip";
 /** The body could not be read for a reason the client should be told about. */
 export class BodyError extends Error {
   constructor(
-    readonly status: 400 | 413,
+    readonly status: 400 | 413 | 503,
     message: string,
   ) {
     super(message);
@@ -42,10 +42,16 @@ export function parseContentEncoding(
   return undefined;
 }
 
+/**
+ * `reserve(bytes)` is called before each chunk is buffered (inflated bytes for gzip); when it
+ * returns false the read fails with 503 (the in-flight memory budget is full). The caller
+ * releases what it reserved, whatever the outcome.
+ */
 export function readBody(
   req: IncomingMessage,
   encoding: ContentEncoding,
   limit: number,
+  reserve: (bytes: number) => boolean = () => true,
 ): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
     if (req.readableEnded) {
@@ -103,6 +109,15 @@ export function readBody(
         fail(tooLarge(encoding === "gzip" ? "after decompression" : "size"));
         return;
       }
+      if (!reserve(chunk.length)) {
+        fail(
+          new BodyError(
+            503,
+            "the server is busy with other requests, retry later",
+          ),
+        );
+        return;
+      }
       chunks.push(chunk);
     }
     function onBodyEnd() {
@@ -154,21 +169,36 @@ export function readBody(
 /**
  * After answering early, reads and discards what is left of the body so the client, still
  * sending, gets the response instead of a connection reset. Nothing is buffered. Past `budget`
- * bytes the connection is destroyed instead.
+ * bytes, or when the rest has not arrived within `timeoutMs` (a slow client holding the
+ * connection), the connection is destroyed instead.
  */
-export function discardRest(req: IncomingMessage, budget: number): void {
+export function discardRest(
+  req: IncomingMessage,
+  budget: number,
+  timeoutMs: number,
+): void {
   try {
     if (req.complete || req.destroyed || req.readableEnded) return;
     let seen = 0;
+    const stop = () => {
+      clearTimeout(timer);
+      req.off("data", onData);
+    };
     const onData = (chunk: Buffer) => {
       seen += chunk.length;
       if (seen > budget) {
-        req.off("data", onData);
+        stop();
         req.destroy();
       }
     };
+    const timer = setTimeout(() => {
+      stop();
+      req.destroy();
+    }, timeoutMs);
+    timer.unref();
     req.on("data", onData);
-    req.once("end", () => req.off("data", onData));
+    req.once("end", stop);
+    req.once("close", stop);
     req.on("error", noop);
     req.resume();
   } catch {

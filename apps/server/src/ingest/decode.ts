@@ -1,19 +1,29 @@
 /**
  * Decodes an OTLP/HTTP trace request body into the generated `ExportTraceServiceRequest`.
  *
- * Protobuf goes straight through `@bufbuild/protobuf`. OTLP JSON differs from the canonical
- * protobuf JSON mapping only in its ids, which are hex instead of base64 (OTLP specification,
- * "JSON Protobuf Encoding"), so the ids are rewritten to base64 and the rest is decoded by the
- * library's JSON reader: camelCase keys, 64-bit integers as strings or numbers, enums as numbers
- * (names are accepted too), unknown fields ignored. A body that does not decode throws
- * `DecodeError`; the caller answers 400. Invalid ids are not decode errors: they reach the
- * mapper as ids of the wrong length and reject only their span.
+ * `checkBody` runs first, on the raw bytes, and bounds what decoding will allocate (`limits.ts`).
+ * Protobuf then goes through `@bufbuild/protobuf`, skipping unknown fields (each would otherwise
+ * be kept as an object). OTLP JSON differs from the canonical protobuf JSON mapping only in its
+ * ids, which are hex instead of base64 (OTLP specification, "JSON Protobuf Encoding"), so the ids
+ * are rewritten to base64 and the rest is decoded by the library's JSON reader: camelCase keys,
+ * 64-bit integers as strings or numbers, enums as numbers (names are accepted too), unknown
+ * fields ignored. A body that does not decode throws `DecodeError` (400); one over a limit throws
+ * `LimitError` (413). Invalid ids are not decode errors: they reach the mapper as ids of the
+ * wrong length and reject only their span.
  */
 import { fromBinary, fromJson, type JsonValue } from "@bufbuild/protobuf";
 import {
   type ExportTraceServiceRequest,
   ExportTraceServiceRequestSchema,
 } from "../proto/gen/opentelemetry/proto/collector/trace/v1/trace_service_pb.js";
+import {
+  checkJson,
+  checkProtobuf,
+  type DecodeCost,
+  type DecodeLimits,
+  LimitError,
+  WireError,
+} from "./limits.js";
 
 export type BodyFormat = "protobuf" | "json";
 
@@ -24,33 +34,57 @@ export class DecodeError extends Error {
   }
 }
 
-/** Nesting deeper than this in `AnyValue`s is refused before decoding (stack safety). */
-export const MAX_NESTING = 64;
-
 /** A one-byte id: wrong length for any id, so the mapper rejects the span that carries it. */
 const INVALID_ID = "AA==";
 const HEX = /^(?:[0-9a-fA-F]{2})*$/;
 
+/** Bounds the decoding cost before anything is allocated. Throws `LimitError` or `DecodeError`. */
+export function checkBody(
+  body: Uint8Array,
+  format: BodyFormat,
+  limits: DecodeLimits,
+): DecodeCost {
+  try {
+    return format === "protobuf"
+      ? checkProtobuf(body, limits)
+      : checkJson(body, limits);
+  } catch (error) {
+    if (error instanceof WireError) {
+      throw new DecodeError(
+        `request body is not a valid protobuf ExportTraceServiceRequest: ${error.message}`,
+      );
+    }
+    throw error;
+  }
+}
+
 export function decodeRequest(
   body: Buffer,
   format: BodyFormat,
+  limits: DecodeLimits,
 ): ExportTraceServiceRequest {
   try {
     if (format === "protobuf") {
       return fromBinary(ExportTraceServiceRequestSchema, body, {
-        recursionLimit: MAX_NESTING,
+        recursionLimit: limits.maxDepth,
+        readUnknownFields: false,
       });
     }
     const json: unknown = JSON.parse(body.toString("utf8"));
     if (json === null || typeof json !== "object" || Array.isArray(json)) {
       throw new DecodeError("expected a JSON object");
     }
-    rewriteIds(json as Record<string, unknown>);
+    const spans = rewriteIds(json as Record<string, unknown>);
+    if (spans > limits.maxSpans) {
+      throw new LimitError(`request has more than ${limits.maxSpans} spans`);
+    }
     return fromJson(ExportTraceServiceRequestSchema, json as JsonValue, {
       ignoreUnknownFields: true,
     });
   } catch (error) {
-    if (error instanceof DecodeError) throw error;
+    if (error instanceof DecodeError || error instanceof LimitError) {
+      throw error;
+    }
     throw new DecodeError(describe(error, format));
   }
 }
@@ -87,11 +121,16 @@ function objects(value: unknown): Record<string, unknown>[] {
   );
 }
 
-/** Rewrites hex ids in place. Shapes it does not recognise are left for the decoder to reject. */
-function rewriteIds(request: Record<string, unknown>): void {
+/**
+ * Rewrites hex ids in place and returns the number of span objects. Shapes it does not
+ * recognise are left for the decoder to reject.
+ */
+function rewriteIds(request: Record<string, unknown>): number {
+  let spans = 0;
   for (const rs of objects(request.resourceSpans)) {
     for (const ss of objects(rs.scopeSpans)) {
       for (const span of objects(ss.spans)) {
+        spans++;
         if ("traceId" in span) span.traceId = hexToBase64(span.traceId);
         if ("spanId" in span) span.spanId = hexToBase64(span.spanId);
         if ("parentSpanId" in span) {
@@ -104,4 +143,5 @@ function rewriteIds(request: Record<string, unknown>): void {
       }
     }
   }
+  return spans;
 }

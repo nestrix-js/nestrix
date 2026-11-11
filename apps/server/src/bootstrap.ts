@@ -1,8 +1,8 @@
-import type { IncomingMessage } from "node:http";
+import type { IncomingMessage, Server } from "node:http";
 import { NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import { AppModule } from "./app.module.js";
-import type { ServerConfig } from "./config.js";
+import type { HttpServerConfig, ServerConfig } from "./config.js";
 import { INGEST_TRACES_PATH_PATTERN } from "./ingest/tokens.js";
 
 /**
@@ -24,8 +24,13 @@ function mediaType(req: IncomingMessage): string {
  * Settings every instance of the server needs, whether built by `createApp` or by a test
  * module. The app must have been created with `bodyParser: false`: the receiver reads the
  * ingest body itself, so the JSON and form parsers registered here skip the ingest path.
+ * With `config`, also applies the HTTP server limits (`configureHttpServer`).
  */
-export function configureApp(app: NestExpressApplication): void {
+export function configureApp(
+  app: NestExpressApplication,
+  config?: ServerConfig,
+): void {
+  if (config !== undefined) configureHttpServer(app, config.http);
   app.disable("x-powered-by");
   app.useBodyParser("json", {
     type: (req: IncomingMessage) =>
@@ -41,6 +46,21 @@ export function configureApp(app: NestExpressApplication): void {
   });
 }
 
+/**
+ * Bounds what slow or numerous clients can hold: the whole request must arrive within
+ * `requestTimeoutMs` (headers within `headersTimeoutMs`), and connections beyond
+ * `maxConnections` are refused.
+ */
+export function configureHttpServer(
+  app: NestExpressApplication,
+  http: HttpServerConfig,
+): void {
+  const server: Server = app.getHttpServer();
+  server.requestTimeout = http.requestTimeoutMs;
+  server.headersTimeout = http.headersTimeoutMs;
+  server.maxConnections = http.maxConnections;
+}
+
 export async function createApp(
   config: ServerConfig,
 ): Promise<NestExpressApplication> {
@@ -48,7 +68,7 @@ export async function createApp(
     AppModule.forRoot(config),
     { bodyParser: false },
   );
-  configureApp(app);
+  configureApp(app, config);
   app.enableShutdownHooks();
   return app;
 }

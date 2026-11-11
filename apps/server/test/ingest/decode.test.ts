@@ -5,6 +5,13 @@ import { decodeRequest } from "../../src/ingest/decode.js";
 import { safe, toIngestBatch } from "../../src/ingest/map.js";
 import { RateLimiter } from "../../src/ingest/rate-limit.js";
 
+const LIMITS = {
+  maxSpans: 100_000,
+  maxMessages: 400_000,
+  maxJsonTokens: 1_200_000,
+  maxDepth: 64,
+};
+
 const TRACE = "5B8EFFF798038103D269B633813FC60C";
 const SPAN = "EEE19B7EC3C1B174";
 
@@ -32,7 +39,7 @@ function decodeJson(span: Record<string, unknown>, resource: unknown[] = []) {
     ],
   };
   return toIngestBatch(
-    decodeRequest(Buffer.from(JSON.stringify(body)), "json"),
+    decodeRequest(Buffer.from(JSON.stringify(body)), "json", LIMITS),
   );
 }
 

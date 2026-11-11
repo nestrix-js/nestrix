@@ -26,12 +26,35 @@ export interface IngestConfig {
   readonly maxBodyBytes: number;
   /** Per key (per client address when `auth` is `none`). */
   readonly rateLimit: IngestRateLimit;
+  /** Spans per request (413 beyond). */
+  readonly maxSpans: number;
+  /** Protobuf submessages, or JSON objects, per request (413 beyond). */
+  readonly maxMessages: number;
+  /** JSON `{`, `[` and `,` per request (413 beyond). */
+  readonly maxJsonTokens: number;
+  /**
+   * Process-wide memory budget for requests in flight: buffered body bytes plus an estimate of
+   * the decoded objects. Full: 503 with Retry-After. A single request larger than it: 413.
+   */
+  readonly inflightBudgetBytes: number;
+  /** After an early answer, the unread body is discarded for at most this long, then the connection is destroyed. */
+  readonly discardTimeoutMs: number;
+}
+
+export interface HttpServerConfig {
+  /** `NESTRIX_MAX_CONNECTIONS`; Node's `server.maxConnections`. */
+  readonly maxConnections: number;
+  /** Node's `server.requestTimeout`: the whole request, headers and body, must arrive within it. */
+  readonly requestTimeoutMs: number;
+  /** Node's `server.headersTimeout`. */
+  readonly headersTimeoutMs: number;
 }
 
 export interface ServerConfig {
   readonly port: number;
   readonly databaseUrl: string;
   readonly ingest: IngestConfig;
+  readonly http: HttpServerConfig;
   /** `undefined` when `NESTRIX_ADMIN_PASSWORD` is unset: the UI and query API then answer 503 (P5-04). */
   readonly adminPassword: string | undefined;
   /** `NESTRIX_SESSION_SECRET` as UTF-8 bytes, or 32 random bytes per start. */
@@ -51,9 +74,21 @@ export const MIN_INGEST_KEY_LENGTH = 32;
 export const MIN_ADMIN_PASSWORD_LENGTH = 12;
 export const MIN_SESSION_SECRET_LENGTH = 32;
 export const MAX_RETENTION_DAYS = 3650;
+export const DEFAULT_MAX_CONNECTIONS = 1024;
 export const DEFAULT_INGEST: Omit<IngestConfig, "auth" | "keys"> = {
-  maxBodyBytes: 64 * MIB,
+  // As the OpenTelemetry Collector's OTLP receiver. A single request at every cap below is
+  // charged about 20 MiB + (400k + 100k) x 512 B = 264 MiB of the budget, so it always fits.
+  maxBodyBytes: 20 * MIB,
   rateLimit: { requestsPerSecond: 100, burst: 200 },
+  maxSpans: 100_000,
+  maxMessages: 400_000,
+  maxJsonTokens: 1_200_000,
+  inflightBudgetBytes: 320 * MIB,
+  discardTimeoutMs: 5_000,
+};
+export const DEFAULT_HTTP: Omit<HttpServerConfig, "maxConnections"> = {
+  requestTimeoutMs: 60_000,
+  headersTimeoutMs: 20_000,
 };
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -153,6 +188,15 @@ export function loadConfig(env: Env = process.env): ConfigResult {
     );
   }
 
+  const maxConnections = integer(
+    env,
+    "NESTRIX_MAX_CONNECTIONS",
+    DEFAULT_MAX_CONNECTIONS,
+    1,
+    1_000_000,
+    errors,
+  );
+
   const retentionDays = integer(
     env,
     "NESTRIX_RETENTION_DAYS",
@@ -174,6 +218,7 @@ export function loadConfig(env: Env = process.env): ConfigResult {
         auth,
         keys: Object.freeze(auth === "keys" ? keys : []),
       }),
+      http: Object.freeze({ ...DEFAULT_HTTP, maxConnections }),
       adminPassword,
       sessionSecret:
         sessionSecretText === undefined

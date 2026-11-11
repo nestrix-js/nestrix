@@ -88,13 +88,8 @@ describe("receiver with API keys", () => {
   let server: TestServer;
   beforeAll(async () => {
     server = await startServer(
-      testConfig(
-        {},
-        {
-          maxBodyBytes: 64 * MIB,
-          rateLimit: { requestsPerSecond: 1e6, burst: 1e6 },
-        },
-      ),
+      // Default limits (20 MiB body); only the rate limit is out of the way.
+      testConfig({}, { rateLimit: { requestsPerSecond: 1e6, burst: 1e6 } }),
     );
   });
   afterAll(async () => {
