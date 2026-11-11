@@ -7,7 +7,7 @@ Objective, deliverables and acceptance: [roadmap.md](../roadmap.md#phase-6-logs-
 | ID | Task | Tier | Depends on | Status | Notes |
 |---|---|---|---|---|---|
 | P6-00 | Backlog, decisions D-64 to D-66 | lead | — | done | |
-| P6-01 | Log correlation (`NestrixLogger`, `getTraceIds`) and optional OTLP log export | sonnet | P6-00 | review | Merged; 17 tests; no `api-logs` needed (logs API is in `@opentelemetry/api`). |
+| P6-01 | Log correlation (`NestrixLogger`, `getTraceIds`) and optional OTLP log export | sonnet | P6-00 | done | Merged; 17 tests; no `api-logs` needed (logs API is in `@opentelemetry/api`). |
 | P6-02 | Request-duration and runtime metrics over OTLP | opus | P6-00 | todo | Records in the request hook: review required. |
 | P6-03 | Documentation site | sonnet | phases 3–5 | todo | |
 | P6-04 | API review and fixes | opus reviewer + sonnet | phases 3–5 | todo | |
