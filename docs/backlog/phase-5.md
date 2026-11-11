@@ -12,7 +12,7 @@ Objective, deliverables and acceptance: [roadmap.md](../roadmap.md#phase-5-stand
 | P5-01 | Server bootstrap, configuration, OTLP/HTTP receiver (protobuf + JSON, gzip, limits, partial success, API keys) | opus | P5-00 | done | Untrusted input: review (P5-07) pending. As built: "P5-01 as built" below. |
 | P5-02 | Storage: schema, migrations, day partitions, retention, ingest writer, rollups | opus | P5-00 | done | `src/storage/`, `migrations/0001_init.sql`; schema notes for P5-03 in `src/storage/schema.ts` and `traces.ts`. |
 | P5-03 | Query API over Postgres; protocol additions for several services | sonnet | P5-01, P5-02 | done | As built: "P5-03 as built" below. |
-| P5-04 | UI hosting and admin login | opus | P5-01 | todo | Security: review required. |
+| P5-04 | UI hosting and admin login | opus | P5-01 | review | Built on branch `worktree-agent-a87ee711c36b28c03` (commit 0afceeb), not merged: merging with P5-03 fails 25 server tests (query tests need a session cookie; auth tests boot AppModule without a database). Next: integrate, then the P5-07 security review. |
 | P5-05 | UI: service selector, map across services | sonnet | P5-03 | todo | |
 | P5-06 | Docker image, `docker compose`, example apps end to end, short ingest measurement | sonnet | P5-03, P5-04 | todo | |
 | P5-07 | Reviews of P5-01 and P5-04 | opus reviewer | each | todo | |
