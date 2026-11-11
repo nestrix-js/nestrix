@@ -21,6 +21,7 @@ import {
 import type { ResolvedMethods } from "../../src/methods/resolved.js";
 import { isWrapper } from "../../src/methods/wrap.js";
 import {
+  inParent,
   methodSpans,
   recordingSink,
   resetSpans,
@@ -102,7 +103,7 @@ describe("shape of the wrapper", () => {
       t,
     );
     expect((t as unknown as { hit: unknown }).hit).toBe(first);
-    t.hit();
+    inParent(() => t.hit());
     expect(spanNames()).toEqual(["Twice.hit"]);
   });
 
@@ -170,8 +171,8 @@ describe("calls", () => {
   it("sync and async results reach the caller; the async span covers the awaited work", async () => {
     on([Svc]);
     const s = decorate(new Svc());
-    expect(s.sync(2)).toBe(4);
-    expect(await s.later(1)).toBe(2);
+    expect(inParent(() => s.sync(2))).toBe(4);
+    expect(await inParent(() => s.later(1))).toBe(2);
     const later = methodSpans().find((x) => x.name === "Svc.later");
     const ms =
       (later?.duration[0] ?? 0) * 1e3 + (later?.duration[1] ?? 0) / 1e6;
@@ -183,15 +184,17 @@ describe("calls", () => {
     const s = decorate(new Svc());
     let caught: unknown;
     try {
-      s.throwing();
+      inParent(() => s.throwing());
     } catch (e) {
       caught = e;
     }
     expect(caught).toBeInstanceOf(TypeError);
     expect((caught as Error).stack).toContain("throwing");
-    const rejected = await s.rejecting().catch((e: unknown) => e);
+    const rejected = await inParent(() => s.rejecting()).catch(
+      (e: unknown) => e,
+    );
     expect(rejected).toBeInstanceOf(RangeError);
-    expect(() => s.thrownString()).toThrow("a plain string");
+    expect(() => inParent(() => s.thrownString())).toThrow("a plain string");
     for (const [name, message] of [
       ["Svc.throwing", "sync failure"],
       ["Svc.rejecting", "async failure"],
@@ -214,10 +217,10 @@ describe("calls", () => {
     on([Spied]);
     const s = decorate(new Spied());
     const spy = vi.spyOn(Spied.prototype, "get1").mockReturnValue("mocked");
-    expect(s.get1()).toBe("mocked");
+    expect(inParent(() => s.get1())).toBe("mocked");
     expect(spanNames()).toEqual(["Spied.get1"]);
     spy.mockRestore();
-    expect(s.get1()).toBe("real");
+    expect(inParent(() => s.get1())).toBe("real");
   });
 
   it("a disabled plan calls straight through and reports nothing; switching it on traces the same instance", () => {
@@ -239,7 +242,7 @@ describe("calls", () => {
       expect(calls).toEqual([]);
       on([Late]);
       expect(planOf(Late)?.on).toBe(true);
-      expect(l.m()).toBe(7);
+      expect(inParent(() => l.m())).toBe(7);
       expect(spanNames()).toEqual(["Late.m"]);
       expect(calls.map((c) => c.method)).toEqual(["m"]);
     } finally {
@@ -342,7 +345,7 @@ describe("the SAMPLED fast path", () => {
       expect(m.get()).toBe(m.get());
     });
     // Traced (sampled), a plain native promise is followed: a new promise each call (§4.3).
-    expect(m.get()).not.toBe(m.get());
+    inParent(() => expect(m.get()).not.toBe(m.get()));
   });
 });
 

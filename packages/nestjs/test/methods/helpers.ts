@@ -169,6 +169,23 @@ export function recordingSink(): {
   return { calls, dispose: setMethodCallSink(sink) };
 }
 
+/**
+ * Runs `fn` with a valid, sampled span active (a non-recording parent that exports nothing). A
+ * method called with no valid active span gets no span (D-67), so tests of the span itself call
+ * it from here.
+ */
+export function inParent<T>(fn: () => T): T {
+  const parent = trace.setSpan(
+    context.active(),
+    trace.wrapSpanContext({
+      traceId: "0af7651916cd43dd8448eb211c80319c",
+      spanId: "b7ad6b7169203331",
+      traceFlags: 1,
+    }),
+  );
+  return context.with(parent, fn);
+}
+
 /** Options every level 2 test app uses: no export, no dashboard. */
 export const BASE_OPTIONS = {
   export: { otlp: false as const },

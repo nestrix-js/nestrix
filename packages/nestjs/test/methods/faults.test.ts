@@ -31,7 +31,16 @@ import { isWrapper } from "../../src/methods/wrap.js";
 
 // A context manager whose `with` can fail before or after running the callback.
 let cmMode: "ok" | "before" | "after" = "ok";
-let active: Context = ROOT_CONTEXT;
+// A valid active parent span: a method called with none gets no span at all (D-67).
+const PARENT: Context = trace.setSpan(
+  ROOT_CONTEXT,
+  trace.wrapSpanContext({
+    traceId: "0af7651916cd43dd8448eb211c80319c",
+    spanId: "b7ad6b7169203331",
+    traceFlags: 1,
+  }),
+);
+let active: Context = PARENT;
 const cm: ContextManager = {
   active: () => active,
   with(ctx, fn, thisArg, ...args) {

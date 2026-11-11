@@ -28,6 +28,7 @@ import {
   BASE_OPTIONS,
   bootInstrumented,
   contextInstrumented,
+  inParent,
   methodSpans,
   resetSpans,
   setupTracing,
@@ -193,6 +194,20 @@ class CircB {
   }
 }
 
+// A class stored on the prototype and used with `new` (a function with an own `prototype` is not
+// wrapped, so `new this.Item(n)` and `instanceof` keep working).
+class Item {
+  constructor(readonly n: number) {}
+}
+@Injectable()
+class ItemService {
+  declare Item: typeof Item;
+  make(n: number): Item {
+    return new this.Item(n);
+  }
+}
+ItemService.prototype.Item = Item;
+
 @Injectable({ scope: Scope.REQUEST })
 class RequestScopedService {
   static created = 0;
@@ -214,6 +229,7 @@ class RequestScopedService {
     CircA,
     CircB,
     RequestScopedService,
+    ItemService,
     { provide: "VALUE", useValue: { plain: true } },
     { provide: "FN", useValue: (a: number, b: number) => a + b },
   ],
@@ -233,102 +249,116 @@ async function observe(
   );
   const out: Record<string, unknown> = {};
   try {
-    const priv = app.get(PrivateService);
-    out.private = [
-      priv.increment(),
-      priv.increment(),
-      priv.peek(),
-      PrivateService.isBranded(priv),
-    ];
-    out.privateKeys = [Object.keys(priv), JSON.stringify(priv), inspect(priv)];
-
-    const map = app.get(MapService);
-    out.map = [
-      map.remember("a", 1),
-      map.size,
-      Map.prototype.get.call(map, "a"),
-      [...map.entries()],
-      map instanceof Map,
-    ];
-
-    const em = app.get(EmitterService);
-    const got: string[] = [];
-    em.on("evt", (p: string) => got.push(p));
-    out.emitter = [
-      em.fire("x"),
-      got,
-      em.listenerCount("evt"),
-      em instanceof EventEmitter,
-    ];
-
-    const holder = app.get(CallableHolderService);
-    out.callable = [
-      holder.double(3),
-      holder.double.tag,
-      holder.double.get("k"),
-      holder.handler(),
-      holder.useDouble(2),
-    ];
-
-    const odd = app.get(OddReturnsService);
-    out.memo = [await odd.memo()];
-    out.stream = [await lastValueFrom(odd.stream())];
-    out.failingStream = await lastValueFrom(odd.failingStream()).catch(
-      (e: Error) => e.message,
-    );
-    const q = odd.query();
-    out.query = [q instanceof QueryLike, await q.where(2)];
-    LazyPromise.started = 0;
-    const lazy = odd.lazy();
-    await new Promise((r) => setTimeout(r, 5));
-    out.lazy = [
-      LazyPromise.started,
-      lazy instanceof LazyPromise,
-      await lazy,
-      LazyPromise.started,
-    ];
-    out.getter = odd.computed;
-    out.generators = [
-      [...odd.numbers()],
-      await (async () => {
-        const v: string[] = [];
-        for await (const x of odd.agen()) v.push(x);
-        return v;
-      })(),
-    ];
-    out.reject = await odd.rejectLater().catch((e: Error) => e.message);
-    try {
-      odd.throwSync();
-    } catch (e) {
-      out.throwSync = [
-        (e as Error).message,
-        (e as Error).stack?.includes("throwSync"),
+    // A method called with no valid active span gets no span (D-67): run the corpus under one.
+    await inParent(async () => {
+      const priv = app.get(PrivateService);
+      out.private = [
+        priv.increment(),
+        priv.increment(),
+        priv.peek(),
+        PrivateService.isBranded(priv),
       ];
-    }
+      out.privateKeys = [
+        Object.keys(priv),
+        JSON.stringify(priv),
+        inspect(priv),
+      ];
 
-    out.shadow = [app.get(ShadowService).m(), app.get(ShadowService).m2()];
-    out.frozen = [
-      app.get(FrozenService).m(),
-      Object.isFrozen(app.get(FrozenService)),
-    ];
-    const b = app.get(CircB);
-    out.circular = [b.viaA(), b.a === app.get(CircA)];
+      const map = app.get(MapService);
+      out.map = [
+        map.remember("a", 1),
+        map.size,
+        Map.prototype.get.call(map, "a"),
+        [...map.entries()],
+        map instanceof Map,
+      ];
 
-    const ref = app.get(ModuleRef);
-    const ctxA = ContextIdFactory.create();
-    const r1 = await ref.resolve(RequestScopedService, ctxA, { strict: false });
-    const r2 = await ref.resolve(RequestScopedService, ctxA, { strict: false });
-    const r3 = await ref.resolve(
-      RequestScopedService,
-      ContextIdFactory.create(),
-      {
+      const em = app.get(EmitterService);
+      const got: string[] = [];
+      em.on("evt", (p: string) => got.push(p));
+      out.emitter = [
+        em.fire("x"),
+        got,
+        em.listenerCount("evt"),
+        em instanceof EventEmitter,
+      ];
+
+      const holder = app.get(CallableHolderService);
+      out.callable = [
+        holder.double(3),
+        holder.double.tag,
+        holder.double.get("k"),
+        holder.handler(),
+        holder.useDouble(2),
+      ];
+
+      const odd = app.get(OddReturnsService);
+      out.memo = [await odd.memo()];
+      out.stream = [await lastValueFrom(odd.stream())];
+      out.failingStream = await lastValueFrom(odd.failingStream()).catch(
+        (e: Error) => e.message,
+      );
+      const q = odd.query();
+      out.query = [q instanceof QueryLike, await q.where(2)];
+      LazyPromise.started = 0;
+      const lazy = odd.lazy();
+      await new Promise((r) => setTimeout(r, 5));
+      out.lazy = [
+        LazyPromise.started,
+        lazy instanceof LazyPromise,
+        await lazy,
+        LazyPromise.started,
+      ];
+      out.getter = odd.computed;
+      out.generators = [
+        [...odd.numbers()],
+        await (async () => {
+          const v: string[] = [];
+          for await (const x of odd.agen()) v.push(x);
+          return v;
+        })(),
+      ];
+      out.reject = await odd.rejectLater().catch((e: Error) => e.message);
+      try {
+        odd.throwSync();
+      } catch (e) {
+        out.throwSync = [
+          (e as Error).message,
+          (e as Error).stack?.includes("throwSync"),
+        ];
+      }
+
+      out.shadow = [app.get(ShadowService).m(), app.get(ShadowService).m2()];
+      out.frozen = [
+        app.get(FrozenService).m(),
+        Object.isFrozen(app.get(FrozenService)),
+      ];
+      const b = app.get(CircB);
+      out.circular = [b.viaA(), b.a === app.get(CircA)];
+
+      const ref = app.get(ModuleRef);
+      const ctxA = ContextIdFactory.create();
+      const r1 = await ref.resolve(RequestScopedService, ctxA, {
         strict: false,
-      },
-    );
-    out.requestScoped = [r1 === r2, r1 === r3, r1.who() !== r3.who()];
-    out.value = app.get("VALUE");
-    const fn = app.get<(a: number, b: number) => number>("FN");
-    out.fn = [fn(1, 2), fn.length, isWrapper(fn)];
+      });
+      const r2 = await ref.resolve(RequestScopedService, ctxA, {
+        strict: false,
+      });
+      const r3 = await ref.resolve(
+        RequestScopedService,
+        ContextIdFactory.create(),
+        {
+          strict: false,
+        },
+      );
+      out.requestScoped = [r1 === r2, r1 === r3, r1.who() !== r3.who()];
+      out.value = app.get("VALUE");
+      const fn = app.get<(a: number, b: number) => number>("FN");
+      out.fn = [fn(1, 2), fn.length, isWrapper(fn)];
+      const items = app.get(ItemService);
+      const made = items.make(3);
+      out.item = [made instanceof items.Item, made.n, items.Item === Item];
+    });
   } finally {
     await app.close();
   }
@@ -359,6 +389,7 @@ describe("awkward-class corpus", () => {
       "CircA.ping",
       "CircB.pong",
       "RequestScopedService.who",
+      "ItemService.make",
     ]) {
       expect(names).toContain(n);
     }
@@ -374,6 +405,7 @@ describe("awkward-class corpus", () => {
       "OddReturnsService.agen",
       "ShadowService.m",
       "FrozenService.m",
+      "ItemService.Item",
     ]) {
       expect(names).not.toContain(n);
     }
@@ -395,7 +427,7 @@ describe("awkward-class corpus", () => {
       expect(Object.keys(priv)).not.toContain("increment");
       expect(Object.getPrototypeOf(priv)).toBe(PrivateService.prototype);
       const odd = app.get(OddReturnsService);
-      expect(odd.memo()).not.toBe(odd.memo());
+      inParent(() => expect(odd.memo()).not.toBe(odd.memo()));
       expect(await odd.memo()).toBe(1);
     } finally {
       await app.close();

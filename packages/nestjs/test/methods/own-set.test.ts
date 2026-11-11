@@ -338,7 +338,7 @@ describe("own set in a real app (express)", () => {
     expect(methodSpans()).toEqual([]);
   });
 
-  it("an off class decorated after the config is known gets no wrappers at all", async () => {
+  it("an off class decorated after the config is known gets switched-off wrappers and no spans", async () => {
     @Injectable()
     class LateLibrary {
       m(): number {
@@ -347,7 +347,8 @@ describe("own set in a real app (express)", () => {
     }
     const late = new LateLibrary();
     NestrixInstrument.instanceDecorator(late);
-    expect(Object.getOwnPropertyNames(late)).toEqual([]);
     expect(planOf(LateLibrary)?.on).toBe(false);
+    expect(late.m()).toBe(1);
+    expect(methodSpans()).toEqual([]);
   });
 });

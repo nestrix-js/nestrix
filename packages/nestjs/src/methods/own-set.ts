@@ -10,6 +10,7 @@ import { MODULE_METADATA } from "@nestjs/common/constants.js";
 export interface ModuleRefLike {
   readonly metatype?: unknown;
   readonly imports?: Iterable<unknown>;
+  readonly isGlobal?: boolean;
 }
 
 export interface OwnSet {
@@ -108,23 +109,60 @@ function nameOf(metatype: unknown): string {
 }
 
 /**
- * The root modules: modules no other module imports. Nest adds every global module (its own
- * `InternalCoreModule` included) to every other module's `imports`, so after the scan only the
- * module given to `NestFactory.create` is left.
+ * The root modules: non-global modules no other module imports (global modules are ignored as
+ * importees, because Nest adds each of them to every other module's `imports`). When every
+ * candidate is global, the app module is `@Global()`: the global modules that are not dynamic-module
+ * factories (not `InternalCoreModule`) and that no module lists statically.
  */
 export function findRootModules(
   modules: Iterable<ModuleRefLike>,
 ): ModuleRefLike[] {
   const all = [...modules];
+  const isGlobal = (m: ModuleRefLike): boolean => {
+    try {
+      return m.isGlobal === true;
+    } catch {
+      return false;
+    }
+  };
   const imported = new Set<unknown>();
   for (const m of all) {
     try {
-      for (const i of m.imports ?? []) if (i !== m) imported.add(i);
+      for (const i of m.imports ?? []) {
+        if (i === m) continue;
+        // Nest adds every global module to every other module's imports: those are not evidence
+        // that anything imports the global module on purpose.
+        if (isGlobal(i as ModuleRefLike)) continue;
+        imported.add(i);
+      }
     } catch {
       // unreadable imports: this module contributes none
     }
   }
-  return all.filter((m) => !imported.has(m));
+  const roots = all.filter((m) => !isGlobal(m) && !imported.has(m));
+  if (roots.length > 0) return roots;
+  // No non-global root: the app module is itself `@Global()`. Take the global modules that are not
+  // dynamic-module factories (this leaves out `InternalCoreModule`) and that no module lists in
+  // its static `imports` metadata.
+  const listed = new Set<unknown>();
+  for (const m of all) {
+    try {
+      for (const i of staticList(MODULE_METADATA.IMPORTS, m.metatype)) {
+        const c = importedClass(i);
+        if (c !== undefined) listed.add(c);
+      }
+    } catch {
+      // unreadable metadata
+    }
+  }
+  return all.filter((m) => {
+    if (!isGlobal(m)) return false;
+    try {
+      return !isDynamicModuleFactory(m.metatype) && !listed.has(m.metatype);
+    } catch {
+      return false;
+    }
+  });
 }
 
 /**
