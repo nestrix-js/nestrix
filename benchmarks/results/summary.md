@@ -1,3 +1,5 @@
+> **Throughput and latency below were measured before HTTP server spans existed** (earlier in P1-13, with `noexport`/`sink`/... only creating the `withSpan` spans of `/spans`). They are not re-run and do not show the cost of HTTP server spans. Startup, install size and the outage run below are from current main (HTTP server spans, outbound spans, single-flight export).
+
 # Throughput and latency
 
 darwin-arm64, Node v26.13.0, 3 fresh-process run(s) per configuration, 10 s per route after 2 s warmup, 64 connections (closed loop). Values are medians across runs. Load generator, app and sink are separate processes on one machine. Delta is throughput against the uninstrumented run of the same route.
@@ -21,65 +23,25 @@ darwin-arm64, Node v26.13.0, 3 fresh-process run(s) per configuration, 10 s per 
 | upstream | GET /hello | 3.71 | 6.71 | 17492 | -57.4% | 109.2 | 297.2 | 0 |
 | upstream | GET /users/:id | 3.88 | 7.01 | 16395 | -57.7% | 108.2 | 314.2 | 0 |
 
-Startup (spawn to first 200 on /hello, median): baseline 286.3 ms, noexport 329 ms, sink 504.8 ms, unreachable 334.2 ms, blackhole 524.4 ms, upstream 726.3 ms.
 
-# Startup time
 
 darwin-arm64, Node v26.13.0. Time from spawn to the first 200 on `GET /hello`, 15 fresh processes per configuration (interleaved, after one discarded warm-up round). "Added" is the median minus the uninstrumented median. The exporting configurations point at a local sink and do not wait for it; export is asynchronous.
 
 | config | median ms | min ms | max ms | added vs baseline ms |
 | --- | --- | --- | --- | --- |
-| baseline | 281.7 | 253.8 | 310.6 |  |
-| noexport | 338.6 | 298.1 | 493.6 | 56.9 |
-| sink | 344.2 | 304.4 | 431.5 | 62.5 |
+| baseline | 268.8 | 261.2 | 291.4 |  |
+| noexport | 320.3 | 309.7 | 383.1 | 51.5 |
+| sink | 318.8 | 310 | 371.9 | 50 |
 
-# Exporter outage
-
-darwin-arm64, Node v26.13.0. 600 s of load at 3000 requests/s (open rate, 64 connections) over /hello, /users/42, /spans, /spans; RSS sampled every 5 s; growth is measured from the first sample at or after 60 s to the peak after it. Queue defaults: maxQueueSize 2048, maxExportBatchSize 512.
-
-| config | req/s | p50 ms | p99 ms | RSS at 60 s MB | RSS peak after MB | growth MB | spans exported / failed / dropped |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| sink | 2997.2 | 1.92 | 6.04 | 193.8 | 214.5 | 20.7 | 2699776 / 0 / 0 |
-| unreachable | 2996.9 | 1.83 | 5.75 | 233.8 | 299.8 | 66 | 0 / 1422336 / 1262816 |
-| blackhole | 2996.9 | 1.84 | 5.19 | 194.5 | 221 | 26.5 | 0 / 224768 / 2471136 |
-
-## RSS bound
-
-`(maxQueueSize + maxExportBatchSize) * heapBytesPerSpan + maxExportBatchSize * wireBytesPerSpan + rssNoiseMb`
-
-- heapBytesPerSpan = 865.3 B, the marginal retained heap per queued span (heap after GC with a blackholed queue of 2048 against 20480 spans, median of 3 runs each; both queues overflowed: dropped {"2048":169349,"20480":566303}).
-- wireBytesPerSpan = 354.9 B, from the control run's sink (OTLP/JSON bytes received per span).
-- rssNoiseMb = 20.7 MB, the control run's own RSS growth after 60 s, with no outage.
-- bound = 23 MB.
-
-## Verdict
-
-- unreachable: RSS growth 66 MB against a bound of 23 MB (EXCEEDED); p99 5.75 ms is 0.952x the control's 6.04 ms (within 5%). **FAIL**
-- blackhole: RSS growth 26.5 MB against a bound of 23 MB (EXCEEDED); p99 5.19 ms is 0.859x the control's 6.04 ms (within 5%). **FAIL**
-
-Notes: latency is recorded per response at 10 us resolution; with a fixed request rate it is not corrected for coordinated omission. Until HTTP server spans exist (P1-06) the only spans are the three `withSpan` spans of `/spans`.
-
-## Diagnostics computed afterwards (not part of the pass criteria)
-
-Added after the verdict above was produced, from the saved RSS samples in `outage.json` (least-squares slope of RSS over the samples at or after 60 s, and the mean of the last third of those samples minus the mean of the first third):
-
-| config | RSS trend MB/min | last third - first third MB | mean RSS after 60 s MB |
-| --- | --- | --- | --- |
-| sink (control) | 0.68 | 5.7 | 193.0 |
-| unreachable | 3.96 | 24.2 | 248.1 |
-| blackhole | 0.92 | 6.6 | 196.8 |
-
-The verdicts above stand as produced. Two things the numbers say about them. The growth metric (peak sample minus one sample) is itself noisy: the healthy control scores 20.7 MB on it, and the bound is mostly that noise term (the queue term is 2.2 MB). And the `unreachable` run sits on a higher RSS plateau than the control, with a visible upward drift in RSS over the run. `outage-diagnose.md` is a second 600 s run of `sink` and `unreachable` with a forced GC at every sample: for `unreachable` the heap after GC settles at about 44 MB against about 23 MB for the healthy sink, flat from 80 s on (trend 0.17 MB/min). So the drift in RSS is allocator and GC slack on top of a retained heap that is bounded but larger than the queue-derived prediction, not growth in retained heap.
-
-# Install size
+## Install size
 
 `pnpm pack` of @nestrix/nestjs, installed with `npm install --omit=dev` into a fresh directory (darwin-arm64, Node v26.13.0, npm 11.20.0). Sizes are `du -sk` (disk blocks, KiB).
 
-- Tarball: 44 KiB; unpacked package: 264 KiB.
+- Tarball: 88 KiB; unpacked package: 500 KiB.
 - Host stack alone (@nestjs/common, core, platform-express, reflect-metadata, rxjs): 21656 KiB (21.1 MB).
-- Host stack plus @nestrix/nestjs: 41272 KiB (40.3 MB).
-- **Added by Nestrix: 19616 KiB (19.2 MB)**, of which packages not in the host stack sum to 19608 KiB.
-- Peer dependencies the host must supply (@opentelemetry/api) are among the added packages when the host does not already have them.
+- Host stack plus @nestrix/nestjs: 41508 KiB (40.5 MB).
+- **Added by Nestrix: 19852 KiB (19.4 MB)**, of which packages not in the host stack sum to 19844 KiB.
+- `@opentelemetry/api`, a peer dependency, is counted among the added packages because the host stack above does not include it.
 
 Packages added, largest first:
 
@@ -94,8 +56,56 @@ Packages added, largest first:
 | @opentelemetry/otlp-exporter-base | 0.301.1 | 932 KiB |
 | @opentelemetry/resources | 3.1.1 | 880 KiB |
 | @opentelemetry/sdk-logs | 3.1.1 | 700 KiB |
-| @nestrix/nestjs | 0.0.0 | 264 KiB |
+| @nestrix/nestjs | 0.0.0 | 500 KiB |
 | @opentelemetry/exporter-trace-otlp-http | 0.301.1 | 156 KiB |
 | @opentelemetry/context-async-hooks | 3.1.1 | 120 KiB |
 
 Top-level packages with a different size once Nestrix is installed (shared dependencies resolved differently): none (KiB delta).
+
+## Exporter outage
+
+darwin-arm64, Node v26.13.0. 600 s of load at 3000 requests/s (open rate, 64 connections) over /hello, /users/42, /spans, /spans. Queue defaults: maxQueueSize 2048, maxExportBatchSize 512. The app runs with `--expose-gc` and a forced GC precedes every heap sample (every 5 s); medians and slopes use the samples from 60 s to the end.
+
+| config | req/s | p50 ms | p99 ms | median heap after GC MB | heap slope MB/min | median RSS MB | RSS slope MB/min | max client connections | max connections at sink | spans exported / failed / dropped |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| sink | 2996.7 | 3.78 | 12.93 | 23.8 | 0.03 | 220.9 | 0.14 | 1 | 1 | 4499968 / 0 / 0 |
+| unreachable | 2996.6 | 3.17 | 9.12 | 26.2 | 0.01 | 206.9 | 0.67 | 2 | n/a | 0 / 37376 / 4460138 |
+| blackhole | 2996.2 | 3.18 | 8.95 | 26 | 0.03 | 207.1 | 0.32 | 2 | 5 | 0 / 30720 / 4467239 |
+
+### Allowance
+
+`(maxQueueSize + 2 * maxExportBatchSize) * B_span + maxExportBatchSize * B_wire + 5 MB` = 8.07 MB.
+
+- B_span = 946.2 B retained heap per queued span (re-measured in this run).
+- B_wire = 610.7 B of OTLP/JSON per span (re-measured at this run's control sink).
+- Client connections are counted inside the app from the `net.client.socket` diagnostics channel (created until `close`, idle keep-alive sockets included). For `unreachable` there is no server, so this is the only count; a refused attempt lives for well under a millisecond, so the sampling is exact (every socket is observed) but the maximum is of sockets alive at once, not of attempts per second.
+
+### Verdict
+
+### unreachable: **PASS**
+
+1. Heap plateau: median heap-after-GC is 2.4 MB above the control's 23.8 MB; allowance 8.07 MB. pass
+2. Heap trend: slope 0.01 MB/min; limit < 0.5. pass
+3. RSS trend: slope 0.67 MB/min against the control's 0.14 + 1 = 1.14. pass
+4. Connections: at most 2 open at once before shutdown (369 created in total; the sink saw at most n/a at once); limit 2. pass
+5. p99 9.12 ms is 0.705x the control's 12.93 ms; limit 1.05. pass
+
+### blackhole: **PASS**
+
+1. Heap plateau: median heap-after-GC is 2.2 MB above the control's 23.8 MB; allowance 8.07 MB. pass
+2. Heap trend: slope 0.03 MB/min; limit < 0.5. pass
+3. RSS trend: slope 0.32 MB/min against the control's 0.14 + 1 = 1.14. pass
+4. Connections: at most 2 open at once before shutdown (61 created in total; the sink saw at most 5 at once); limit 2. pass
+5. p99 8.95 ms is 0.692x the control's 12.93 ms; limit 1.05. pass
+
+### Informational: the old metric (not a criterion)
+
+Peak RSS after 60 s minus RSS at 60 s. Allocator steps dominate it; the control has no outage and scores on it too.
+
+| config | RSS at 60 s MB | RSS peak after MB | growth MB | last third - first third MB |
+| --- | --- | --- | --- | --- |
+| sink | 212 | 230.1 | 18.1 | 2.2 |
+| unreachable | 202.3 | 219.4 | 17.1 | 3.5 |
+| blackhole | 206.3 | 215.9 | 9.6 | 1.9 |
+
+Notes: latency is recorded per response at 10 us resolution; with a fixed request rate it is not corrected for coordinated omission. The forced GC every 5 s is the same in every run, so it does not bias the p99 comparison.

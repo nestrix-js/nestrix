@@ -7,19 +7,28 @@
 // sampling the app's RSS every `--sample` seconds (default 5). Before that, a calibration step
 // measures the retained heap per queued span.
 //
-// Pass criteria (both must hold for each outage variant):
-//   1. RSS growth after the settle period (default 60 s; duration/10 for short runs) is within
-//        bound = (maxQueueSize + maxExportBatchSize) * heapBytesPerSpan
-//                + maxExportBatchSize * wireBytesPerSpan
-//                + rssNoiseMb
-//      heapBytesPerSpan: marginal retained heap per queued span, measured here by filling a blackholed
-//      queue of two sizes and comparing heap after GC. wireBytesPerSpan: bytes per span of the
-//      OTLP/JSON body, measured at the control run's sink. rssNoiseMb: RSS growth after the settle
-//      period in the control run, which has no outage (allocator and GC noise, not queue).
-//   2. p99 latency over the whole run is within 5% of the control run's p99.
+// Pass criterion (docs/backlog/phase-1.md, P1-13 "Outage pass criterion"). Every sample is taken
+// after a forced GC (the app runs with --expose-gc), and everything is measured from minute 1
+// (`--settle`, default 60 s; duration/10 for short runs) to the end of the run:
+//   1. Heap plateau: median heap-after-GC <= the control's median + allowance, where
+//        allowance = (maxQueueSize + 2 * maxExportBatchSize) * B_span + maxExportBatchSize * B_wire + 5 MB
+//      B_span = 865 B (retained heap per queued span) and B_wire = 355 B (OTLP/JSON bytes per span),
+//      measured once by this benchmark before HTTP spans existed; `--calibrate` re-measures both
+//      (B_wire at the control sink) and uses the new values.
+//   2. No heap trend: least-squares slope of heap-after-GC < 0.5 MB/min.
+//   3. No RSS trend: least-squares slope of RSS <= the control's slope + 1 MB/min.
+//   4. Connections: the most TCP connections the app has open at once, before shutdown starts, is <= 2.
+//      Counted inside the app from Node's `net.client.socket` diagnostics channel (every client socket
+//      created, until its `close`), so it also covers an endpoint that refuses connections; the
+//      sink's own count of simultaneous accepted connections is reported next to it where there is one.
+//   5. p99 latency over the whole run is within 5% of the control run's (the original P1-13 text).
+// The old metric (peak RSS after the settle period minus RSS at it) is printed as informational only.
+//
+// `control` is the healthy local sink; `unreachable` refuses connections; `blackhole` accepts the
+// request and never answers.
 //
 //   node src/outage.mjs [--duration=600] [--sample=5] [--settle=60] [--rate=3000]
-//                       [--connections=64] [--variants=unreachable,blackhole] [--name=outage]
+//                       [--connections=64] [--variants=unreachable,blackhole] [--name=outage] [--calibrate]
 import {
   bringUp,
   environmentInfo,
@@ -36,6 +45,10 @@ import {
 
 const QUEUE_SIZE = 2048; // NestrixQueueOptions.maxQueueSize default
 const BATCH_SIZE = 512; // NestrixQueueOptions.maxExportBatchSize default
+const B_SPAN = 865; // bytes of retained heap per queued span, measured by `calibrate()`
+const B_WIRE = 355; // OTLP/JSON bytes per span at the sink, measured before HTTP server spans existed
+const MARGIN_MB = 5;
+const MAX_CONNECTIONS = 2;
 // A mix: two plain routes and the span-producing route twice.
 const PATHS = ["/hello", "/users/42", "/spans", "/spans"];
 
@@ -105,14 +118,16 @@ function trend(samples, settle, key) {
   };
 }
 
+/** Median of `key` over the samples at or after `settle` seconds. */
+function medianAfter(samples, settle, key) {
+  return median(samples.filter((x) => x.t >= settle).map((x) => x[key]));
+}
+
 async function runVariant(
   config,
-  { duration, sample, settle, rate, connections, gc },
+  { duration, sample, settle, rate, connections },
 ) {
-  const up = await bringUp(
-    config,
-    gc ? { execArgv: ["--expose-gc"] } : undefined,
-  );
+  const up = await bringUp(config, { execArgv: ["--expose-gc"] });
   const samples = [];
   const t0 = performance.now();
   let running = true;
@@ -129,7 +144,7 @@ async function runVariant(
     while (running) {
       const [rssKb, stats] = await Promise.all([
         up.app.rssKb(),
-        up.app.stats(gc ? "gcstats" : "stats"),
+        up.app.stats("gcstats"),
       ]);
       samples.push({
         t: round((performance.now() - t0) / 1000, 1),
@@ -156,6 +171,7 @@ async function runVariant(
     config,
     result,
     counters: final.counters,
+    clientConnections: final.connections,
     sinkReceived: end.sinkStats,
     rss: {
       settleSeconds: settle,
@@ -173,7 +189,11 @@ async function runVariant(
       rss: trend(samples, settle, "rssMb"),
       heapUsed: trend(samples, settle, "heapUsedMb"),
       external: trend(samples, settle, "externalMb"),
-      heapAfterGc: Boolean(gc),
+      heapAfterGc: true,
+    },
+    medians: {
+      heapAfterGcMb: round(medianAfter(samples, settle, "heapUsedMb"), 2),
+      rssMb: round(medianAfter(samples, settle, "rssMb"), 1),
     },
     samples,
   };
@@ -189,10 +209,8 @@ export async function runOutage(args) {
     option(args, "variants", "unreachable,blackhole"),
   ).split(",");
   const name = String(option(args, "name", "outage"));
-  const gc = Boolean(option(args, "gc", false));
   const diagnose = Boolean(option(args, "diagnose", false));
   const settings = {
-    gc,
     duration,
     sample,
     settle,
@@ -210,7 +228,7 @@ export async function runOutage(args) {
     const runs = {};
     for (const config of variants) {
       console.log(`diagnose ${config}, ${duration} s`);
-      runs[config] = await runVariant(config, { ...settings, gc: true });
+      runs[config] = await runVariant(config, settings);
     }
     const dmd = `# Outage diagnosis
 
@@ -238,22 +256,30 @@ ${mdTable(
     return dout;
   }
 
-  console.log("calibrating retained bytes per queued span");
-  const calibration = await calibrate();
-  console.log(`  heapBytesPerSpan = ${calibration.heapBytesPerSpan}`);
+  let bSpan = B_SPAN;
+  let calibration;
+  if (option(args, "calibrate", false)) {
+    console.log("calibrating retained bytes per queued span");
+    calibration = await calibrate();
+    bSpan = calibration.heapBytesPerSpan;
+    console.log(`  heapBytesPerSpan = ${bSpan}`);
+  }
 
   console.log(`control (reachable sink), ${duration} s`);
   const control = await runVariant("sink", settings);
-  const wireBytesPerSpan =
+  const measuredWire =
     control.sinkReceived && control.sinkReceived.spans > 0
       ? round(control.sinkReceived.bytes / control.sinkReceived.spans, 1)
       : Number.NaN;
-  const rssNoiseMb = Math.max(0, control.rss.peakGrowthMb);
 
-  const boundBytes =
-    (QUEUE_SIZE + BATCH_SIZE) * calibration.heapBytesPerSpan +
-    BATCH_SIZE * wireBytesPerSpan;
-  const boundMb = round(boundBytes / 1048576 + rssNoiseMb, 1);
+  // With --calibrate both constants are re-measured: spans now carry HTTP attributes, so the
+  // wire size per span is the control's own.
+  const bWire = calibration ? measuredWire : B_WIRE;
+  const allowanceBytes =
+    (QUEUE_SIZE + 2 * BATCH_SIZE) * bSpan + BATCH_SIZE * bWire;
+  const allowanceMb = round(allowanceBytes / 1048576 + MARGIN_MB, 2);
+  const controlHeapMedian = control.medians.heapAfterGcMb;
+  const controlRssSlope = control.trend.rss?.slopeMbPerMin ?? Number.NaN;
 
   const outage = {};
   for (const config of variants) {
@@ -261,54 +287,97 @@ ${mdTable(
     const run = await runVariant(config, settings);
     const p99 = run.result.latencyMs.p99;
     const controlP99 = control.result.latencyMs.p99;
-    run.criteria = {
-      rssGrowthWithinBound: run.rss.peakGrowthMb <= boundMb,
-      p99WithinFivePercent: p99 <= controlP99 * 1.05,
-      p99RatioToControl: round(p99 / controlP99, 3),
+    const heapSlope = run.trend.heapUsed?.slopeMbPerMin ?? Number.NaN;
+    const rssSlope = run.trend.rss?.slopeMbPerMin ?? Number.NaN;
+    const heapExcess = round(run.medians.heapAfterGcMb - controlHeapMedian, 2);
+    const maxConn = run.clientConnections?.maxInFlight;
+    const c = {
+      heapPlateau: {
+        excessMb: heapExcess,
+        allowanceMb,
+        pass: heapExcess <= allowanceMb,
+      },
+      heapSlope: { mbPerMin: heapSlope, limit: 0.5, pass: heapSlope < 0.5 },
+      rssSlope: {
+        mbPerMin: rssSlope,
+        controlMbPerMin: controlRssSlope,
+        limit: round(controlRssSlope + 1, 2),
+        pass: rssSlope <= controlRssSlope + 1,
+      },
+      connections: {
+        maxOpenClientSideBeforeShutdown: maxConn,
+        created: run.clientConnections?.created,
+        maxOpenAtSink: run.sinkReceived?.maxOpen,
+        limit: MAX_CONNECTIONS,
+        pass: typeof maxConn === "number" && maxConn <= MAX_CONNECTIONS,
+      },
+      p99: {
+        ratioToControl: round(p99 / controlP99, 3),
+        pass: p99 <= controlP99 * 1.05,
+      },
     };
-    run.criteria.pass =
-      run.criteria.rssGrowthWithinBound && run.criteria.p99WithinFivePercent;
+    c.pass = Object.values(c).every((x) => x.pass);
+    run.criteria = c;
     outage[config] = run;
   }
 
-  const bound = {
+  const allowance = {
     formula:
-      "(maxQueueSize + maxExportBatchSize) * heapBytesPerSpan + maxExportBatchSize * wireBytesPerSpan + rssNoiseMb",
+      "(maxQueueSize + 2 * maxExportBatchSize) * B_span + maxExportBatchSize * B_wire + 5 MB",
     maxQueueSize: QUEUE_SIZE,
     maxExportBatchSize: BATCH_SIZE,
-    heapBytesPerSpan: calibration.heapBytesPerSpan,
-    wireBytesPerSpan,
-    rssNoiseMb,
-    boundMb,
+    bSpan,
+    bSpanSource: calibration
+      ? "re-measured in this run"
+      : "measured earlier (865 B)",
+    bWire,
+    measuredWireBytesPerSpanInControl: measuredWire,
+    marginMb: MARGIN_MB,
+    allowanceMb,
   };
   const out = {
     environment: environmentInfo(),
     settings,
     calibration,
-    bound,
+    allowance,
     control,
     outage,
   };
 
+  const mark = (x) => (x.pass ? "pass" : "FAIL");
   const row = (r) => [
     r.config,
     r.result.requestsPerSec,
     r.result.latencyMs.p50,
     r.result.latencyMs.p99,
+    r.medians.heapAfterGcMb,
+    r.trend.heapUsed?.slopeMbPerMin,
+    r.medians.rssMb,
+    r.trend.rss?.slopeMbPerMin,
+    r.clientConnections?.maxInFlight,
+    r.sinkReceived?.maxOpen ?? "n/a",
+    `${r.counters?.exportedSpans ?? "?"} / ${r.counters?.exportFailedSpans ?? "?"} / ${r.counters?.droppedSpans ?? "?"}`,
+  ];
+  const info = (r) => [
+    r.config,
     r.rss.atSettleMb,
     r.rss.peakAfterSettleMb,
     r.rss.peakGrowthMb,
-    r.trend.rss?.slopeMbPerMin,
     r.trend.rss?.lastThirdMinusFirstThirdMb,
-    `${r.counters?.exportedSpans ?? "?"} / ${r.counters?.exportFailedSpans ?? "?"} / ${r.counters?.droppedSpans ?? "?"}`,
   ];
-  const verdict = Object.values(outage).map(
-    (r) =>
-      `- ${r.config}: RSS growth ${r.rss.peakGrowthMb} MB against a bound of ${boundMb} MB (${r.criteria.rssGrowthWithinBound ? "within" : "EXCEEDED"}); p99 ${r.result.latencyMs.p99} ms is ${r.criteria.p99RatioToControl}x the control's ${control.result.latencyMs.p99} ms (${r.criteria.p99WithinFivePercent ? "within 5%" : "OUTSIDE 5%"}). **${r.criteria.pass ? "PASS" : "FAIL"}**`,
-  );
+  const verdict = Object.values(outage).map((r) => {
+    const c = r.criteria;
+    return `### ${r.config}: **${c.pass ? "PASS" : "FAIL"}**
+
+1. Heap plateau: median heap-after-GC is ${c.heapPlateau.excessMb} MB above the control's ${controlHeapMedian} MB; allowance ${c.heapPlateau.allowanceMb} MB. ${mark(c.heapPlateau)}
+2. Heap trend: slope ${c.heapSlope.mbPerMin} MB/min; limit < ${c.heapSlope.limit}. ${mark(c.heapSlope)}
+3. RSS trend: slope ${c.rssSlope.mbPerMin} MB/min against the control's ${c.rssSlope.controlMbPerMin} + 1 = ${c.rssSlope.limit}. ${mark(c.rssSlope)}
+4. Connections: at most ${c.connections.maxOpenClientSideBeforeShutdown} open at once before shutdown (${c.connections.created} created in total; the sink saw at most ${c.connections.maxOpenAtSink ?? "n/a"} at once); limit ${c.connections.limit}. ${mark(c.connections)}
+5. p99 ${r.result.latencyMs.p99} ms is ${c.p99.ratioToControl}x the control's ${control.result.latencyMs.p99} ms; limit 1.05. ${mark(c.p99)}`;
+  });
   const md = `# Exporter outage
 
-${out.environment.platform}, Node ${out.environment.node}. ${duration} s of load at ${rate} requests/s (open rate, ${connections} connections) over ${PATHS.join(", ")}; RSS sampled every ${sample} s; growth is measured from the first sample at or after ${settle} s to the peak after it. Queue defaults: maxQueueSize ${QUEUE_SIZE}, maxExportBatchSize ${BATCH_SIZE}.
+${out.environment.platform}, Node ${out.environment.node}. ${duration} s of load at ${rate} requests/s (open rate, ${connections} connections) over ${PATHS.join(", ")}. Queue defaults: maxQueueSize ${QUEUE_SIZE}, maxExportBatchSize ${BATCH_SIZE}. The app runs with \`--expose-gc\` and a forced GC precedes every heap sample (every ${sample} s); medians and slopes use the samples from ${settle} s to the end.
 
 ${mdTable(
   [
@@ -316,30 +385,45 @@ ${mdTable(
     "req/s",
     "p50 ms",
     "p99 ms",
-    `RSS at ${settle} s MB`,
-    "RSS peak after MB",
-    "growth MB",
-    "trend MB/min (diagnostic)",
-    "last third - first third MB (diagnostic)",
+    "median heap after GC MB",
+    "heap slope MB/min",
+    "median RSS MB",
+    "RSS slope MB/min",
+    "max client connections",
+    "max connections at sink",
     "spans exported / failed / dropped",
   ],
   [row(control), ...Object.values(outage).map(row)],
 )}
 
-## RSS bound
+## Allowance
 
-\`${bound.formula}\`
+\`${allowance.formula}\` = ${allowanceMb} MB.
 
-- heapBytesPerSpan = ${bound.heapBytesPerSpan} B, the marginal retained heap per queued span (heap after GC with a blackholed queue of ${calibration.sizes[0]} against ${calibration.sizes[1]} spans, median of 3 runs each; both queues overflowed: dropped ${JSON.stringify(calibration.droppedSpans)}).
-- wireBytesPerSpan = ${bound.wireBytesPerSpan} B, from the control run's sink (OTLP/JSON bytes received per span).
-- rssNoiseMb = ${bound.rssNoiseMb} MB, the control run's own RSS growth after ${settle} s, with no outage.
-- bound = ${boundMb} MB.
+- B_span = ${bSpan} B retained heap per queued span (${allowance.bSpanSource}).
+- B_wire = ${bWire} B of OTLP/JSON per span (${calibration ? "re-measured at this run's control sink" : `fixed; this run's control measured ${measuredWire} B`}).
+- Client connections are counted inside the app from the \`net.client.socket\` diagnostics channel (created until \`close\`, idle keep-alive sockets included). For \`unreachable\` there is no server, so this is the only count; a refused attempt lives for well under a millisecond, so the sampling is exact (every socket is observed) but the maximum is of sockets alive at once, not of attempts per second.
 
 ## Verdict
 
-${verdict.join("\n")}
+${verdict.join("\n\n")}
 
-Notes: latency is recorded per response at 10 us resolution; with a fixed request rate it is not corrected for coordinated omission. Until HTTP server spans exist (P1-06) the only spans are the three \`withSpan\` spans of \`/spans\`.
+## Informational: the old metric (not a criterion)
+
+Peak RSS after ${settle} s minus RSS at ${settle} s. Allocator steps dominate it; the control has no outage and scores on it too.
+
+${mdTable(
+  [
+    "config",
+    `RSS at ${settle} s MB`,
+    "RSS peak after MB",
+    "growth MB",
+    "last third - first third MB",
+  ],
+  [info(control), ...Object.values(outage).map(info)],
+)}
+
+Notes: latency is recorded per response at 10 us resolution; with a fixed request rate it is not corrected for coordinated omission. The forced GC every ${sample} s is the same in every run, so it does not bias the p99 comparison.
 `;
   writeResult(name, out, md);
   return out;

@@ -3,15 +3,15 @@
     "node": "v26.13.0",
     "platform": "darwin-arm64",
     "cpus": "10 logical",
-    "date": "2026-11-11T06:04:24.248Z"
+    "date": "2026-11-11T08:13:33.880Z"
   },
-  "tarballKb": 44,
-  "unpackedPackageKb": 264,
+  "tarballKb": 88,
+  "unpackedPackageKb": 500,
   "hostOnlyKb": 21656,
-  "withNestrixKb": 41272,
-  "addedByNestrixKb": 19616,
+  "withNestrixKb": 41508,
+  "addedByNestrixKb": 19852,
   "addedPackagesKb": {
-    "@nestrix/nestjs": 264,
+    "@nestrix/nestjs": 500,
     "@opentelemetry/api": 1932,
     "@opentelemetry/context-async-hooks": 120,
     "@opentelemetry/core": 1048,
@@ -24,7 +24,7 @@
     "@opentelemetry/sdk-trace": 1056,
     "@opentelemetry/semantic-conventions": 9824
   },
-  "addedPackagesSumKb": 19608,
+  "addedPackagesSumKb": 19844,
   "changedPackagesKbDelta": {},
   "perPackageKbWithNestrix": {
     "@borewit/text-codec": 28,
@@ -32,7 +32,7 @@
     "@nestjs/common": 1856,
     "@nestjs/core": 2084,
     "@nestjs/platform-express": 256,
-    "@nestrix/nestjs": 264,
+    "@nestrix/nestjs": 500,
     "@opentelemetry/api": 1932,
     "@opentelemetry/context-async-hooks": 120,
     "@opentelemetry/core": 1048,
