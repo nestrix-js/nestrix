@@ -1,4 +1,4 @@
-// Run by q4-awkward.test.ts in a plain `node` child process (Node strips the types).
+// Run by q4-awkward.test.ts in a child process with --experimental-strip-types (unflagged only from Node 22.18).
 // Counts 'unhandledRejection' events for an ignored rejected promise: unwrapped, and wrapped in each mode.
 import { makeWrapper } from "../../src/wrap.ts";
 

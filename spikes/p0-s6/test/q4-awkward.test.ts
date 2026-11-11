@@ -305,10 +305,16 @@ describe("Q4 promise handling and unhandledRejection (child process; Vitest inte
     const script = fileURLToPath(
       new URL("./fixtures/unhandled.ts", import.meta.url),
     );
-    const out = execFileSync(process.execPath, [script], {
-      encoding: "utf8",
-      cwd: fileURLToPath(new URL("..", import.meta.url)),
-    });
+    const out = execFileSync(
+      process.execPath,
+      ["--experimental-strip-types", script],
+      {
+        // unflagged type stripping only exists from Node 22.18; the flag is accepted on every supported Node
+        stdio: ["ignore", "pipe", "ignore"],
+        encoding: "utf8",
+        cwd: fileURLToPath(new URL("..", import.meta.url)),
+      },
+    );
     const r = JSON.parse(out.trim().split("\n").at(-1) as string);
     console.log(`Q4 unhandledRejection counts: ${JSON.stringify(r)}`);
     expect(r).toEqual({ unwrapped: 1, derived: 1, side: 0 });
