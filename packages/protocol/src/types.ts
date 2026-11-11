@@ -103,9 +103,22 @@ export interface TraceSummary {
   startTimeUnixMs: number;
   durationMs: number;
   spanCount: number;
+  /**
+   * What started the trace, from its root span: `http` when the root is a server span; `job` when
+   * it is a consumer span or has `nestrix.entry = 'job'`; `scheduled` when it has
+   * `nestrix.entry = 'scheduled'`; otherwise `other`.
+   */
+  type: TraceType;
+  /** The release: `service.version` of the trace's resource, when set. */
+  release?: string;
+  /** `user.id` of the root span, when the app's `user` option recorded one. */
+  user?: string;
   /** Opaque paging cursor of this item. */
   cursor: string;
 }
+
+/** What started a trace; see `TraceSummary.type`. */
+export type TraceType = "http" | "job" | "scheduled" | "other";
 
 /** `GET api/v1/traces` */
 export interface TraceListResponse extends PagedResponse {

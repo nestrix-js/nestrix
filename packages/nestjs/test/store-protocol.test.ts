@@ -22,11 +22,13 @@ const same: [
   Equals<Mirror.SpanRecord, Protocol.SpanRecord>,
   Equals<Mirror.PagedResponse, Protocol.PagedResponse>,
   Equals<Mirror.TraceSummary, Protocol.TraceSummary>,
+  Equals<Mirror.TraceType, Protocol.TraceType>,
   Equals<Mirror.TraceListResponse, Protocol.TraceListResponse>,
   Equals<Mirror.TraceResponse, Protocol.TraceResponse>,
   Equals<Mirror.ErrorItem, Protocol.ErrorItem>,
   Equals<Mirror.ErrorListResponse, Protocol.ErrorListResponse>,
 ] = [
+  true,
   true,
   true,
   true,

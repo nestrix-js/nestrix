@@ -191,12 +191,20 @@ function stringAttribute(
   return undefined;
 }
 
-function serviceOf(options: ResolvedOptions): MetaResponse["service"] {
+/**
+ * `meta.service`. The version is the resolved `service.version` (D-63) when Nestrix owns the
+ * provider, because only then is it on the traces' resource; a host-owned resource is not
+ * readable here, so the version is left out (each trace still carries its own `release`).
+ */
+function serviceOf(
+  options: ResolvedOptions,
+  ownsProvider: boolean,
+): MetaResponse["service"] {
   const attrs = options.resourceAttributes;
   const service: MetaResponse["service"] = {};
   const name = options.serviceName ?? stringAttribute(attrs, "service.name");
   if (name !== undefined) service.name = name;
-  const version = stringAttribute(attrs, "service.version");
+  const version = ownsProvider ? options.serviceVersion : undefined;
   if (version !== undefined) service.version = version;
   const environment = stringAttribute(
     attrs,
@@ -282,7 +290,7 @@ export class Dashboard {
       this.sources = {
         store,
         stats: this.stats,
-        service: serviceOf(this.options),
+        service: serviceOf(this.options, telemetry?.ownsProvider === true),
         sampling:
           telemetry?.ownsProvider === true
             ? { owner: "nestrix", rate: this.options.sampleRate }

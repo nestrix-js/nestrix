@@ -19,6 +19,9 @@ export const matching: TraceListParamsSpec = {
   status: { kind: "enum", values: ["ok", "error", "4xx", "5xx"] },
   minDurationMs: { kind: "number", min: 0, max: 86_400_000 },
   search: { kind: "string", maxLength: 200 },
+  type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
+  release: { kind: "string", maxLength: 128 },
+  user: { kind: "string", maxLength: 256 },
 };
 
 export const matchingErrors: ErrorListParamsSpec = {
@@ -61,6 +64,13 @@ export const driftedEnum: TraceListParamsSpec = {
   ...matching,
   // @ts-expect-error a member is missing
   status: { kind: "enum", values: ["ok", "error", "4xx"] },
+};
+
+// A different trace type list.
+export const driftedType: TraceListParamsSpec = {
+  ...matching,
+  // @ts-expect-error a trace type is missing
+  type: { kind: "enum", values: ["http", "job", "other"] },
 };
 
 // A missing parameter.

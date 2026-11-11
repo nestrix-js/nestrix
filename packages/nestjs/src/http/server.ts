@@ -6,6 +6,9 @@
  * - `setOnRouteTriggered`: chained with any previous callback; records the route template in
  *   Nestrix's own request state, found through Nestrix's own context key.
  * - The span ends on the raw response's `close`, with the outcome rule below.
+ * - With the `user` option (P3-03): the user's function is called once per recording span at
+ *   `close`, before `span.end()`, with the request object the adapter passed to the hook, and its
+ *   result is recorded as `user.id`. Guarded and counted like every other step.
  * - When the dashboard is on (a `DashboardHookConfig` is passed; P2-04): route statistics are
  *   recorded at the same `close`, for every request that has a state, recording or not (D-35);
  *   a request under the dashboard path gets no span and no statistics, only a minimal state
@@ -19,6 +22,7 @@ import {
   context,
   defaultTextMapGetter,
   propagation,
+  type Span,
   SpanKind,
   SpanStatusCode,
   trace,
@@ -51,7 +55,10 @@ import {
   redactQuery,
   splitUrl,
 } from "../privacy.js";
-import type { ResolvedOptions } from "../resolve-options.js";
+import type {
+  NestrixUserFunction,
+  ResolvedOptions,
+} from "../resolve-options.js";
 import { type RouteStatistics, UNMATCHED_ROUTE } from "../stats/route-stats.js";
 import {
   type DashboardRequestState,
@@ -130,6 +137,51 @@ export const TRACER_NAME = "@nestrix/nestjs";
 
 /** `nestrix.http.aborted` (backlog "Public API"). */
 export const ATTR_NESTRIX_HTTP_ABORTED = "nestrix.http.aborted";
+
+/** `user.id` (OpenTelemetry semantic conventions, `user` namespace). Set from the `user` option. */
+export const ATTR_USER_ID = "user.id";
+
+/** Longest `user.id` recorded; a longer value is cut to this many characters (P3-03). */
+export const MAX_USER_ID_LENGTH = 256;
+
+/**
+ * The `user` function's result as a `user.id` value: a non-empty string, or a finite number or
+ * a bigint as its decimal text, cut to {@link MAX_USER_ID_LENGTH} characters (never inside a
+ * surrogate pair). `undefined` and `null` (and `''`) mean no user. Anything else is invalid
+ * (`false` returned) and the caller counts it.
+ */
+export function userIdOf(value: unknown): string | undefined | false {
+  let text: string;
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") text = value;
+  else if (typeof value === "number" && Number.isFinite(value)) {
+    text = String(value);
+  } else if (typeof value === "bigint") text = value.toString();
+  else return false;
+  if (text === "") return undefined;
+  if (text.length <= MAX_USER_ID_LENGTH) return text;
+  const last = text.charCodeAt(MAX_USER_ID_LENGTH - 1);
+  // A high surrogate as the last kept unit would leave half a character.
+  return text.slice(
+    0,
+    last >= 0xd800 && last <= 0xdbff
+      ? MAX_USER_ID_LENGTH - 1
+      : MAX_USER_ID_LENGTH,
+  );
+}
+
+/** The kind of a value, for a log line that must not contain the value itself (it may be personal data). */
+function kindOf(value: unknown): string {
+  if (value === null) return "null";
+  if (typeof value === "number") return "a non-finite number";
+  if (
+    typeof value === "object" &&
+    typeof (value as { then?: unknown }).then === "function"
+  ) {
+    return "a promise (it must be synchronous)";
+  }
+  return `a value of type ${typeof value}`;
+}
 
 /** Methods the HTTP semantic conventions name; anything else is `_OTHER`. */
 const KNOWN_METHODS = new Set([
@@ -243,6 +295,7 @@ export class HttpServerInstrumentation {
   private readonly requestHeaders: ReadonlySet<string>;
   private readonly responseHeaders: ReadonlySet<string>;
   private readonly queryKeys: ReadonlySet<string>;
+  private readonly user: NestrixUserFunction | undefined;
 
   constructor(
     options: ResolvedOptions,
@@ -259,6 +312,7 @@ export class HttpServerInstrumentation {
       options.http.responseHeaders,
     );
     this.queryKeys = buildRedactedQueryKeys(options.http.redactQueryKeys);
+    this.user = options.user;
   }
 
   /**
@@ -395,12 +449,14 @@ export class HttpServerInstrumentation {
       typeof (res as RawResponse).getHeaders === "function"
         ? (res as RawResponse)
         : rawRes;
+    // The `user` function gets the request object the adapter passed to the hook (Fastify's
+    // `FastifyRequest`, not its `raw`): that is the object guards see and set `user` on.
     rawRes.once("close", () =>
-      this.finish(state, rawReq, rawRes, responseHeadersSource),
+      this.finish(state, rawReq, rawRes, responseHeadersSource, req),
     );
     if (rawRes.closed === true) {
       // Already closed before the hook ran: `close` will not come again.
-      this.finish(state, rawReq, rawRes, responseHeadersSource);
+      this.finish(state, rawReq, rawRes, responseHeadersSource, req);
     }
     return trace.setSpan(parent, span).setValue(REQUEST_STATE_KEY, state);
   }
@@ -494,6 +550,46 @@ export class HttpServerInstrumentation {
     }
   }
 
+  /**
+   * The `user` option (P3-03): called only for a recording span, once (the caller runs once per
+   * span), before the span ends. A throw, an invalid result or a returned promise records nothing
+   * and is counted; a returned promise's rejection is handled so it never reaches
+   * `unhandledRejection`. Its own guard, so a failure here leaves the rest of `finish` untouched.
+   */
+  private recordUser(span: Span, request: unknown): void {
+    const user = this.user;
+    if (user === undefined) return;
+    try {
+      maybeFault("user");
+      if (!span.isRecording()) return;
+      const value: unknown = user(request);
+      const id = userIdOf(value);
+      if (id === false) {
+        if (
+          value !== null &&
+          typeof value === "object" &&
+          typeof (value as { then?: unknown }).then === "function"
+        ) {
+          try {
+            (value as PromiseLike<unknown>).then(undefined, () => undefined);
+          } catch {
+            // A thenable whose `then` throws: nothing pending to handle.
+          }
+        }
+        this.diagnostics.countFailure(
+          "http.user",
+          new TypeError(
+            `the user option returned ${kindOf(value)}; expected a string, a number or undefined`,
+          ),
+        );
+        return;
+      }
+      if (id !== undefined) span.setAttribute(ATTR_USER_ID, id);
+    } catch (error) {
+      this.diagnostics.countFailure("http.user", error);
+    }
+  }
+
   private isIgnored(path: string): boolean {
     for (const matcher of this.ignore) {
       try {
@@ -514,6 +610,7 @@ export class HttpServerInstrumentation {
     rawReq: RawRequest,
     rawRes: RawResponse,
     headersSource: RawResponse,
+    request?: unknown,
   ): void {
     try {
       maybeFault("close-listener");
@@ -580,6 +677,7 @@ export class HttpServerInstrumentation {
         );
         span.setStatus({ code: SpanStatusCode.ERROR });
       }
+      if (this.user !== undefined) this.recordUser(span, request);
       span.end();
     } catch (error) {
       this.diagnostics.countFailure("http.close-listener", error);

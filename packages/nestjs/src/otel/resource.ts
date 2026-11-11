@@ -3,48 +3,31 @@ import {
   type Resource,
   resourceFromAttributes,
 } from "@opentelemetry/resources";
-import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
+import {
+  ATTR_SERVICE_NAME,
+  ATTR_SERVICE_VERSION,
+} from "@opentelemetry/semantic-conventions";
+import { parseResourceAttributesEnv } from "./resource-env.js";
 import type { TelemetryConfig } from "./types.js";
 
-/**
- * Parses `OTEL_RESOURCE_ATTRIBUTES` as the specification and `@opentelemetry/resources`
- * 3.1.1's `ResourceAttributesEnvDetector` do: `key=value` pairs separated by commas,
- * percent-decoded, keys and values at most 255 characters. Any error discards the whole
- * value. Returns `undefined` in that case so the caller can say so. Never throws.
- */
-export function parseResourceAttributesEnv(
-  raw: string | undefined,
-): Record<string, string> | undefined {
-  try {
-    const attributes: Record<string, string> = {};
-    if (!raw) return attributes;
-    for (const pair of raw.split(",")) {
-      if (pair.trim() === "") continue;
-      const parts = pair.split("=");
-      if (parts.length !== 2) return undefined;
-      const key = decodeURIComponent((parts[0] as string).trim());
-      const value = decodeURIComponent((parts[1] as string).trim());
-      if (key.length === 0 || key.length > 255 || value.length > 255) {
-        return undefined;
-      }
-      attributes[key] = value;
-    }
-    return attributes;
-  } catch {
-    return undefined;
-  }
-}
+export { parseResourceAttributesEnv };
 
 /**
  * The provider's resource. Precedence, lowest first: the SDK's `defaultResource()`
  * (`service.name` `unknown_service:<argv0>` and `telemetry.sdk.*`), then
- * `OTEL_RESOURCE_ATTRIBUTES`, then `resourceAttributes`, then `serviceName`.
+ * `OTEL_RESOURCE_ATTRIBUTES`, then `resourceAttributes`, then `serviceName` and
+ * `serviceVersion`. `serviceVersion` is already resolved through its whole chain (D-63:
+ * option, `resourceAttributes`, `OTEL_RESOURCE_ATTRIBUTES`, `GIT_SHA`, `npm_package_version`),
+ * so setting it last only re-applies the winner.
  * `Resource.merge(other)` lets `other` win (resources 3.1.1 `ResourceImpl.merge`).
  */
 export function buildResource(
   config: Pick<
     TelemetryConfig,
-    "serviceName" | "resourceAttributes" | "otelResourceAttributes"
+    | "serviceName"
+    | "serviceVersion"
+    | "resourceAttributes"
+    | "otelResourceAttributes"
   >,
   onInvalidEnv?: () => void,
 ): Resource {
@@ -54,6 +37,7 @@ export function buildResource(
     ...config.resourceAttributes,
   };
   if (config.serviceName) own[ATTR_SERVICE_NAME] = config.serviceName;
+  if (config.serviceVersion) own[ATTR_SERVICE_VERSION] = config.serviceVersion;
   return defaultResource()
     .merge(resourceFromAttributes(fromEnv ?? {}))
     .merge(resourceFromAttributes(own));

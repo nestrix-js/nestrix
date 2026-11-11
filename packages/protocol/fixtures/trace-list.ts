@@ -16,6 +16,9 @@ export const traceList = {
       startTimeUnixMs: 1_794_400_000_000.25,
       durationMs: 182.4,
       spanCount: 4,
+      type: "http",
+      release: "1.4.2",
+      user: "u-1842",
       cursor: "c.1794400000000.0af7651916cd43dd8448eb211c80319c",
     },
     {
@@ -29,6 +32,8 @@ export const traceList = {
       startTimeUnixMs: 1_794_399_990_000.5,
       durationMs: 12.8,
       spanCount: 3,
+      type: "http",
+      release: "1.4.2",
       cursor: "c.1794399990000.d4cda95b652f4a1592b449d5929fda1b",
     },
     {
@@ -39,6 +44,8 @@ export const traceList = {
       startTimeUnixMs: 1_794_399_980_000.0,
       durationMs: 2_250.1,
       spanCount: 9,
+      type: "scheduled",
+      release: "1.4.1",
       cursor: "c.1794399980000.6e0c63257de34c926f9efcd91d0ed2b8",
     },
   ],

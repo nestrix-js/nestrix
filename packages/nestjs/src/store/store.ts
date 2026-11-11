@@ -48,6 +48,7 @@ import type {
   TraceListResponse,
   TraceResponse,
   TraceSummary,
+  TraceType,
 } from "./protocol-types.js";
 import {
   buildRecord,
@@ -74,6 +75,12 @@ export interface TraceListQuery {
   readonly minDurationMs?: number | undefined;
   /** Case-insensitive substring of any span name in the trace, or of the route. */
   readonly search?: string | undefined;
+  /** Exact `TraceSummary.type`. */
+  readonly type?: TraceType | undefined;
+  /** Exact `service.version` of the trace's resource. */
+  readonly release?: string | undefined;
+  /** Exact `user.id` of the root span. */
+  readonly user?: string | undefined;
 }
 
 export interface ErrorListQuery {
@@ -201,6 +208,28 @@ interface Page<T> {
 const ATTR_METHOD = "http.request.method";
 const ATTR_ROUTE = "http.route";
 const ATTR_STATUS = "http.response.status_code";
+const ATTR_USER_ID = "user.id";
+const ATTR_SERVICE_VERSION = "service.version";
+/** Set by Nestrix's entry-method spans (P3-02, D-62): `job` or `scheduled`. */
+const ATTR_NESTRIX_ENTRY = "nestrix.entry";
+
+/**
+ * What started a trace, from its root (backlog P3-03): `http` for a server span; `job` for a
+ * consumer span or `nestrix.entry = 'job'`; `scheduled` for `nestrix.entry = 'scheduled'`;
+ * otherwise `other`.
+ */
+export function traceTypeOf(root: SpanRecord): TraceType {
+  if (root.kind === "server") return "http";
+  const entry = root.attributes[ATTR_NESTRIX_ENTRY];
+  if (root.kind === "consumer" || entry === "job") return "job";
+  if (entry === "scheduled") return "scheduled";
+  return "other";
+}
+
+function releaseOf(entry: { resource: Attributes }): string | undefined {
+  const value = entry.resource[ATTR_SERVICE_VERSION];
+  return typeof value === "string" && value !== "" ? value : undefined;
+}
 
 /**
  * The drain runs the user's `redact` hook, which may start spans of its own. Under this
@@ -705,6 +734,7 @@ class Store implements TraceStore {
       startTimeUnixMs: root.startTimeUnixMs,
       durationMs: root.durationMs,
       spanCount: entry.spans.length,
+      type: traceTypeOf(root),
       cursor: this.cursor("t", entry.seq),
     };
     const method = stringAttr(root, ATTR_METHOD);
@@ -713,6 +743,10 @@ class Store implements TraceStore {
     if (route !== undefined) item.route = route;
     const statusCode = statusCodeOf(root);
     if (statusCode !== undefined) item.statusCode = statusCode;
+    const release = releaseOf(entry);
+    if (release !== undefined) item.release = release;
+    const user = stringAttr(root, ATTR_USER_ID);
+    if (user !== undefined) item.user = user;
     return item;
   }
 
@@ -724,6 +758,18 @@ class Store implements TraceStore {
         const root = entry.root as SpanRecord;
         const route = stringAttr(root, ATTR_ROUTE);
         if (query.route !== undefined && route !== query.route) return false;
+        if (query.type !== undefined && traceTypeOf(root) !== query.type) {
+          return false;
+        }
+        if (query.release !== undefined && releaseOf(entry) !== query.release) {
+          return false;
+        }
+        if (
+          query.user !== undefined &&
+          stringAttr(root, ATTR_USER_ID) !== query.user
+        ) {
+          return false;
+        }
         if (
           method !== undefined &&
           stringAttr(root, ATTR_METHOD)?.toUpperCase() !== method

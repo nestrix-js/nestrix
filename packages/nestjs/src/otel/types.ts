@@ -24,6 +24,11 @@ export interface TelemetryQueueConfig {
 export interface TelemetryConfig {
   /** `service.name`. Already resolved from the option and `OTEL_SERVICE_NAME`. */
   readonly serviceName: string | undefined;
+  /**
+   * `service.version`, already resolved through the D-63 chain. Applied to the Nestrix-owned
+   * resource only; a host-owned provider keeps its own resource.
+   */
+  readonly serviceVersion?: string | undefined;
   /** Option-supplied resource attributes. They win over `otelResourceAttributes`. */
   readonly resourceAttributes: Readonly<
     Record<string, string | number | boolean>

@@ -50,6 +50,9 @@ export const requestFilterParsers = {
   status: parseAsStringLiteral(traceListParams.status.values),
   minDurationMs: numberParser(traceListParams.minDurationMs),
   search: stringParser(traceListParams.search),
+  type: parseAsStringLiteral(traceListParams.type.values),
+  release: stringParser(traceListParams.release),
+  user: stringParser(traceListParams.user),
 };
 export type RequestFilters = inferParserType<typeof requestFilterParsers>;
 

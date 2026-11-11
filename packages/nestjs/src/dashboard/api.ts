@@ -24,6 +24,7 @@ import type {
   TraceListResponse,
   TraceParamsSpec,
   TraceResponse,
+  TraceType,
 } from "@nestrix/protocol";
 import type { RouteStatistics } from "../stats/route-stats.js";
 import type { StoreStats, TraceStore } from "../store/store.js";
@@ -41,6 +42,9 @@ export const traceListSpec: TraceListParamsSpec = {
   status: { kind: "enum", values: ["ok", "error", "4xx", "5xx"] },
   minDurationMs: { kind: "number", min: 0, max: 86_400_000 },
   search: { kind: "string", maxLength: 200 },
+  type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
+  release: { kind: "string", maxLength: 128 },
+  user: { kind: "string", maxLength: 256 },
 };
 
 export const errorListSpec: ErrorListParamsSpec = {
@@ -320,6 +324,9 @@ export function tracesHandler(
       status: v.status as "ok" | "error" | "4xx" | "5xx" | undefined,
       minDurationMs: v.minDurationMs as number | undefined,
       search: v.search as string | undefined,
+      type: v.type as TraceType | undefined,
+      release: v.release as string | undefined,
+      user: v.user as string | undefined,
     }) ?? EMPTY_PAGE;
   return ok(body);
 }

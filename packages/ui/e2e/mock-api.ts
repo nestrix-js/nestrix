@@ -83,6 +83,9 @@ export class MockApi {
         startTimeUnixMs: Date.now() - 1000 + seq,
         durationMs: 5 + ((seq * 7) % 300),
         spanCount: 1 + (seq % 5),
+        type: "http",
+        release: seq % 2 === 0 ? "1.4.2" : "1.4.1",
+        ...(seq % 3 === 0 ? { user: `u-${seq % 10}` } : {}),
         cursor: this.cursor(seq),
       });
     }
@@ -246,6 +249,9 @@ export class MockApi {
         (status === "4xx" && code >= 400 && code < 500) ||
         (status === "5xx" && code >= 500)) &&
       item.durationMs >= Number(q.get("minDurationMs") ?? 0) &&
+      (!q.get("type") || item.type === q.get("type")) &&
+      (!q.get("release") || item.release === q.get("release")) &&
+      (!q.get("user") || item.user === q.get("user")) &&
       (!search ||
         item.name.toLowerCase().includes(search) ||
         (item.route ?? "").toLowerCase().includes(search))
@@ -262,6 +268,9 @@ export class MockApi {
       "status",
       "minDurationMs",
       "search",
+      "type",
+      "release",
+      "user",
     ]);
     for (const key of q.keys())
       if (!known.has(key))
