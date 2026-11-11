@@ -14,6 +14,8 @@ import type {
   ApiError,
   ApiErrorCode,
   ApiWarning,
+  ClassStatsParamsSpec,
+  ClassStatsResponse,
   ErrorListParamsSpec,
   ErrorListResponse,
   MetaResponse,
@@ -25,6 +27,11 @@ import type {
   TraceParamsSpec,
   TraceResponse,
 } from "@nestrix/protocol";
+import {
+  type ClassStatistics,
+  methodsEnabledStub,
+  ownAverages,
+} from "../stats/class-stats.js";
 import type { RouteStatistics } from "../stats/route-stats.js";
 import type { StoreStats, TraceStore } from "../store/store.js";
 import { type DashboardResponse, JSON_TYPE } from "./respond.js";
@@ -51,6 +58,16 @@ export const errorListSpec: ErrorListParamsSpec = {
 };
 
 export const routeStatsSpec: RouteStatsParamsSpec = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+};
+
+export const classStatsSpec: ClassStatsParamsSpec = {
   windowMinutes: {
     kind: "int",
     min: 15,
@@ -208,6 +225,8 @@ function ok(body: unknown): DashboardResponse {
 export interface ApiSources {
   readonly store: TraceStore | undefined;
   readonly stats: RouteStatistics;
+  /** Per-class statistics, recorded by the method call sink (phase 3). */
+  readonly classes: ClassStatistics;
   /** Static parts of `meta`, computed at mount. */
   readonly service: MetaResponse["service"];
   readonly sampling: MetaResponse["sampling"];
@@ -368,6 +387,32 @@ export function routesHandler(
   const body: RouteStatsResponse = sources.stats.query(
     parsed.values.windowMinutes as number,
     now,
+  );
+  return ok(body);
+}
+
+export function classesHandler(
+  target: unknown,
+  sources: ApiSources,
+  now?: number,
+): DashboardResponse {
+  const parsed = parseQuery(target, classStatsSpec);
+  if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
+  const windowMinutes = parsed.values.windowMinutes as number;
+  const at = now ?? Date.now();
+  const store = sources.store;
+  const own =
+    store === undefined
+      ? undefined
+      : ownAverages(
+          (visit) => store.scanTraces(visit),
+          (Math.floor(at / 60_000) - windowMinutes + 1) * 60_000,
+        );
+  const body: ClassStatsResponse = sources.classes.query(
+    windowMinutes,
+    methodsEnabledStub(sources.classes),
+    own,
+    at,
   );
   return ok(body);
 }

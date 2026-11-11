@@ -136,6 +136,11 @@ export interface TraceStore {
   /** All stored spans of a trace, by start time; `undefined` when not stored. */
   getTrace(traceId: string): TraceResponse | undefined;
   listErrors(query: ErrorListQuery): ErrorListResponse;
+  /**
+   * Calls `visit` with the stored spans of each trace held (oldest first). The array is the
+   * store's own: read it, do not keep or change it. Never throws; a fault in `visit` stops the scan.
+   */
+  scanTraces(visit: (spans: readonly SpanRecord[]) => void): void;
   stats(): StoreStats;
 }
 
@@ -869,6 +874,14 @@ class Store implements TraceStore {
     } catch (error) {
       this.diagnostics.countFailure("store.query", error);
       return { items: [], head: null, older: null, reset: true };
+    }
+  }
+
+  scanTraces(visit: (spans: readonly SpanRecord[]) => void): void {
+    try {
+      for (const entry of this.traces.values()) visit(entry.spans);
+    } catch (error) {
+      this.diagnostics.countFailure("store.query", error);
     }
   }
 
