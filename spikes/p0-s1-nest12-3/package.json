@@ -1,0 +1,26 @@
+{
+  "name": "@nestrix/spike-p0-s1-nest12-3",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Spike P0-S1 question 9: the P0-S1 tests re-run against Nest 12.3.0, the first release with @nestjs/platform-node. Never published.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nestjs/common": "12.3.0",
+    "@nestjs/core": "12.3.0",
+    "@nestjs/microservices": "12.3.0",
+    "@nestjs/platform-express": "12.3.0",
+    "@nestjs/platform-fastify": "12.3.0",
+    "@nestjs/platform-node": "12.3.0",
+    "@nestjs/testing": "12.3.0",
+    "express-esm": "workspace:*",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6"
+  }
+}

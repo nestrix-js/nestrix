@@ -26,6 +26,9 @@
       "path": "examples/express-cjs"
     },
     {
+      "path": "spikes/p0-s1"
+    },
+    {
       "path": "spikes/p0-s5"
     }
   ]
