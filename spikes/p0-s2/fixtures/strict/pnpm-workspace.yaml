@@ -1,0 +1,10 @@
+# Isolated pnpm workspace (its own root, not part of the repository workspace), default
+# pnpm layout: strict, symlinked node_modules, hoisting into node_modules/.pnpm/node_modules.
+packages:
+  - app
+# The nested-copy case: MikroORM pins pg 8.23.1 as a dependency; force its copy to an
+# older version so it can no longer share the app's pg.
+overrides:
+  "@mikro-orm/postgresql>pg": "8.20.0"
+# Prisma's postinstall scripts are not needed for `prisma generate` with driver adapters.
+strictDepBuilds: false

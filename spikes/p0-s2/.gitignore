@@ -1,0 +1,15 @@
+# Written by scripts/containers.mjs
+.db.json
+# Built by scripts/install-fixtures.mjs
+fixtures/standin.tgz
+fixtures/standin/lib/
+fixtures/*/pnpm-lock.yaml
+fixtures/*/app/generated/
+fixtures/*/app/generated-js/
+# Copied from fixtures/strict/app by scripts/install-fixtures.mjs
+fixtures/nopg/app/orm.*
+fixtures/nopg/app/prisma/
+fixtures/nopg/app/tsconfig.prisma.json
+fixtures/nopg-nohoist/app/
+# Node binaries from scripts/fetch-node.mjs
+.node/

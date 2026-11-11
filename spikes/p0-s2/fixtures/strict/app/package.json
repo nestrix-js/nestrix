@@ -1,0 +1,20 @@
+{
+  "name": "s2-app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@mikro-orm/core": "7.2.8",
+    "@mikro-orm/postgresql": "7.2.8",
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "drizzle-orm": "0.45.4",
+    "nestrix-standin": "file:../../standin.tgz",
+    "pg": "8.23.1",
+    "typeorm": "1.1.2"
+  },
+  "devDependencies": {
+    "prisma": "7.10.1",
+    "typescript": "6.0.3"
+  }
+}
