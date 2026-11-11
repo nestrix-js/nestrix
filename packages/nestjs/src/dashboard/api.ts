@@ -255,7 +255,14 @@ export interface ApiSources {
   readonly ignoresRoutes: boolean;
   /** Used for `processId` when there is no store. */
   readonly fallbackProcessId: string;
+  /** `meta.profiler` (P7-02); `{ available: false, running: false }` when absent. */
+  readonly profiler?: () => MetaResponse["profiler"];
 }
+
+const NO_PROFILER: MetaResponse["profiler"] = Object.freeze({
+  available: false,
+  running: false,
+});
 
 /** True when a `service` filter excludes this application (it names another service). */
 function otherService(v: Values, sources: ApiSources): boolean {
@@ -343,6 +350,7 @@ export function metaHandler(
     },
     warnings: warningsFor(sources, store.receivedSpans),
     mode: "embedded",
+    profiler: { ...(sources.profiler?.() ?? NO_PROFILER) },
   };
   return ok(body);
 }

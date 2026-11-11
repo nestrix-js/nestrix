@@ -1,6 +1,6 @@
 # Dashboard
 
-With `@nestrix/ui` installed, `NestrixModule` serves a read-only dashboard from inside your app, at `/_nestrix` by default. It works on Express, Fastify and `@nestjs/platform-node`. It shows only what this process has seen since it started: nothing is written to disk and nothing is sent anywhere.
+With `@nestrix/ui` installed, `NestrixModule` serves a dashboard from inside your app, at `/_nestrix` by default. Apart from starting a [profiler](#profiler) capture it is read-only. It works on Express, Fastify and `@nestjs/platform-node`. It shows only what this process has seen since it started: nothing is written to disk and nothing is sent anywhere.
 
 `@nestrix/ui` is an optional peer dependency. Without it the dashboard is off and Nestrix logs one line with the install command; the app starts normally. An app with no HTTP adapter (`createMicroservice`, `createApplicationContext`) has no dashboard.
 
@@ -21,6 +21,20 @@ The dashboard polls for new data every two seconds.
 **Classes.** One row per class, expandable to its methods: calls, errors, average time, total time and own time (time not spent in the method's children), over the last 15 or 60 minutes. The view is empty until [method spans](/guide/levels#level-2-method-spans) are on, and says so.
 
 **Map.** The app in the centre and what it called: databases (by system, host and database name), Redis as a cache, HTTP hosts and message queues, each with calls, errors, p50 and p95. At most 200 targets are shown; the rest are folded into one `other` node.
+
+## Profiler
+
+The **Profiler** tab takes an on-demand CPU profile of the running process. Pick a duration (the API accepts 1 to 120 seconds, default 30) and start; when the capture ends the dashboard shows a flame graph, the top functions by self time and a `.cpuprofile` download for Chrome DevTools or speedscope. Nothing runs between captures, and nothing is loaded before the first one. One capture runs at a time per process (a second start gets `409`); the last three are kept in memory until the app restarts, and a running capture is discarded when the app closes.
+
+It is offered only where the dashboard is authenticated: `ui: { enabled: true, auth }`, or `'auto'` with the startup token or `auth`. `ui.profiler: false` removes it and its routes. How a start is protected is on the [Security model](/guide/security#starting-a-cpu-capture) page.
+
+| | |
+|---|---|
+| Start pause | Starting a capture pauses the app while V8 records its compiled code: about 10 ms per MB of code, 40 to 50 ms in a small Nest app, a few hundred milliseconds in a large one. The dashboard shows the last measured pause before you start. Stopping takes a few milliseconds. |
+| Cost while capturing | No throughput difference our benchmark could resolve (under about 5% on a trivial route). |
+| Size | About 0.3 MB for 30 seconds and 1 MB for 2 minutes, more with many distinct call stacks. |
+| Coverage | JavaScript on the main thread only; worker threads are not included. Lines are those of the running JavaScript: source maps are not applied. |
+| Inlining | A function V8 inlined can appear under its caller instead of on its own, more often after the first capture in a process. |
 
 ## Sampling notes
 

@@ -121,7 +121,7 @@ Nestrix registers its OpenTelemetry globals during `NestFactory.create`, never a
 
 ## Dashboard
 
-With `@nestrix/ui` installed, `NestrixModule` serves a read-only dashboard from inside your app, at `/_nestrix` by default: recent requests, one request's spans as a waterfall, errors, per-route request counts, error rates and latency percentiles, a [classes view and an app map](#classes-view-and-app-map). It polls for new data every two seconds. It works on Express, Fastify and `@nestjs/platform-node`. It shows only what this process has seen since it started; nothing is written to disk and nothing is sent anywhere.
+With `@nestrix/ui` installed, `NestrixModule` serves a dashboard from inside your app, at `/_nestrix` by default: recent requests, one request's spans as a waterfall, errors, per-route request counts, error rates and latency percentiles, a [classes view and an app map](#classes-view-and-app-map), and an on-demand CPU [profiler](#profiler). Apart from starting a profiler capture it is read-only. It polls for new data every two seconds. It works on Express, Fastify and `@nestjs/platform-node`. It shows only what this process has seen since it started; nothing is written to disk and nothing is sent anywhere.
 
 ```bash
 pnpm add @nestrix/ui
@@ -276,6 +276,21 @@ Both depend on other parts of Nestrix and say so when their data is missing.
 
 **Map.** The app in the centre and what it called: databases (by system, host and database name), Redis as a cache, HTTP hosts and message queues, each with calls, errors, p50 and p95 over the last 15 or 60 minutes. It is built from the **sampled** traces in the store, so its counts are proportional to `sampleRate` (the dashboard says so). It shows at most 200 targets; the rest are folded into one `other` node.
 
+### Profiler
+
+The **Profiler** tab takes an on-demand CPU profile of the running process: pick a duration (10 seconds to 2 minutes; the API accepts 1 to 120 seconds, default 30), start, and when it ends you get a flame graph, the top functions by self time and a `.cpuprofile` download that Chrome DevTools and speedscope open. Nothing runs between captures, and nothing is loaded until the first one. One capture runs at a time per process (a second start gets `409`), and the last three are kept in memory until the app restarts. A running capture is discarded when the app closes.
+
+It is offered only where the dashboard is authenticated: `ui: { enabled: true, auth }`, or `'auto'` with the startup token (the default) or `auth`. `'auto'` with `startupToken: false` and no `auth` has no profiler. `ui.profiler: false` removes it everywhere; its routes are then not registered.
+
+What to expect:
+
+- **Starting a capture pauses the app** while V8 records the code it has compiled: about 10 ms per MB of compiled code, 40 to 50 ms in a small Nest app, a few hundred milliseconds in a large one. Requests arriving meanwhile wait. The dashboard shows the pause the last capture measured before you start another. Stopping takes a few milliseconds. During a capture, throughput showed no difference that our benchmark could resolve (under about 5%).
+- **JavaScript on the main thread only.** Worker threads are not included, and lines are those of the JavaScript that ran: source maps are not applied.
+- **Inlined functions can appear under their caller,** more often after the first capture in a process. This is how V8's profiler works.
+- A 30-second capture is about 0.3 MB and a 2-minute one about 1 MB, more in an app with many distinct call stacks.
+
+Starting a capture is the dashboard's only request that changes anything, so besides dashboard access it needs a same-origin request from the dashboard page itself: `Sec-Fetch-Site: same-origin`, an `Origin` equal to the server's own origin, a JSON body with `Content-Type: application/json` and a `Content-Length` of at most 1 KB. Browsers send all of this; another site cannot. Behind a reverse proxy, the proxy must pass the original `Host` header (nginx: `proxy_set_header Host $host;`), or the `Origin` check refuses the start. Reading profiles and downloading them follow the same rules as the rest of the dashboard.
+
 ### When something else answers first (shadowing)
 
 A host route can answer a request under the dashboard path before Nestrix's route sees it: a catch-all route on Express, or `@nestjs/serve-static`'s fallback on Express and platform-node. Nest has no public route table, so Nestrix detects it passively: the first time a `GET` or `HEAD` under the dashboard path is answered, with a status other than 404, without a dashboard handler having run, it logs one line per process.
@@ -287,7 +302,7 @@ The line appears only after someone opens the dashboard, which is when it matter
 
 ### Cross-origin pages and CORS
 
-The dashboard never sends CORS allow headers, whatever your CORS setup. Preflight (`OPTIONS`) requests, though, are answered by your CORS layer, not Nestrix, with your allow headers. So a page on another origin could send a request to the dashboard but could not read the answer, and in `'auto'` mode the cookie is `SameSite=Strict`. The API is read-only, so this is a known limit and not a hole; it would need its own protection if the dashboard ever gained an endpoint that changes state.
+The dashboard never sends CORS allow headers, whatever your CORS setup. Preflight (`OPTIONS`) requests, though, are answered by your CORS layer, not Nestrix, with your allow headers. So a page on another origin could send a request to the dashboard but could not read the answer, and in `'auto'` mode the cookie is `SameSite=Strict`. For the read-only routes this is a known limit and not a hole. The one route that changes state, starting a [profiler](#profiler) capture, has its own protection: it refuses any request that is not same-origin, whatever the preflight answered.
 
 ### Memory and the `store` option
 
@@ -495,6 +510,7 @@ A hook for the spans Nestrix exports and the spans the dashboard stores. See [Pr
 | `ui.path` | `'/_nestrix'` | Where the dashboard is served, outside the global prefix and versioning. Starts with `/`; characters `A-Z a-z 0-9 . _ ~ / -`; not `/`, no empty, `.` or `..` segment. |
 | `ui.auth` | none | `{ token }` (at least 32 characters; `Authorization: Bearer`, or the `<path>/auth?token=` link once per browser) or `{ authorize(request) }` (async allowed; the raw request, before any Nest guard; only `true` allows). Required when `enabled` is `true`. With `'auto'` it applies in addition to the local-only rules. |
 | `ui.startupToken` | `true` | `'auto'` mode only. `false` drops the startup token check and its log link; a same-host reverse proxy then exposes the dashboard when `NODE_ENV` is unset. |
+| `ui.profiler` | `true` | The on-demand CPU [profiler](#profiler). Offered only where the dashboard is authenticated (`enabled: true`, or `'auto'` with the startup token or `auth`). `false` removes it and its routes. |
 
 An invalid `ui` value (wrong type, bad path, short token, both `token` and `authorize`) turns the dashboard off and logs an error; it does not throw.
 

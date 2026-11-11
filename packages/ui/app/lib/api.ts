@@ -4,6 +4,10 @@ import type {
   ClassStatsResponse,
   ErrorListResponse,
   MetaResponse,
+  ProfileDetail,
+  ProfileListResponse,
+  ProfileStartRequest,
+  ProfileStartResponse,
   RouteStatsResponse,
   Slo,
   SloCreate,
@@ -137,6 +141,19 @@ export const getClasses = (params: QueryParams = {}) =>
   getJson<ClassStatsResponse>("classes", params);
 export const getMap = (params: QueryParams = {}) =>
   getJson<AppMapResponse>("map", params);
+
+// CPU profiler: the embedded dashboard only, when `meta.profiler.available` (`/api/v1/profiles`).
+export const getProfiles = () => getJson<ProfileListResponse>("profiles");
+export const getProfile = (id: string) =>
+  getJson<ProfileDetail>(`profiles/${encodeURIComponent(id)}`);
+/** Starts a capture with `fetch` (the page's CSP has `form-action 'none'`); the browser adds `Origin`. */
+export const startProfile = (durationSeconds: number) =>
+  requestJson<ProfileStartResponse>("POST", "profiles", undefined, {
+    durationSeconds,
+  } satisfies ProfileStartRequest);
+/** The `.cpuprofile` download, a plain link: the session cookie authenticates it. */
+export const profileDownloadUrl = (id: string) =>
+  apiUrl(`profiles/${encodeURIComponent(id)}/download`);
 
 // SLOs: the standalone server only (`/api/v1/slos`).
 export const getSlos = () => getJson<SloListResponse>("slos");

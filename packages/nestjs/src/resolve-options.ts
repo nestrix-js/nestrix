@@ -127,7 +127,7 @@ export type UiOffReason =
   | "node-env"
   /** `ui.enabled: true` without `ui.auth`. */
   | "missing-auth"
-  /** A `ui` value of the wrong shape: path, auth, token length, `enabled`, `startupToken`. */
+  /** A `ui` value of the wrong shape: path, auth, token length, `enabled`, `startupToken`, `profiler`. */
   | "invalid";
 
 export interface ResolvedUiOff {
@@ -147,6 +147,11 @@ export interface ResolvedUiAuto {
   readonly startupToken: boolean;
   /** Checked in addition to the local-only rules, when given. */
   readonly auth: ResolvedUiAuth | undefined;
+  /**
+   * Whether the CPU profiler is offered (P7-02): `ui.profiler` is not `false` and the dashboard is
+   * authenticated, by the startup token or by `auth`.
+   */
+  readonly profiler: boolean;
 }
 
 export interface ResolvedUiEnabled {
@@ -154,6 +159,8 @@ export interface ResolvedUiEnabled {
   readonly path: string;
   /** Always present: `enabled: true` without `auth` resolves to off. */
   readonly auth: ResolvedUiAuth;
+  /** Whether the CPU profiler is offered (P7-02): `ui.profiler` is not `false`. */
+  readonly profiler: boolean;
 }
 
 /** The dashboard mode as far as options and `NODE_ENV` decide it (backlog P2, "Mode resolution"). */
@@ -433,6 +440,7 @@ function resolveUiUnguarded(ui: unknown, env: Environment): ResolvedUi {
     path?: unknown;
     auth?: unknown;
     startupToken?: unknown;
+    profiler?: unknown;
   };
   if (ui === undefined || ui === "auto") o = {};
   else if (ui !== null && typeof ui === "object") o = ui;
@@ -458,6 +466,10 @@ function resolveUiUnguarded(ui: unknown, env: Environment): ResolvedUi {
   if (typeof startupToken !== "boolean") {
     return uiInvalid("ui.startupToken must be a boolean");
   }
+  const profiler = o.profiler === undefined ? true : o.profiler;
+  if (typeof profiler !== "boolean") {
+    return uiInvalid("ui.profiler must be a boolean");
+  }
 
   if (enabled === true) {
     if (!auth.auth) {
@@ -467,7 +479,12 @@ function resolveUiUnguarded(ui: unknown, env: Environment): ResolvedUi {
         "Nestrix dashboard: off. ui.enabled is true but ui.auth is missing; set ui.auth to { token } (at least 32 characters) or { authorize(request) }. The application starts without the dashboard.",
       );
     }
-    return Object.freeze({ mode: "enabled", path: path.path, auth: auth.auth });
+    return Object.freeze({
+      mode: "enabled",
+      path: path.path,
+      auth: auth.auth,
+      profiler,
+    });
   }
 
   // 'auto': only `development` or unset. An empty string is set, and is not `development`.
@@ -484,6 +501,9 @@ function resolveUiUnguarded(ui: unknown, env: Environment): ResolvedUi {
     path: path.path,
     startupToken,
     auth: auth.auth,
+    // Starting a capture changes state, so it needs a positive authentication (P7-02): the
+    // startup token or `auth`. `startupToken: false` without `auth` keeps the read-only dashboard.
+    profiler: profiler && (startupToken || auth.auth !== undefined),
   });
 }
 

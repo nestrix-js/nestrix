@@ -28,6 +28,7 @@ import { markDashboardHandlerReached } from "../http/request-state.js";
 import type { AdapterHostLike, DashboardHookConfig } from "../http/server.js";
 import { setMethodCallSink } from "../methods/sink.js";
 import type { TelemetryHandle } from "../otel/types.js";
+import { getProfiler } from "../profiler/profiler.js";
 import type {
   ResolvedOptions,
   ResolvedUiAuto,
@@ -51,11 +52,21 @@ import {
   mapHandler,
   metaHandler,
   PROTOCOL_VERSION,
+  parseQuery,
   routesHandler,
   traceHandler,
   tracesHandler,
 } from "./api.js";
 import { loadUi, renderIndex, type UiBundle, uiPackage } from "./assets.js";
+import {
+  checkStartHeaders,
+  listProfiles,
+  parseStartBody,
+  profileDetail,
+  profileDownload,
+  readStartBody,
+  startCapture,
+} from "./profiles.js";
 import {
   type DashboardResponse,
   HTML_TYPE,
@@ -157,6 +168,8 @@ function raceTimeout<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
 /** The parts of an HTTP adapter the dashboard calls. */
 interface RoutableAdapter {
   get(path: string, handler: (req: unknown, res: unknown) => void): unknown;
+  /** The profiler's start route only (P7-02). */
+  post?(path: string, handler: (req: unknown, res: unknown) => void): unknown;
   getHttpServer?(): unknown;
 }
 
@@ -233,6 +246,8 @@ export class Dashboard {
   private listenSubscription: { unsubscribe(): void } | undefined;
   private graceTimer: ReturnType<typeof setTimeout> | undefined;
   private disposed = false;
+  /** The profiler routes are registered (P7-02): `ui.profiler` resolved true and `post` exists. */
+  private profilerOn = false;
 
   constructor(
     readonly ui: ActiveUi,
@@ -306,6 +321,7 @@ export class Dashboard {
         hostOwnsProvider: telemetry?.ownsProvider !== true,
         ignoresRoutes: this.options.ignore.paths.length > 0,
         fallbackProcessId: randomBytes(8).toString("hex"),
+        profiler: () => getProfiler().meta(this.profilerOn),
       };
       this.register(adapter, bundle);
       this.removeSink = setMethodCallSink(this.classStats);
@@ -318,6 +334,12 @@ export class Dashboard {
   /** `onApplicationShutdown`. Never throws. */
   dispose(): void {
     this.disposed = true;
+    try {
+      // A capture this app started is discarded, not kept (D-70).
+      getProfiler().discard(this);
+    } catch (error) {
+      this.diagnostics.countFailure("dashboard.dispose", error);
+    }
     try {
       this.removeSink?.();
     } catch (error) {
@@ -385,6 +407,27 @@ export class Dashboard {
       ],
       [`${api}/map`, this.handler("api", (t) => mapHandler(t, sources()))],
     );
+    // The profiler (P7-02): registered only where it is offered, so `ui.profiler: false` or an
+    // unauthenticated dashboard has no such route at all.
+    const profilerRoutes =
+      this.ui.profiler && typeof adapter.post === "function";
+    if (profilerRoutes) {
+      const profiler = getProfiler();
+      routes.push(
+        [
+          `${api}/profiles`,
+          this.handler("api", (t) => listProfiles(t, profiler)),
+        ],
+        [
+          `${api}/profiles/:id`,
+          this.handler("api", (t) => profileDetail(t, profiler)),
+        ],
+        [
+          `${api}/profiles/:id/download`,
+          this.handler("api", (t) => profileDownload(t, profiler)),
+        ],
+      );
+    }
     for (const [route, handler] of routes) {
       try {
         adapter.get(route, handler);
@@ -394,6 +437,39 @@ export class Dashboard {
         this.diagnostics.countFailure("dashboard.register", error);
       }
     }
+    if (profilerRoutes) {
+      try {
+        adapter.post?.(`${api}/profiles`, this.startHandler());
+        this.profilerOn = true;
+      } catch (error) {
+        this.diagnostics.countFailure("dashboard.register", error);
+      }
+    }
+  }
+
+  /**
+   * `POST <path>/api/v1/profiles` (P7-02): read access first, as every route (a refusal there is
+   * the bare 404 or the 403 page, revealing nothing), then the write rules of `profiles.ts`, then
+   * the capture. Synchronous, returns nothing, never throws.
+   */
+  private startHandler(): (req: unknown, res: unknown) => void {
+    return (req, res) =>
+      this.run(req, res, "api", async (request) => {
+        const decision = await this.decide(request);
+        if (decision.outcome === "deny") return DENIED;
+        if (decision.outcome === "need-token") return needToken("api");
+        maybeFault("handler");
+        const raw = rawRequestOf(request);
+        const query = parseQuery(raw?.url, {});
+        if (!query.ok) return apiError(400, "bad_request", query.message);
+        const refused = checkStartHeaders(raw);
+        if (refused !== undefined) return refused;
+        const body = await readStartBody(request, raw);
+        if (!body.ok) return body.response;
+        const parsed = parseStartBody(body.value);
+        if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
+        return startCapture(getProfiler(), this, parsed.durationSeconds);
+      });
   }
 
   private decide(request: unknown): Promise<AccessDecision> {

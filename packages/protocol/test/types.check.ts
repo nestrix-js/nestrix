@@ -4,6 +4,8 @@
  */
 import type {
   ErrorListParamsSpec,
+  ProfileIdParamsSpec,
+  ProfileStartBodySpec,
   RouteStatsParamsSpec,
   TraceListParamsSpec,
   TraceParamsSpec,
@@ -100,4 +102,16 @@ export const driftedDefault: RouteStatsParamsSpec = {
     // @ts-expect-error default 60 is not 15
     default: 60,
   },
+};
+
+// The profiler's body spec and path-segment spec (P7-02), as @nestrix/nestjs copies them.
+export const matchingProfileStart: ProfileStartBodySpec = {
+  durationSeconds: { kind: "int", min: 1, max: 120, default: 30 },
+};
+export const matchingProfileId: ProfileIdParamsSpec = {
+  id: { kind: "string", maxLength: 16, pattern: "^[0-9a-f]{16}$" },
+};
+export const driftedProfileMax: ProfileStartBodySpec = {
+  // @ts-expect-error max 300 is not max 120
+  durationSeconds: { kind: "int", min: 1, max: 300, default: 30 },
 };

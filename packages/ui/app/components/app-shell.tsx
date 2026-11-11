@@ -20,6 +20,8 @@ const nav = [
 ] as const;
 // Needs the standalone server's stored history.
 const sloNav = { to: "/slos", label: "SLOs" } as const;
+// Embedded dashboard only, when `meta.profiler.available`.
+const profilerNav = { to: "/profiler", label: "Profiler" } as const;
 
 type Connection = "connecting" | "live" | "paused" | "disconnected";
 
@@ -49,6 +51,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const serviceName = meta.data?.service.name ?? readConfig().service;
   const notice = meta.data ? samplingNotice(meta.data.sampling) : null;
   const standalone = meta.data?.mode === "standalone";
+  const profilerOn = meta.data?.profiler?.available === true;
   const services = meta.data?.services ?? [];
   const [selected, setSelected] = useService();
   // Links keep the chosen service: the hash holds it, and a plain link would drop it.
@@ -139,7 +142,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           aria-label="Sections"
           className="mx-auto flex max-w-6xl gap-1 px-4"
         >
-          {(standalone ? [...nav, sloNav] : nav).map((item) => (
+          {[
+            ...nav,
+            ...(profilerOn ? [profilerNav] : []),
+            ...(standalone ? [sloNav] : []),
+          ].map((item) => (
             <Link
               key={item.to}
               to={`${item.to}${keep}` as typeof item.to}

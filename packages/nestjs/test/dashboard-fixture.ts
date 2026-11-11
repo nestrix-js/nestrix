@@ -96,6 +96,8 @@ export interface DashboardAppOptions {
   listen?: boolean;
   /** Runs after the host layers above, before `init()`/`listen()`. */
   configure?: (app: INestApplication) => void;
+  /** `false`: Nest registers no body parser (the raw request stream is left unread). */
+  bodyParser?: false;
 }
 
 export interface DashboardApp {
@@ -145,13 +147,17 @@ export async function bootDashboardApp(
   const root = dashboardRoot(o);
   const adapter = await createAdapter(o.adapter);
   let app: INestApplication;
+  const appOptions = {
+    logger: false as const,
+    ...(o.bodyParser === false ? { bodyParser: false } : {}),
+  };
   if (o.testing) {
     const moduleRef = await Test.createTestingModule({
       imports: [root],
     }).compile();
-    app = moduleRef.createNestApplication(adapter as never, { logger: false });
+    app = moduleRef.createNestApplication(adapter as never, appOptions);
   } else {
-    app = await NestFactory.create(root, adapter as never, { logger: false });
+    app = await NestFactory.create(root, adapter as never, appOptions);
   }
   if (o.prefixAndVersioning) {
     app.setGlobalPrefix("api");

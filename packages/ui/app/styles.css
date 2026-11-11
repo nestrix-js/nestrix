@@ -27,6 +27,9 @@
   --color-warning: var(--warning);
   --color-border: var(--border);
   --color-ring: var(--ring);
+  --color-flame-app: var(--flame-app);
+  --color-flame-deps: var(--flame-deps);
+  --color-flame-runtime: var(--flame-runtime);
 }
 
 :root {
@@ -46,6 +49,11 @@
   --chart-1: oklch(0.55 0.2 260);
   --chart-2: oklch(0.65 0.17 150);
   --chart-3: oklch(0.577 0.245 27.325);
+  /* Flame graph: where the code lives (app, node_modules, Node.js and V8). The dataviz reference
+     palette's first three slots, validated all-pairs in both modes. */
+  --flame-app: #2a78d6;
+  --flame-deps: #eb6834;
+  --flame-runtime: #1baf7a;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -64,6 +72,9 @@
     --chart-1: oklch(0.72 0.15 255);
     --chart-2: oklch(0.75 0.16 150);
     --chart-3: oklch(0.7 0.19 25);
+    --flame-app: #3987e5;
+    --flame-deps: #d95926;
+    --flame-runtime: #199e70;
   }
 }
 
