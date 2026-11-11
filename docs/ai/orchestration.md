@@ -33,6 +33,15 @@ Default to the cheapest tier that can do the task well. Two checks before choosi
 
 Do the work yourself when it is a handful of tool calls, or when explaining it would take longer than doing it. Do not spawn an agent to look up one fact.
 
+### Keeping Opus for where it pays (owner, 2026-11-11)
+
+In phase 1, `architect` agents used about 41% of the session's usage. The owner asked for these rules from phase 2 on:
+
+- **Opus builds request-path and security code the first time, and reviews it.** That is where its findings were (a credential leak, a host crash on an async hook, a process that would not exit).
+- **Investigations and measurement go to Sonnet**: profiling, benchmarks, "find out why X uses N MB", reproducing a reported behaviour. Opus is brought in only to design a fix once the cause is known.
+- **Review fix rounds with an exact list go to Sonnet**, even for code Opus wrote: added tests, doc corrections, renames, small fixes whose change the finding already states. Send a fix back to the original Opus agent only when it needs a judgement about the mechanism.
+- **Start each phase in a fresh session.** The backlog, the decision log and `AGENTS.md` carry what a new lead needs; a long session re-reads its whole history on every turn.
+
 When a task fails at one tier, do not retry it at the same tier with the same brief. Either the brief was missing something (fix it) or the task needs the next tier up. Record which in the backlog notes.
 
 ## Writing a brief
