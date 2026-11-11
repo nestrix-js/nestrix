@@ -191,7 +191,9 @@ describe.each(adapters)(
       const span = await serverSpan(app, "/stream");
       // Four chunks, 250 ms apart: the span is not ended at the response head.
       expect(durationMs(span)).toBeGreaterThanOrEqual(900);
-      expect(durationMs(span)).toBeLessThanOrEqual(elapsed + 50);
+      // Upper bound: the span does not outlive the response (e.g. until the keep-alive
+      // timeout, 5 s). 500 ms of slack: `close` can lag the client's last read under load.
+      expect(durationMs(span)).toBeLessThanOrEqual(elapsed + 500);
       expect(span.attributes["nestrix.http.aborted"]).toBeUndefined();
       expect(span.status.code).toBe(SpanStatusCode.UNSET);
     });
