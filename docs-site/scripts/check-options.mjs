@@ -16,7 +16,7 @@ const page = readFileSync(pagePath, "utf8");
 // Property declarations at interface-member indentation: `  name?: type;`, `  readonly name: type;`.
 const names = new Set();
 for (const match of source.matchAll(
-  /^ {2}(?:readonly )?([A-Za-z_]\w*)\??:/gm,
+  /^ {2}(?:readonly )?([A-Za-z_]\w*)\??(?::|\()/gm,
 )) {
   names.add(match[1]);
 }
