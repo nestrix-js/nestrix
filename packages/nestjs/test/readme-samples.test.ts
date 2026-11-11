@@ -73,6 +73,14 @@ const OPTIONS = [
   "http.responseHeaders",
   "http.redactQueryKeys",
   "redact",
+  "ui",
+  "ui.enabled",
+  "ui.path",
+  "ui.auth",
+  "ui.startupToken",
+  "store",
+  "store.maxTraces",
+  "store.maxBytes",
 ];
 
 describe("README options", () => {

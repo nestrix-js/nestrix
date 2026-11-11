@@ -2,12 +2,13 @@
 
 Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app produces a server span per request, outgoing HTTP spans, and your own spans, exported over OTLP to whatever backend you run (Jaeger, Tempo, an OpenTelemetry Collector, a vendor that accepts OTLP).
 
-> **Status: 0.1.0-alpha, headless tracing only.** The dashboard, the `instrument` hook for controller, guard and job spans, library spans (`pg`, `mysql2`, `ioredis`) and microservice spans come in later releases. Option names may still change before 1.0.
+> **Status: 0.1.0-alpha.** Tracing with OTLP export, and an embedded dashboard served by your own app. The `instrument` hook for controller, guard and job spans, library spans (`pg`, `mysql2`, `ioredis`) and microservice spans come in later releases. Option names may still change before 1.0.
 
 ## Contents
 
 - [Install](#install)
 - [Quick start](#quick-start)
+- [Dashboard](#dashboard)
 - [Options](#options)
 - [Environment variables](#environment-variables)
 - [What is traced](#what-is-traced)
@@ -27,6 +28,12 @@ pnpm add @nestrix/nestjs @opentelemetry/api@~1.10.0
 ```
 
 `@opentelemetry/api` is a peer dependency, so your app and Nestrix share one copy. Nestrix needs NestJS 12, `reflect-metadata` and `rxjs`, which a Nest app already has. `@nestjs/microservices` and `pg` are optional peers that this release does not use yet.
+
+The dashboard is a separate, optional package, installed at the same version as `@nestrix/nestjs`; see [Dashboard](#dashboard).
+
+```bash
+pnpm add @nestrix/ui
+```
 
 The package is ESM-only. A CommonJS Nest 12 app loads it with `require()`; see [CommonJS apps](#commonjs-apps).
 
@@ -96,17 +103,217 @@ With `forRootAsync`, an `enabled: false` returned from the factory disables Nest
 
 ### A host that already runs an OpenTelemetry SDK
 
-If your app registers its own tracer provider before Nestrix starts (that is, before `NestFactory.create` constructs the module), Nestrix does not create an SDK. Its spans go through your provider and your exporters. In that case `serviceName`, `resourceAttributes`, `OTEL_RESOURCE_ATTRIBUTES`, `sampleRate`, every `export.*` option and `redact` are ignored (the resource, sampler, exporters and redaction are your SDK's; see [Privacy](#privacy)), and Nestrix logs one line saying so. `ignore` and `http` still apply. Your SDK must be OpenTelemetry JS SDK 3.
+If your app registers its own tracer provider before Nestrix starts (that is, before `NestFactory.create` constructs the module), Nestrix does not create an SDK. Its spans go through your provider and your exporters. In that case `serviceName`, `resourceAttributes`, `OTEL_RESOURCE_ATTRIBUTES`, `sampleRate`, every `export.*` option and, for what your exporters send, `redact` are ignored (the resource, sampler, exporters and redaction are your SDK's; see [Privacy](#privacy)), and Nestrix logs one line saying so. `ignore`, `http`, `ui` and `store` still apply, and so does `redact` for the copy of each span the dashboard keeps. To see your spans in the dashboard, add `nestrixSpanProcessor()` to your provider ([below](#a-host-that-owns-its-sdk)). Your SDK must be OpenTelemetry JS SDK 3.
 
 **Several Nestrix apps in one process** (an e2e suite, for example) share what the first one set up: its `export`, `sampleRate`, resource and `redact` settings, and the outbound `ignore.outgoing` and `http` settings. Later apps' values for those are ignored; Nestrix logs one line when that happens.
 
 Nestrix registers its OpenTelemetry globals during `NestFactory.create`, never at import time or when `forRoot()` runs. If you start your SDK in the body of `main.ts` after importing `AppModule`, start it before `NestFactory.create`.
 
+## Dashboard
+
+With `@nestrix/ui` installed, `NestrixModule` serves a read-only dashboard from inside your app, at `/_nestrix` by default: recent requests, one request's spans as a waterfall, errors, and per-route request counts, error rates and latency percentiles. It polls for new data every two seconds. It works on Express, Fastify and `@nestjs/platform-node`. It shows only what this process has seen since it started; nothing is written to disk and nothing is sent anywhere.
+
+```bash
+pnpm add @nestrix/ui
+```
+
+`@nestrix/ui` is an optional peer dependency. Install it at the same version as `@nestrix/nestjs`. Without it the dashboard is off and Nestrix logs one line with the install command; the app starts normally. An app with no HTTP adapter (`createMicroservice`, `createApplicationContext`) has no dashboard, and says nothing about it.
+
+The dashboard is closed unless something positive opens it. There are two ways to open it: `ui: 'auto'` for development, and `ui: { enabled: true, auth }` for everything else.
+
+### Development: `ui: 'auto'`
+
+`ui` defaults to `'auto'`, so installing the package is enough. In this mode the dashboard is served only while all of these hold:
+
+- `NODE_ENV` is `development` or unset. Any other value, an empty string included, turns it off for the whole run, and Nestrix logs one line that says so.
+- The request's socket peer is loopback (`127.0.0.0/8`, `::1`, `::ffff:127.x.y.z`), its `Host` header names a loopback host (`localhost`, `127.x.y.z` or `[::1]`, with or without a port), and none of `Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Real-IP` and `Via` is present. Nestrix reads these from the raw socket and raw headers, never from `req.ip` or `req.hostname`, which follow client-supplied headers when your app trusts proxies.
+- The request carries the startup token cookie (below).
+
+A request that fails any other check gets a bare `404` with an empty body. The one exception is a loopback request without the cookie, which gets a `403` page telling you to open the link from the log.
+
+**The startup token.** When the app starts listening, Nestrix logs one line:
+
+```text
+Nestrix dashboard: http://localhost:3000/_nestrix/auth?token=<43 characters>
+```
+
+Open that link in your browser. Nestrix checks the token, sets a session cookie and redirects to `/_nestrix/`, so the token does not stay in the address bar. The cookie is `HttpOnly`, `SameSite=Strict`, scoped to the dashboard path, and named `nestrix_session_<port>` after the port the app listens on, so two apps on `localhost` with different ports do not overwrite each other's cookie. Each start creates a new token: after a restart, open the new link. If the app never calls `listen()`, the line says the link needs a listening server. The link is accepted only from loopback requests.
+
+**Why it exists.** The loopback checks cannot tell a browser on your machine from a reverse proxy on the same host. nginx's usual `proxy_pass http://127.0.0.1:3000` adds no forwarding header and rewrites `Host`, so every request through it looks local; with `NODE_ENV` unset, that would put the dashboard on the internet. The proxy's visitors do not have the token, so with it the dashboard stays closed (the proxy case was run against a real proxy in the phase 0 spike, and a test covers it). Set `NODE_ENV` in deployed environments anyway.
+
+**Opting out.** `ui: { startupToken: false }` drops the token check and the log link. The consequence: the same-host reverse proxy above is open again whenever `NODE_ENV` is unset. Use it only when the app is never behind a proxy on its own host, or when `NODE_ENV` is always set.
+
+### Production: `ui: { enabled: true, auth }`
+
+<!-- sample: dashboard-token -->
+
+```ts
+import { Module } from "@nestjs/common";
+import { NestrixModule } from "@nestrix/nestjs";
+
+@Module({
+  imports: [
+    NestrixModule.forRoot({
+      ui: {
+        // Required to serve the dashboard outside development. At least 32 characters.
+        enabled: true,
+        auth: { token: process.env.NESTRIX_UI_TOKEN ?? "" },
+        // Default "/_nestrix". Outside the global prefix and versioning.
+        path: "/_nestrix",
+      },
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+With `enabled: true` the dashboard is served in any environment to requests that pass `auth`, and to nobody else. There is no loopback or `NODE_ENV` check. `enabled: true` without `auth` leaves the dashboard off, logs an error and starts the app. So does any invalid `ui` value (a path with a forbidden character, a token under 32 characters, both `token` and `authorize`): unlike the other options, `ui` never throws at startup.
+
+**`auth: { token }`.** At least 32 characters; `openssl rand -base64 32` makes a good one. It is compared in constant time.
+
+- Tools send `Authorization: Bearer <token>` on each request.
+- Browsers open `https://your-host/_nestrix/auth?token=<token>` once. Nestrix sets a session cookie (`nestrix_auth_<port>`, `HttpOnly`, `SameSite=Strict`, `Secure` unless the request came from loopback) and redirects to the dashboard. **That link puts the token in the URL, so it lands in the access logs of every proxy and load balancer it passes through and in the browser's history.** Prefer the `Authorization` header for tools, open the link only over a connection whose logs you control, and rotate the token if it leaked. The cookie value is salted per process, so it stops working after a restart.
+
+**`auth: { authorize(request) }`.**
+
+<!-- sample: dashboard-authorize -->
+
+```ts
+import type { IncomingHttpHeaders } from "node:http";
+import { Module } from "@nestjs/common";
+import { NestrixModule } from "@nestrix/nestjs";
+
+// Your own check, for example a verified session or an identity-aware proxy's signed header.
+declare function isOperator(
+  authorization: string | undefined,
+): Promise<boolean>;
+
+@Module({
+  imports: [
+    NestrixModule.forRoot({
+      ui: {
+        enabled: true,
+        auth: {
+          // `request` is the raw adapter request (Express `req`, Fastify `request`,
+          // platform-node's request). No Nest guard has run, so `request.user` is not set.
+          authorize: async (request) => {
+            const { headers } = request as { headers: IncomingHttpHeaders };
+            return isOperator(headers.authorization);
+          },
+        },
+      },
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+`authorize` is called for every dashboard request and may be async. It receives the raw, adapter-specific request **before any Nest guard, pipe or interceptor has run**, so `request.user`, which a Passport guard sets, is not populated: read the headers or cookies yourself and verify them. Only `true` allows. A throw, a rejection, any other value, or no answer within 10 seconds denies. It is not called for requests rejected by the cheaper checks (`Sec-Fetch-Site: cross-site`).
+
+With `enabled: 'auto'` (or no `enabled`) and an `auth`, both apply: the local-only rules, the startup token and `auth`.
+
+Every mode that serves the dashboard also rejects requests with `Sec-Fetch-Site: cross-site`. A denied request always gets the bare `404`: the default path is well known, so this hides detail, not existence.
+
+### Path, global prefix and host layers
+
+`ui.path` defaults to `/_nestrix`. It must start with `/`; one trailing `/` is removed; only `A-Z a-z 0-9 . _ ~ / -` are allowed; it cannot be `/` or contain an empty, `.` or `..` segment. An invalid path leaves the dashboard off with an error in the log.
+
+Nestrix registers the dashboard's routes with the HTTP adapter's own `get` during `onModuleInit`. So they sit **outside the global prefix and URI versioning** (`setGlobalPrefix('api')` does not move them) and outside guards, pipes and interceptors. Host middleware, `helmet`, `compression`, `enableCors()` and `app.useSecurityHeaders()` still apply to them. The dashboard sets its own `Content-Security-Policy` and its other security headers on every response except the bare 404 of a denied request, replacing the host's values, and it removes any `Access-Control-*` header a host layer added, on every response.
+
+Requests under the dashboard path get no span and no route statistic, so the dashboard polling itself does not fill the store. The path is matched case-insensitively for this. The dashboard reads a JSON API under `<path>/api/v1`; every route is `GET`.
+
+### A host that owns its SDK
+
+If your app registers its own OpenTelemetry provider before Nestrix starts, Nestrix cannot add a processor to it. Add `nestrixSpanProcessor()` to the provider's `spanProcessors` yourself:
+
+<!-- sample: dashboard-host-sdk -->
+
+```ts
+import { trace } from "@opentelemetry/api";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import { BatchSpanProcessor, TracerProvider } from "@opentelemetry/sdk-trace";
+import { nestrixSpanProcessor } from "@nestrix/nestjs";
+
+// Your own SDK setup, started before NestFactory.create.
+trace.setGlobalTracerProvider(
+  new TracerProvider({
+    spanProcessors: [
+      new BatchSpanProcessor({ exporter: new OTLPTraceExporter() }),
+      // Feeds the dashboard's store. It stores nothing while the dashboard is off.
+      nestrixSpanProcessor(),
+    ],
+  }),
+);
+```
+
+If you have not added it, Nestrix logs one line at startup saying so, and until the first span reaches the store the dashboard shows the same warning. The processor sees every recording span in your provider, other instrumentations' included. It never throws, and its `forceFlush` and `shutdown` never reject. It stores nothing while no Nestrix app with the dashboard on is running in the process. Route statistics do not need it: they are counted in Nestrix's request hook. Your SDK must be OpenTelemetry JS SDK 3.
+
+### Sampling and route statistics
+
+Per-route statistics (the Routes view) count **every request**, whatever the sample rate and whether Nestrix or your own SDK does the sampling. They are counted when the response closes, before the sampling decision matters. Requests excluded by `ignore.routes` and requests to the dashboard itself are not counted.
+
+- A statistic is keyed by `METHOD route-template`, for example `GET /users/:id`. A request no route matched is `METHOD (unmatched)`.
+- Each key keeps one-minute buckets for the last 60 minutes: request count, error count, and a duration histogram that gives p50, p95 and p99 (30 log-spaced buckets from 1 ms to 60 s, so a percentile is accurate to a bucket, not exact).
+- At most 500 keys are tracked; further routes are counted together under `* (other)` (method `*`, route `(other)`).
+
+The request list and the error list come from stored spans, so they **are sampled**. The dashboard says so when `sampleRate` is below 1, and says they may be when your SDK owns the sampler. At `sampleRate: 0.1`, the Routes view shows every request and the list shows about one in ten.
+
+**What is an error.** A span is an error when its status code is `error`. For a server span that means a 5xx response, or a handler exception that maps to 5xx. A thrown `NotFoundException` (404) keeps its exception event in the trace detail but counts as no error in route statistics, the error list or the error filter. The error list holds every stored span with error status, client spans and your own spans included.
+
+### When something else answers first (shadowing)
+
+A host route can answer a request under the dashboard path before Nestrix's route sees it: a catch-all route on Express, or `@nestjs/serve-static`'s fallback on Express and platform-node. Nest has no public route table, so Nestrix detects it passively: the first time a `GET` or `HEAD` under the dashboard path is answered, with a status other than 404, without a dashboard handler having run, it logs one line per process.
+
+- With status 401, 403 or 429: `Nestrix dashboard: a request under /_nestrix was answered by host middleware before the dashboard (status 401). ...`. Your auth gate or rate limiter applies to the dashboard too; let requests under that path through.
+- Otherwise: `Nestrix dashboard: /_nestrix is shadowed by a host route (a catch-all, or @nestjs/serve-static's fallback): ...`. Fix it in one of these ways. Exclude the dashboard path from that route (for `@nestjs/serve-static`, its `exclude` option, which is what the log line suggests), or set `ui.path` to another path. If the catch-all is a controller route, a global prefix keeps it off the dashboard path, because the dashboard sits outside the prefix. For `@nestjs/serve-static`, the phase 0 spike found it shadows the dashboard when its module initialises first, which followed import order there; importing it after `NestrixModule` may help (not re-tested for this README).
+
+The line appears only after someone opens the dashboard, which is when it matters. Fastify was not affected in the spike.
+
+### Cross-origin pages and CORS
+
+The dashboard never sends CORS allow headers, whatever your CORS setup. Preflight (`OPTIONS`) requests, though, are answered by your CORS layer, not Nestrix, with your allow headers. So a page on another origin could send a request to the dashboard but could not read the answer, and in `'auto'` mode the cookie is `SameSite=Strict`. The API is read-only, so this is a known limit and not a hole; it would need its own protection if the dashboard ever gained an endpoint that changes state.
+
+### Memory and the `store` option
+
+The dashboard keeps recent traces in memory, bounded by two limits, and the oldest trace (the one whose first span arrived earliest, with its error items) is evicted first when either is reached. Nothing is written to disk. While the dashboard is off, nothing is stored.
+
+<!-- sample: dashboard-store -->
+
+```ts
+import { Module } from "@nestjs/common";
+import { NestrixModule } from "@nestrix/nestjs";
+
+@Module({
+  imports: [
+    NestrixModule.forRoot({
+      store: {
+        // The dashboard keeps whichever limit is reached first, oldest trace evicted first.
+        maxTraces: 500,
+        maxBytes: 16 * 1024 * 1024,
+      },
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+- `maxTraces` counts traces held, listed or not. `maxBytes` is an **estimate** of the heap the stored spans use, computed as each span is copied (not by serialising it). It was measured at 1.12 to 1.22 times the real heap growth for the three trace shapes below, so real use is below the estimate. A single span estimated larger than `maxBytes` is dropped and logged once.
+- Defaults: `maxTraces` 5,000 and `maxBytes` 32 MiB. Measured on darwin-arm64 with Node 26 (`benchmarks/results/dashboard.md`): a trace of one server span holds about 1.4 KB of heap, a server span plus five client spans (a typical request) about 4.0 KB, and a trace of 51 spans with attributes and an exception about 27.8 KB. A full store therefore holds about 7 MiB (single-span traces), 19.5 MiB (typical traces, stopped by `maxTraces`) or 28 MiB (51-span traces, about 1,050 of them, stopped by `maxBytes`) of heap. Your traces may be larger or smaller; if the dashboard should reach further back, raise `maxTraces` and watch your own heap.
+- Cost per request, with the dashboard on and export off, saturating one core: about 6 microseconds more per request (throughput 15% lower on a route that costs about 36 microseconds without it; a handler that calls a database costs a thousand or more). Route statistics are about 70 ns of that; the rest is copying the span into the store. Live heap with a full store of single-span traces was 10.5 MB higher than with the dashboard off. These were measured with the dashboard page closed; it adds the requests it makes while open.
+- Beyond the store: a bounded queue of spans waiting to be copied (at most 4,096; a burst beyond that is dropped and counted), and the route statistics (typed arrays per key, at most 500 keys).
+- There is one store per process. The first Nestrix app to create it sets its limits, and a later app's different `store` option is ignored with one log line. A store that `nestrixSpanProcessor()` created first still takes the module's limits, if no span has reached it yet.
+
+### What the dashboard shows
+
+The dashboard shows the spans in its store, and the [privacy defaults](#privacy) apply to them: no request or response bodies, no query bind parameters and no headers outside the allowlist. Nestrix's own redaction (listed query keys, the always-redacted headers, credentials in `url.full`) and your `redact` hook run on every span before it is stored, **including spans from other instrumentations**; a span `redact` drops never reaches the dashboard. This holds when your app owns the SDK too: the dashboard's copy is redacted, while your own exporters still get the span as it was.
+
+Redaction runs shortly after the span ends, not in the request, so a span waits unredacted in a small in-memory queue until then. Free text is not cleaned by key: exception messages, stack traces and status messages are stored and shown as they are, and another instrumentation may record attributes Nestrix does not know about. Use `redact` for those, and look at what the dashboard shows in development before you enable it elsewhere.
+
 ## Options
 
 Every option is optional. `NestrixModule.forRoot(options?)` and the object `forRootAsync`'s factory returns take the same shape. Invalid values (for example a `sampleRate` outside 0 to 1, or a non-positive queue size) throw. With `forRoot`, that happens when `forRoot()` is called, which is when your module file loads, and also with `enabled: false`. With `forRootAsync`, it happens when the factory's result is resolved during `NestFactory.create`. `export.otlp.timeoutMillis` is validated only when an endpoint resolves.
 
-The package exports these types: `NestrixModuleOptions`, `NestrixModuleAsyncOptions`, `NestrixExportOptions`, `NestrixOtlpOptions`, `NestrixQueueOptions`, `NestrixIgnoreOptions`, `NestrixHttpOptions`, `RedactHook`, `RedactableSpan`, `UrlMatcher` and `SpanOptions`.
+The package exports these types: `NestrixModuleOptions`, `NestrixModuleAsyncOptions`, `NestrixExportOptions`, `NestrixOtlpOptions`, `NestrixQueueOptions`, `NestrixIgnoreOptions`, `NestrixHttpOptions`, `RedactHook`, `RedactableSpan`, `UrlMatcher`, `SpanOptions`, `NestrixUiOptions`, `NestrixUiTokenAuth`, `NestrixUiCustomAuth` and `NestrixStoreOptions`. The package also exports the function `nestrixSpanProcessor`.
 
 <!-- sample: all-options -->
 
@@ -162,7 +369,9 @@ That sample sets most options to their defaults, except where a default is "unse
 | `export` | see below | Export settings. |
 | `ignore` | none | Requests that get no span. |
 | `http` | none | Extra allowlisted headers and redacted query keys. |
-| `redact` | none | A synchronous hook that sees every exported span. |
+| `redact` | none | A synchronous hook that sees every exported span and every span the dashboard stores. |
+| `ui` | `'auto'` | The embedded dashboard: `false`, `'auto'` or an object. See [Dashboard](#dashboard) and [`ui`](#ui). |
+| `store` | see below | Limits of the dashboard's in-memory store. See [`store`](#store). |
 
 ### `export.otlp`
 
@@ -228,7 +437,30 @@ These add to the privacy defaults below; they never replace them.
 
 ### `redact`
 
-A hook for the spans Nestrix exports. See [Privacy](#privacy).
+A hook for the spans Nestrix exports and the spans the dashboard stores. See [Privacy](#privacy).
+
+### `ui`
+
+`ui` is `false` (no dashboard), `'auto'` (the same as `{}`) or an object. Everything about what these do is in [Dashboard](#dashboard).
+
+| Option | Default | |
+|---|---|---|
+| `ui` | `'auto'` | `false` turns the dashboard off: no routes, no store, no route statistics. |
+| `ui.enabled` | `'auto'` | `'auto'`: served only when `NODE_ENV` is `development` or unset, to loopback requests that carry the startup token cookie. `true`: served in any environment to requests that pass `auth`; without `auth` the dashboard stays off and an error is logged. `false`: off. |
+| `ui.path` | `'/_nestrix'` | Where the dashboard is served, outside the global prefix and versioning. Starts with `/`; characters `A-Z a-z 0-9 . _ ~ / -`; not `/`, no empty, `.` or `..` segment. |
+| `ui.auth` | none | `{ token }` (at least 32 characters; `Authorization: Bearer`, or the `<path>/auth?token=` link once per browser) or `{ authorize(request) }` (async allowed; the raw request, before any Nest guard; only `true` allows). Required when `enabled` is `true`. With `'auto'` it applies in addition to the local-only rules. |
+| `ui.startupToken` | `true` | `'auto'` mode only. `false` drops the startup token check and its log link; a same-host reverse proxy then exposes the dashboard when `NODE_ENV` is unset. |
+
+An invalid `ui` value (wrong type, bad path, short token, both `token` and `authorize`) turns the dashboard off and logs an error; it does not throw.
+
+### `store`
+
+| Option | Default | |
+|---|---|---|
+| `store.maxTraces` | `5000` | Traces the dashboard keeps. Positive integer. |
+| `store.maxBytes` | `33554432` (32 MiB) | Estimated bytes of stored spans. Positive integer. |
+
+Ignored while the dashboard is off. See [Memory and the `store` option](#memory-and-the-store-option).
 
 ## Environment variables
 
@@ -351,8 +583,8 @@ Rules:
 
 - **It must be synchronous.** A hook that returns a promise drops the span and counts a failure.
 - A hook that throws drops the span (fail closed) and counts a failure.
-- It runs when a batch is exported, on the batch timer, not in the request. So spans wait **unredacted** in the in-memory queue until their batch is exported.
-- **It is not applied when your app owns the SDK.** Then your own exporters send the spans, and Nestrix cannot redact what they send.
+- It runs when a batch is exported, on the batch timer, not in the request. So spans wait **unredacted** in the in-memory queue until their batch is exported. For the dashboard's store it runs shortly after each span ends, also outside the request.
+- **It is not applied to what your exporters send when your app owns the SDK.** Then your own exporters send the spans, and Nestrix cannot redact what they send. It still applies to the copy the dashboard stores.
 
 ## Shutdown and flushing
 
@@ -445,8 +677,8 @@ export async function bootstrap(): Promise<void> {
 
 Measured by the repository's `benchmarks/` workspace on an Apple Silicon Mac (darwin-arm64), Node v26.13.0, npm 11.20.0, against `examples/express-esm`. Numbers are medians and will differ on your machine; the commands are in `benchmarks/README.md`.
 
-- **Install size.** The packed tarball is 88 KiB (500 KiB unpacked). Installed with `npm install --omit=dev` into a fresh directory, a Nest host stack (`@nestjs/common`, `core`, `platform-express`, `reflect-metadata`, `rxjs`) is 21.1 MB, and adding `@nestrix/nestjs` brings it to 40.5 MB: **19.4 MB added**. That includes `@opentelemetry/api`, the peer dependency, which a host without OpenTelemetry has to install anyway (1.9 MB). The largest single item is `@opentelemetry/semantic-conventions` at 9.6 MB; the rest is the OpenTelemetry SDK packages. Sizes are disk blocks (`du -sk`).
-- **Startup.** Time from process spawn to the first `200` on `GET /hello`, 15 fresh processes per configuration: 268.8 ms uninstrumented, 318.8 ms with Nestrix exporting to a local OTLP endpoint (**about 50 ms added**), 320.3 ms with Nestrix and no endpoint (51.5 ms added). Export is asynchronous, so a slow or absent collector does not delay startup.
+- **Install size.** The packed `@nestrix/nestjs` tarball is 169 kB (630 kB unpacked in 122 files; `npm pack --dry-run`). The total installed size was measured on 2026-11-11: installed with `npm install --omit=dev` into a fresh directory, a Nest host stack (`@nestjs/common`, `core`, `platform-express`, `reflect-metadata`, `rxjs`) was 21.1 MB, and adding `@nestrix/nestjs` brought it to 40.9 MB: **19.8 MB added**. That includes `@opentelemetry/api`, the peer dependency, which a host without OpenTelemetry has to install anyway (1.9 MB). The largest single item is `@opentelemetry/semantic-conventions` at 9.6 MB; the rest is the OpenTelemetry SDK packages. Sizes are disk blocks (`du -sk`). The dashboard adds `@nestrix/ui`: a 255 kB tarball, about 760 kB unpacked in 11 files (one 655 kB script, one 26.7 kB stylesheet), with no dependencies of its own.
+- **Startup.** Time from process spawn to the first `200` on `GET /hello`, 15 fresh processes per configuration: 268.8 ms uninstrumented, 318.8 ms with Nestrix exporting to a local OTLP endpoint (**about 50 ms added**), 320.3 ms with Nestrix and no endpoint (51.5 ms added). Export is asynchronous, so a slow or absent collector does not delay startup. Those runs loaded the OTLP exporter at startup; it is now loaded only when export is on. Measured again that way (20 fresh processes, export off, a later run on the same machine): 246.1 ms uninstrumented, 278.8 ms with Nestrix and the dashboard off (**32.7 ms added**; 295.2 ms, 49.1 ms added, when the exporter is loaded eagerly as before), and 282.9 ms with the dashboard on (36.8 ms added). Idle heap is 1.1 MB lower than when the exporter was loaded at startup (export is off in both configurations).
 - **Exporter outage.** Ten minutes at 3,000 requests/s with the OTLP endpoint refusing connections, and again with it accepting requests and never answering: retained heap stayed flat (slope 0.01 and 0.03 MB/min, about 2 MB above a healthy run, which is the queue), and at most two collector connections were open at once. Spans beyond the queue are dropped and counted, not buffered.
 
 ## Licence
