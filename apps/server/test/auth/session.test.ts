@@ -116,7 +116,10 @@ describe("over HTTP", () => {
       undefined,
       `${cookieName()}=`,
       `${cookieName()}=${randomBytes(48).toString("base64url")}`,
-      `${cookieName()}=${valid.slice(0, -1)}${valid.endsWith("A") ? "B" : "A"}`,
+      // A changed character in the middle of the MAC (always different bytes).
+      `${cookieName()}=${valid.slice(0, -10)}${valid.at(-10) === "A" ? "B" : "A"}${valid.slice(-9)}`,
+      // The same MAC bytes spelled with different unused trailing bits: not canonical, refused.
+      `${cookieName()}=${valid.slice(0, -1)}${String.fromCharCode(valid.charCodeAt(valid.length - 1) ^ 1)}`,
       `${cookieName()}=${valid.replace(/^v1\.(\d+)/, (_, e) => `v1.${Number(e) + 100}`)}`,
       signedCookie(nowS - 1), // expired, correctly signed
       signedCookie(nowS + 3600, "o".repeat(40)), // another secret

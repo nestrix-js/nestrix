@@ -99,6 +99,9 @@ export function verifySession(
     const expected = mac(key, `${VERSION}.${expText}.${nonce}`);
     const given = Buffer.from(macText, "base64url");
     if (given.length !== expected.length) return undefined;
+    // One spelling per signature: base64url's last character carries unused bits, so several
+    // texts decode to the same bytes. Accept only the canonical encoding.
+    if (given.toString("base64url") !== macText) return undefined;
     const valid = timingSafeEqual(given, expected);
     const expiresAtSeconds = Number(expText);
     if (!valid) return undefined;
