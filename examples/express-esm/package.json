@@ -1,0 +1,34 @@
+{
+  "name": "express-esm",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Fixture app: NestJS 12 on Express, ESM",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./app.module": {
+      "types": "./dist/app.module.d.ts",
+      "default": "./dist/app.module.js"
+    },
+    "./express-app.module": {
+      "types": "./dist/express-app.module.d.ts",
+      "default": "./dist/express-app.module.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/main.js",
+    "check": "CHECK_EXPRESS_ROUTES=1 node ../check-routes.mjs",
+    "check:run": "CHECK_EXPRESS_ROUTES=1 node ../run-and-check.mjs"
+  },
+  "dependencies": {
+    "@nestjs/common": "^12.4.2",
+    "@nestjs/core": "^12.4.2",
+    "@nestjs/platform-express": "^12.4.2",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6"
+  }
+}
