@@ -1,0 +1,16 @@
+{
+  "name": "docs-site",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Nestrix documentation site (VitePress). Not published and not deployed.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev",
+    "check:options": "node scripts/check-options.mjs",
+    "docs:build": "node scripts/check-options.mjs && vitepress build"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}

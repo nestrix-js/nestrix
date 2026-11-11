@@ -17,6 +17,7 @@
     "test": "vitest run --passWithNoTests",
     "lint": "biome check .",
     "typecheck": "tsc -b --noEmit",
+    "docs:build": "pnpm --filter docs-site docs:build",
     "check:packages": "pnpm -r --if-present check:package",
     "check:tla": "node scripts/check-no-tla.mjs",
     "verify": "pnpm build && pnpm check:packages && pnpm check:tla && pnpm test && pnpm lint && pnpm typecheck",
