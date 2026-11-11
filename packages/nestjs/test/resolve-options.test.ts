@@ -29,6 +29,7 @@ describe("resolveOptions defaults", () => {
         auth: undefined,
       },
       store: { maxTraces: 5000, maxBytes: 33554432 },
+      methods: { enabled: true, include: [], exclude: [], enhancers: [] },
     });
   });
 

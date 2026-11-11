@@ -475,15 +475,24 @@ importers:
         specifier: ^1.45.0
         version: 1.45.0
     devDependencies:
+      '@nestjs/bullmq':
+        specifier: ^12.0.1
+        version: 12.0.1(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)(bullmq@6.7.2(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0)))
       '@nestjs/common':
         specifier: ^12.4.2
         version: 12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
+      '@nestjs/config':
+        specifier: ^12.1.1
+        version: 12.1.1(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(rxjs@7.8.2)
       '@nestjs/core':
         specifier: ^12.4.2
         version: 12.4.2(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/microservices@12.4.2)(@nestjs/platform-express@12.4.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/microservices':
         specifier: ^12.4.2
         version: 12.4.2(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)(ioredis@6.0.0(supports-color@7.2.0))(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/schedule':
+        specifier: ^12.0.3
+        version: 12.0.3(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)
       '@nestjs/testing':
         specifier: ^12.4.2
         version: 12.4.2(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)(@nestjs/microservices@12.4.2)(@nestjs/platform-express@12.4.2)
@@ -502,6 +511,9 @@ importers:
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
+      bullmq:
+        specifier: ~6.7.2
+        version: 6.7.2(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0))
       express-esm:
         specifier: workspace:*
         version: link:../../examples/express-esm
@@ -4622,6 +4634,7 @@ packages:
 
   node-abort-controller@3.1.1:
     resolution: {integrity: sha512-AGK2yQKIjRuqnc6VkX2Xj5d+QW8xZ87pa1UK6yA6ouUyuxfHuMP6umE5QK7UmTeOAymo+Zx1Fxiuw9rVx8taHQ==}
+    deprecated: This package is no longer needed on supported Node.js versions. Node.js 16+ includes AbortController and AbortSignal as built-in globals. All Node.js versions requiring this polyfill are end-of-life. Use the built-in globals instead.
 
   node-addon-api@7.1.1:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
@@ -6400,6 +6413,14 @@ snapshots:
       bullmq: 6.7.2(ioredis@5.11.1(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0))
       tslib: 2.8.1
 
+  '@nestjs/bullmq@12.0.1(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)(bullmq@6.7.2(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0)))':
+    dependencies:
+      '@nestjs/bull-shared': 12.0.1(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)
+      '@nestjs/common': 12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
+      '@nestjs/core': 12.4.2(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/microservices@12.4.2)(@nestjs/platform-express@12.4.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      bullmq: 6.7.2(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0))
+      tslib: 2.8.1
+
   '@nestjs/common@12.0.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)':
     dependencies:
       '@standard-schema/spec': 1.1.0
@@ -7820,6 +7841,18 @@ snapshots:
       tslib: 2.9.1
     optionalDependencies:
       ioredis: 5.11.1(supports-color@7.2.0)
+      pg: 8.23.1
+      redis: 6.3.1(@opentelemetry/api@1.10.0)
+
+  bullmq@6.7.2(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0)):
+    dependencies:
+      cron-parser: 5.10.3
+      msgpackr: 2.1.4
+      node-abort-controller: 3.1.1
+      semver: 7.8.6
+      tslib: 2.9.1
+    optionalDependencies:
+      ioredis: 6.0.0(supports-color@7.2.0)
       pg: 8.23.1
       redis: 6.3.1(@opentelemetry/api@1.10.0)
 

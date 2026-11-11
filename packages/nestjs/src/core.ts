@@ -6,7 +6,7 @@ import {
   type OnModuleInit,
   Optional,
 } from "@nestjs/common";
-import { HttpAdapterHost } from "@nestjs/core";
+import { HttpAdapterHost, ModulesContainer } from "@nestjs/core";
 import {
   createDashboard,
   type Dashboard,
@@ -15,7 +15,9 @@ import {
   UI_MISSING_MESSAGE,
 } from "./dashboard/mount.js";
 import { diagnostics } from "./diagnostics.js";
+import { NestrixInterceptor } from "./http/interceptor.js";
 import { installHttpInstrumentation } from "./http/server.js";
+import { configureMethods, markNestrixInternal } from "./methods/registry.js";
 import { setupTelemetry } from "./otel/setup.js";
 import type { TelemetryHandle } from "./otel/types.js";
 import { installOutbound } from "./outbound/index.js";
@@ -48,6 +50,8 @@ export class NestrixCore implements OnModuleInit, OnApplicationShutdown {
     @Inject(NESTRIX_OPTIONS) readonly options: ResolvedOptions,
     // Explicit token, so injection does not depend on `design:paramtypes` being emitted.
     @Optional() @Inject(HttpAdapterHost) adapterHost?: HttpAdapterHost,
+    // Level 2 (P3-02): the scanned modules, read once here to compute the own set (D-58).
+    @Optional() @Inject(ModulesContainer) modules?: ModulesContainer,
   ) {
     this.adapterHost = adapterHost;
     this.logger = new Logger("Nestrix");
@@ -85,6 +89,17 @@ export class NestrixCore implements OnModuleInit, OnApplicationShutdown {
       }
     } catch (error) {
       diagnostics.countFailure("core.constructor", error);
+    }
+    try {
+      // Level 2 (P3-02): switch the method wrappers' plans now that Nest's module scan is done.
+      // Inert without `NestrixInstrument`; `configureMethods` never throws.
+      if (options.enabled) {
+        this.disposers.push(
+          configureMethods(options.methods, modules?.values()),
+        );
+      }
+    } catch (error) {
+      diagnostics.countFailure("core.methods", error);
     }
     this.telemetry = telemetry;
     this.dashboard = dashboard;
@@ -138,3 +153,6 @@ export class NestrixCore implements OnModuleInit, OnApplicationShutdown {
     }
   }
 }
+
+// Nestrix's own providers are never wrapped by level 2.
+markNestrixInternal(NestrixCore, NestrixInterceptor);

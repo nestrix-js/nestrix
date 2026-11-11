@@ -1,4 +1,9 @@
 export {
+  composeInstrument,
+  type NestInstrument,
+  NestrixInstrument,
+} from "./methods/instrument.js";
+export {
   NestrixModule,
   type NestrixModuleAsyncOptions,
 } from "./nestrix.module.js";
