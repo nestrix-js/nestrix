@@ -13,6 +13,7 @@ Decisions already made, newest sections last. Do not reopen one silently: if wor
 | D-3 | **Packages:** two published packages, `@nestrix/nestjs` and `@nestrix/ui`, one version number. Integrations for `pg`, `mysql2` and `ioredis` are built in, switch on when the library is present, can each be switched off, and load lazily. | Ten packages would mean ten release trains, and several would be empty. Split an integration out only when it needs a heavy or conflicting dependency. |
 | D-4 | **GitHub home:** the `nestrix-js` organisation; repository `github.com/nestrix-js/nestrix`. | `github.com/nestrix` is taken by a dormant organisation. |
 | D-5 | **Model use for development:** Opus 5.5 leads and delegates to Opus, Sonnet and Haiku subagents. Fable 5.2 only when badly needed. | Cost. See [ai/orchestration.md](ai/orchestration.md). |
+| D-6 | **The repository is private for now.** The owner makes it public when they choose, for example at the first alpha. | Nothing but design documents exists yet, and the name's trademark question (O-5) is open. |
 
 ## Plan decisions
 
@@ -54,10 +55,33 @@ Decisions already made, newest sections last. Do not reopen one silently: if wor
 | O-4 | When MongoDB driver spans arrive. | Deferred; upstream instrumentation meanwhile. | Owner |
 | O-5 | Trademark search for the name, given a company called Nestrix appears to exist. | Not done. | Owner |
 
+## GitHub: what is set up
+
+Done on 2026-11-11 and read back from the API. Do not redo it.
+
+- Organisation `nestrix-js` (Free plan, two-factor authentication required). Repository `nestrix-js/nestrix`, **private**, default branch `main`, remote `origin` over SSH.
+- Squash and rebase merges allowed, merge commits off; head branches deleted on merge; wiki and projects off; issues on.
+- Sign-off required on web-based commits (the DCO rule).
+- Dependabot alerts and security updates on.
+- The default `GITHUB_TOKEN` for workflows is read-only and cannot approve pull requests. A workflow that needs more declares its own `permissions`.
+
+Not available while the repository is private on the Free plan (the API refused the ruleset with "Upgrade to GitHub Pro or make this repository public"): branch rulesets, private vulnerability reporting, secret scanning. Private repositories also get 2,000 Actions minutes a month, so keep the CI matrix lean until it is public.
+
+### When the repository goes public
+
+For whoever is asked to do it, in this order:
+
+1. Read the docs once more as an outsider would; `docs/ai/owner-brief.md` and the notes on `@nestjs/observe` become public.
+2. Make the repository public.
+3. Add a ruleset on the default branch that blocks deletion and force-pushes. Add "require a pull request" and required status checks once outside contributors arrive; until then the owner and their agents push to `main` directly.
+4. Enable private vulnerability reporting, then delete the HTML comment in `SECURITY.md` that says to.
+5. Enable secret scanning and push protection.
+6. npm provenance needs a public repository, so the first publish comes after this.
+
 ## Owner actions outstanding
 
 Needed before anything is published. Local work is not blocked.
 
-- Create the `nestrix-js` GitHub organisation.
 - Create the `@nestrix` npm organisation, which is also the test of whether that scope is free.
-- Provide a contact for `CODE_OF_CONDUCT.md`, and enable private vulnerability reporting on the repository for `SECURITY.md`.
+- Provide a contact for `CODE_OF_CONDUCT.md` (it still says `[INSERT CONTACT METHOD]`).
+- Decide when the repository goes public (D-6).
