@@ -26,12 +26,14 @@ import type { MetaResponse } from "@nestrix/protocol";
 import type { Diagnostics } from "../diagnostics.js";
 import { markDashboardHandlerReached } from "../http/request-state.js";
 import type { AdapterHostLike, DashboardHookConfig } from "../http/server.js";
+import { setMethodCallSink } from "../methods/sink.js";
 import type { TelemetryHandle } from "../otel/types.js";
 import type {
   ResolvedOptions,
   ResolvedUiAuto,
   ResolvedUiEnabled,
 } from "../resolve-options.js";
+import { ClassStatistics } from "../stats/class-stats.js";
 import { RouteStatistics } from "../stats/route-stats.js";
 import {
   type AccessDecision,
@@ -44,6 +46,7 @@ import {
 import {
   type ApiSources,
   apiError,
+  classesHandler,
   errorsHandler,
   metaHandler,
   PROTOCOL_VERSION,
@@ -210,6 +213,9 @@ function serviceOf(options: ResolvedOptions): MetaResponse["service"] {
 export class Dashboard {
   /** Route statistics; recorded by the request hook, read by the routes endpoint. */
   readonly stats = new RouteStatistics();
+  /** Class statistics; the method call sink while the dashboard is mounted. */
+  readonly classStats = new ClassStatistics();
+  private removeSink: (() => void) | undefined;
   /** For `installHttpInstrumentation`, at construction. */
   readonly hookConfig: DashboardHookConfig;
   private sources: ApiSources | undefined;
@@ -282,6 +288,7 @@ export class Dashboard {
       this.sources = {
         store,
         stats: this.stats,
+        classes: this.classStats,
         service: serviceOf(this.options),
         sampling:
           telemetry?.ownsProvider === true
@@ -292,6 +299,7 @@ export class Dashboard {
         fallbackProcessId: randomBytes(8).toString("hex"),
       };
       this.register(adapter, bundle);
+      this.removeSink = setMethodCallSink(this.classStats);
       this.watchListen(adapterHost, adapter);
     } catch (error) {
       this.diagnostics.countFailure("dashboard.mount", error);
@@ -301,6 +309,12 @@ export class Dashboard {
   /** `onApplicationShutdown`. Never throws. */
   dispose(): void {
     this.disposed = true;
+    try {
+      this.removeSink?.();
+    } catch (error) {
+      this.diagnostics.countFailure("dashboard.dispose", error);
+    }
+    this.removeSink = undefined;
     try {
       this.listenSubscription?.unsubscribe();
     } catch (error) {
@@ -355,6 +369,10 @@ export class Dashboard {
       [
         `${api}/routes`,
         this.handler("api", (t) => routesHandler(t, sources())),
+      ],
+      [
+        `${api}/classes`,
+        this.handler("api", (t) => classesHandler(t, sources())),
       ],
     );
     for (const [route, handler] of routes) {

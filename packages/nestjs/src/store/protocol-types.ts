@@ -96,3 +96,44 @@ export interface ErrorItem {
 export interface ErrorListResponse extends PagedResponse {
   items: ErrorItem[];
 }
+
+/** Statistics of one method of one class (phase 3, D-56). */
+export interface MethodStats {
+  method: string;
+  calls: number;
+  errors: number;
+  totalMs: number;
+  avgMs: number;
+  maxMs: number;
+  ownAvgMs: number | null;
+}
+
+export type ClassKind =
+  | "controller"
+  | "service"
+  | "repository"
+  | "processor"
+  | "provider"
+  | "guard"
+  | "pipe"
+  | "interceptor"
+  | "filter";
+
+export interface ClassStats {
+  className: string;
+  kind: ClassKind;
+  calls: number;
+  errors: number;
+  totalMs: number;
+  avgMs: number;
+  ownMs: number | null;
+  methods: MethodStats[];
+}
+
+export interface ClassStatsResponse {
+  windowMinutes: number;
+  fromUnixMs: number;
+  toUnixMs: number;
+  methodsEnabled: boolean;
+  classes: ClassStats[];
+}
