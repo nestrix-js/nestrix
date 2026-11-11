@@ -59,6 +59,11 @@ export interface ResolvedOptions {
   readonly ui: ResolvedUi;
   /** Store limits, defaults applied. Meaningful only while the dashboard is on. */
   readonly store: Readonly<Required<NestrixStoreOptions>>;
+  /** Log export. `otlp.url` is the full logs URL, `/v1/logs` already applied. */
+  readonly logs: {
+    readonly export: boolean;
+    readonly otlp: ResolvedOtlp | false;
+  };
 }
 
 /**
@@ -135,6 +140,7 @@ export const DEFAULT_UI_PATH = "/_nestrix";
 export const MIN_UI_TOKEN_LENGTH = 32;
 const DEFAULT_TIMEOUT_MILLIS = 10_000;
 const TRACES_PATH = "/v1/traces";
+const LOGS_PATH = "/v1/logs";
 
 /** Whether `NESTRIX_ENABLED` switches Nestrix off. `false` and `0`, any case, do. */
 export function isDisabledByEnv(env: Environment): boolean {
@@ -176,24 +182,31 @@ function parseHeaderList(value: string | undefined): Record<string, string> {
   return out;
 }
 
-function withTracesPath(base: string): string {
-  return `${base.replace(/\/+$/, "")}${TRACES_PATH}`;
+function withSignalPath(base: string, path: string): string {
+  return `${base.replace(/\/+$/, "")}${path}`;
 }
 
+/** The OTLP destination of one signal: the option, then the signal's variable (as given), then the generic one. */
 function resolveOtlp(
   options: NestrixModuleOptions,
   env: Environment,
+  signal: "traces" | "logs" = "traces",
 ): ResolvedOtlp | false {
   const otlp = options.export?.otlp;
   if (otlp === false) return false;
 
+  const path = signal === "logs" ? LOGS_PATH : TRACES_PATH;
   const optionEndpoint = blank(otlp?.endpoint);
-  const tracesEnv = blank(env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT);
+  const signalEnv = blank(
+    signal === "logs"
+      ? env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
+      : env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
+  );
   const genericEnv = blank(env.OTEL_EXPORTER_OTLP_ENDPOINT);
   let url: string;
-  if (optionEndpoint) url = withTracesPath(optionEndpoint);
-  else if (tracesEnv) url = tracesEnv;
-  else if (genericEnv) url = withTracesPath(genericEnv);
+  if (optionEndpoint) url = withSignalPath(optionEndpoint, path);
+  else if (signalEnv) url = signalEnv;
+  else if (genericEnv) url = withSignalPath(genericEnv, path);
   else return false;
 
   const timeoutMillis = otlp?.timeoutMillis ?? DEFAULT_TIMEOUT_MILLIS;
@@ -202,7 +215,11 @@ function resolveOtlp(
   // Signal-specific variable wins over the generic one, key by key; options win over both.
   const headers = {
     ...parseHeaderList(env.OTEL_EXPORTER_OTLP_HEADERS),
-    ...parseHeaderList(env.OTEL_EXPORTER_OTLP_TRACES_HEADERS),
+    ...parseHeaderList(
+      signal === "logs"
+        ? env.OTEL_EXPORTER_OTLP_LOGS_HEADERS
+        : env.OTEL_EXPORTER_OTLP_TRACES_HEADERS,
+    ),
     ...otlp?.headers,
   };
   return Object.freeze({
@@ -476,6 +493,10 @@ export function resolveOptions(
     otelResourceAttributes: blank(env.OTEL_RESOURCE_ATTRIBUTES),
     ui: resolveUi(o.ui, env),
     store: Object.freeze(store),
+    logs: Object.freeze({
+      export: o.logs?.export === true,
+      otlp: o.logs?.export === true ? resolveOtlp(o, env, "logs") : false,
+    }),
   };
   return Object.freeze(resolved);
 }

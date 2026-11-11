@@ -1,3 +1,5 @@
+export { NestrixLogger } from "./logs/logger.js";
+export { getTraceIds, type TraceIds } from "./logs/trace-ids.js";
 export {
   NestrixModule,
   type NestrixModuleAsyncOptions,
@@ -9,6 +11,7 @@ export type {
   NestrixHttpOptions,
   NestrixIgnoreOptions,
   NestrixIntegrationOptions,
+  NestrixLogsOptions,
   NestrixMethodOptions,
   NestrixModuleOptions,
   NestrixOtlpOptions,
