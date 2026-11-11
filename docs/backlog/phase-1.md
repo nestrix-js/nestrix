@@ -11,7 +11,7 @@ Update this table as work moves. One line of notes at most; detail goes in the t
 | P1-00 | Backlog, public option types | lead | — | done | This file; `packages/nestjs/src/options.ts`. |
 | P1-01 | Runtime dependencies | haiku | P1-00 | done | Done by the lead: sdk-trace, resources, core, context-async-hooks 3.1.1; exporter-trace-otlp-http 0.301.1; semconv 1.45.0. `pnpm verify` passes. |
 | P1-02 | Module, option resolution, internal diagnostics | sonnet | P1-01 | done | 57 tests; forRootAsync factory resolved before NestrixCore; `enabled:false` from an async factory leaves inert providers. |
-| P1-03 | OpenTelemetry setup and export pipeline | opus | P1-01 | review | 31 tests; wired into NestrixCore with `scrubSpanAttributes`; independent review running. |
+| P1-03 | OpenTelemetry setup and export pipeline | opus | P1-01 | done | 39 otel tests; reviewed, 7 fixes (async redact, linger after close, refcount, diag line, status.message). SDK 3.1.1 lets up to 30 exports overlap in an outage: documented bound. |
 | P1-04 | Privacy helpers | sonnet | P1-00 | done | 61 tests; reviewed (no leaks found), test gaps, speed and `//authority` hardening fixed. A target starting with `//` loses its first segment in `splitUrl`. |
 | P1-05 | `Span` and `withSpan` | sonnet | P1-01 | done | 40 tests; reviewed, 3 fixes applied; fire-and-forget promise case accepted and documented in architecture §4.3. |
 | P1-06 | HTTP server spans | opus | P1-02, P1-03, P1-04 | doing | review required |

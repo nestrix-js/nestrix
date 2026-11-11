@@ -14,7 +14,7 @@ import {
   SimpleSpanProcessor,
   TracerProvider,
 } from "@opentelemetry/sdk-trace";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { setupTelemetry } from "../src/otel/setup.js";
 import {
   config,
@@ -32,6 +32,10 @@ const hostProvider = new TracerProvider({
 const hostCm = new AsyncLocalStorageContextManager().enable();
 const hostPropagator = new W3CTraceContextPropagator();
 const diagLines: string[] = [];
+// Same module instance as src/otel/setup.ts uses, so this sees the losing provider's shutdown.
+const providerShutdown = vi.spyOn(TracerProvider.prototype, "shutdown");
+const duplicateLines = () =>
+  diagLines.filter((l) => l.includes("Attempted duplicate registration"));
 
 beforeAll(async () => {
   receiver = await startReceiver();
@@ -120,5 +124,34 @@ describe("host SDK registered first", () => {
     ]);
     expect([...propagation.fields()]).toEqual(["traceparent", "tracestate"]);
     expect(await handle.forceFlush()).toBeUndefined();
+  });
+
+  it("the provider that lost the race was shut down, and the host's was not", () => {
+    expect(providerShutdown).toHaveBeenCalledTimes(1);
+    expect(providerShutdown.mock.contexts[0]).not.toBe(hostProvider);
+  });
+
+  it("later app lifecycles do not retry the registration: still one diag line, no provider built", async () => {
+    for (let i = 0; i < 4; i++) {
+      const h = setupTelemetry(config(), recordingDiagnostics());
+      expect(h.ownsProvider).toBe(false);
+      await h.shutdown();
+    }
+    expect(duplicateLines()).toHaveLength(1);
+    expect(providerShutdown).toHaveBeenCalledTimes(1);
+  });
+
+  it("a host that disables and re-registers costs one more try and one more line", async () => {
+    trace.disable();
+    const host2 = new TracerProvider({
+      spanProcessors: [new SimpleSpanProcessor({ exporter: hostExporter })],
+    });
+    expect(trace.setGlobalTracerProvider(host2)).toBe(true);
+    const h = setupTelemetry(config(), recordingDiagnostics());
+    expect(h.ownsProvider).toBe(false);
+    expect(duplicateLines()).toHaveLength(2);
+    const again = setupTelemetry(config(), recordingDiagnostics());
+    expect(again.ownsProvider).toBe(false);
+    expect(duplicateLines()).toHaveLength(2);
   });
 });

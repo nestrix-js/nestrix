@@ -13,6 +13,7 @@ import {
   type SpanExporter,
   type SpanProcessor,
 } from "@opentelemetry/sdk-trace";
+import { createExportAgents } from "./export-agent.js";
 import {
   createRedactingExporter,
   type RedactionCounters,
@@ -123,6 +124,12 @@ export function batchExportTimeout(exporterTimeoutMillis: number): number {
 
 export interface Pipeline {
   processor: SpanProcessor;
+  /**
+   * For when the shutdown bound expires: fails pending exports (so the batch processor
+   * clears its export timer) and destroys the exporter's sockets with an error it does
+   * not retry. A retry backoff timer already scheduled inside the exporter stays.
+   */
+  abort(): void;
 }
 
 /** Builds the pipeline, or returns `undefined` when export is off. */
@@ -133,10 +140,12 @@ export function createPipeline(
 ): Pipeline | undefined {
   const otlp = config.export.otlp;
   if (otlp === false) return undefined;
+  const agents = createExportAgents();
   const exporter: SpanExporter = new OTLPTraceExporter({
     url: otlp.url,
     headers: { ...otlp.headers },
     timeoutMillis: otlp.timeoutMillis,
+    httpAgentOptions: (protocol: string) => agents.factory(protocol),
   });
   const redacting = createRedactingExporter(exporter, {
     scrub: config.scrub,
@@ -155,5 +164,11 @@ export function createPipeline(
       counters.droppedSpans += count;
     }),
   });
-  return { processor: guardProcessor(batch, diagnostics) };
+  return {
+    processor: guardProcessor(batch, diagnostics),
+    abort() {
+      redacting.abort();
+      agents.abort();
+    },
+  };
 }

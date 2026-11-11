@@ -1,7 +1,7 @@
 /**
  * OpenTelemetry setup. SDK packages are imported under `src/otel/` only (AGENTS.md
- * rule 5). Nothing happens at import time; `setupTelemetry` is
- * called from `NestrixCore`'s constructor (architecture §4.2 "Registration timing").
+ * rule 5). Nothing happens at import time; `setupTelemetry` is called from
+ * `NestrixCore`'s constructor (architecture §4.2 "Registration timing").
  *
  * Provider ownership (architecture §4.5): Nestrix calls `trace.setGlobalTracerProvider`
  * and accepts its answer. `false` means something else owns the provider; Nestrix then
@@ -20,7 +20,11 @@ import {
   hasContextManager,
   hasPropagator,
 } from "./detect.js";
-import { createPipeline, type PipelineCounters } from "./pipeline.js";
+import {
+  createPipeline,
+  type Pipeline,
+  type PipelineCounters,
+} from "./pipeline.js";
 import { settle } from "./redacting-exporter.js";
 import { buildResource } from "./resource.js";
 import type {
@@ -31,12 +35,29 @@ import type {
 
 const DEFAULT_SHUTDOWN_TIMEOUT_MILLIS = 5_000;
 
+/** The provider Nestrix registered, shared by every app in the process that set up while it was open. */
+interface Owned {
+  provider: TracerProvider;
+  pipeline: Pipeline | undefined;
+  counters: PipelineCounters;
+  contextManagerRegistered: boolean;
+  propagatorRegistered: boolean;
+  timeoutMillis: number;
+  diagnostics: TelemetryDiagnostics;
+  /** Open handles. Only the last one to shut down tears the provider down. */
+  refs: number;
+}
+
+let owned: Owned | undefined;
+
 /**
- * Set while a provider this module registered is still the global one. A second
- * `setupTelemetry` in the same process (two apps open at once) then gets `false` from
- * the API for Nestrix's own provider, not a host's; the log line says which.
+ * What `trace.getTracerProvider()` returned right after a lost registration. While it
+ * returns the same object the host's provider is still registered, so Nestrix does not
+ * try again: each try writes a "duplicate registration" error to the host's diag logger.
+ * A host that disables and re-registers gets a new object (api 1.10.0 `trace.disable()`
+ * replaces the proxy), and costs one more try and one more line.
  */
-let ownedByNestrix = false;
+let lostTo: unknown;
 
 function newCounters(): PipelineCounters {
   return {
@@ -70,6 +91,17 @@ function delay(ms: number): Promise<void> {
   });
 }
 
+/** Resolves when `work` settles or `ms` passes, whichever is first; tells which. Never rejects. */
+async function bounded(
+  work: () => unknown,
+  ms: number,
+): Promise<"done" | "timeout"> {
+  return Promise.race([
+    settle(work).then(() => "done" as const),
+    delay(ms).then(() => "timeout" as const),
+  ]);
+}
+
 /**
  * Registers Nestrix's OpenTelemetry pipeline, or steps aside for a host's. Never throws:
  * a failure is counted and the returned handle is inert.
@@ -78,31 +110,35 @@ export function setupTelemetry(
   config: TelemetryConfig,
   diagnostics: TelemetryDiagnostics,
 ): TelemetryHandle {
-  const counters = newCounters();
   try {
-    return setup(config, diagnostics, counters);
+    return setup(config, diagnostics);
   } catch (error) {
     diagnostics.countFailure("otel.setup", error);
-    return inertHandle(counters);
+    return inertHandle(newCounters());
   }
 }
 
 function setup(
   config: TelemetryConfig,
   diagnostics: TelemetryDiagnostics,
-  counters: PipelineCounters,
 ): TelemetryHandle {
-  if (ownedByNestrix) {
+  if (owned) {
+    owned.refs++;
     diagnostics.logOnce(
       "otel.second-instance",
-      "Another Nestrix instance in this process already owns the OpenTelemetry tracer provider; this one reports through it, with that instance's export settings.",
+      "Another Nestrix instance in this process already owns the OpenTelemetry tracer provider; this one reports through it, with that instance's export, sampleRate, resource and redact settings.",
     );
-    return inertHandle(counters);
+    return ownedHandle(owned, false);
+  }
+
+  if (lostTo !== undefined && trace.getTracerProvider() === lostTo) {
+    return hostHandle(diagnostics);
   }
 
   // Built before registering, because SDK 3's TracerProvider takes processors only in
   // its constructor. Everything here belongs to this provider alone, so shutting it
   // down after a lost race touches nothing of the host's (architecture §4.5).
+  const counters = newCounters();
   const pipeline = createPipeline(config, counters, diagnostics);
   const provider = new TracerProvider({
     resource: buildResource(config, () =>
@@ -122,25 +158,13 @@ function setup(
   // is no silent public probe for a provider; see architecture §4.5.
   if (!trace.setGlobalTracerProvider(provider)) {
     void settle(() => provider.shutdown());
-    diagnostics.logOnce(
-      "otel.host-provider",
-      "An OpenTelemetry tracer provider is already registered, so Nestrix uses it: Nestrix's spans go to that SDK's exporters, and Nestrix's export, sampleRate, resource and redact options are ignored.",
-    );
-    if (!hasContextManager()) {
-      diagnostics.logOnce(
-        "otel.host-no-context-manager",
-        "The registered OpenTelemetry SDK has no context manager, so spans will not be parented across calls. Register one (for example AsyncLocalStorageContextManager from @opentelemetry/context-async-hooks) with context.setGlobalContextManager().",
-      );
+    try {
+      lostTo = trace.getTracerProvider();
+    } catch {
+      lostTo = undefined;
     }
-    if (!hasPropagator()) {
-      diagnostics.logOnce(
-        "otel.host-no-propagator",
-        "The registered OpenTelemetry SDK has no propagator, so no traceparent is read or sent. Register one (for example W3CTraceContextPropagator from @opentelemetry/core) with propagation.setGlobalPropagator().",
-      );
-    }
-    return inertHandle(counters);
+    return hostHandle(diagnostics);
   }
-  ownedByNestrix = true;
 
   if (!pipeline) {
     diagnostics.logOnce(
@@ -149,30 +173,22 @@ function setup(
     );
   }
 
-  const registered = {
-    tracerProvider: true,
-    contextManager: false,
-    propagator: false,
-  };
-  let contextManager: AsyncLocalStorageContextManager | undefined;
+  let contextManagerRegistered = false;
   try {
     if (hasContextManager()) {
       warnIfContextIsSyncOnly(diagnostics);
     } else {
       const manager = new AsyncLocalStorageContextManager().enable();
-      if (context.setGlobalContextManager(manager)) {
-        registered.contextManager = true;
-        contextManager = manager;
-      } else {
-        manager.disable();
-      }
+      contextManagerRegistered = context.setGlobalContextManager(manager);
+      if (!contextManagerRegistered) manager.disable();
     }
   } catch (error) {
     diagnostics.countFailure("otel.context-manager", error);
   }
+  let propagatorRegistered = false;
   try {
     if (!hasPropagator()) {
-      registered.propagator = propagation.setGlobalPropagator(
+      propagatorRegistered = propagation.setGlobalPropagator(
         new W3CTraceContextPropagator(),
       );
     }
@@ -180,57 +196,115 @@ function setup(
     diagnostics.countFailure("otel.propagator", error);
   }
 
-  const timeoutMillis =
-    config.shutdownTimeoutMillis ?? DEFAULT_SHUTDOWN_TIMEOUT_MILLIS;
-  let shutdownPromise: Promise<void> | undefined;
-
-  const shutdown = async (): Promise<void> => {
-    let timedOut = false;
-    try {
-      // New spans become no-ops from here on; spans already queued are still exported.
-      trace.disable();
-    } catch (error) {
-      diagnostics.countFailure("otel.shutdown", error);
-    }
-    ownedByNestrix = false;
-    await Promise.race([
-      settle(() => provider.shutdown()),
-      delay(timeoutMillis).then(() => {
-        timedOut = true;
-      }),
-    ]);
-    if (timedOut) {
-      diagnostics.logOnce(
-        "otel.shutdown-timeout",
-        `Flushing spans on shutdown took longer than ${timeoutMillis} ms; the rest were dropped.`,
-      );
-    }
-    // Last, so the exporter's in-flight requests kept their suppressed context.
-    try {
-      if (registered.contextManager && contextManager) context.disable();
-    } catch (error) {
-      diagnostics.countFailure("otel.shutdown", error);
-    }
-    try {
-      if (registered.propagator) propagation.disable();
-    } catch (error) {
-      diagnostics.countFailure("otel.shutdown", error);
-    }
+  owned = {
+    provider,
+    pipeline,
+    counters,
+    contextManagerRegistered,
+    propagatorRegistered,
+    timeoutMillis:
+      config.shutdownTimeoutMillis ?? DEFAULT_SHUTDOWN_TIMEOUT_MILLIS,
+    diagnostics,
+    refs: 1,
   };
+  return ownedHandle(owned, true);
+}
 
+function hostHandle(diagnostics: TelemetryDiagnostics): TelemetryHandle {
+  diagnostics.logOnce(
+    "otel.host-provider",
+    "An OpenTelemetry tracer provider is already registered, so Nestrix uses it: Nestrix's spans go to that SDK's exporters, and Nestrix's export, sampleRate, resource and redact options are ignored.",
+  );
+  if (!hasContextManager()) {
+    diagnostics.logOnce(
+      "otel.host-no-context-manager",
+      "The registered OpenTelemetry SDK has no context manager, so spans will not be parented across calls. Register one (for example AsyncLocalStorageContextManager from @opentelemetry/context-async-hooks) with context.setGlobalContextManager().",
+    );
+  }
+  if (!hasPropagator()) {
+    diagnostics.logOnce(
+      "otel.host-no-propagator",
+      "The registered OpenTelemetry SDK has no propagator, so no traceparent is read or sent. Register one (for example W3CTraceContextPropagator from @opentelemetry/core) with propagation.setGlobalPropagator().",
+    );
+  }
+  return inertHandle(newCounters());
+}
+
+/**
+ * A handle on the shared owned provider. `first` is the handle that registered the
+ * globals; later ones registered nothing (their `registered` flags are false).
+ */
+function ownedHandle(state: Owned, first: boolean): TelemetryHandle {
+  let shutdownPromise: Promise<void> | undefined;
+  const forceFlush = (): Promise<void> =>
+    settle(() =>
+      state.provider.forceFlush({ timeoutMillis: state.timeoutMillis }),
+    );
   return {
     ownsProvider: true,
-    registered,
-    counters,
-    forceFlush: () =>
-      shutdownPromise
-        ? Promise.resolve()
-        : settle(() => provider.forceFlush({ timeoutMillis })),
+    registered: {
+      tracerProvider: first,
+      contextManager: first && state.contextManagerRegistered,
+      propagator: first && state.propagatorRegistered,
+    },
+    counters: state.counters,
+    forceFlush: () => (shutdownPromise ? Promise.resolve() : forceFlush()),
     shutdown: () => {
-      shutdownPromise ??= settle(shutdown);
+      shutdownPromise ??= settle(async () => {
+        state.refs--;
+        if (state.refs > 0) {
+          // Other apps still serve: flush what is buffered, keep everything registered.
+          await bounded(forceFlush, state.timeoutMillis);
+          return;
+        }
+        await teardown(state);
+      });
       return shutdownPromise;
     },
   };
+}
+
+/**
+ * The last handle closed: flush and shut down the provider within the bound, then remove
+ * the globals Nestrix registered so a later app in the process can own them again.
+ */
+async function teardown(state: Owned): Promise<void> {
+  const { diagnostics } = state;
+  if (owned === state) owned = undefined;
+  try {
+    // New spans become no-ops from here on; spans already queued are still exported.
+    trace.disable();
+  } catch (error) {
+    diagnostics.countFailure("otel.shutdown", error);
+  }
+  const outcome = await bounded(
+    () => state.provider.shutdown(),
+    state.timeoutMillis,
+  );
+  if (outcome === "timeout") {
+    // Without this the batch processor's export timer, the exporter's socket and its
+    // retries keep the process alive after the app closed.
+    try {
+      state.pipeline?.abort();
+    } catch (error) {
+      diagnostics.countFailure("otel.shutdown", error);
+    }
+    diagnostics.logOnce(
+      "otel.shutdown-timeout",
+      `Flushing spans on shutdown took longer than ${state.timeoutMillis} ms; the rest were dropped.`,
+    );
+  }
+  // Last, so the exporter's in-flight requests kept their suppressed context.
+  try {
+    if (state.contextManagerRegistered) context.disable();
+  } catch (error) {
+    diagnostics.countFailure("otel.shutdown", error);
+  }
+  try {
+    if (state.propagatorRegistered) propagation.disable();
+  } catch (error) {
+    diagnostics.countFailure("otel.shutdown", error);
+  }
 }
 
 /**
