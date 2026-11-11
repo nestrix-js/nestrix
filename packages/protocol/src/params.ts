@@ -16,7 +16,7 @@
  *   ```
  *
  * Semantics the shapes cannot express: `before` and `after` are mutually exclusive
- * (both given is a `400`); a parameter absent from the query string takes its
+ * (both given is a `400`); `service` filters by `service.name` (the standalone server serves several services; an embedded dashboard answers empty unless it equals its own name); a parameter absent from the query string takes its
  * `default` when it has one and is unset otherwise; unknown parameters are a `400`.
  */
 
@@ -78,6 +78,7 @@ export const traceListParams = {
   type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
   release: { kind: "string", maxLength: 255 },
   user: { kind: "string", maxLength: 256 },
+  service: { kind: "string", maxLength: 256 },
 } as const;
 export type TraceListParamsSpec = typeof traceListParams;
 
@@ -87,6 +88,7 @@ export const errorListParams = {
   before: { kind: "cursor", maxLength: 256 },
   after: { kind: "cursor", maxLength: 256 },
   route: { kind: "string", maxLength: 512 },
+  service: { kind: "string", maxLength: 256 },
 } as const;
 export type ErrorListParamsSpec = typeof errorListParams;
 
@@ -99,6 +101,7 @@ export const routeStatsParams = {
     oneOf: [15, 60],
     default: 15,
   },
+  service: { kind: "string", maxLength: 256 },
 } as const;
 export type RouteStatsParamsSpec = typeof routeStatsParams;
 
@@ -111,6 +114,7 @@ export const classStatsParams = {
     oneOf: [15, 60],
     default: 15,
   },
+  service: { kind: "string", maxLength: 256 },
 } as const;
 export type ClassStatsParamsSpec = typeof classStatsParams;
 
@@ -123,6 +127,7 @@ export const appMapParams = {
     oneOf: [15, 60],
     default: 15,
   },
+  service: { kind: "string", maxLength: 256 },
 } as const;
 export type AppMapParamsSpec = typeof appMapParams;
 

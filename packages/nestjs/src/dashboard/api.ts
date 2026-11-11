@@ -52,6 +52,7 @@ export const traceListSpec: TraceListParamsSpec = {
   type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
   release: { kind: "string", maxLength: 255 },
   user: { kind: "string", maxLength: 256 },
+  service: { kind: "string", maxLength: 256 },
 };
 
 export const errorListSpec: ErrorListParamsSpec = {
@@ -59,6 +60,7 @@ export const errorListSpec: ErrorListParamsSpec = {
   before: { kind: "cursor", maxLength: 256 },
   after: { kind: "cursor", maxLength: 256 },
   route: { kind: "string", maxLength: 512 },
+  service: { kind: "string", maxLength: 256 },
 };
 
 export const routeStatsSpec: RouteStatsParamsSpec = {
@@ -69,6 +71,7 @@ export const routeStatsSpec: RouteStatsParamsSpec = {
     oneOf: [15, 60],
     default: 15,
   },
+  service: { kind: "string", maxLength: 256 },
 };
 
 export const classStatsSpec: ClassStatsParamsSpec = {
@@ -79,6 +82,7 @@ export const classStatsSpec: ClassStatsParamsSpec = {
     oneOf: [15, 60],
     default: 15,
   },
+  service: { kind: "string", maxLength: 256 },
 };
 
 export const appMapSpec: AppMapParamsSpec = {
@@ -89,6 +93,7 @@ export const appMapSpec: AppMapParamsSpec = {
     oneOf: [15, 60],
     default: 15,
   },
+  service: { kind: "string", maxLength: 256 },
 };
 
 export const traceSpec: TraceParamsSpec = {
@@ -252,6 +257,11 @@ export interface ApiSources {
   readonly fallbackProcessId: string;
 }
 
+/** True when a `service` filter excludes this application (it names another service). */
+function otherService(v: Values, sources: ApiSources): boolean {
+  return v.service !== undefined && v.service !== sources.service.name;
+}
+
 const EMPTY_PAGE = { items: [], head: null, older: null, reset: false };
 
 const EMPTY_STATS: Pick<
@@ -332,6 +342,7 @@ export function metaHandler(
       windowsMinutes: [...routeStatsSpec.windowMinutes.oneOf],
     },
     warnings: warningsFor(sources, store.receivedSpans),
+    mode: "embedded",
   };
   return ok(body);
 }
@@ -344,19 +355,21 @@ export function tracesHandler(
   if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
   const v = parsed.values;
   const body: TraceListResponse =
-    sources.store?.listTraces({
-      limit: v.limit as number,
-      before: v.before as string | undefined,
-      after: v.after as string | undefined,
-      route: v.route as string | undefined,
-      method: v.method as string | undefined,
-      status: v.status as "ok" | "error" | "4xx" | "5xx" | undefined,
-      minDurationMs: v.minDurationMs as number | undefined,
-      search: v.search as string | undefined,
-      type: v.type as TraceType | undefined,
-      release: v.release as string | undefined,
-      user: v.user as string | undefined,
-    }) ?? EMPTY_PAGE;
+    (otherService(v, sources)
+      ? undefined
+      : sources.store?.listTraces({
+          limit: v.limit as number,
+          before: v.before as string | undefined,
+          after: v.after as string | undefined,
+          route: v.route as string | undefined,
+          method: v.method as string | undefined,
+          status: v.status as "ok" | "error" | "4xx" | "5xx" | undefined,
+          minDurationMs: v.minDurationMs as number | undefined,
+          search: v.search as string | undefined,
+          type: v.type as TraceType | undefined,
+          release: v.release as string | undefined,
+          user: v.user as string | undefined,
+        })) ?? EMPTY_PAGE;
   return ok(body);
 }
 
@@ -385,12 +398,14 @@ export function errorsHandler(
   if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
   const v = parsed.values;
   const body: ErrorListResponse =
-    sources.store?.listErrors({
-      limit: v.limit as number,
-      before: v.before as string | undefined,
-      after: v.after as string | undefined,
-      route: v.route as string | undefined,
-    }) ?? EMPTY_PAGE;
+    (otherService(v, sources)
+      ? undefined
+      : sources.store?.listErrors({
+          limit: v.limit as number,
+          before: v.before as string | undefined,
+          after: v.after as string | undefined,
+          route: v.route as string | undefined,
+        })) ?? EMPTY_PAGE;
   return ok(body);
 }
 
@@ -401,10 +416,13 @@ export function routesHandler(
 ): DashboardResponse {
   const parsed = parseQuery(target, routeStatsSpec);
   if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
-  const body: RouteStatsResponse = sources.stats.query(
+  const result = sources.stats.query(
     parsed.values.windowMinutes as number,
     now,
   );
+  const body: RouteStatsResponse = otherService(parsed.values, sources)
+    ? { ...result, routes: [] }
+    : result;
   return ok(body);
 }
 
@@ -425,12 +443,15 @@ export function classesHandler(
           (visit) => store.scanAllTraces(visit),
           (Math.floor(at / 60_000) - windowMinutes + 1) * 60_000,
         );
-  const body: ClassStatsResponse = sources.classes.query(
+  const result = sources.classes.query(
     windowMinutes,
     methodsEnabled(),
     own,
     at,
   );
+  const body: ClassStatsResponse = otherService(parsed.values, sources)
+    ? { ...result, classes: [] }
+    : result;
   return ok(body);
 }
 
@@ -441,11 +462,14 @@ export function mapHandler(
 ): DashboardResponse {
   const parsed = parseQuery(target, appMapSpec);
   if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
-  const body: AppMapResponse = buildAppMap(
+  const result = buildAppMap(
     sources.store,
     parsed.values.windowMinutes as number,
     now,
     sources.service.name,
   );
+  const body: AppMapResponse = otherService(parsed.values, sources)
+    ? { ...result, nodes: [], edges: [] }
+    : result;
   return ok(body);
 }

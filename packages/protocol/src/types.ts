@@ -78,6 +78,16 @@ export interface MetaResponse {
     windowsMinutes: number[];
   };
   warnings: ApiWarning[];
+  /**
+   * Where this API runs: inside one application (`embedded`, the default when absent) or in the
+   * standalone server (`standalone`), which stores several services.
+   */
+  mode?: "embedded" | "standalone";
+  /**
+   * Names of the services (`service.name`) with data in the store, sorted. Absent when the API
+   * serves one application (`service.name` names it). Filter lists and statistics with `service`.
+   */
+  services?: string[];
 }
 
 /** Fields shared by every cursor-paged list response. */
