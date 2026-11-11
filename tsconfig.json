@@ -63,6 +63,9 @@
     },
     {
       "path": "apps/server/test"
+    },
+    {
+      "path": "examples/demo"
     }
   ]
 }
