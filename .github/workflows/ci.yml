@@ -38,6 +38,8 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           node-version: ${{ matrix.node }}
+      - name: Wait for Docker
+        run: timeout 90 sh -c 'until docker info >/dev/null 2>&1; do sleep 2; done'
       - run: pnpm verify
 
   # Packs both published packages, installs the tarballs outside the workspace into a fresh

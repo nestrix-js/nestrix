@@ -27,11 +27,27 @@ async function docker(...args: string[]): Promise<string> {
   return stdout.trim();
 }
 
+/** Docker can still be starting on a fresh CI runner: retry for up to 60 s there, once locally. */
+async function untilDockerReady(check: () => Promise<unknown>): Promise<void> {
+  const deadline = Date.now() + (process.env.CI ? 60_000 : 0);
+  for (;;) {
+    try {
+      await check();
+      return;
+    } catch (error) {
+      if (Date.now() >= deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+  }
+}
+
 export default async function setup(
   project: TestProject,
 ): Promise<() => Promise<void>> {
   try {
-    await docker("version", "--format", "{{.Server.Version}}");
+    await untilDockerReady(() =>
+      docker("version", "--format", "{{.Server.Version}}"),
+    );
   } catch (error) {
     const reason = `Docker is not reachable (${(error as Error).message.split("\n")[0]})`;
     if (process.env.CI) {

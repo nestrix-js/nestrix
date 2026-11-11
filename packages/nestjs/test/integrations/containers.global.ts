@@ -83,6 +83,20 @@ const SPECS: readonly Spec[] = [
   { key: "redis", image: IMAGES.redis, port: 6379, args: [] },
 ];
 
+/** Docker can still be starting on a fresh CI runner: retry for up to 60 s there, once locally. */
+async function untilDockerReady(check: () => Promise<unknown>): Promise<void> {
+  const deadline = Date.now() + (process.env.CI ? 60_000 : 0);
+  for (;;) {
+    try {
+      await check();
+      return;
+    } catch (error) {
+      if (Date.now() >= deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+  }
+}
+
 export default async function setup(project: TestProject) {
   const ids: string[] = [];
   const skip = (reason: string): void => {
@@ -94,7 +108,9 @@ export default async function setup(project: TestProject) {
     return;
   }
   try {
-    await docker(["info", "--format", "{{.ServerVersion}}"], 10_000);
+    await untilDockerReady(() =>
+      docker(["info", "--format", "{{.ServerVersion}}"], 10_000),
+    );
   } catch (error) {
     const reason = `Docker is not reachable (${(error as Error).message.split("\n")[0]})`;
     if (process.env.CI) throw new Error(`CI is set and ${reason}`);
