@@ -111,13 +111,13 @@ If none of the three conditions holds, it is not a Fable task, however large it 
 
 ## Things only the owner decides
 
-Stop and ask; do not pick a default and continue:
+Delivery mode (owner, 2026-11-11): the lead agent works without stopping for approval. It decides open questions and in-budget runtime dependencies itself, choosing the conservative option and recording each in `docs/decisions.md`; it commits per task and pushes `main` to `origin main` when a batch passes locally (see the git flow in `AGENTS.md`). Still the owner's alone:
 
-- Anything in the "Open" table of `docs/decisions.md`.
-- Changing an entry in the decision log.
-- Publishing a package, pushing to a remote, creating a release, or committing (the owner asks for commits explicitly; use `git commit -s`).
-- Adding a runtime dependency to a published package.
-- Spending that is out of proportion to the task: many parallel agents, or Fable.
+- Publishing a package, creating a release, setting `NPM_PUBLISH_ENABLED`, or making the repository public.
+- A runtime dependency that breaks the budget in `docs/architecture.md` §4.5.
+- Fable (the three conditions above still apply).
+
+**Model choice in delivery mode:** the cheapest model that can do the job well. Sonnet (`implementer`) is the default for implementation, investigations and fix rounds; Haiku (`mechanic`) for mechanical work; Opus (`architect`, `reviewer`) only for first builds of request-path or security code and the reviews that rule requires.
 
 ## Reporting
 

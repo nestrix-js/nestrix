@@ -39,11 +39,12 @@ NestJS 12, OpenTelemetry JS SDK 3, TypeScript 6 and Node 26 are newer than most 
 ## Working agreement
 
 - Take tasks from the backlog in dependency order. Update the status table when a task starts and when it ends.
-- A task is done when its checks have been run and their output read. If something fails, say so with the output. Do not weaken a check to make it pass.
+- **Delivery mode (owner, 2026-11-11): finish and ship first, optimise later.** Acceptance criteria are the minimum that shows a feature works: a functional test or an end-to-end check, run locally. Benchmarks, soak runs, performance targets and polish are deferred to a later optimisation pass and listed in the phase report as deferred, not failed. Test runs stay under about two minutes.
+- A task is done when its local checks (`pnpm verify`, or the affected package's tests plus lint and typecheck) have been run and their output read. CI does not have to pass before moving on. If something fails, say so with the output. Do not weaken a check to make it pass.
 - A mechanism marked **(spike)** in the docs is unproven. Do not build on it until its spike has a result.
 - When work contradicts a doc, fix the doc in the same change. Stale docs are worse here than usual, because agents start from them.
-- Do not commit, push or publish unless the owner asks. If the owner tells a session to commit as it goes, make one commit per completed task. Commits use `git commit -s` (DCO sign-off). Publishing to npm and making the repository public are always separate, explicit requests.
-- Stop for the owner at every phase gate, and for anything listed under "Things only the owner decides" in `docs/ai/orchestration.md`.
+- **Git flow:** each task is built in its own local git worktree on its own branch, committed with `git commit -s` (DCO sign-off, no co-author trailer), checked locally, then merged into local `main`. When a batch of tasks (or the phase) is done and `main` passes locally, push `main` to `origin main`. Never force-push. Publishing to npm, creating releases, setting `NPM_PUBLISH_ENABLED` and making the repository public stay separate, explicit owner requests.
+- Phase gates no longer stop the session: write the phase report and carry on to the next phase. Decisions the owner used to make (open questions, runtime dependencies within the §4.5 budget) are taken by the lead agent with the conservative option and recorded in `docs/decisions.md`. The rules in "Rules that are easy to break" still apply in full; they are product correctness, security and licensing rules, not acceptance criteria.
 
 ## Splitting work across agents
 
