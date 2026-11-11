@@ -2,6 +2,7 @@ import type { IncomingMessage } from "node:http";
 import { NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import { AppModule } from "./app.module.js";
+import { AdminAuth } from "./auth/admin-auth.js";
 import type { ServerConfig } from "./config.js";
 import { INGEST_TRACES_PATH_PATTERN } from "./ingest/tokens.js";
 
@@ -22,11 +23,14 @@ function mediaType(req: IncomingMessage): string {
 
 /**
  * Settings every instance of the server needs, whether built by `createApp` or by a test
- * module. The app must have been created with `bodyParser: false`: the receiver reads the
+ * module, starting with the admin login's middleware. The app must have been created with `bodyParser: false`: the receiver reads the
  * ingest body itself, so the JSON and form parsers registered here skip the ingest path.
  */
 export function configureApp(app: NestExpressApplication): void {
   app.disable("x-powered-by");
+  // First, before the body parsers and every Nest route: the admin login's default-deny
+  // middleware (src/auth/admin-auth.ts). Throws at start if AuthModule is missing.
+  app.use(app.get(AdminAuth).middleware());
   app.useBodyParser("json", {
     type: (req: IncomingMessage) =>
       !isIngestRequest(req) &&

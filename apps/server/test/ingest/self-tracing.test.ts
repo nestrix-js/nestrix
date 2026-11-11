@@ -7,14 +7,8 @@ import {
   TracerProvider,
 } from "@opentelemetry/sdk-trace";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import {
-  auth,
-  fixture,
-  PROTO,
-  post,
-  startServer,
-  type TestServer,
-} from "./helpers.js";
+import { loginCookie, startAuthServer } from "../auth/helpers.js";
+import { auth, fixture, PROTO, post, type TestServer } from "./helpers.js";
 
 const exporter = new InMemorySpanExporter();
 let server: TestServer;
@@ -25,7 +19,7 @@ beforeAll(async () => {
       spanProcessors: [new SimpleSpanProcessor({ exporter })],
     }),
   );
-  server = await startServer();
+  server = await startAuthServer();
 });
 afterAll(async () => {
   await server?.close();
@@ -40,7 +34,11 @@ it("creates server spans for other routes but none for POST /v1/traces", async (
     });
     expect(res.status).toBe(200);
   }
-  const other = await fetch(`${server.baseUrl}/not-a-route`);
+  // Every path but ingest and the login is behind the admin login (P5-04).
+  const cookie = await loginCookie(server.baseUrl);
+  const other = await fetch(`${server.baseUrl}/not-a-route`, {
+    headers: { cookie },
+  });
   expect(other.status).toBe(404);
 
   await new Promise((r) => setTimeout(r, 50));
