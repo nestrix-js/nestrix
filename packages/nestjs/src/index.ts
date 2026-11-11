@@ -1,6 +1,11 @@
 export { NestrixLogger } from "./logs/logger.js";
 export { getTraceIds, type TraceIds } from "./logs/trace-ids.js";
 export {
+  composeInstrument,
+  type NestInstrument,
+  NestrixInstrument,
+} from "./methods/instrument.js";
+export {
   NestrixModule,
   type NestrixModuleAsyncOptions,
 } from "./nestrix.module.js";

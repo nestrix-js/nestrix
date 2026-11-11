@@ -2,7 +2,10 @@ import {
   type SecretDigests,
   secretDigests,
 } from "./dashboard/startup-token.js";
+import { DEFAULT_METHODS, type ResolvedMethods } from "./methods/resolved.js";
 import type {
+  ClassMatcher,
+  NestrixEnhancerKind,
   NestrixModuleOptions,
   NestrixQueueOptions,
   NestrixStoreOptions,
@@ -64,6 +67,8 @@ export interface ResolvedOptions {
     readonly export: boolean;
     readonly otlp: ResolvedOtlp | false;
   };
+  /** Level 2 method spans (P3-02). Effective only with `NestrixInstrument`. */
+  readonly methods: ResolvedMethods;
 }
 
 /**
@@ -509,6 +514,72 @@ export function resolveOptions(
       export: o.logs?.export === true,
       otlp: o.logs?.export === true ? resolveOtlp(o, env, "logs") : false,
     }),
+    methods: resolveMethods(o.methods),
   };
   return Object.freeze(resolved);
+}
+
+const ENHANCER_KINDS: readonly NestrixEnhancerKind[] = [
+  "guard",
+  "pipe",
+  "interceptor",
+  "filter",
+];
+
+function resolveClassMatchers(
+  name: string,
+  value: unknown,
+): readonly ClassMatcher[] {
+  if (value === undefined) return Object.freeze([]);
+  if (!Array.isArray(value)) invalid(`${name} must be an array`);
+  for (const m of value) {
+    if (
+      typeof m !== "string" &&
+      typeof m !== "function" &&
+      !(m instanceof RegExp)
+    ) {
+      invalid(`${name} entries must be a class, a class name or a RegExp`);
+    }
+  }
+  return Object.freeze([...(value as ClassMatcher[])]);
+}
+
+/** `methods` (level 2, P3-02) with defaults applied. Throws on an invalid value. */
+export function resolveMethods(methods: unknown): ResolvedMethods {
+  if (methods === undefined) return DEFAULT_METHODS;
+  if (methods === null || typeof methods !== "object") {
+    invalid("methods must be an object");
+  }
+  const m = methods as {
+    enabled?: unknown;
+    include?: unknown;
+    exclude?: unknown;
+    enhancers?: unknown;
+  };
+  const enabled = m.enabled ?? true;
+  if (typeof enabled !== "boolean")
+    invalid("methods.enabled must be a boolean");
+  let enhancers: readonly NestrixEnhancerKind[];
+  if (m.enhancers === undefined || m.enhancers === false) enhancers = [];
+  else if (m.enhancers === true) enhancers = ENHANCER_KINDS;
+  else if (Array.isArray(m.enhancers)) {
+    for (const k of m.enhancers) {
+      if (!ENHANCER_KINDS.includes(k as NestrixEnhancerKind)) {
+        invalid(
+          `methods.enhancers entries must be one of ${ENHANCER_KINDS.join(", ")}, got ${String(k)}`,
+        );
+      }
+    }
+    enhancers = [...new Set(m.enhancers as NestrixEnhancerKind[])];
+  } else {
+    invalid(
+      "methods.enhancers must be a boolean or an array of enhancer kinds",
+    );
+  }
+  return Object.freeze({
+    enabled,
+    include: resolveClassMatchers("methods.include", m.include),
+    exclude: resolveClassMatchers("methods.exclude", m.exclude),
+    enhancers: Object.freeze([...enhancers]),
+  });
 }

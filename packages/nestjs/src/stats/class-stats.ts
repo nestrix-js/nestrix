@@ -57,14 +57,6 @@ class ClassEntry {
   ) {}
 }
 
-/**
- * Whether method spans are on. TODO(P3-02 merge): replace with `methodsEnabled()` from
- * `src/methods/`; until then, whether any call has been recorded.
- */
-export function methodsEnabledStub(stats: ClassStatistics): boolean {
-  return stats.hasRecorded;
-}
-
 /** Own time per (class, method), as a sampled average; see `ownAverages`. */
 export type OwnAverages = ReadonlyMap<string, ReadonlyMap<string, number>>;
 

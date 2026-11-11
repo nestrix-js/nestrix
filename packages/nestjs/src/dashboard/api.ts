@@ -30,11 +30,8 @@ import type {
   TraceResponse,
   TraceType,
 } from "@nestrix/protocol";
-import {
-  type ClassStatistics,
-  methodsEnabledStub,
-  ownAverages,
-} from "../stats/class-stats.js";
+import { methodsEnabled } from "../methods/registry.js";
+import { type ClassStatistics, ownAverages } from "../stats/class-stats.js";
 import type { RouteStatistics } from "../stats/route-stats.js";
 import { buildAppMap } from "../store/app-map.js";
 import type { StoreStats, TraceStore } from "../store/store.js";
@@ -430,7 +427,7 @@ export function classesHandler(
         );
   const body: ClassStatsResponse = sources.classes.query(
     windowMinutes,
-    methodsEnabledStub(sources.classes),
+    methodsEnabled(),
     own,
     at,
   );

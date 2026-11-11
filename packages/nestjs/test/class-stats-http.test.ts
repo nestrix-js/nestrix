@@ -56,7 +56,8 @@ describe.each(ADAPTERS)("GET api/v1/classes on %s", (adapter) => {
     expect(r.status).toBe(200);
     const body = r.json() as ClassStatsResponse;
     expect(body.windowMinutes).toBe(60);
-    expect(body.methodsEnabled).toBe(true);
+    // No NestrixInstrument in this app: the sink was fed directly, so method spans are off.
+    expect(body.methodsEnabled).toBe(false);
     expect(body.toUnixMs).toBeGreaterThan(body.fromUnixMs);
     expect(body.classes.map((c) => c.className)).toEqual([
       "OrdersRepository",

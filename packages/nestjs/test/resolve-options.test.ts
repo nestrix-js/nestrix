@@ -30,6 +30,7 @@ describe("resolveOptions defaults", () => {
       },
       store: { maxTraces: 5000, maxBytes: 33554432 },
       logs: { export: false, otlp: false },
+      methods: { enabled: true, include: [], exclude: [], enhancers: [] },
     });
   });
 
