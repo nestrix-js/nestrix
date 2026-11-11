@@ -31,7 +31,7 @@ Method spans need `instrument: NestrixInstrument` in `main.ts`; without it these
 
 | Option | Default | Description |
 |---|---|---|
-| `methods.enabled` | `true` | `false` turns method spans off. |
+| `methods` | an object, or `false` | `false` turns method spans off. |
 | `methods.include` | none | Classes traced in addition to your own controllers, services, repositories and processors: a class, an exact name or a `RegExp`. |
 | `methods.exclude` | none | Classes never traced, in the same forms. Wins over `include`. |
 | `methods.enhancers` | `false` | `true` for guard, pipe, interceptor and filter spans, or an array such as `['guard']` for some. |
@@ -46,7 +46,7 @@ Method spans need `instrument: NestrixInstrument` in `main.ts`; without it these
 
 ## `export`
 
-`export.otlp` is an object, or `false` to turn OTLP export off even when the environment sets an endpoint.
+`export.otlp` is an object, or `false` to turn off all OTLP export (traces, logs and metrics) even when the environment sets an endpoint. The same `endpoint` and `headers` feed `/v1/traces`, `/v1/logs` and `/v1/metrics`.
 
 | Option | Default | Description |
 |---|---|---|
@@ -63,7 +63,7 @@ All three queue values must be positive integers.
 
 | Option | Default | Description |
 |---|---|---|
-| `ignore.routes` | none | Incoming requests that get no server span. Matched against the request path without the query string. A string must equal the path exactly: `"/health"` does not match `"/health/live"`. |
+| `ignore.paths` | none | Incoming requests that get no server span. Matched against the request path without the query string. A string must equal the path exactly: `"/health"` does not match `"/health/live"`. |
 | `ignore.outgoing` | none | Outgoing requests that get no client span and no `traceparent`. Matched against the recorded `url.full` (credentials removed, listed query values already `REDACTED`). A string is a **prefix**, for example `"https://o123.ingest.sentry.io/"`. |
 
 A matcher is a string, a `RegExp` or a function that receives the path or URL and returns `true` to match. A matcher that throws counts as a match, and the failure is counted.
@@ -118,7 +118,7 @@ Ignored while the dashboard is off.
 
 | Option | Default | Description |
 |---|---|---|
-| `logs.export` | `false` | Send `NestrixLogger` records over OTLP/HTTP to `/v1/logs` of the configured endpoint (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is honoured). Needs `@opentelemetry/sdk-logs` and `@opentelemetry/exporter-logs-otlp-http`; without them one log line says so. |
+| `logs.export` | `false` | Send `NestrixLogger` records over OTLP/HTTP to `/v1/logs` of the configured endpoint (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is honoured, but does not turn export on by itself). Like metrics, it runs only when Nestrix owns the trace provider and trace export is on; with a host-owned SDK Nestrix registers no `LoggerProvider` and logs one line saying so. Needs `@opentelemetry/sdk-logs` and `@opentelemetry/exporter-logs-otlp-http`; without them one log line says so. |
 
 ## `metrics`
 
@@ -135,6 +135,8 @@ Ignored while the dashboard is off.
 | `OTEL_SERVICE_NAME` | Default for `serviceName`. |
 | `OTEL_RESOURCE_ATTRIBUTES` | `key=value,key2=value2`, merged into the resource; `resourceAttributes` wins. |
 | `GIT_SHA` | The release (`service.version`) when no option or `OTEL_RESOURCE_ATTRIBUTES` sets one. |
+| `npm_package_version` | The release when nothing above sets one. Set by `npm`/`pnpm run`, not by `node main.js`. |
+| `NODE_ENV` | `ui: 'auto'` serves the dashboard only when it is `development` or unset. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Base endpoint; `/v1/traces` is appended. Setting it switches export on. |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Full traces URL, used as given. Wins over the generic endpoint. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | `key=value,key2=value2`, values percent-decoded. |
@@ -146,3 +148,9 @@ Ignored while the dashboard is off.
 | `OTEL_METRIC_EXPORT_INTERVAL` | Milliseconds between metric exports. Default `60000`; a value that is not a positive integer is ignored. |
 
 An option always wins over the variable of the same meaning. Nestrix reads no other `OTEL_*` variables, but the OTLP exporter it uses reads some on its own: `OTEL_EXPORTER_OTLP_COMPRESSION` takes effect; `OTEL_EXPORTER_OTLP_TIMEOUT` and the certificate and key variables have no effect through Nestrix (use a collector or proxy in front for mutual TLS). When your app owns the SDK, the export variables are your SDK's business.
+
+`OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG`, `OTEL_SDK_DISABLED` and `OTEL_EXPORTER_OTLP_PROTOCOL` are not read: use `sampleRate` and `enabled` (or `NESTRIX_ENABLED`). Export is OTLP/HTTP with protobuf only.
+
+## Stability
+
+From 1.0, semantic versioning covers the exports of `@nestrix/nestjs`, the option names and their defaults, and the environment variables documented here. It does not cover the dashboard's query API (`/_nestrix/api/v1`) or the `@nestrix/protocol` types: they are internal to the bundled UI, which ships at the same version as the package. The names of the runtime metrics and the default set of traced classes may change in a minor release.

@@ -33,7 +33,7 @@ afterEach(async () => {
 
 function instrumentation(ignore: unknown[] = []): HttpServerInstrumentation {
   return new HttpServerInstrumentation(
-    resolveOptions({ ignore: { routes: ignore as never } }, {}),
+    resolveOptions({ ignore: { paths: ignore as never } }, {}),
     diagnostics,
   );
 }

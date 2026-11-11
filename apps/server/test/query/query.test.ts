@@ -291,7 +291,7 @@ describe.skipIf(noDatabase)(`query API ${skipReason}`, () => {
         mode: "standalone",
         services: ["payments", "shop", "worker"],
         sampling: { owner: "host", rate: null },
-        statistics: { windowsMinutes: [15, 60] },
+        statistics: { windowMinutesOptions: [15, 60] },
         warnings: [],
       });
       expect(meta.store.traces).toBe(6);
@@ -483,7 +483,17 @@ describe.skipIf(noDatabase)(`query API ${skipReason}`, () => {
       expect(t.spans[3]).toMatchObject({
         name: "POST /charge",
         parentSpanId: sid(3),
+        service: "payments",
       });
+      // Every span carries its own resource's service name, not the root's.
+      expect(t.spans.map((s) => s.service)).toEqual([
+        "shop",
+        "shop",
+        "shop",
+        "payments",
+        expect.any(String),
+        expect.any(String),
+      ]);
     });
 
     it("keeps events and the status message", async () => {

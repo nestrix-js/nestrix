@@ -224,6 +224,8 @@ interface SpanRow {
   status_code: StatusCode;
   status_message: string | null;
   scope: string | null;
+  /** The span's own resource's `service.name`; selected by `getTrace` only. */
+  service_name?: string;
   attributes: Attributes;
   events: { name: string; timeUnixNano: string; attributes: Attributes }[];
   links: { traceId: string; spanId: string }[];
@@ -249,6 +251,7 @@ function spanOf(r: SpanRow): SpanRecord {
   };
   if (r.parent_span_id !== null) span.parentSpanId = r.parent_span_id;
   if (r.scope !== null) span.scope = r.scope;
+  if (r.service_name !== undefined) span.service = r.service_name;
   return span;
 }
 
@@ -354,7 +357,7 @@ export class QueryService {
       store,
       statistics: {
         sinceUnixMs: sinceMs == null ? now : Number(sinceMs),
-        windowsMinutes: [...routeStatsSpec.windowMinutes.oneOf],
+        windowMinutesOptions: [...routeStatsSpec.windowMinutes.oneOf],
       },
       warnings: [],
       mode: "standalone",
@@ -459,7 +462,7 @@ export class QueryService {
     const spanRows = await this.rows<SpanRow & { resource_id: string }>(
       `SELECT span_id, parent_span_id, name, kind, start_ns::text AS start_ns,
               duration_ns::text AS duration_ns, status_code, status_message, scope,
-              attributes, events, links, resource_id::text AS resource_id
+              attributes, events, links, resource_id::text AS resource_id, service_name
          FROM spans WHERE trace_id = $1`,
       [traceId],
     );

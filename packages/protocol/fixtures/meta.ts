@@ -16,7 +16,10 @@ export const meta = {
     evictedTraces: 0,
     droppedSpans: 2,
   },
-  statistics: { sinceUnixMs: 1_794_399_000_000, windowsMinutes: [15, 60] },
+  statistics: {
+    sinceUnixMs: 1_794_399_000_000,
+    windowMinutesOptions: [15, 60],
+  },
   warnings: [
     {
       code: "sampled",
@@ -24,4 +27,5 @@ export const meta = {
         "Traces are sampled at 25%; route statistics count every request.",
     },
   ],
+  mode: "embedded",
 } satisfies MetaResponse;

@@ -336,7 +336,7 @@ describe.each(ADAPTERS)("%s", (adapter) => {
   it("API parameters: unknown, malformed, out of range, repeated, before with after, missing id", async () => {
     booted = await bootDashboardApp({
       adapter,
-      nestrix: { ...ENABLED, ignore: { routes: ["/health"] } },
+      nestrix: { ...ENABLED, ignore: { paths: ["/health"] } },
     });
     const api = `${booted.baseUrl}/_nestrix/api/v1`;
     const cases: [string, string][] = [

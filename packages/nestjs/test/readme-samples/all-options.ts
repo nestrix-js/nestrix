@@ -21,7 +21,7 @@ import { NestrixModule } from "../../src/index.js";
         },
       },
       ignore: {
-        routes: ["/health", /^\/metrics/],
+        paths: ["/health", /^\/metrics/],
         outgoing: ["https://o123.ingest.sentry.io/"],
       },
       http: {

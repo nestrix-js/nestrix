@@ -251,7 +251,7 @@ export interface ApiSources {
   readonly sampling: MetaResponse["sampling"];
   /** Whether the host owns the OpenTelemetry provider (the `nestrixSpanProcessor()` hint). */
   readonly hostOwnsProvider: boolean;
-  /** Whether `ignore.routes` is configured (statistics then leave those routes out). */
+  /** Whether `ignore.paths` is configured (statistics then leave those routes out). */
   readonly ignoresRoutes: boolean;
   /** Used for `processId` when there is no store. */
   readonly fallbackProcessId: string;
@@ -303,7 +303,7 @@ export function warningsFor(
     warnings.push({
       code: "ignored-routes",
       message:
-        "Route statistics exclude the routes matched by ignore.routes, which also get no spans.",
+        "Route statistics exclude the routes matched by ignore.paths, which also get no spans.",
     });
   }
   return warnings;
@@ -339,7 +339,7 @@ export function metaHandler(
     },
     statistics: {
       sinceUnixMs: sources.stats.sinceUnixMs,
-      windowsMinutes: [...routeStatsSpec.windowMinutes.oneOf],
+      windowMinutesOptions: [...routeStatsSpec.windowMinutes.oneOf],
     },
     warnings: warningsFor(sources, store.receivedSpans),
     mode: "embedded",

@@ -388,7 +388,7 @@ describe.each(ADAPTERS)("HTTP server spans on %s", (adapter) => {
       module: rootModule([], {
         export: { otlp: false },
         ignore: {
-          routes: [
+          paths: [
             (path) => {
               if (path === "/hello") throw new Error("user matcher");
               return false;

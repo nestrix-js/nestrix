@@ -89,7 +89,15 @@ export class NestrixCore
           },
           diagnostics,
         );
-        logExport = setupLogExport(options, diagnostics);
+        // One rule for every signal: the host's SDK owns logs and metrics too (D-69).
+        if (options.logs.export && telemetry?.ownsProvider !== true) {
+          diagnostics.logOnce(
+            "logs.host-sdk",
+            "Log export is on but Nestrix does not own the OpenTelemetry provider (your app's SDK does, or trace export is off), so Nestrix registers no LoggerProvider. Export logs through your own SDK; NestrixLogger records still reach it.",
+          );
+        } else {
+          logExport = setupLogExport(options, diagnostics);
+        }
         // P6-02: after the telemetry setup, which decides whether Nestrix may export metrics.
         metrics = startMetrics(options, telemetry, diagnostics);
         // Outbound subscribers work with or without an HTTP adapter, and with a host-owned SDK.

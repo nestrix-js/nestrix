@@ -41,8 +41,8 @@ export class MockApi {
   /** When set, `classes` / `map` answer with this for the asked window instead of the generated data. */
   classStats: ((windowMinutes: number) => ClassStatsResponse) | null = null;
   appMap: ((windowMinutes: number) => AppMapResponse) | null = null;
-  /** The standalone server's extras: `mode` and `services` in meta; unset means embedded. */
-  mode: MetaResponse["mode"] = undefined;
+  /** The standalone server's extras: `mode` and `services` in meta; `mode` defaults to embedded. */
+  mode: MetaResponse["mode"] = "embedded";
   services: string[] | undefined = undefined;
   /** Every API call answers 401, as the standalone server does without a session. */
   unauthorized = false;
@@ -70,7 +70,7 @@ export class MockApi {
     this.routeStats = null;
     this.classStats = null;
     this.appMap = null;
-    this.mode = undefined;
+    this.mode = "embedded";
     this.services = undefined;
     this.unauthorized = false;
     this.logouts = 0;
@@ -200,9 +200,9 @@ export class MockApi {
         evictedTraces: 0,
         droppedSpans: 0,
       },
-      statistics: { sinceUnixMs: 0, windowsMinutes: [15, 60] },
+      statistics: { sinceUnixMs: 0, windowMinutesOptions: [15, 60] },
       warnings: [],
-      ...(this.mode ? { mode: this.mode } : {}),
+      mode: this.mode,
       ...(this.services ? { services: this.services } : {}),
     };
   }

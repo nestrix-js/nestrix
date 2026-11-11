@@ -152,7 +152,7 @@ describe.each(ADAPTERS)("dashboard on %s", (adapter) => {
         protocolVersion: 1,
         service: { name: "dash-test" },
         sampling: { owner: "nestrix", rate: 1 },
-        statistics: { windowsMinutes: [15, 60] },
+        statistics: { windowMinutesOptions: [15, 60] },
         warnings: [],
       });
       check("meta", meta);

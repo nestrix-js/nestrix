@@ -74,6 +74,7 @@ const MAX_EXPORT_TIMEOUT_MILLIS = 30_000;
 export interface MetricExportConfig {
   readonly export: ResolvedMetricExport;
   readonly serviceName: string | undefined;
+  readonly serviceVersion?: string | undefined;
   readonly resourceAttributes: Readonly<
     Record<string, string | number | boolean>
   >;

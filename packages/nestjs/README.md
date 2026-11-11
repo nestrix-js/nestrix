@@ -2,7 +2,7 @@
 
 Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app produces a server span per request, outgoing HTTP spans, and your own spans, exported over OTLP to whatever backend you run (Jaeger, Tempo, an OpenTelemetry Collector, a vendor that accepts OTLP).
 
-> **Status: alpha.** Tracing with OTLP export, an embedded dashboard served by your own app, method spans for your own classes, database and cache spans (`pg`, `mysql2`, `ioredis`), BullMQ job traces and microservice spans. Option names may still change before 1.0.
+> **Status: alpha.** Tracing with OTLP export, an embedded dashboard served by your own app, method spans for your own classes, database and cache spans (`pg`, `mysql2`, `ioredis`), BullMQ job traces and microservice spans. Option names are settled for 1.0 (see [Stability](#stability)).
 
 ## Contents
 
@@ -21,6 +21,7 @@ Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app pro
 - [Custom spans](#custom-spans)
 - [Logs](#logs)
 - [Privacy](#privacy)
+- [Stability](#stability)
 - [Shutdown and flushing](#shutdown-and-flushing)
 - [Supported versions](#supported-versions)
 - [OpenTelemetry SDK 3 only](#opentelemetry-sdk-3-only)
@@ -106,11 +107,13 @@ class SettingsModule {}
 export class AppModule {}
 ```
 
-With `forRootAsync`, an `enabled: false` returned from the factory disables Nestrix, but the module's providers are still registered and do nothing. With `forRoot`, `enabled: false` registers nothing at all.
+With `forRootAsync`, an `enabled: false` returned from the factory disables Nestrix, but the module's providers are still registered and are inert (they record, export and serve nothing). With `forRoot`, `enabled: false` registers nothing at all.
 
 ### A host that already runs an OpenTelemetry SDK
 
 If your app registers its own tracer provider before Nestrix starts (that is, before `NestFactory.create` constructs the module), Nestrix does not create an SDK. Its spans go through your provider and your exporters. In that case `serviceName`, `resourceAttributes`, `OTEL_RESOURCE_ATTRIBUTES`, `sampleRate`, every `export.*` option and, for what your exporters send, `redact` are ignored (the resource, sampler, exporters and redaction are your SDK's; see [Privacy](#privacy)), and Nestrix logs one line saying so. `ignore`, `http`, `ui` and `store` still apply, and so does `redact` for the copy of each span the dashboard keeps. To see your spans in the dashboard, add `nestrixSpanProcessor()` to your provider ([below](#a-host-that-owns-its-sdk)). Your SDK must be OpenTelemetry JS SDK 3.
+
+**One rule for every signal.** Nestrix exports a signal itself only when it owns the trace provider and trace export is on (an endpoint resolves and `export.otlp` is not `false`). That holds for traces, for metrics and for logs. With a host-owned SDK, Nestrix never starts a `MeterProvider` or a `LoggerProvider` of its own: metrics are recorded through `@opentelemetry/api`, so your `MeterProvider` receives them, and with `logs.export: true` Nestrix logs one line saying it registers no `LoggerProvider`. A logs or metrics endpoint variable alone (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`) never turns export on.
 
 **Several Nestrix apps in one process** (an e2e suite, for example) share what the first one set up: its `export`, `sampleRate`, resource and `redact` settings, and the outbound `ignore.outgoing` and `http` settings. Later apps' values for those are ignored; Nestrix logs one line when that happens.
 
@@ -203,10 +206,8 @@ declare function isOperator(
         auth: {
           // `request` is the raw adapter request (Express `req`, Fastify `request`,
           // platform-node's request). No Nest guard has run, so `request.user` is not set.
-          authorize: async (request) => {
-            const { headers } = request as { headers: IncomingHttpHeaders };
-            return isOperator(headers.authorization);
-          },
+          authorize: async (request: { headers: IncomingHttpHeaders }) =>
+            isOperator(request.headers.authorization),
         },
       },
     }),
@@ -257,7 +258,7 @@ If you have not added it, Nestrix logs one line at startup saying so, and until 
 
 ### Sampling and route statistics
 
-Per-route statistics (the Routes view) count **every request**, whatever the sample rate and whether Nestrix or your own SDK does the sampling. They are counted when the response closes, before the sampling decision matters. Requests excluded by `ignore.routes` and requests to the dashboard itself are not counted.
+Per-route statistics (the Routes view) count **every request**, whatever the sample rate and whether Nestrix or your own SDK does the sampling. They are counted when the response closes, before the sampling decision matters. Requests excluded by `ignore.paths` and requests to the dashboard itself are not counted.
 
 - A statistic is keyed by `METHOD route-template`, for example `GET /users/:id`. A request no route matched is `METHOD (unmatched)`.
 - Each key keeps one-minute buckets for the last 60 minutes: request count, error count, and a duration histogram that gives p50, p95 and p99 (30 log-spaced buckets from 1 ms to 60 s, so a percentile is accurate to a bucket, not exact).
@@ -328,7 +329,7 @@ Redaction runs shortly after the span ends, not in the request, so a span waits 
 
 Every option is optional. `NestrixModule.forRoot(options?)` and the object `forRootAsync`'s factory returns take the same shape. Invalid values (for example a `sampleRate` outside 0 to 1, or a non-positive queue size) throw. With `forRoot`, that happens when `forRoot()` is called, which is when your module file loads, and also with `enabled: false`. With `forRootAsync`, it happens when the factory's result is resolved during `NestFactory.create`. `export.otlp.timeoutMillis` is validated only when an endpoint resolves.
 
-The package exports these types: `NestrixModuleOptions`, `NestrixModuleAsyncOptions`, `NestrixExportOptions`, `NestrixOtlpOptions`, `NestrixQueueOptions`, `NestrixIgnoreOptions`, `NestrixHttpOptions`, `RedactHook`, `RedactableSpan`, `UrlMatcher`, `SpanOptions`, `NestrixUiOptions`, `NestrixUiTokenAuth`, `NestrixUiCustomAuth`, `NestrixStoreOptions`, `NestrixMetricsOptions`, `NestrixLogsOptions`, `NestrixMethodOptions`, `NestrixIntegrationOptions`, `NestrixEnhancerKind`, `ClassMatcher` and `NestInstrument`. The package also exports `nestrixSpanProcessor`, `NestrixInstrument`, `composeInstrument`, `nestrixPreRequestHook` and `instrumentClient`.
+The package exports these types: `NestrixModuleOptions`, `NestrixModuleAsyncOptions`, `NestrixExportOptions`, `NestrixOtlpOptions`, `NestrixQueueOptions`, `NestrixIgnoreOptions`, `NestrixHttpOptions`, `RedactHook`, `RedactableSpan`, `UrlMatcher`, `TraceIds`, `NestrixUiOptions`, `NestrixUiTokenAuth`, `NestrixUiCustomAuth`, `NestrixStoreOptions`, `NestrixMetricsOptions`, `NestrixLogsOptions`, `NestrixMethodsOptions`, `NestrixIntegrationsOptions`, `NestrixEnhancerKind`, `ClassMatcher` and `NestInstrument`. The package also exports `NestrixModule`, `NestrixLogger`, `getTraceIds`, `Span`, `withSpan`, `nestrixSpanProcessor`, `NestrixInstrument`, `composeInstrument`, `nestrixPreRequestHook` and `instrumentClient`. `SpanOptions` is not re-exported: import it from `@opentelemetry/api`.
 
 <!-- sample: all-options -->
 
@@ -356,7 +357,7 @@ import { NestrixModule } from "@nestrix/nestjs";
         },
       },
       ignore: {
-        routes: ["/health", /^\/metrics/],
+        paths: ["/health", /^\/metrics/],
         outgoing: ["https://o123.ingest.sentry.io/"],
       },
       http: {
@@ -392,7 +393,7 @@ That sample sets most options to their defaults, except where a default is "unse
 | `ui` | `'auto'` | The embedded dashboard: `false`, `'auto'` or an object. See [Dashboard](#dashboard) and [`ui`](#ui). |
 | `store` | see below | Limits of the dashboard's in-memory store. See [`store`](#store). |
 | `logs` | `{ export: false }` | Log export over OTLP. See [Logs](#logs). |
-| `logs.export` | `false` | Send `NestrixLogger` records over OTLP to `/v1/logs`. Needs `@opentelemetry/sdk-logs` and `@opentelemetry/exporter-logs-otlp-http`. See [Logs](#logs). |
+| `logs.export` | `false` | Send `NestrixLogger` records over OTLP to `/v1/logs`, under the same rule as metrics (see [One rule for every signal](#a-host-that-already-runs-an-opentelemetry-sdk)). Needs `@opentelemetry/sdk-logs` and `@opentelemetry/exporter-logs-otlp-http`. See [Logs](#logs). |
 | `metrics` | on | Request-duration and runtime metrics. See [Metrics](#metrics) and [`metrics`](#metrics-option). |
 
 ### `methods`
@@ -401,8 +402,7 @@ Method spans need `instrument: NestrixInstrument` in `main.ts`; see [Method span
 
 | Option | Default | |
 |---|---|---|
-| `methods` | an object | Which methods get spans. |
-| `methods.enabled` | `true` | `false` turns method spans off. |
+| `methods` | an object, or `false` | Which methods get spans. `false` turns method spans off. |
 | `methods.include` | none | Classes traced in addition to your own: a class, an exact name or a `RegExp`. |
 | `methods.exclude` | none | Classes never traced, in the same forms. Wins over `include`. |
 | `methods.enhancers` | `false` | `true` for guard, pipe, interceptor and filter spans, or an array such as `['guard']` for some. |
@@ -422,7 +422,7 @@ An invalid `methods` or `integrations` value throws, like the other options.
 
 | Option | Default | |
 |---|---|---|
-| `export.otlp` | an object, or `false` | `false` turns OTLP export off even when the environment sets an endpoint. |
+| `export.otlp` | an object, or `false` | `false` turns off all OTLP export (traces, logs and metrics) even when the environment sets an endpoint. The same `endpoint` and `headers` feed `/v1/traces`, `/v1/logs` and `/v1/metrics`. |
 | `export.otlp.endpoint` | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (used as given), then `OTEL_EXPORTER_OTLP_ENDPOINT` | Base URL such as `http://localhost:4318`; `/v1/traces` is appended. With no endpoint anywhere, nothing is exported. |
 | `export.otlp.headers` | `OTEL_EXPORTER_OTLP_HEADERS` and `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | Headers sent with every export request, for example an API key. The option wins over both variables, key by key; the traces variable wins over the generic one. |
 | `export.otlp.timeoutMillis` | `10000` | Timeout per export request. Positive integer. |
@@ -442,10 +442,10 @@ All three must be positive integers.
 
 | Option | Default | |
 |---|---|---|
-| `ignore.routes` | none | Incoming requests that get no server span. Matched against the request path without the query string. A string must equal the path exactly: `"/health"` does not match `"/health/live"`. |
+| `ignore.paths` | none | Incoming requests that get no server span. Matched against the request path without the query string. A string must equal the path exactly: `"/health"` does not match `"/health/live"`. |
 | `ignore.outgoing` | none | Outgoing requests that get no client span and no `traceparent` header. Matched against the recorded `url.full` (credentials removed, listed query values already `REDACTED`). A string is a **prefix**, for example `"https://o123.ingest.sentry.io/"`. |
 
-A matcher is a string, a `RegExp` or a function. In `ignore.routes` a `RegExp` is applied with `search`, so the `g` flag and `lastIndex` do not matter. In `ignore.outgoing` its `lastIndex` is reset to 0 and `test` is called. A function receives the path or URL and must return `true` to match. A matcher that throws counts as a match, and the failure is counted. Counts are internal for now: there is no public accessor, and drops because the queue is full are counted but not logged.
+A matcher is a string, a `RegExp` or a function. In `ignore.paths` a `RegExp` is applied with `search`, so the `g` flag and `lastIndex` do not matter. In `ignore.outgoing` its `lastIndex` is reset to 0 and `test` is called. A function receives the path or URL and must return `true` to match. A matcher that throws counts as a match, and the failure is counted. Counts are internal for now: there is no public accessor, and drops because the queue is full are counted but not logged.
 
 <!-- sample: ignore -->
 
@@ -458,7 +458,7 @@ import { NestrixModule } from "@nestrix/nestjs";
     NestrixModule.forRoot({
       ignore: {
         // A string matches the request path exactly: "/health" does not match "/health/live".
-        routes: ["/health", /^\/health\//, (path) => path.endsWith(".map")],
+        paths: ["/health", /^\/health\//, (path) => path.endsWith(".map")],
         // A string is a prefix of the recorded url.full. Add your error reporter's ingest host.
         outgoing: ["https://o123.ingest.sentry.io/", /\/internal\//],
       },
@@ -523,6 +523,8 @@ Ignored while the dashboard is off. See [Memory and the `store` option](#memory-
 | `OTEL_SERVICE_NAME` | Default for `serviceName`. |
 | `OTEL_RESOURCE_ATTRIBUTES` | `key=value,key2=value2`, merged into the resource; `resourceAttributes` wins. |
 | `GIT_SHA` | The release (`service.version`) when no option or `OTEL_RESOURCE_ATTRIBUTES` sets one. |
+| `npm_package_version` | The release when nothing above sets one. Set by `npm`/`pnpm run`, not by `node main.js`. |
+| `NODE_ENV` | `ui: 'auto'` serves the dashboard only when it is `development` or unset. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Base endpoint; `/v1/traces` is appended. Setting it switches export on. |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Full traces URL, used as given. Wins over the generic endpoint. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | `key=value,key2=value2`, values percent-decoded. |
@@ -533,7 +535,7 @@ Ignored while the dashboard is off. See [Memory and the `store` option](#memory-
 | `OTEL_EXPORTER_OTLP_METRICS_HEADERS` | Same as the headers variable, for metrics; wins over the generic one key by key. |
 | `OTEL_METRIC_EXPORT_INTERVAL` | Milliseconds between metric exports. Default `60000`; a value that is not a positive integer is ignored. |
 
-An option always wins over the variable of the same meaning. Nestrix itself reads no other `OTEL_*` variables, but the OTLP exporter it uses reads some on its own:
+An option always wins over the variable of the same meaning. Nestrix itself reads no other `OTEL_*` variables. In particular `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG`, `OTEL_SDK_DISABLED` and `OTEL_EXPORTER_OTLP_PROTOCOL` are not read: use `sampleRate` and `enabled` (or `NESTRIX_ENABLED`), and note that export is OTLP/HTTP with protobuf only. The OTLP exporter Nestrix uses reads a few on its own, though: the OTLP exporter it uses reads some on its own:
 
 - `OTEL_EXPORTER_OTLP_COMPRESSION` and `OTEL_EXPORTER_OTLP_TRACES_COMPRESSION` take effect (read by `@opentelemetry/otlp-exporter-base` 0.301.1; found in its source, not run through Nestrix).
 - `OTEL_EXPORTER_OTLP_TIMEOUT` has no effect: Nestrix always passes `timeoutMillis` (default 10000).
@@ -632,7 +634,7 @@ export class PaymentsGateway {}
 export class AppModule {}
 ```
 
-`exclude` wins over `include`, which wins over `enhancers`, which wins over the own-class default. `methods.enabled: false` turns method spans off. Nestrix's own providers are never traced.
+`exclude` wins over `include`, which wins over `enhancers`, which wins over the own-class default. `methods: false` turns method spans off. Nestrix's own providers are never traced.
 
 **Only inside a trace.** A method called with no active span, such as startup work in `onModuleInit` or a WebSocket gateway handler, gets no span: a root span there would only fill the trace list. It is still counted in the [classes view](#classes-view-and-app-map). Two kinds of method are the exception, because they start work of their own:
 
@@ -812,7 +814,7 @@ import { NestrixModule } from "@nestrix/nestjs";
       // The release shown in the dashboard. Without it Nestrix reads GIT_SHA, then npm_package_version.
       serviceVersion: process.env.GIT_SHA,
       // Off unless set. `request` is what your guards get; a guard sets `request.user`.
-      user: (request) => (request as { user?: { id?: string } }).user?.id,
+      user: (request: { user?: { id?: string } }) => request.user?.id,
     }),
   ],
 })
@@ -825,7 +827,7 @@ The dashboard's request list shows release and user columns when any stored trac
 
 Nestrix records metrics through `@opentelemetry/api`'s metrics API. If your app registers a `MeterProvider` (the OpenTelemetry Node SDK does), it receives them as they are, with your readers and exporters.
 
-- **`http.server.request.duration`**, a histogram in seconds with the bucket boundaries the HTTP semantic conventions advise, for every request, sampled or not: it is right at any `sampleRate` and under your own sampler. Attributes: `http.request.method`, `url.scheme` (`http` or `https`), `http.route` (when a handler matched), `http.response.status_code` (when a response was sent) and `error.type` (on the same rule as the span's error status). Requests under `ignore.routes` and the dashboard path are not counted.
+- **`http.server.request.duration`**, a histogram in seconds with the bucket boundaries the HTTP semantic conventions advise, for every request, sampled or not: it is right at any `sampleRate` and under your own sampler. Attributes: `http.request.method`, `url.scheme` (`http` or `https`), `http.route` (when a handler matched), `http.response.status_code` (when a response was sent) and `error.type` (on the same rule as the span's error status). Requests under `ignore.paths` and the dashboard path are not counted.
 - **Runtime metrics**, read only when a reader collects: `nodejs.eventloop.delay.p50`, `.p99` and `.max` (seconds, covering the time since the last collection by any reader, so with two readers each sees only the window the other left), `v8js.memory.heap.used` and `v8js.memory.heap.space.size` (bytes, per `v8js.heap.space.name`), `process.memory.usage` (RSS, bytes) and `process.cpu.time` (seconds, per `cpu.mode`). Names follow `@opentelemetry/semantic-conventions` 1.45.0, where they are still experimental and may be renamed. `v8js.memory.heap.limit` is deprecated there and not reported.
 
 With no `MeterProvider` registered and no export, nothing is recorded and the event-loop monitor does not run.
@@ -911,13 +913,13 @@ export async function bootstrap(): Promise<void> {
 
 While a span is active, text lines end with ` trace_id=… span_id=…`, and in JSON mode (`new NestrixLogger({ json: true })`) each line gets `trace_id` and `span_id` fields. Outside a span the output is `ConsoleLogger`'s. For pino, winston or `nestjs-pino`, `getTraceIds()` returns `{ traceId, spanId }` of the active span, or `undefined`; use it in a `mixin` or format function.
 
-Set `logs: { export: true }` to also send every `NestrixLogger` record over OTLP/HTTP to `/v1/logs` of the configured endpoint (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is used as given). Records carry Nest's level as OpenTelemetry severity, the logger context as `nestrix.log.context`, and the active span's context. This needs two optional packages; without them Nestrix logs one line with the command and carries on:
+Set `logs: { export: true }` to also send every `NestrixLogger` record over OTLP/HTTP to `/v1/logs` of the configured endpoint (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is used as given once trace export is on; it does not turn export on by itself). Like metrics, this runs only when Nestrix owns the trace provider; see [One rule for every signal](#a-host-that-already-runs-an-opentelemetry-sdk). Records carry Nest's level as OpenTelemetry severity, the logger context as `nestrix.log.context`, and the active span's context. This needs two optional packages; without them Nestrix logs one line with the command and carries on:
 
 ```bash
 npm install @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http
 ```
 
-If your app already registered a `LoggerProvider`, the records go to it and Nestrix registers nothing. Records logged before the packages finish loading at startup are printed but not exported. A failure in correlation or export never changes what the log call prints or throws.
+If your app already registered a `LoggerProvider`, the records go to it and Nestrix registers nothing. With a host-owned tracer provider Nestrix registers no `LoggerProvider` at all and logs one line saying so. Records logged before the packages finish loading at startup are printed but not exported. A failure in correlation or export never changes what the log call prints or throws.
 
 ## Privacy
 
@@ -935,7 +937,7 @@ Key-based redaction cannot clean free text. Exception messages and status messag
 
 ### The `redact` hook
 
-`redact(span)` is called for every span Nestrix exports, after Nestrix's own redaction. It receives an editable copy: `name`, `kind`, `attributes`, `events` (each with editable `attributes`) and `status` (`code`, `message`). `name` and `kind` are read-only: edits to them are discarded, and to hide a span you drop it. Return `false` to drop the span; return anything else to keep it with your edits. Links and their attributes are not exposed; to keep them out, drop the span.
+`redact(span)` is called for every span Nestrix exports, after Nestrix's own redaction. It receives an editable copy: `name`, `kind`, `attributes`, `events` (each with editable `attributes`) and `status` (`code`, `message`). `name` and `kind` are read-only: edits to them are discarded, and to hide a span you drop it. Return `false` to drop the span; return nothing (or anything else) to keep it with your edits. Links and their attributes are not exposed; to keep them out, drop the span.
 
 <!-- sample: redact -->
 
@@ -962,7 +964,6 @@ import { NestrixModule } from "@nestrix/nestjs";
 
         // The status message often repeats the exception message.
         delete span.status.message;
-        return undefined;
       },
     }),
   ],
@@ -1014,6 +1015,10 @@ Notes:
 - An app with no HTTP adapter (a pure microservice) boots; it has no HTTP spans and no dashboard, and its message handlers are traced ([Microservices](#microservices)).
 - Under `@nestjs/testing`, HTTP spans work; method spans do not ([Method spans](#method-spans-level-2)).
 - Library spans were tested against `pg` 8.23, `mysql2` 3.24, `ioredis` 6.0 and BullMQ 6.7 with `bullmq-otel` 2.0, and microservices against `@nestjs/microservices` 12.4.
+
+## Stability
+
+From 1.0, semantic versioning covers the exports of `@nestrix/nestjs`, the option names and their defaults, and the environment variables documented above. It does not cover the dashboard's query API (`/_nestrix/api/v1`) or the `@nestrix/protocol` types: they are internal to the bundled UI, which ships at the same version as the package. The names of the runtime metrics and the default set of traced classes may change in a minor release.
 
 ## OpenTelemetry SDK 3 only
 

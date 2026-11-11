@@ -87,7 +87,7 @@ async function getJson<T>(endpoint: string, params?: QueryParams): Promise<T> {
 
 export async function getMeta(): Promise<MetaResponse> {
   const meta = await getJson<MetaResponse>("meta");
-  knownMode = meta.mode ?? "embedded";
+  knownMode = meta.mode;
   return meta;
 }
 

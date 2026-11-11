@@ -131,7 +131,7 @@ export class HostController {
 
 export const DEFAULT_TEST_OPTIONS: NestrixModuleOptions = {
   export: { otlp: false },
-  ignore: { routes: ["/t/ignored"] },
+  ignore: { paths: ["/t/ignored"] },
   http: { requestHeaders: ["x-extra"] },
 };
 

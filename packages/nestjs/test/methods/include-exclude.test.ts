@@ -23,7 +23,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { NestrixInstrument } from "../../src/methods/instrument.js";
 import { methodsEnabled } from "../../src/methods/registry.js";
 import { NestrixModule } from "../../src/nestrix.module.js";
-import type { NestrixMethodOptions } from "../../src/options.js";
+import type { NestrixMethodsOptions } from "../../src/options.js";
 import {
   BASE_OPTIONS,
   bootInstrumented,
@@ -98,7 +98,7 @@ class LibController {
   }
 }
 
-function appWith(methods?: NestrixMethodOptions) {
+function appWith(methods?: NestrixMethodsOptions | false) {
   @Module({
     imports: [
       LibModule.forRoot(),
@@ -117,7 +117,9 @@ afterEach(async () => {
   booted = undefined;
 });
 
-async function traced(methods?: NestrixMethodOptions): Promise<string[]> {
+async function traced(
+  methods?: NestrixMethodsOptions | false,
+): Promise<string[]> {
   // With two live apps a class is traced if either configuration says so: close the previous one.
   await booted?.close();
   booted = await bootInstrumented(
@@ -194,8 +196,8 @@ describe("include / exclude / enhancers (express)", () => {
     ]);
   });
 
-  it("methods.enabled false: no method spans, methodsEnabled() false", async () => {
-    expect(await traced({ enabled: false })).toEqual([]);
+  it("methods: false: no method spans, methodsEnabled() false", async () => {
+    expect(await traced(false)).toEqual([]);
     expect(methodsEnabled()).toBe(false);
   });
 });

@@ -208,6 +208,14 @@ export function SpanDetail({
               <dd className="break-all font-mono">{span.parentSpanId}</dd>
             </>
           ) : null}
+          {span.service ? (
+            <>
+              <dt className="text-muted-foreground">Service</dt>
+              <dd className="break-all font-mono" data-testid="span-service">
+                {span.service}
+              </dd>
+            </>
+          ) : null}
           {span.scope ? (
             <>
               <dt className="text-muted-foreground">Scope</dt>

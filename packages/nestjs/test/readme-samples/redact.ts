@@ -20,7 +20,6 @@ import { NestrixModule } from "../../src/index.js";
 
         // The status message often repeats the exception message.
         delete span.status.message;
-        return undefined;
       },
     }),
   ],

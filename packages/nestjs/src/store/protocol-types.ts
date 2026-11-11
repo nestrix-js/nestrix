@@ -46,6 +46,7 @@ export interface SpanRecord {
   status: { code: StatusCode; message?: string };
   links: SpanLink[];
   scope?: string;
+  service?: string;
 }
 
 export interface PagedResponse {

@@ -40,7 +40,7 @@ export class AppModule {
           // The server's own storage queries are not traced (a trace of each write would be
           // exported to the receiver, whose write would be traced again).
           integrations: { pg: false },
-          ignore: { routes: [INGEST_TRACES_PATH_PATTERN] },
+          ignore: { paths: [INGEST_TRACES_PATH_PATTERN] },
         }),
         // Admin login (P5-04): its middleware is mounted by `configureApp`, its guard is global
         // and covers every controller, the query API included.

@@ -12,8 +12,6 @@ import {
   trace,
 } from "@opentelemetry/api";
 
-export type { SpanOptions };
-
 const TRACER_NAME = "@nestrix/nestjs";
 
 function end(span: ApiSpan): void {

@@ -34,7 +34,11 @@ export interface NestrixMetrics {
 export function startMetrics(
   options: Pick<
     ResolvedOptions,
-    "metrics" | "serviceName" | "resourceAttributes" | "otelResourceAttributes"
+    | "metrics"
+    | "serviceName"
+    | "serviceVersion"
+    | "resourceAttributes"
+    | "otelResourceAttributes"
   >,
   telemetry: Pick<TelemetryHandle, "ownsProvider"> | undefined,
   diagnostics: Diagnostics,
@@ -65,6 +69,7 @@ export function startMetrics(
             {
               export: resolved.export,
               serviceName: options.serviceName,
+              serviceVersion: options.serviceVersion,
               resourceAttributes: options.resourceAttributes,
               otelResourceAttributes: options.otelResourceAttributes,
             },

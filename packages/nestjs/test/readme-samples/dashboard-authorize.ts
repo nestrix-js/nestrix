@@ -15,10 +15,8 @@ declare function isOperator(
         auth: {
           // `request` is the raw adapter request (Express `req`, Fastify `request`,
           // platform-node's request). No Nest guard has run, so `request.user` is not set.
-          authorize: async (request) => {
-            const { headers } = request as { headers: IncomingHttpHeaders };
-            return isOperator(headers.authorization);
-          },
+          authorize: async (request: { headers: IncomingHttpHeaders }) =>
+            isOperator(request.headers.authorization),
         },
       },
     }),

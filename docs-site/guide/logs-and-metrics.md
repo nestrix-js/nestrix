@@ -16,7 +16,7 @@ A failure in correlation or export never changes what the log call prints or thr
 
 ### Exporting logs
 
-Set `logs: { export: true }` to also send every `NestrixLogger` record over OTLP/HTTP to `/v1/logs` of the configured endpoint (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is used as given). Records carry Nest's level as OpenTelemetry severity, the logger context as `nestrix.log.context`, and the active span's context.
+Set `logs: { export: true }` to also send every `NestrixLogger` record over OTLP/HTTP to `/v1/logs` of the configured endpoint (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is used as given once trace export is on; it does not turn export on by itself). Like metrics, this runs only when Nestrix owns the tracer provider: with a host-owned SDK Nestrix registers no `LoggerProvider` and logs one line saying so. Records carry Nest's level as OpenTelemetry severity, the logger context as `nestrix.log.context`, and the active span's context.
 
 This needs two optional packages. Without them Nestrix logs one line with the command and carries on:
 
@@ -30,7 +30,7 @@ If your app already registered a `LoggerProvider`, the records go to it and Nest
 
 Nestrix records metrics through `@opentelemetry/api`'s metrics API. If your app registers a `MeterProvider` (the OpenTelemetry Node SDK does), it receives them as they are.
 
-- **`http.server.request.duration`**, a histogram in seconds with the bucket boundaries the HTTP semantic conventions advise, for every request, sampled or not. Attributes: `http.request.method`, `url.scheme`, `http.route` (when a handler matched), `http.response.status_code` and `error.type` (on the same rule as the span's error status). Requests under `ignore.routes` and the dashboard path are not counted.
+- **`http.server.request.duration`**, a histogram in seconds with the bucket boundaries the HTTP semantic conventions advise, for every request, sampled or not. Attributes: `http.request.method`, `url.scheme`, `http.route` (when a handler matched), `http.response.status_code` and `error.type` (on the same rule as the span's error status). Requests under `ignore.paths` and the dashboard path are not counted.
 - **Runtime metrics**, read only when a reader collects: `nodejs.eventloop.delay.p50`, `.p99` and `.max`, `v8js.memory.heap.used` and `v8js.memory.heap.space.size` (per `v8js.heap.space.name`), `process.memory.usage` (RSS) and `process.cpu.time` (per `cpu.mode`). Names follow `@opentelemetry/semantic-conventions` 1.45.0, where they are still experimental and may be renamed.
 
 With no `MeterProvider` registered and no export, nothing is recorded and the event-loop monitor does not run.

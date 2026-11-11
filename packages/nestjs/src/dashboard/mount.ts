@@ -304,7 +304,7 @@ export class Dashboard {
             ? { owner: "nestrix", rate: this.options.sampleRate }
             : { owner: "host", rate: null },
         hostOwnsProvider: telemetry?.ownsProvider !== true,
-        ignoresRoutes: this.options.ignore.routes.length > 0,
+        ignoresRoutes: this.options.ignore.paths.length > 0,
         fallbackProcessId: randomBytes(8).toString("hex"),
       };
       this.register(adapter, bundle);

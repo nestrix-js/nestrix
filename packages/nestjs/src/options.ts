@@ -32,7 +32,7 @@ export interface RedactableSpan {
  * failure is counted. Must be synchronous: a hook that returns a promise drops the span and
  * is counted as a failure. Not called for spans exported by a host-owned SDK (architecture §4.8).
  */
-export type RedactHook = (span: RedactableSpan) => undefined | boolean;
+export type RedactHook = (span: RedactableSpan) => boolean | void;
 
 /**
  * Matches a request path (without query string) or an outgoing URL. A `RegExp` is tested and a
@@ -64,7 +64,10 @@ export interface NestrixQueueOptions {
 }
 
 export interface NestrixExportOptions {
-  /** `false` disables OTLP export even when the environment sets an endpoint. */
+  /**
+   * `false` turns off all OTLP export (traces, logs and metrics) even when the environment sets an
+   * endpoint. The same `endpoint` and `headers` feed `/v1/traces`, `/v1/logs` and `/v1/metrics`.
+   */
   otlp?: NestrixOtlpOptions | false;
   queue?: NestrixQueueOptions;
 }
@@ -74,7 +77,7 @@ export interface NestrixIgnoreOptions {
    * Incoming requests that get no server span. Matched against the request path without the
    * query string; a string must equal the path exactly (`'/health'` does not match `'/health/live'`).
    */
-  routes?: UrlMatcher[];
+  paths?: UrlMatcher[];
   /**
    * Outgoing requests that get no client span and no `traceparent`. Matched against the recorded
    * `url.full` (userinfo removed, listed query values already `REDACTED`); a string is a prefix,
@@ -106,7 +109,7 @@ export interface NestrixUiCustomAuth {
    * guard has run (so `request.user` is not populated). Return `true` to allow. A throw, a
    * rejection or any other value denies.
    */
-  authorize: (request: unknown) => boolean | Promise<boolean>;
+  authorize(request: unknown): boolean | Promise<boolean>;
 }
 
 /** The embedded dashboard (phase 2). Requires `@nestrix/ui` to be installed. */
@@ -158,9 +161,7 @@ export type NestrixEnhancerKind = "guard" | "pipe" | "interceptor" | "filter";
  * Method spans (level 2, phase 3). They need `NestFactory.create(AppModule, { instrument: NestrixInstrument })`
  * in `main.ts`; these options only shape what is traced. Not applied under `@nestjs/testing` (D-48).
  */
-export interface NestrixMethodOptions {
-  /** Default `true` (effective only with `NestrixInstrument`). `false` turns method spans off. */
-  enabled?: boolean;
+export interface NestrixMethodsOptions {
   /**
    * Classes traced in addition to the app's own controllers, services, repositories and processors
    * (D-57), for example a provider from your own dynamic module or a library service you care about.
@@ -173,7 +174,7 @@ export interface NestrixMethodOptions {
 }
 
 /** Database and cache integrations (level 3, phase 3). */
-export interface NestrixIntegrationOptions {
+export interface NestrixIntegrationsOptions {
   /** `pg` query spans. Default `true`: on when `pg` is installed (D-50). */
   pg?: boolean;
   /**
@@ -193,7 +194,9 @@ export interface NestrixIntegrationOptions {
 export interface NestrixLogsOptions {
   /**
    * Also send every `NestrixLogger` record over OTLP/HTTP to `/v1/logs` of the configured endpoint
-   * (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is honoured). Needs the optional packages
+   * (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is honoured, but does not turn export on by itself). Like
+   * metrics, it runs only when Nestrix owns the trace provider (no host-owned SDK) and trace export
+   * is on (D-69); with a host SDK, one log line says Nestrix registers no `LoggerProvider`. Needs the optional packages
    * `@opentelemetry/sdk-logs` and `@opentelemetry/exporter-logs-otlp-http`; without them one log line
    * says so. Default `false`.
    */
@@ -244,11 +247,11 @@ export interface NestrixModuleOptions {
    * none; the value is cut to 256 characters. A throw, a promise or any other result records
    * nothing and is counted; the request is never affected. The attribute goes through `redact`.
    */
-  user?: (request: unknown) => string | number | undefined;
-  /** Method spans (level 2). */
-  methods?: NestrixMethodOptions;
+  user?(request: unknown): string | number | undefined;
+  /** Method spans (level 2). `false` turns them off. */
+  methods?: false | NestrixMethodsOptions;
   /** Database and cache spans (level 3). */
-  integrations?: NestrixIntegrationOptions;
+  integrations?: NestrixIntegrationsOptions;
   /** Extra resource attributes. `OTEL_RESOURCE_ATTRIBUTES` is honoured too; these win. */
   resourceAttributes?: Record<string, string | number | boolean>;
   /**

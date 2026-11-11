@@ -10,7 +10,7 @@ Objective, deliverables and acceptance: [roadmap.md](../roadmap.md#phase-6-logs-
 | P6-01 | Log correlation (`NestrixLogger`, `getTraceIds`) and optional OTLP log export | sonnet | P6-00 | done | Merged; 17 tests; no `api-logs` needed (logs API is in `@opentelemetry/api`). |
 | P6-02 | Request-duration and runtime metrics over OTLP | opus | P6-00 | done | Reviewed; export starts at bootstrap (host provider wins), `metrics.export`, teardown race, `url.scheme`. |
 | P6-03 | Documentation site | sonnet | phases 3–5 | done | VitePress in `docs-site/`, `pnpm docs:build` (options reference checked against `options.ts`). Standalone page to refresh after P5-06. |
-| P6-04 | API review and fixes | opus reviewer + sonnet | phases 3–5 | todo | |
+| P6-04 | API review and fixes | opus reviewer + sonnet | phases 3–5 | done | Fixes applied per D-69 (changeset `api-review-1-0`). |
 | P6-05 | Compatibility matrix, upgrade path from 0.x, 1.0 readiness | sonnet + lead | P6-04 | todo | No version bump or publish (owner's). |
 | P6-06 | Phase report | lead | all | todo | |
 

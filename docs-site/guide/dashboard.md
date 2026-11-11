@@ -26,7 +26,7 @@ The dashboard polls for new data every two seconds.
 
 - **Routes and classes count every request**, whatever the sample rate and whether Nestrix or your own SDK does the sampling. Calls, errors and total time for classes are counted before sampling too.
 - **The request list, error list, map and own time come from stored spans, so they are sampled.** At `sampleRate: 0.1` the Routes view shows every request and the list shows about one in ten. The dashboard says so when `sampleRate` is below 1, and says they may be when your SDK owns the sampler.
-- Requests excluded by `ignore.routes` and requests to the dashboard itself are not counted or traced.
+- Requests excluded by `ignore.paths` and requests to the dashboard itself are not counted or traced.
 
 ## Memory
 

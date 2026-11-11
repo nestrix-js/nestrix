@@ -19,9 +19,9 @@ export type {
   NestrixExportOptions,
   NestrixHttpOptions,
   NestrixIgnoreOptions,
-  NestrixIntegrationOptions,
+  NestrixIntegrationsOptions,
   NestrixLogsOptions,
-  NestrixMethodOptions,
+  NestrixMethodsOptions,
   NestrixMetricsOptions,
   NestrixModuleOptions,
   NestrixOtlpOptions,
@@ -34,5 +34,5 @@ export type {
   RedactHook,
   UrlMatcher,
 } from "./options.js";
-export { Span, type SpanOptions, withSpan } from "./span.js";
+export { Span, withSpan } from "./span.js";
 export { nestrixSpanProcessor } from "./store/span-processor.js";

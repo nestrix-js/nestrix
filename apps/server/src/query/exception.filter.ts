@@ -15,8 +15,10 @@ export const QUERY_HEADERS = {
 
 function codeOf(status: number): ApiErrorCode {
   if (status === 400) return "bad_request";
-  if (status === 401 || status === 403) return "forbidden";
+  if (status === 401) return "unauthorized";
+  if (status === 403) return "forbidden";
   if (status === 404) return "not_found";
+  if (status === 503) return "unavailable";
   return "internal";
 }
 

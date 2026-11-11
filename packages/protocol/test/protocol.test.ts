@@ -154,7 +154,9 @@ describe("fixtures (types are checked by tsc via `satisfies`; this checks consis
       expect(r.p99Ms).toBeLessThanOrEqual(r.maxMs);
     }
     expect(meta.protocolVersion).toBe(protocol.PROTOCOL_VERSION);
-    expect(meta.statistics.windowsMinutes).toContain(routes.windowMinutes);
+    expect(meta.statistics.windowMinutesOptions).toContain(
+      routes.windowMinutes,
+    );
   });
 });
 

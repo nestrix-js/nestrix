@@ -14,3 +14,11 @@ export const DEFAULT_METHODS: ResolvedMethods = Object.freeze({
   exclude: Object.freeze([]) as readonly ClassMatcher[],
   enhancers: Object.freeze([]) as readonly NestrixEnhancerKind[],
 });
+
+/** `methods: false`. */
+export const DISABLED_METHODS: ResolvedMethods = Object.freeze({
+  enabled: false,
+  include: Object.freeze([]) as readonly ClassMatcher[],
+  exclude: Object.freeze([]) as readonly ClassMatcher[],
+  enhancers: Object.freeze([]) as readonly NestrixEnhancerKind[],
+});

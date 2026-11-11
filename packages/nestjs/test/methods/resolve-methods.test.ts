@@ -18,12 +18,11 @@ describe("resolveMethods", () => {
 
   it("keeps matchers, expands enhancers: true, de-duplicates a list, freezes", () => {
     const r = resolveMethods({
-      enabled: false,
       include: [Foo, "Bar", /Baz$/],
       exclude: ["Health"],
       enhancers: ["guard", "pipe", "guard"],
     });
-    expect(r.enabled).toBe(false);
+    expect(r.enabled).toBe(true);
     expect(r.include).toEqual([Foo, "Bar", /Baz$/]);
     expect(r.exclude).toEqual(["Health"]);
     expect(r.enhancers).toEqual(["guard", "pipe"]);
@@ -35,12 +34,13 @@ describe("resolveMethods", () => {
       "filter",
     ]);
     expect(resolveMethods({ enhancers: false }).enhancers).toEqual([]);
+    expect(resolveMethods(false).enabled).toBe(false);
   });
 
   it.each([
-    [null, "methods must be an object"],
-    ["yes", "methods must be an object"],
-    [{ enabled: "no" }, "methods.enabled must be a boolean"],
+    [null, "methods must be false or an object"],
+    ["yes", "methods must be false or an object"],
+    [true, "methods must be false or an object"],
     [{ include: Foo }, "methods.include must be an array"],
     [{ exclude: [42] }, "methods.exclude entries must be a class"],
     [{ enhancers: ["middleware"] }, "methods.enhancers entries must be one of"],

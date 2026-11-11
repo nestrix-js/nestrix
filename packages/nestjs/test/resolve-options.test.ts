@@ -19,7 +19,7 @@ describe("resolveOptions defaults", () => {
           scheduledDelayMillis: 5000,
         },
       },
-      ignore: { routes: [], outgoing: [] },
+      ignore: { paths: [], outgoing: [] },
       http: { requestHeaders: [], responseHeaders: [], redactQueryKeys: [] },
       redact: undefined,
       ui: {
@@ -40,7 +40,7 @@ describe("resolveOptions defaults", () => {
     const r = resolveOptions(
       {
         export: { otlp: { endpoint: "http://x:4318", headers: { a: "b" } } },
-        ignore: { routes: ["/health"] },
+        ignore: { paths: ["/health"] },
       },
       none,
     );
@@ -48,7 +48,7 @@ describe("resolveOptions defaults", () => {
     expect(Object.isFrozen(r.export)).toBe(true);
     expect(Object.isFrozen(r.export.queue)).toBe(true);
     expect(Object.isFrozen(r.export.otlp)).toBe(true);
-    expect(Object.isFrozen(r.ignore.routes)).toBe(true);
+    expect(Object.isFrozen(r.ignore.paths)).toBe(true);
     expect(Object.isFrozen(r.http.requestHeaders)).toBe(true);
     expect(Object.isFrozen(r.resourceAttributes)).toBe(true);
     if (r.export.otlp)
@@ -57,9 +57,9 @@ describe("resolveOptions defaults", () => {
 
   it("does not alias the caller's arrays or objects", () => {
     const routes = ["/a"];
-    const r = resolveOptions({ ignore: { routes } }, none);
+    const r = resolveOptions({ ignore: { paths: routes } }, none);
     routes.push("/b");
-    expect(r.ignore.routes).toEqual(["/a"]);
+    expect(r.ignore.paths).toEqual(["/a"]);
   });
 
   it("keeps matchers and the redact hook as given", () => {
@@ -67,10 +67,10 @@ describe("resolveOptions defaults", () => {
     const fn = () => true;
     const redact = () => undefined;
     const r = resolveOptions(
-      { ignore: { routes: [re], outgoing: [fn] }, redact },
+      { ignore: { paths: [re], outgoing: [fn] }, redact },
       none,
     );
-    expect(r.ignore.routes[0]).toBe(re);
+    expect(r.ignore.paths[0]).toBe(re);
     expect(r.ignore.outgoing[0]).toBe(fn);
     expect(r.redact).toBe(redact);
   });
@@ -85,6 +85,35 @@ describe("resolveOptions defaults", () => {
       maxExportBatchSize: 512,
       scheduledDelayMillis: 5000,
     });
+  });
+});
+
+describe("logs.export resolution follows metrics (D-69)", () => {
+  it("a logs endpoint alone does not turn export on", () => {
+    const r = resolveOptions(
+      { logs: { export: true } },
+      { OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "http://l:1/v1/logs" },
+    );
+    expect(r.logs.otlp).toBe(false);
+  });
+
+  it("resolves when trace export resolves, and honours the logs endpoint then", () => {
+    const r = resolveOptions(
+      { logs: { export: true } },
+      {
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://t:1/v1/traces",
+        OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "http://l:1/v1/logs",
+      },
+    );
+    expect(r.logs.otlp).toMatchObject({ url: "http://l:1/v1/logs" });
+  });
+
+  it("export.otlp: false turns logs off too", () => {
+    const r = resolveOptions(
+      { logs: { export: true }, export: { otlp: false } },
+      { OTEL_EXPORTER_OTLP_ENDPOINT: "http://c:4318" },
+    );
+    expect(r.logs.otlp).toBe(false);
   });
 });
 

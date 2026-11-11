@@ -2,11 +2,15 @@ import {
   type SecretDigests,
   secretDigests,
 } from "./dashboard/startup-token.js";
-import { DEFAULT_METHODS, type ResolvedMethods } from "./methods/resolved.js";
+import {
+  DEFAULT_METHODS,
+  DISABLED_METHODS,
+  type ResolvedMethods,
+} from "./methods/resolved.js";
 import type {
   ClassMatcher,
   NestrixEnhancerKind,
-  NestrixIntegrationOptions,
+  NestrixIntegrationsOptions,
   NestrixModuleOptions,
   NestrixQueueOptions,
   NestrixStoreOptions,
@@ -48,7 +52,7 @@ export interface ResolvedOptions {
     };
   };
   readonly ignore: {
-    readonly routes: readonly UrlMatcher[];
+    readonly paths: readonly UrlMatcher[];
     readonly outgoing: readonly UrlMatcher[];
   };
   readonly http: {
@@ -544,7 +548,7 @@ function checkBoolean(name: string, value: unknown): void {
  * `rootSpans` is `true`). Anything else throws at `forRoot()`.
  */
 export function resolveIntegrations(
-  integrations: NestrixIntegrationOptions | undefined,
+  integrations: NestrixIntegrationsOptions | undefined,
 ): ResolvedIntegrations {
   if (
     integrations !== undefined &&
@@ -634,7 +638,7 @@ export function resolveOptions(
       queue: Object.freeze(queue),
     }),
     ignore: Object.freeze({
-      routes: Object.freeze([...(o.ignore?.routes ?? [])]),
+      paths: Object.freeze([...(o.ignore?.paths ?? [])]),
       outgoing: Object.freeze([...(o.ignore?.outgoing ?? [])]),
     }),
     http: Object.freeze({
@@ -648,7 +652,11 @@ export function resolveOptions(
     store: Object.freeze(store),
     logs: Object.freeze({
       export: o.logs?.export === true,
-      otlp: o.logs?.export === true ? resolveOtlp(o, env, "logs") : false,
+      // Same rule as metrics (D-69): only when trace export resolves; a logs endpoint alone is not enough.
+      otlp:
+        o.logs?.export === true && resolveOtlp(o, env) !== false
+          ? resolveOtlp(o, env, "logs")
+          : false,
     }),
     methods: resolveMethods(o.methods),
     metrics: resolveMetrics(o, env),
@@ -685,18 +693,15 @@ function resolveClassMatchers(
 /** `methods` (level 2, P3-02) with defaults applied. Throws on an invalid value. */
 export function resolveMethods(methods: unknown): ResolvedMethods {
   if (methods === undefined) return DEFAULT_METHODS;
+  if (methods === false) return DISABLED_METHODS;
   if (methods === null || typeof methods !== "object") {
-    invalid("methods must be an object");
+    invalid("methods must be false or an object");
   }
   const m = methods as {
-    enabled?: unknown;
     include?: unknown;
     exclude?: unknown;
     enhancers?: unknown;
   };
-  const enabled = m.enabled ?? true;
-  if (typeof enabled !== "boolean")
-    invalid("methods.enabled must be a boolean");
   let enhancers: readonly NestrixEnhancerKind[];
   if (m.enhancers === undefined || m.enhancers === false) enhancers = [];
   else if (m.enhancers === true) enhancers = ENHANCER_KINDS;
@@ -715,7 +720,7 @@ export function resolveMethods(methods: unknown): ResolvedMethods {
     );
   }
   return Object.freeze({
-    enabled,
+    enabled: true,
     include: resolveClassMatchers("methods.include", m.include),
     exclude: resolveClassMatchers("methods.exclude", m.exclude),
     enhancers: Object.freeze([...enhancers]),

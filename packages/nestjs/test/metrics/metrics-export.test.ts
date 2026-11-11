@@ -164,3 +164,29 @@ describe("OTLP metric export", () => {
     );
   });
 });
+
+describe("OTLP metric export resource", () => {
+  it("carries service.version from the serviceVersion option", async () => {
+    vi.stubEnv("OTEL_METRIC_EXPORT_INTERVAL", "100");
+    const booted = await bootOwned(
+      "express",
+      metricsModule({
+        serviceName: "metrics-version-test",
+        serviceVersion: "4.5.6",
+        export: { otlp: { endpoint: receiver.base, timeoutMillis: 2000 } },
+      }),
+    );
+    app = booted.app;
+    await hit(booted.baseUrl, "/m/ok/1", 2);
+    await expect
+      .poll(() => requestCount(receiver.metricPosts(), "/m/ok/:id"), {
+        timeout: 5000,
+      })
+      .toBe(2);
+    const duration = receivedMetrics(receiver.metricPosts()).find(
+      (m) => m.name === "http.server.request.duration",
+    );
+    expect(duration?.resource["service.name"]).toBe("metrics-version-test");
+    expect(duration?.resource["service.version"]).toBe("4.5.6");
+  });
+});

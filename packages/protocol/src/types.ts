@@ -39,6 +39,12 @@ export interface SpanRecord {
   links: SpanLink[];
   /** Instrumentation scope name. */
   scope?: string;
+  /**
+   * `service.name` of the span's own resource. The standalone server sets it on every span, so a
+   * trace that crosses services keeps each span's service; the embedded API leaves it unset (the
+   * whole store is one service, named in `meta.service`).
+   */
+  service?: string;
 }
 
 /** Why a response is not the whole answer; shown by the UI as a banner. */
@@ -75,14 +81,14 @@ export interface MetaResponse {
     /** Unix ms from which route statistics have been counted (process start). */
     sinceUnixMs: number;
     /** Windows the routes endpoint accepts. */
-    windowsMinutes: number[];
+    windowMinutesOptions: number[];
   };
   warnings: ApiWarning[];
   /**
-   * Where this API runs: inside one application (`embedded`, the default when absent) or in the
-   * standalone server (`standalone`), which stores several services.
+   * Where this API runs: inside one application (`embedded`) or in the standalone server
+   * (`standalone`), which stores several services.
    */
-  mode?: "embedded" | "standalone";
+  mode: "embedded" | "standalone";
   /**
    * Names of the services (`service.name`) with data in the store, sorted. Absent when the API
    * serves one application (`service.name` names it). Filter lists and statistics with `service`.

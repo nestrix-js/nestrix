@@ -283,7 +283,7 @@ export function configureMethods(
 
 /**
  * For the class statistics (P3-04): true when `NestrixInstrument` has decorated at least one
- * instance and the current configuration has `methods.enabled` on.
+ * instance and the current configuration has `methods` not set to `false`.
  */
 export function methodsEnabled(): boolean {
   return decoratedAny && config?.enabled === true;

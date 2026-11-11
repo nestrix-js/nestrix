@@ -305,7 +305,7 @@ export class HttpServerInstrumentation {
     /** P6-02: records `http.server.request.duration` at `close`. Absent with `metrics: false`. */
     private readonly metrics?: HttpRequestMetrics,
   ) {
-    this.ignore = options.ignore.routes;
+    this.ignore = options.ignore.paths;
     this.requestHeaders = buildHeaderAllowlist(
       DEFAULT_REQUEST_HEADERS,
       options.http.requestHeaders,
