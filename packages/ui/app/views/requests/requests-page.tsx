@@ -33,6 +33,9 @@ export function filtersToParams(filters: RequestFilters): QueryParams {
     status: filters.status ?? undefined,
     minDurationMs: filters.minDurationMs ?? undefined,
     search: filters.search ?? undefined,
+    type: filters.type ?? undefined,
+    release: filters.release ?? undefined,
+    user: filters.user ?? undefined,
   };
 }
 

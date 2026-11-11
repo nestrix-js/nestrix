@@ -25,6 +25,7 @@ export const trace = {
         "http.response.status_code": 500,
         "url.path": "/orders/42",
         "user_agent.original": "curl/8.9.1",
+        "user.id": "u-1842",
       },
       events: [
         {

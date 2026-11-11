@@ -22,6 +22,7 @@ const same: [
   Equals<Mirror.SpanRecord, Protocol.SpanRecord>,
   Equals<Mirror.PagedResponse, Protocol.PagedResponse>,
   Equals<Mirror.TraceSummary, Protocol.TraceSummary>,
+  Equals<Mirror.TraceType, Protocol.TraceType>,
   Equals<Mirror.TraceListResponse, Protocol.TraceListResponse>,
   Equals<Mirror.TraceResponse, Protocol.TraceResponse>,
   Equals<Mirror.ErrorItem, Protocol.ErrorItem>,
@@ -35,6 +36,7 @@ const same: [
   Equals<Mirror.MapEdge, Protocol.MapEdge>,
   Equals<Mirror.AppMapResponse, Protocol.AppMapResponse>,
 ] = [
+  true,
   true,
   true,
   true,

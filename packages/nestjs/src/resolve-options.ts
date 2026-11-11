@@ -9,6 +9,7 @@ import type {
   RedactHook,
   UrlMatcher,
 } from "./options.js";
+import { parseResourceAttributesEnv } from "./otel/resource-env.js";
 
 /** An OTLP/HTTP destination: `url` is the full traces URL, `/v1/traces` already applied. */
 export interface ResolvedOtlp {
@@ -17,11 +18,18 @@ export interface ResolvedOtlp {
   readonly timeoutMillis: number;
 }
 
+/** The `user` option's function type. */
+export type NestrixUserFunction = NonNullable<NestrixModuleOptions["user"]>;
+
 /** Every option with its default applied. Deeply frozen. */
 export interface ResolvedOptions {
   /** `false` only when `NestrixModule.forRootAsync`'s factory returned `enabled: false`. */
   readonly enabled: boolean;
   readonly serviceName: string | undefined;
+  /** `service.version` after the D-63 chain (`resolveServiceVersion`); `undefined` when nothing sets it. */
+  readonly serviceVersion: string | undefined;
+  /** The `user` option (P3-03), checked to be a function; `undefined` when off. */
+  readonly user: NestrixUserFunction | undefined;
   readonly resourceAttributes: Readonly<
     Record<string, string | number | boolean>
   >;
@@ -362,6 +370,43 @@ function resolveUiUnguarded(ui: unknown, env: Environment): ResolvedUi {
 }
 
 /**
+ * `service.version` (D-63), first set value wins: the `serviceVersion` option, then
+ * `resourceAttributes['service.version']` (also explicit), then `service.version` in
+ * `OTEL_RESOURCE_ATTRIBUTES`, then `GIT_SHA`, then `npm_package_version`. Blank values are
+ * skipped. Throws when `serviceVersion` is given and is not a string.
+ */
+export function resolveServiceVersion(
+  options: Pick<NestrixModuleOptions, "serviceVersion" | "resourceAttributes">,
+  env: Environment,
+): string | undefined {
+  const option: unknown = options.serviceVersion;
+  if (option !== undefined && typeof option !== "string") {
+    invalid(`serviceVersion must be a string, got ${typeof option}`);
+  }
+  const fromAttributes = options.resourceAttributes?.["service.version"];
+  return (
+    blank(option as string | undefined) ??
+    (typeof fromAttributes === "string" ? blank(fromAttributes) : undefined) ??
+    blank(
+      parseResourceAttributesEnv(env.OTEL_RESOURCE_ATTRIBUTES)?.[
+        "service.version"
+      ],
+    ) ??
+    blank(env.GIT_SHA) ??
+    blank(env.npm_package_version)
+  );
+}
+
+/** The `user` option: a function or absent. Throws on anything else. */
+export function resolveUser(user: unknown): NestrixUserFunction | undefined {
+  if (user === undefined) return undefined;
+  if (typeof user !== "function") {
+    invalid(`user must be a function, got ${typeof user}`);
+  }
+  return user as NestrixUserFunction;
+}
+
+/**
  * Pure: options and an environment object in, fully defaulted and frozen options out.
  * Throws on invalid options; that is a startup error, not a request-path failure.
  * `NESTRIX_ENABLED=false` in `env` overrides `enabled: true` (a kill switch).
@@ -410,6 +455,8 @@ export function resolveOptions(
   const resolved: ResolvedOptions = {
     enabled,
     serviceName: blank(o.serviceName) ?? blank(env.OTEL_SERVICE_NAME),
+    serviceVersion: resolveServiceVersion(o, env),
+    user: resolveUser(o.user),
     resourceAttributes: Object.freeze({ ...o.resourceAttributes }),
     sampleRate,
     export: Object.freeze({

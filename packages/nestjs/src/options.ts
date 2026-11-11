@@ -196,17 +196,23 @@ export interface NestrixModuleOptions {
   /** `service.name`. Default `OTEL_SERVICE_NAME`, then the SDK's default resource. */
   serviceName?: string;
   /**
-   * `service.version`: the release every trace is tagged with (D-56). Default: `service.version` in
-   * `OTEL_RESOURCE_ATTRIBUTES`, then `GIT_SHA`, then `npm_package_version`. Ignored when the host
-   * owns the SDK (its resource wins).
+   * `service.version`: the release every trace is tagged with (D-56, D-63). Default, first set value
+   * wins: `resourceAttributes['service.version']`, then `service.version` in
+   * `OTEL_RESOURCE_ATTRIBUTES`, then `GIT_SHA`, then `npm_package_version` (set by `npm`/`pnpm run`,
+   * not by `node main.js`). Blank values are skipped. Ignored when the host owns the SDK (its
+   * resource wins).
    */
   serviceVersion?: string;
   /**
    * Reads the user behind a request, recorded as `user.id` on the server span (D-56). Off by
-   * default: a user id is personal data. Called once per sampled request when its span ends, with
-   * the request object the adapter gives Nestrix's request hook (Express `req`, Fastify's raw
-   * request, platform-node's request), by which time guards have usually set `req.user`. Return
-   * `undefined` for none. A throw, or a non-string non-number result, records nothing and is counted.
+   * default: a user id is personal data. Called once per sampled request, when the response has
+   * closed and before the server span ends, with the same request object guards get from
+   * `context.switchToHttp().getRequest()`: Express's `req`, Fastify's `FastifyRequest` (not
+   * `request.raw`), platform-node's `IncomingMessage`. So `request.user` set by a guard (Passport's
+   * `AuthGuard`, your own) is visible; it is `undefined` when no guard set it (the route has none,
+   * or a guard rejected first). Must be synchronous. Return a string or number, or `undefined` for
+   * none; the value is cut to 256 characters. A throw, a promise or any other result records
+   * nothing and is counted; the request is never affected. The attribute goes through `redact`.
    */
   user?: (request: unknown) => string | number | undefined;
   /** Method spans (level 2). */

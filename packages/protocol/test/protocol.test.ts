@@ -19,6 +19,8 @@ describe("package entry", () => {
     expect(Object.keys(protocol).sort()).toEqual(
       [
         "PROTOCOL_VERSION",
+        "appMapParams",
+        "classStatsParams",
         "errorListParams",
         "metaParams",
         "routeStatsParams",
@@ -70,6 +72,14 @@ describe("parameter specs", () => {
       default: 50,
     });
     expect(protocol.traceListParams.search.maxLength).toBe(200);
+    expect(protocol.traceListParams.type.values).toEqual([
+      "http",
+      "job",
+      "scheduled",
+      "other",
+    ]);
+    expect(protocol.traceListParams.release.maxLength).toBe(128);
+    expect(protocol.traceListParams.user.maxLength).toBe(256);
     expect(protocol.routeStatsParams.windowMinutes.oneOf).toEqual([15, 60]);
     expect(protocol.routeStatsParams.windowMinutes.default).toBe(15);
   });
@@ -123,6 +133,10 @@ describe("fixtures (types are checked by tsc via `satisfies`; this checks consis
       spanCount: trace.spans.length,
       error: true,
     });
+    const root = trace.spans.find((s) => s.spanId === trace.rootSpanId);
+    expect(item?.type).toBe(root?.kind === "server" ? "http" : "other");
+    expect(item?.release).toBe(trace.resource["service.version"]);
+    expect(item?.user).toBe(root?.attributes["user.id"]);
     expect(traceList.head).toBe(traceList.items[0]?.cursor);
     const times = traceList.items.map((i) => i.startTimeUnixMs);
     expect(times).toEqual([...times].sort((a, b) => b - a));

@@ -49,7 +49,11 @@ getOnRouteTriggered(): typeof hook | undefined     // the only one with a getter
 | How the request continues | Only by calling `done()`. A resolved promise does not continue it. | `done()`, or a resolved promise from 12.1.3 (before that, only `done()`) | Only `done()` |
 | If the hook throws | From 12.1.3: a throw before `done()` becomes `done(err)` once, **the user's request fails** (500, no guard or handler runs); a throw after `done()` is logged. Before 12.1.3 there is no guard: a throw after `done()` also gives a 500 though the handler ran | Same; a throw after `done()` is dropped | Same as Express |
 | Runs for 404s | Yes | Yes | Yes |
+| Request object it receives | Express `req` (an `IncomingMessage`) | `FastifyRequest`; the `IncomingMessage` is `request.raw` | The `IncomingMessage` |
+| Same object guards get (`switchToHttp().getRequest()`) | Yes | Yes (the `FastifyRequest`), so `request.user` set by a guard is on it, not on `request.raw` | Yes |
 | Requests that skip it | A host-supplied server instance's own middleware, which runs first and outside the store | Malformed percent-encoding (400) and a parameter over `maxParamLength`, default 100 (414); a host-supplied instance's own `onRequest` hooks | — |
+
+The last two rows were run in P3-03 on 12.4.2 (`packages/nestjs/test/http-user.test.ts`): a guard stores the request it gets, and the object the hook received is identical to it (`toBe`) on all three adapters; on Fastify `request.raw.user` stays `undefined`. This is why the `user` option is called with the hook's own argument, not the unwrapped Node request.
 
 On every adapter, whatever Node's HTTP parser rejects (bad header name 400, headers over 16 KiB 431, a target without a leading slash 400) never reaches the hook. Inferred, not run: Node's `requestTimeout` / `headersTimeout`, `upgrade` and `CONNECT`, and `Expect: 100-continue` with a `checkContinue` listener. (P0-S1.)
 

@@ -65,8 +65,13 @@ export interface TraceSummary {
   startTimeUnixMs: number;
   durationMs: number;
   spanCount: number;
+  type: TraceType;
+  release?: string;
+  user?: string;
   cursor: string;
 }
+
+export type TraceType = "http" | "job" | "scheduled" | "other";
 
 export interface TraceListResponse extends PagedResponse {
   items: TraceSummary[];
