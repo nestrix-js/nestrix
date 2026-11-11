@@ -24,7 +24,7 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=22.15.0"
+    "node": ">=26.0.0"
   },
   "scripts": {
     "build": "tsc -b",
