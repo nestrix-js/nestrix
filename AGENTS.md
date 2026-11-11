@@ -61,6 +61,13 @@ pnpm check:packages # publint + attw --pack --profile esm-only on each published
 pnpm verify         # build, check:packages, test, lint, typecheck in that order, stopping at the first failure
 ```
 
+CI runs locally with [`act`](https://nektosact.com) and Docker, without spending GitHub Actions minutes (the repository is private, 2,000 minutes a month). On colima, `--container-daemon-socket -` is required:
+
+```bash
+act push -W .github/workflows/ci.yml -P ubuntu-latest=catthehacker/ubuntu:act-latest --container-daemon-socket - -s GITHUB_TOKEN="$(gh auth token)"
+act workflow_dispatch -W .github/workflows/nightly.yml -P ubuntu-latest=catthehacker/ubuntu:act-latest --container-daemon-socket - -s GITHUB_TOKEN="$(gh auth token)"
+```
+
 TypeScript config: every package has its own `tsconfig.json` that extends `tsconfig.base.json`, sets `composite`, `rootDir` and `outDir`, and is added to `references` in the root `tsconfig.json`. `verbatimModuleSyntax` is on: import types with `import type`, but import classes used as Nest constructor parameters as values (an `import type` there makes `design:paramtypes` silently `Function`).
 
 ## Layout
