@@ -195,7 +195,7 @@ These are not known. Each is assigned to a spike in [backlog/phase-0.md](backlog
 - Does Prisma 7 always go through the `pg` adapter? Partly answered (P0-S2): with `@prisma/adapter-pg`, yes, through `Pool.query`. Whether an adapter is mandatory in v7 was not checked.
 - Does a module-registered global interceptor cover microservice handlers in a hybrid app?
 - Under `@nestjs/testing`, is the HTTP adapter available when providers are constructed?
-- ~~How do OpenTelemetry SDK 2.x hosts adopt Nestrix, given the peer ranges do not overlap?~~ The facts are in P0-S3 (Q5; §4.5). Which option to take is O-1, open: owner decision (phase 0 report).
+- ~~How do OpenTelemetry SDK 2.x hosts adopt Nestrix, given the peer ranges do not overlap?~~ The facts are in P0-S3 (Q5; §4.5). Decided (D-40): SDK 3 only for 0.1; hosts on SDK 2.x are not supported.
 - Install size and startup cost of the dependency set, and of `auto-instrumentations-node` for comparison.
 
 ## Re-verifying

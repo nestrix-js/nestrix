@@ -2,7 +2,7 @@
 
 Each phase is a vertical slice that ends with something a user can run. A phase is done when its acceptance criteria pass in CI, not when the code is written. At the end of every phase, work stops for the owner's review before the next phase starts.
 
-Current phase: **0, complete, at its gate.** Task list: [backlog/phase-0.md](backlog/phase-0.md). Report and owner decisions: [phase-0-report.md](phase-0-report.md). Later phases get their task list written when they start, by whoever leads the work, from the deliverables below.
+Current phase: **0, complete; the owner decided its gate questions (D-40 to D-51 in [decisions.md](decisions.md)).** Task list: [backlog/phase-0.md](backlog/phase-0.md). Report: [phase-0-report.md](phase-0-report.md). Later phases get their task list written when they start, by whoever leads the work, from the deliverables below.
 
 ## Phase 0: foundations and spikes
 
@@ -32,7 +32,7 @@ Current phase: **0, complete, at its gate.** Task list: [backlog/phase-0.md](bac
 
 **Objective.** A Nest 12 app with one module import sends correct traces to any OTLP backend.
 
-**Deliverables.** `NestrixModule.forRoot` / `forRootAsync`; HTTP server spans; handler exceptions; outbound HTTP spans and propagation (fetch/undici and `node:http`); OTLP/HTTP export; sampling; bounded queue; privacy defaults and the redaction hook; shutdown flush; `Span` and `withSpan`; a `docker compose` example with Jaeger; first benchmark baseline.
+**Deliverables.** `NestrixModule.forRoot` / `forRootAsync`; HTTP server spans; handler exceptions; outbound HTTP spans and propagation through first-party fetch/undici and `node:http` subscribers (D-42; no `instrumentation-undici`); OTLP/HTTP export, with `@opentelemetry/context-async-hooks` and `@opentelemetry/core` for the context manager and propagator (D-41); sampling; bounded queue; privacy defaults and the redaction hook; shutdown flush; `Span` and `withSpan`; a `docker compose` example with Jaeger; first benchmark baseline. Supported versions as in D-44 (`@nestjs/platform-node` from 12.3.2; Express and Fastify from 12.0.0) and SDK 3 only (D-40), with the `ERESOLVE` for SDK 2 hosts explained in the docs. Sentry coexistence documented (D-43): two traces with Sentry's defaults, the one-trace option and its costs, and no tracing of Sentry's envelope requests.
 
 **Depends on.** Spikes 1, 2 (its outbound-HTTP part), 3 and 4.
 
@@ -70,13 +70,14 @@ Attribute names follow the OpenTelemetry HTTP semantic conventions current at im
 
 **Objective.** The same app shows its own traces at `/_nestrix` with nothing else running.
 
-**Deliverables.** In-memory store; pre-sampling route counters; query API v1 and its types in `packages/protocol`; `@nestrix/ui` with request list, trace waterfall, error list, per-route latency and error rate, live updates; mounting on all three adapters under a configurable path; the security model of architecture §4.7.
+**Deliverables.** In-memory store; pre-sampling route counters; query API v1 and its types in `packages/protocol`; `@nestrix/ui` with request list, trace waterfall, error list, per-route latency and error rate, live updates; mounting on all three adapters under a configurable path; the security model of architecture §4.7, including the startup token for `ui: 'auto'` (D-46): a logged link with a random token that sets an HttpOnly cookie, and an explicit opt-out. Dashboard routes are registered in `onModuleInit` (D-45).
 
 **Depends on.** Phase 1; spike 5.
 
 **Acceptance**
 - The dashboard works in the Express, Fastify and platform-node example apps, with and without a global prefix, with `app.useSecurityHeaders()`, and with host CORS enabled.
 - A request from a non-loopback address, or with a forwarding header, or with `Sec-Fetch-Site: cross-site`, gets no dashboard data in the default mode.
+- In `ui: 'auto'`, a request without the startup token cookie gets no dashboard data, including a loopback request through a same-host reverse proxy that adds no forwarding headers; opening the logged link sets the cookie and the dashboard then loads; the opt-out disables the check (D-46).
 - With `NODE_ENV=production` and no `auth`, the dashboard is unreachable and the app starts.
 - With a host catch-all route on Express, Nestrix reports that the dashboard is shadowed.
 - At a sample rate of 0.1, per-route request counts match the number of requests sent, and the UI shows that lists are sampled.
@@ -89,7 +90,9 @@ Attribute names follow the OpenTelemetry HTTP semantic conventions current at im
 
 **Objective.** A trace explains where the time went inside the request.
 
-**Deliverables.** `NestrixInstrument` and `composeInstrument`; provider, guard, pipe, interceptor and filter spans; `pg`, `mysql2` and `ioredis` integrations; documented BullMQ setup and job views; scheduled jobs; slow-query highlighting and repeated-query grouping in the UI.
+**Deliverables.** `NestrixInstrument` and `composeInstrument`; method spans by default for controllers, queue processors and scheduled methods, with service spans and guard, pipe, interceptor and filter spans opt in (D-47); level 2 not applied under `@nestjs/testing`, documented (D-48); the `pg` integration on when present, wrapping nested copies already loaded (D-50), and opt-in `mysql2` and `ioredis` integrations that document the errors they then swallow (D-49); documented BullMQ setup and job views; scheduled jobs; slow-query highlighting and repeated-query grouping in the UI.
+
+**First task.** Verify in a Nest app the timing of the `pg` `require.cache` scan (at enable and at `onApplicationBootstrap`), and settle the pool-wait rule (proposed: database spans cover the query only) (D-50).
 
 **Depends on.** Spikes 2 and 6; phase 2.
 

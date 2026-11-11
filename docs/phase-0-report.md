@@ -1,5 +1,7 @@
 # Phase 0 report
 
+Decided by the owner on 2026-11-11: see D-40 … D-51 in decisions.md.
+
 Date: 2026-11-11. Written by the lead for the owner at the phase 0 gate. Phase 1 does not start until the owner has answered the decisions in §4.
 
 ## 1. Summary

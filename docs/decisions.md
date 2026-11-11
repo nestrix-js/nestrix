@@ -45,13 +45,29 @@ Decisions already made, newest sections last. Do not reopen one silently: if wor
 | D-38 | **Microservice client spans** come from wrapping `send` / `emit` on client instances; the dispatch hook only injects context. The hybrid-app fallback is a pre-request hook on the microservice instance with `deferInitialization: true`. | The plan's phase 4 wording | The dispatch hook cannot time a span, and `NestApplication` has no `registerPreRequestHook`. |
 | D-39 | **Phase 0 has six spikes**, adding dashboard mounting and instance-decorator wrapping. A platform-node example app is added. Packaging is checked by pack-and-install, not by provenance on a local registry. | The plan's four spikes | The two riskiest mechanisms had no spike. Provenance cannot be tested locally. |
 
+## Phase 0 gate decisions
+
+Chosen by the owner on 2026-11-11 from the options in [phase-0-report.md](phase-0-report.md) §4, with the spike evidence named there.
+
+| # | Decision | Supersedes | Why |
+|---|---|---|---|
+| D-40 | **OpenTelemetry SDK 3 only for 0.1.** Hosts on SDK 2.x are not supported; the docs explain the `ERESOLVE` and that they must upgrade. `@opentelemetry/api` stays a peer: Nestrix never ships its own API copy. | O-1 | A second API copy fails silently in both directions (P0-S3 Q5). Optional SDK packages remain possible later without breaking anyone. |
+| D-41 | **Add `@opentelemetry/context-async-hooks` and `@opentelemetry/core` as runtime dependencies** of `@nestrix/nestjs`, for the context manager and W3C propagator when Nestrix owns the provider. | Extends the budget in architecture §4.5 (rule 10) | SDK 3's `sdk-trace` has neither (P0-S3). Official Apache-2.0 packages; `core` is already installed transitively. |
+| D-42 | **fetch/undici is traced by a first-party subscriber on undici's diagnostics channels**, like the `node:http` one. `@opentelemetry/instrumentation-undici` is not used. | D-13 (the undici part) | Upstream installs a process-wide `require` hook and adds two loader libraries (P0-S2 Q1). The first-party subscriber reuses the outbound rules (suppress key, parent required, ignore list). |
+| D-43 | **Sentry is supported as coexistence.** Both tools work side by side; with Sentry's defaults a request has two traces, and the docs say so. Nestrix does not trace Sentry's envelope requests. The `openTelemetryIntegration()` + `defaultIntegrations: false` one-trace setup is documented as an option with its costs. | O-2 | No tested setup gives one trace with Sentry's defaults and a working Nestrix (P0-S3 Q4). |
+| D-44 | **Supported Nest versions:** `@nestjs/platform-node` from 12.3.2; Express and Fastify adapters from 12.0.0. | Adds a floor | On platform-node 12.3.0 and 12.3.1 the request context is lost after JSON body parsing (P0-S1 Q2, Q9). |
+| D-45 | **D-31 stands: dashboard routes are registered in `onModuleInit`.** Its original reason (constructor registration breaks platform-node) was disproved; the reason now is uniform behaviour across adapters, with host protections (auth middleware, rate limits, HSTS) also covering the dashboard. Handlers hijack, strip CORS and set their own CSP; Nestrix detects shadowing. | Restates D-31's reason | P0-S5 trade-off table. |
+| D-46 | **`ui: 'auto'` also requires a startup token.** Nestrix logs a link carrying a random token at startup; opening it stores the token in an HttpOnly cookie. An explicit opt-out exists. | Amends D-30 | A same-host reverse proxy with nginx's defaults passes every per-request loopback check (P0-S5 Q7). |
+| D-47 | **Default method wrapping (level 2): controllers, queue processors and scheduled methods.** Services opt in through `include`; guard, pipe, interceptor and filter spans are an opt-in too. architecture.md §2, §4.1 and §4.2 are amended to match. | O-3; amends the enhancer-span promise in architecture §2, §4.1, §4.2 | No denylist to keep up to date, no third-party noise (P0-S6 Q1, Q7). |
+| D-48 | **Level 2 does not apply under `@nestjs/testing`** for 0.2, and the docs say so. HTTP spans still work there. | — | Nest offers no public way to decorate static instances in tests (P0-S6 Q1). |
+| D-49 | **mysql2 and ioredis integrations are opt-in.** Enabling one documents that the library then swallows certain errors instead of crashing. `pg` stays on when present. | D-3 ("switch on when the library is present") for mysql2 and ioredis | Any subscriber turns an unawaited ioredis failure and a listener-less mysql2 error from a crash into silence, and no way of subscribing avoids it (P0-S2 Q7). Rule 1 keeps the default. |
+| D-50 | **The `pg` integration also wraps nested copies already loaded** (`require.cache` scan at enable and at `onApplicationBootstrap`). The timing is verified in a Nest app at the start of phase 3. Copies loaded later stay untraced, and the docs say so. | Resolves the nested-copy question in architecture §4.4 | MikroORM pins its own `pg` exactly (P0-S2 Q5). |
+| D-51 | **pnpm's release-age gate runs in strict mode:** an install that needs a too-new version fails instead of pnpm adding exclusions on its own. | — | pnpm 12 silently added `minimumReleaseAgeExclude` entries to admit a day-old release (P0-S3). |
+
 ## Open
 
 | # | Question | Default until decided | Who |
 |---|---|---|---|
-| O-1 | How do hosts on OpenTelemetry SDK 2.x adopt Nestrix? The peer ranges of SDK 2.x and 3.x do not overlap, so today they cannot install it. | SDK 3.x only for 0.1. Revisit with spike 3's results; one option is to make the SDK packages optional and load them only when Nestrix owns the provider. | Owner, after spike 3 |
-| O-2 | Supported setup alongside `@sentry/nestjs`. | None promised. | Spike 3 |
-| O-3 | What `NestrixInstrument` wraps by default. | Nothing is assumed. | Spike 6 |
 | O-4 | When MongoDB driver spans arrive. | Deferred; upstream instrumentation meanwhile. | Owner |
 | O-5 | Trademark search for the name, given a company called Nestrix appears to exist. | Not done. | Owner |
 
