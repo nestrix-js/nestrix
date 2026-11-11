@@ -8,7 +8,7 @@ Objective, deliverables and acceptance: [roadmap.md](../roadmap.md#phase-3-provi
 |---|---|---|---|---|---|
 | P3-00 | Backlog, option types, method-call sink, query API v1 additions (classes, map) | lead | — | done | This file; `methods`, `integrations`, `serviceVersion`, `user` in `options.ts` (types only); `src/methods/sink.ts`; protocol `ClassStats*`, `AppMap*`. |
 | P3-01 | Level 3: `pg` (timing check first), `mysql2`, `ioredis`; statement sanitising; container tests | opus | P3-00 | review | D-50 timing verified in a Nest app (research.md "Level 3 integrations"); awaiting P3-09 review. |
-| P3-02 | Level 2: `NestrixInstrument`, `composeInstrument`, own-class rule, entry methods, enhancers, awkward-class corpus | opus | P3-00 | review | Merged; 91 level-2 tests; D-58 amended by D-67. Root spans outside a trace still to remove (D-67 (2)). |
+| P3-02 | Level 2: `NestrixInstrument`, `composeInstrument`, own-class rule, entry methods, enhancers, awkward-class corpus | opus | P3-00 | done | Reviewed; fixes: prototype classes, @Global root, multi-app config, suffix-first kinds, weak plans; D-67 (2) built. |
 | P3-03 | Releases and users; trace `type`; traces filters `type`, `release`, `user` | opus | P3-00 | done | Merged; Fastify passes the `FastifyRequest` (req.user visible), Express/platform-node the `IncomingMessage`. 1,339 tests. |
 | P3-04 | Class statistics (pre-sampling) and `GET api/v1/classes` | sonnet | P3-00 | done | 3 adapters; `methodsEnabled` stub until P3-02 merges. |
 | P3-05 | App map and `GET api/v1/map` | sonnet | P3-00 | done | 21 tests; nearest-rank percentiles; 200-node cap. |
