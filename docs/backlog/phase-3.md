@@ -14,7 +14,7 @@ Objective, deliverables and acceptance: [roadmap.md](../roadmap.md#phase-3-provi
 | P3-05 | App map and `GET api/v1/map` | sonnet | P3-00 | done | 21 tests; nearest-rank percentiles; 200-node cap. |
 | P3-06 | UI: classes view and map view | sonnet | P3-00 | done | 778 KB of 1 MB; 123 e2e pass. |
 | P3-07 | UI: trace view query insights (slow, repeated), links between traces, release/user/type in the request list | sonnet | P3-03 | done | 783 KB; 73 chromium e2e. |
-| P3-08 | BullMQ: documented setup, example, linked job trace; acceptance end-to-end (three queries + a job) | sonnet | P3-01, P3-02, P3-03 | todo | |
+| P3-08 | BullMQ: documented setup, example, linked job trace; acceptance end-to-end (three queries + a job) | sonnet | P3-01, P3-02, P3-03 | done | One trace: BullMQ's consumer span is a child of the producer (not a link); `new BullMQOtel({ tracerName })`. |
 | P3-09 | Reviews: P3-01, P3-02, P3-03 | opus reviewer | each | todo | Required (request path). |
 | P3-10 | Documentation: README, architecture §4.3/§4.4/§7, nest-hooks | sonnet + lead | all | todo | |
 | P3-11 | Phase report | lead | all | todo | |
