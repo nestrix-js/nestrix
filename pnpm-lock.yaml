@@ -542,6 +542,9 @@ importers:
         specifier: ^1.45.0
         version: 1.45.0
     devDependencies:
+      '@nats-io/transport-node':
+        specifier: ^3.4.0
+        version: 3.4.0
       '@nestjs/bullmq':
         specifier: ^12.0.1
         version: 12.0.1(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)(bullmq@6.7.2(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0)))
@@ -596,6 +599,12 @@ importers:
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
+      amqp-connection-manager:
+        specifier: ^5.0.1
+        version: 5.0.1(amqplib@2.2.0)
+      amqplib:
+        specifier: ~2.2.0
+        version: 2.2.0
       bullmq:
         specifier: ~6.7.2
         version: 6.7.2(ioredis@6.0.0(supports-color@7.2.0))(pg@8.23.1)(redis@6.3.1(@opentelemetry/api@1.10.0))
@@ -605,6 +614,12 @@ importers:
       ioredis:
         specifier: ^6.0.0
         version: 6.0.0(supports-color@7.2.0)
+      kafkajs:
+        specifier: ^2.2.4
+        version: 2.2.4
+      mqtt:
+        specifier: ^5.16.1
+        version: 5.16.1(supports-color@7.2.0)
       mysql2:
         specifier: ^3.24.6
         version: 3.24.6(@types/node@26.6.6)
