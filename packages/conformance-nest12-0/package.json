@@ -1,0 +1,25 @@
+{
+  "name": "@nestrix/conformance-nest12-0",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Runs the packages/nestjs conformance suite against Nest 12.0.0 (Express and Fastify). Never published.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nestjs/common": "12.0.0",
+    "@nestjs/core": "12.0.0",
+    "@nestjs/microservices": "12.0.0",
+    "@nestjs/platform-express": "12.0.0",
+    "@nestjs/platform-fastify": "12.0.0",
+    "@nestjs/testing": "12.0.0",
+    "express-esm": "workspace:*",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6"
+  }
+}

@@ -18,7 +18,7 @@ Update this table as work moves. One line of notes at most; detail goes in the t
 | P1-07 | Handler attribution and exceptions | opus | P1-06 | done | `APP_INTERCEPTOR`; status at `close`; `uncaughtExceptionMonitor` only, child-process exit unchanged. Reviewed (nothing blocking); doc and test fixes applied. |
 | P1-08 | Outbound `node:http` spans and the shared outbound rules | opus | P1-02, P1-03, P1-04 | doing | review required |
 | P1-09 | Outbound fetch/undici spans | opus | P1-08 | todo | review required; same agent as P1-08 |
-| P1-10 | Conformance suite | sonnet | P1-07, P1-09 | todo | |
+| P1-10 | Conformance suite | sonnet | P1-07, P1-09 | done | Every table row passes on 3 adapters at 12.4.2, Express/Fastify 12.0.0, platform-node 12.3.2, Node 22.15 and 26. Header versioning skipped on Fastify 12.0.0: Nest itself fails to boot it (FST_ERR_DUPLICATED_ROUTE). |
 | P1-11 | CI matrix and nightly | sonnet | P1-10 | todo | |
 | P1-12 | Jaeger example, two services | sonnet | P1-09 | doing | Example, compose (jaeger 2.23.0) and check script merged; export to Jaeger verified; the trace assertion runs after P1-06/09 merge. |
 | P1-13 | Benchmarks: baseline, exporter outage, install size, startup | sonnet | P1-09 | doing | |
