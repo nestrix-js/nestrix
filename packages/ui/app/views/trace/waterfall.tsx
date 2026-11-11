@@ -1,0 +1,326 @@
+// biome-ignore-all lint/a11y/useSemanticElements: a virtualised treegrid positions its rows absolutely, which table elements cannot do
+// biome-ignore-all lint/a11y/useFocusableInteractive: the treegrid is the single focus stop; rows are reached with the arrow keys (aria-activedescendant)
+import type { TraceResponse } from "@nestrix/protocol";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import {
+  AlertCircle,
+  ChevronDown,
+  ChevronRight,
+  CornerUpRight,
+} from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+
+import { formatDuration } from "@/lib/format";
+import {
+  barLayout,
+  buildTree,
+  flattenRows,
+  isErrorSpan,
+  type NavKey,
+  navigate,
+  type Row,
+  scaleTicks,
+} from "@/lib/trace-tree";
+import { cn } from "@/lib/utils";
+import { SpanDetail } from "@/views/trace/span-detail";
+
+const ROW_HEIGHT = 28;
+const MAX_HEIGHT = 560;
+const INDENT_PX = 14;
+const MAX_INDENT_LEVELS = 24;
+const NAV_KEYS = new Set<string>([
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "Home",
+  "End",
+]);
+
+const rowDomId = (spanId: string) => `span-row-${spanId}`;
+
+/**
+ * The trace waterfall and its detail panel.
+ *
+ * Markup for tests: the container is `role="treegrid"` (`data-testid="waterfall"`); each
+ * rendered row is `role="row"` with `data-testid="span-row"`, `aria-level` (1-based depth),
+ * `data-depth` (0-based), `data-span-id`, `aria-expanded` (only on spans with children),
+ * `aria-selected`, `data-error="true"` on error spans and `data-orphan="true"` on spans whose
+ * parent is missing. The span name is `[data-testid="span-name"]`. Only visible rows (plus a
+ * small overscan) are in the DOM; `aria-rowcount` is the number of rows after collapsing.
+ */
+export function Waterfall({ trace }: { trace: TraceResponse }) {
+  const tree = useMemo(
+    () => buildTree(trace.spans, trace.rootSpanId),
+    [trace.spans, trace.rootSpanId],
+  );
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const rows = useMemo(() => flattenRows(tree, collapsed), [tree, collapsed]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 10,
+    // jsdom-free environments and the first paint have no layout yet; show a first screenful.
+    initialRect: { width: 800, height: Math.min(MAX_HEIGHT, 20 * ROW_HEIGHT) },
+  });
+
+  const ticks = useMemo(() => scaleTicks(tree.totalMs), [tree.totalMs]);
+  const selected = selectedId ? tree.byId.get(selectedId) : undefined;
+  const viewport = Math.min(rows.length * ROW_HEIGHT + ROW_HEIGHT, MAX_HEIGHT);
+
+  const select = (id: string) => {
+    setSelectedId(id);
+    const index = rows.findIndex((r) => r.node.span.spanId === id);
+    if (index >= 0) virtualizer.scrollToIndex(index);
+  };
+
+  const toggle = (id: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (NAV_KEYS.has(event.key)) {
+      event.preventDefault();
+      const result = navigate(rows, selectedId, collapsed, event.key as NavKey);
+      if (result.collapsed !== collapsed) setCollapsed(result.collapsed);
+      if (result.selectedId !== null && result.selectedId !== selectedId) {
+        // The selection can only move to a row that is visible after the change.
+        const visible =
+          result.collapsed === collapsed
+            ? rows
+            : flattenRows(tree, result.collapsed);
+        const index = visible.findIndex(
+          (r) => r.node.span.spanId === result.selectedId,
+        );
+        setSelectedId(result.selectedId);
+        if (index >= 0) virtualizer.scrollToIndex(index);
+      }
+    } else if (event.key === "Enter" && selectedId !== null) {
+      event.preventDefault();
+      setDetailOpen(true);
+    } else if (event.key === "Escape" && detailOpen) {
+      setDetailOpen(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+      <div className="min-w-0 flex-1 rounded-lg border">
+        <div
+          ref={scrollRef}
+          role="treegrid"
+          data-testid="waterfall"
+          aria-label="Trace waterfall"
+          aria-rowcount={rows.length}
+          aria-activedescendant={selectedId ? rowDomId(selectedId) : undefined}
+          tabIndex={0}
+          onKeyDown={onKeyDown}
+          className="overflow-auto rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          style={{ height: viewport }}
+        >
+          <div className="min-w-[640px]">
+            <div
+              role="row"
+              data-testid="waterfall-scale"
+              className="sticky top-0 z-10 flex h-7 border-b bg-background text-xs text-muted-foreground"
+            >
+              <div role="columnheader" className="w-72 shrink-0 px-2 py-1.5">
+                Span
+              </div>
+              <div role="columnheader" className="relative flex-1">
+                {ticks.map((tick, i) => (
+                  <span
+                    key={tick.leftPct}
+                    data-testid="scale-tick"
+                    className="absolute top-1.5 whitespace-nowrap tabular-nums"
+                    style={{
+                      left: `${tick.leftPct}%`,
+                      transform:
+                        i === ticks.length - 1
+                          ? "translateX(-100%)"
+                          : undefined,
+                    }}
+                  >
+                    {formatDuration(tick.offsetMs)}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div
+              className="relative"
+              style={{ height: virtualizer.getTotalSize() }}
+            >
+              {virtualizer.getVirtualItems().map((item) => {
+                const row = rows[item.index] as Row;
+                return (
+                  <WaterfallRow
+                    key={row.node.span.spanId}
+                    row={row}
+                    index={item.index}
+                    top={item.start}
+                    startMs={tree.startMs}
+                    totalMs={tree.totalMs}
+                    selected={row.node.span.spanId === selectedId}
+                    onSelect={() => {
+                      select(row.node.span.spanId);
+                      setDetailOpen(true);
+                      scrollRef.current?.focus();
+                    }}
+                    onToggle={() => toggle(row.node.span.spanId)}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+      {detailOpen && selected ? (
+        <SpanDetail
+          span={selected.span}
+          traceStartMs={tree.startMs}
+          orphan={selected.orphan}
+          onClose={() => {
+            setDetailOpen(false);
+            scrollRef.current?.focus();
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function WaterfallRow({
+  row,
+  index,
+  top,
+  startMs,
+  totalMs,
+  selected,
+  onSelect,
+  onToggle,
+}: {
+  row: Row;
+  index: number;
+  top: number;
+  startMs: number;
+  totalMs: number;
+  selected: boolean;
+  onSelect: () => void;
+  onToggle: () => void;
+}) {
+  const { span } = row.node;
+  const error = isErrorSpan(span);
+  const { leftPct, widthPct } = barLayout(span, startMs, totalMs);
+  const indent = Math.min(row.depth, MAX_INDENT_LEVELS) * INDENT_PX;
+  return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard control is on the treegrid (arrows, Enter)
+    <div
+      id={rowDomId(span.spanId)}
+      role="row"
+      data-testid="span-row"
+      data-span-id={span.spanId}
+      data-depth={row.depth}
+      data-error={error ? "true" : undefined}
+      data-orphan={row.node.orphan ? "true" : undefined}
+      aria-level={row.depth + 1}
+      aria-rowindex={index + 1}
+      aria-expanded={row.expanded ?? undefined}
+      aria-selected={selected}
+      onClick={onSelect}
+      className={cn(
+        "absolute inset-x-0 flex cursor-pointer items-center border-b border-border/40 text-sm hover:bg-muted/60",
+        error && "bg-destructive/5",
+        selected && "bg-muted",
+      )}
+      style={{ top, height: ROW_HEIGHT }}
+    >
+      <div
+        role="gridcell"
+        className="flex w-72 shrink-0 items-center gap-1 overflow-hidden px-2"
+        style={{ paddingLeft: 8 + indent }}
+      >
+        {row.expanded === null ? (
+          <span className="size-4 shrink-0" />
+        ) : (
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label={row.expanded ? "Collapse" : "Expand"}
+            data-testid="span-toggle"
+            className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggle();
+            }}
+          >
+            {row.expanded ? (
+              <ChevronDown className="size-3.5" />
+            ) : (
+              <ChevronRight className="size-3.5" />
+            )}
+          </button>
+        )}
+        {error ? (
+          <AlertCircle
+            className="size-3.5 shrink-0 text-destructive"
+            aria-label="Error"
+            role="img"
+          />
+        ) : null}
+        {row.node.orphan ? (
+          <CornerUpRight
+            className="size-3.5 shrink-0 text-muted-foreground"
+            aria-label="Parent span is not in this trace"
+            role="img"
+            data-testid="orphan-marker"
+          />
+        ) : null}
+        <span
+          data-testid="span-name"
+          className={cn("truncate", error && "text-destructive")}
+          title={span.name}
+        >
+          {span.name}
+        </span>
+        <span
+          data-testid="span-kind"
+          className="shrink-0 text-xs text-muted-foreground"
+        >
+          {span.kind}
+        </span>
+      </div>
+      <div role="gridcell" className="relative h-full flex-1">
+        <div
+          data-testid="span-bar"
+          data-left-pct={leftPct}
+          data-width-pct={widthPct}
+          className={cn(
+            "absolute top-1/2 h-3 min-w-[2px] -translate-y-1/2 rounded-sm",
+            error ? "bg-destructive" : "bg-primary/70",
+          )}
+          style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+        />
+        <span
+          className="absolute top-1/2 -translate-y-1/2 pl-1 text-xs tabular-nums text-muted-foreground"
+          style={
+            leftPct + widthPct > 80
+              ? { right: `${100 - leftPct}%`, paddingRight: 4 }
+              : { left: `${leftPct + widthPct}%` }
+          }
+        >
+          {formatDuration(span.durationMs)}
+        </span>
+      </div>
+    </div>
+  );
+}
