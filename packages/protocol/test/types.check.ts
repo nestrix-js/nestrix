@@ -22,6 +22,7 @@ export const matching: TraceListParamsSpec = {
   type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
   release: { kind: "string", maxLength: 255 },
   user: { kind: "string", maxLength: 256 },
+  service: { kind: "string", maxLength: 256 },
 };
 
 export const matchingErrors: ErrorListParamsSpec = {
@@ -29,6 +30,7 @@ export const matchingErrors: ErrorListParamsSpec = {
   before: { kind: "cursor", maxLength: 256 },
   after: { kind: "cursor", maxLength: 256 },
   route: { kind: "string", maxLength: 512 },
+  service: { kind: "string", maxLength: 256 },
 };
 
 export const matchingRoutes: RouteStatsParamsSpec = {
@@ -39,6 +41,7 @@ export const matchingRoutes: RouteStatsParamsSpec = {
     oneOf: [15, 60],
     default: 15,
   },
+  service: { kind: "string", maxLength: 256 },
 };
 
 export const matchingTrace: TraceParamsSpec = {

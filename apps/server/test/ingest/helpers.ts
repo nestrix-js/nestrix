@@ -66,7 +66,7 @@ export async function startServer(
 ): Promise<TestServer> {
   const sink = new RecordingSink();
   const moduleRef = await Test.createTestingModule({
-    imports: [AppModule.forRoot(config)],
+    imports: [AppModule.forRoot(config, { inMemory: true })],
   })
     .overrideProvider(INGEST_SINK)
     .useValue(sink)

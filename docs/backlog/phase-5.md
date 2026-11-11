@@ -11,7 +11,7 @@ Objective, deliverables and acceptance: [roadmap.md](../roadmap.md#phase-5-stand
 | P5-00 | Backlog, `apps/server` skeleton, ingest model (`src/ingest/model.ts`) | lead | — | done | |
 | P5-01 | Server bootstrap, configuration, OTLP/HTTP receiver (protobuf + JSON, gzip, limits, partial success, API keys) | opus | P5-00 | done | Untrusted input: review (P5-07) pending. As built: "P5-01 as built" below. |
 | P5-02 | Storage: schema, migrations, day partitions, retention, ingest writer, rollups | opus | P5-00 | done | `src/storage/`, `migrations/0001_init.sql`; schema notes for P5-03 in `src/storage/schema.ts` and `traces.ts`. |
-| P5-03 | Query API over Postgres; protocol additions for several services | sonnet | P5-01, P5-02 | todo | |
+| P5-03 | Query API over Postgres; protocol additions for several services | sonnet | P5-01, P5-02 | done | As built: "P5-03 as built" below. |
 | P5-04 | UI hosting and admin login | opus | P5-01 | todo | Security: review required. |
 | P5-05 | UI: service selector, map across services | sonnet | P5-03 | todo | |
 | P5-06 | Docker image, `docker compose`, example apps end to end, short ingest measurement | sonnet | P5-03, P5-04 | todo | |
@@ -54,6 +54,17 @@ Owns `apps/server/src/storage/**`, `apps/server/migrations/**`, tests under `app
 ### P5-03 Query API over Postgres
 
 Owns `apps/server/src/query/**`, its tests, and the protocol additions (`service` params, `MetaResponse.services`, `mode`), keeping `@nestrix/nestjs`'s mirror, drift checks and API spec copies green (the embedded store accepts `service` and filters by its own name).
+
+#### P5-03 as built
+
+- **Wiring.** `AppModule.forRoot(config, options?)` imports `StorageModule.forRoot({ databaseUrl, retentionDays })`, `IngestModule.forRoot({ sink: { useExisting: PostgresIngestSink } })` and `QueryModule.forRoot()`; self-tracing sets `integrations: { pg: false }`. `options.inMemory` (tests of the receiver only; `test/ingest/helpers.ts` sets it) swaps in the in-memory sink and leaves out storage and the query API, so ingest tests need no database.
+- **Auth hook for P5-04.** `QueryController` runs `QueryGuardGate`, which delegates to the provider under `QUERY_GUARD` (`src/query/guard.ts`, a Nest `CanActivate`). The default is `DenyQueryGuard` (403 `forbidden`): the API is closed until something opens it. P5-04 passes its guard: `QueryModule.forRoot({ imports: [AuthModule], guard: { useClass: SessionGuard } })` (any provider shape without `provide`; `useExisting` works for a guard another module exports). A guard allows by returning `true`, denies by returning `false` (403) or throwing an `HttpException` (401, 503); `QueryExceptionFilter` renders it as an `ApiError`. Tests replace the token with `overrideProvider(QUERY_GUARD)` (`test/query/helpers.ts`).
+- **Shapes and checks** are the embedded API's: the same parameter specs (copies annotated with `@nestrix/protocol`'s spec types in `src/query/params.ts`), 400 for unknown, repeated, malformed or out-of-range parameters and `before` with `after`, 404 for an unknown trace, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, no `Access-Control-*`.
+- **Traces:** from `traces`, newest first by `seq`; cursor `t<seq base 36>` does not name the process, so it survives a restart. `service` filters by the trace's **root** service (the summary shows the root's fields); a trace that only touches a service is found through the trace view and the map. `error` is the root's error status (`traces.is_error`), narrower than the embedded definition (which also counts 5xx without an error status); `status=5xx` still finds those. `head` is the newest trace overall.
+- **Errors:** error spans from `spans` newest first by (start time, trace id, span id); cursor `e.<start time, microseconds>.<trace id>.<span id>`. A span that arrives late with an older start time is not delivered to a poller already past it. `service` is the span's own service, `route` the trace root's route.
+- **Routes and classes:** `route_minutes` / `class_minutes` summed over the window (merged across services unless `service` is given), percentiles from the summed histograms; own time from the stored method spans started in the window minus their direct children. Class counts are post-sampling (the UI must say so, P5-05). `methodsEnabled` is true when the window has any method rollup.
+- **Map:** nodes `service:<name>` (kind `app`) for services seen in the window, plus each service's external targets (same node rules as the embedded map; edges `service:<name>` to the target). A client or producer span whose child server or consumer span is in another service is an edge `service:A` to `service:B` and not an external target. With `service`, the map holds that service, its targets and the services it calls or is called by. Percentiles are histogram estimates. At most 200 nodes; least-called targets fold into `other:overflow`.
+- **Meta:** `mode: "standalone"`, `services` (seen within the retention window, sorted), `sampling: { owner: "host", rate: null }`, store counts from the database (`count(*)`, reused for 5 s; bytes from the partitions' sizes; the limit and eviction fields are 0), `statistics.sinceUnixMs` the oldest route rollup. `TraceResponse` has no per-span service field; P5-05 may need one for the trace view of a cross-service trace.
 
 ### P5-04 UI hosting and admin login
 
