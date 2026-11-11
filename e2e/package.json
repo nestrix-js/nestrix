@@ -1,0 +1,32 @@
+{
+  "name": "e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Playwright end-to-end suite: the dashboard in a real browser, against the example apps plus NestrixModule",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b apps apps-cjs",
+    "test": "playwright test",
+    "install:browser": "playwright install chromium"
+  },
+  "dependencies": {
+    "@nestjs/common": "^12.4.2",
+    "@nestjs/core": "^12.4.2",
+    "@nestjs/platform-express": "^12.4.2",
+    "@nestjs/platform-fastify": "^12.4.2",
+    "@nestjs/platform-node": "^12.4.2",
+    "@nestrix/nestjs": "workspace:*",
+    "@nestrix/ui": "workspace:*",
+    "express-cjs": "workspace:*",
+    "express-esm": "workspace:*",
+    "fastify-esm": "workspace:*",
+    "node-esm": "workspace:*",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/node": "^26.6.6"
+  }
+}

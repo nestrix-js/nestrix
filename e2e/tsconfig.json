@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": ".",
+    "types": ["node"],
+    "experimentalDecorators": false,
+    "emitDecoratorMetadata": false,
+    "tsBuildInfoFile": "node_modules/.cache/tsconfig.tests.tsbuildinfo",
+    "emitDeclarationOnly": true,
+    "outDir": "node_modules/.cache/tsc-tests",
+    "allowImportingTsExtensions": true
+  },
+  "include": ["tests", "playwright.config.ts"]
+}

@@ -81,10 +81,32 @@ jobs:
       - run: pnpm build
       - run: pnpm --filter jaeger-example check
 
+  # The dashboard in a real browser against the example apps plus NestrixModule (e2e/): each test
+  # boots an app as a child process, follows the startup link from its log and checks the UI.
+  # Node 26 and Chromium only (private repository: Actions minutes are limited).
+  e2e:
+    name: e2e (chromium, node 26)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: pnpm build
+      # The key carries the Playwright version pinned in e2e/package.json.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package.json') }}
+      # Downloads the browser only on a cache miss; the system libraries are installed every time.
+      - run: pnpm --filter e2e exec playwright install --with-deps chromium
+      - run: pnpm --filter e2e test
+
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [verify, consume, jaeger]
+    needs: [verify, consume, jaeger, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
