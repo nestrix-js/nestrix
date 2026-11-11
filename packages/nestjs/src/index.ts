@@ -1,4 +1,8 @@
 export {
+  instrumentClient,
+  nestrixPreRequestHook,
+} from "./microservices/index.js";
+export {
   NestrixModule,
   type NestrixModuleAsyncOptions,
 } from "./nestrix.module.js";

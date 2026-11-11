@@ -7,7 +7,7 @@ Objective, deliverables and acceptance: [roadmap.md](../roadmap.md#phase-4-micro
 | ID | Task | Tier | Depends on | Status | Notes |
 |---|---|---|---|---|---|
 | P4-00 | Backlog | lead | — | done | This file. |
-| P4-01 | Spike, then build: handler spans, context extraction, dispatch-hook injection, client spans, helper | opus | P4-00 | todo | Spike result in `docs/spikes/P4-S1.md` first. |
+| P4-01 | Spike, then build: handler spans, context extraction, dispatch-hook injection, client spans, helper | opus | P4-00 | done | Spike `docs/spikes/P4-S1.md`. Built in `src/microservices/`, tests in `test/microservices/` (TCP in process, hybrid fixture, microservice-only, faults). `emit` is hot (span at the call). Hybrid default needs the pre-request hook line. |
 | P4-02 | End-to-end over TCP, Redis, NATS, Kafka, RabbitMQ with containers; hybrid-app fixture | sonnet | P4-01 | todo | MQTT 5 and gRPC if time allows, else documented as untested. |
 | P4-03 | Review of P4-01 | opus reviewer | P4-01 | todo | Required (request path). |
 | P4-04 | Documentation and phase report | sonnet + lead | all | todo | |
@@ -15,6 +15,24 @@ Objective, deliverables and acceptance: [roadmap.md](../roadmap.md#phase-4-micro
 ## Rules for every task
 
 The phase 3 backlog's "Rules for every task" apply (worktree per task, `git commit -s`, guarded hooks, counted failures, `@opentelemetry/api` only, containers from a Vitest `globalSetup` that skips without Docker unless `CI` is set, changeset, local checks). `@nestjs/microservices` stays an optional peer: nothing in `src` may import it at module top level in a way that fails when it is absent (load lazily, or type-only imports).
+
+## Public API (P4-01)
+
+```ts
+import { instrumentClient, nestrixPreRequestHook } from '@nestrix/nestjs';
+
+// A client made outside DI (ClientsModule clients are instrumented automatically):
+const client = instrumentClient(ClientProxyFactory.create({ transport: Transport.TCP, options }));
+
+// A hybrid app: the module's global interceptor does not reach the microservice's handlers
+// unless it inherits the app's config, so register the pre-request hook (D-38):
+app
+  .connectMicroservice(options, { deferInitialization: true })
+  .registerPreRequestHook(nestrixPreRequestHook);
+await app.startAllMicroservices();
+```
+
+No new module option. Span shape: architecture §4.2 "Microservices".
 
 ## P4-01 Spike, then build
 

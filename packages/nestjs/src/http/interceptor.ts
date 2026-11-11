@@ -21,6 +21,7 @@ import {
 import { ATTR_CODE_FUNCTION_NAME } from "@opentelemetry/semantic-conventions";
 import { type Observable, tap } from "rxjs";
 import { diagnostics } from "../diagnostics.js";
+import { interceptRpc } from "../microservices/server.js";
 import {
   getStateForRequest,
   maybeFault,
@@ -108,6 +109,10 @@ function requestOf(context: ExecutionContext): unknown {
 @Injectable()
 export class NestrixInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+    // Microservice handlers (P4-01): traced in `microservices/server.ts`; never throws, and calls
+    // `next.handle()` only when it returns a stream.
+    const rpc = interceptRpc(context, next);
+    if (rpc !== undefined) return rpc;
     let state: RequestState | undefined;
     try {
       maybeFault("interceptor");

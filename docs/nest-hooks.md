@@ -154,12 +154,25 @@ class Server {
 }
 ```
 
-- The dispatch hook runs once per outgoing packet, requests and events alike, when the packet is created. It can inject context. It **cannot time a span**: there is no end hook on the client. A client span needs `send` / `emit` wrapped on the client instance.
-- Metadata travels inside the packet on TCP and Redis, and as headers on NATS, Kafka, RabbitMQ, MQTT 5 and gRPC. On the header transports, a header set on the record or in client options wins over a metadata entry with the same name. MQTT 3 carries none.
-- Reading it on the server: `TcpContext.getMetadata()` and `KafkaContext.getMetadata()` exist; the other transport contexts mention metadata and need checking per transport. `BaseRpcContext` has no `getMetadata`.
-- `registerPreRequestHook((ctx, next) => Observable)` exists on a microservice instance, runs before guards, and must be registered before the microservice initialises. In a hybrid app `connectMicroservice()` initialises immediately unless `deferInitialization: true` is passed. It is not a method of `NestApplication`.
-- `connectMicroservice` uses a fresh application config unless `inheritAppConfig` is set, so whether a module-registered global interceptor reaches microservice handlers in a hybrid app is a **spike** in phase 4.
-- `ClientProxy` instances registered through `ClientsModule` are providers and can be found with `DiscoveryService`. Clients created with `ClientProxyFactory.create()` outside dependency injection cannot; they need an explicit helper.
+Spike P4-S1 ran what follows on 12.4.2 (TCP, Redis 8, NATS 2, RabbitMQ 4.4, Kafka 4.1 KRaft, Mosquitto 2 with MQTT 3 and 5; gRPC not run).
+
+- **Both hooks are single slots with no public getter.** `onDispatchHook` and `onProcessingStartHook` are `protected` in the typings, so a hook another tool set cannot be read or chained through public API. Nestrix can only notice afterwards that its own dispatch hook stopped running (a call completed without it).
+- **The dispatch hook** runs once per outgoing packet, requests and events alike, when the packet is created, in the caller's async context (for `send`, the subscriber's). It can inject context. It cannot time a span: there is no end hook on the client, so a client span needs `send` / `emit` wrapped on the instance (D-38).
+- **`send` is cold, `emit` is hot** (P4-S1 Q3). `send` dispatches once per subscription. `emit` calls `connectable(...).connect()` itself, so the event goes out whether or not anyone subscribes; it returns an rxjs connectable, and a later subscription does not dispatch again but sees completion, or the error. A failed emit nobody subscribed to raises nothing. `firstValueFrom(client.send(...))` on a single reply sees the value and then unsubscribes, before completion.
+- **Where metadata arrives** (P4-S1 Q1, as run): on every built-in context, `getMetadata()` returns it (`TcpContext`, `RedisContext`, `NatsContext`, `KafkaContext`, `RmqContext`, `MqttContext`; the handler's `@Ctx()`, or `getArgByIndex(1)` of an `ExecutionContext`). TCP and Redis carry it inside the packet. NATS (`getHeaders()`), RabbitMQ (`getMessage().properties.headers`), Kafka (`getMessage().headers`, values decoded to strings) and MQTT 5 (`getPacket().properties.userProperties`) carry it as headers, and there `getMetadata()` reads the headers, so it also returns headers set by the producer itself (on Kafka requests, Nest's own `kafka_correlationId`, `kafka_replyTopic`, `kafka_replyPartition`). A header set on the record or in client options wins over a metadata entry with the same name. MQTT 3 carries none. gRPC (by source, not run): the server handler's second argument is a gRPC `Metadata`, with no `getMetadata()`. `BaseRpcContext` has no `getMetadata`.
+- **Handler coverage** (P4-S1 Q2):
+
+  | Setup | Module-registered global interceptor (`APP_INTERCEPTOR`) | Pre-request hook |
+  |---|---|---|
+  | `NestFactory.createMicroservice`, `@nestjs/testing` `createNestMicroservice` | reaches `@MessagePattern` and `@EventPattern` handlers | `app.registerPreRequestHook()` before `init`/`listen` |
+  | Hybrid, `connectMicroservice(options)` | **does not reach them** (fresh `ApplicationConfig`) | too late: listeners are registered inside `connectMicroservice` |
+  | Hybrid, `{ inheritAppConfig: true }` | reaches them | — |
+  | Hybrid, `{ deferInitialization: true }` then `.registerPreRequestHook(hook)` | as above per `inheritAppConfig` | reaches every handler, including messages a guard rejects; listeners are registered in `listen()` |
+
+  Guards run before interceptors, so a message a guard rejects never reaches an interceptor. With `inheritAppConfig` and the hook, both run for each message. `registerPreRequestHook` is a method of the microservice instance, not of `NestApplication`.
+- **A pre-request hook's `next()` is deferred**: it returns `defer(() => transformDeferred(executePipeline))`, so guards, pipes, interceptors and the handler run when Nest subscribes, after the hook returned. To make a span active in the handler, subscribe to the stream inside the span's context; calling `next()` inside it is not enough (P4-S1, found in the build: the span was parented but not active). An interceptor's `next.handle()` binds its async scope when called, so there `context.with(ctx, () => next.handle())` suffices.
+- **The RPC target registry**: `ModulesContainer.getRpcTargetRegistry()` (public, documented) emits every `Server`, hybrid ones included, to a subscription made in a provider constructor, and `setOnProcessingStartHook` set from there runs for every message with the RPC context. Not used by Nestrix: the processing hooks are not told the handler, whether it is a message or an event, or its error (P4-S1).
+- `ClientProxy` instances registered through `ClientsModule` are static providers, found through `ModulesContainer` (or `DiscoveryService`) by shape. Clients created with `ClientProxyFactory.create()` outside dependency injection cannot be found; they need an explicit helper.
 
 ## 6. What is deliberately not used
 
