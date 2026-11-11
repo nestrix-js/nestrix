@@ -10,7 +10,9 @@ import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-ho
 import { TracerProvider } from "@opentelemetry/sdk-trace";
 
 const { createStoreProcessor } = await import("../../src/store/processor.ts");
-const { getOrCreateStore } = await import("../../src/store/store.ts");
+const { getOrCreateStore, resetStoreForTests } = await import(
+  "../../src/store/store.ts"
+);
 
 const traces = Number(process.argv[2] ?? 2000);
 const large = process.argv[3] === "two-byte-large";
@@ -19,23 +21,27 @@ const wide = process.argv[3] === "two-byte" || large;
 const padding = large ? "日本語".repeat(1366) : "";
 const evict = process.argv[4] === "evict";
 const quiet = { logOnce() {}, countFailure() {} };
-const store = getOrCreateStore(
-  { maxTraces: evict ? 300 : 1e9, maxBytes: 1e12 },
-  quiet,
-);
-store.attach({});
-const provider = new TracerProvider({
-  spanProcessors: [createStoreProcessor(store)],
-});
 context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
-trace.setGlobalTracerProvider(provider);
-const tracer = trace.getTracer("@nestrix/nestjs", "0.0.0");
+
+// A fresh store with a provider feeding it. Called twice: once for the warm-up, once for
+// the measurement, so the measured store starts empty and its provider is a new one.
+function setup() {
+  const store = getOrCreateStore(
+    { maxTraces: evict ? 300 : 1e9, maxBytes: 1e12 },
+    quiet,
+  );
+  store.attach({});
+  const provider = new TracerProvider({
+    spanProcessors: [createStoreProcessor(store)],
+  });
+  return { store, tracer: provider.getTracer("@nestrix/nestjs", "0.0.0") };
+}
 // A fresh heap string, as values parsed from a request (headers, URL) and computed span
 // names are in a real app; literals would be shared and under-state the cost.
 const fresh = (s) => [...s].join("");
 const text = (s) => fresh(wide ? `${s}·ünïcødé·日本${padding}` : s);
 
-function oneTrace(i) {
+function oneTrace(tracer, i) {
   const server = tracer.startSpan(fresh("GET /users/:id"), {
     kind: SpanKind.SERVER,
     attributes: {
@@ -106,15 +112,25 @@ function oneTrace(i) {
   server.end();
 }
 
-// Warm up so code, shapes and the provider's own state are not counted.
-for (let i = 0; i < 200; i++) oneTrace(-i - 1);
-store.drainNow();
-const warm = store.stats().bytes;
+// Warm up on a throwaway store, long enough for V8 to finish lazy compilation, tiering and
+// feedback allocation, which differ by V8 version (on Node 22 they added about 300 KB of
+// code and bytecode to the heap during a short measured run, and that dwarfed the 400 KB
+// the evict case retains). Then drop the store, and measure a new one from empty.
+{
+  const warm = setup();
+  for (let i = 0; i < (large ? 300 : 3000); i++) {
+    oneTrace(warm.tracer, -i - 1);
+    if (i % 500 === 0) warm.store.drainNow();
+  }
+  warm.store.drainNow();
+  resetStoreForTests();
+}
+const { store, tracer } = setup();
 globalThis.gc();
 globalThis.gc();
 const before = process.memoryUsage().heapUsed;
 for (let i = 0; i < traces; i++) {
-  oneTrace(i);
+  oneTrace(tracer, i);
   if (i % 500 === 0) store.drainNow();
 }
 store.drainNow();
@@ -133,9 +149,9 @@ process.stdout.write(
     evictedTraces: stats.evictedTraces,
     errorItems: stats.errorItems,
     spans: stats.spans,
-    estimatedBytes: stats.bytes - warm,
+    estimatedBytes: stats.bytes,
     heapBytes: after - before,
-    ratio: (stats.bytes - warm) / (after - before),
+    ratio: stats.bytes / (after - before),
     jsonBytesPer200Traces: json,
   }),
 );

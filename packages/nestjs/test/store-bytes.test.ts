@@ -8,8 +8,11 @@
 //
 // The eviction case keeps 300 traces of 5,200, each with an error item. Evicted entries
 // wait in the store's ordered arrays until compaction; if they kept their spans, real
-// memory would exceed what the estimate accounts for. Measured: 0.86 with the release
-// in `evict()`, 0.50 to 0.51 with it removed.
+// memory would exceed what the estimate accounts for. Measured (estimate 1.22 MB): 0.91 to
+// 1.16 with the release in `evict()` (Node 22.15, 22.23, 24.22, 26.13), 0.61 to 0.66 with
+// it removed (22.15, 26.13). The child warms V8 up on a throwaway store first: on Node 22
+// lazy compilation and tiering during a short measured run added about 300 KB of code and
+// bytecode to the heap, which was as large as the evicted case's whole signal.
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -63,7 +66,7 @@ describe("store byte estimate", () => {
   for (const mode of ["latin1", "two-byte"]) {
     it(`over-estimates the heap moderately (${mode} values)`, async () => {
       const result = await measureWithin(1, 1.6, "3000", mode);
-      expect(result.spans).toBe(3200 * 4);
+      expect(result.spans).toBe(3000 * 4);
       expect(result.ratio).toBeGreaterThan(1);
       expect(result.ratio).toBeLessThan(1.6);
     }, 30_000);
@@ -71,14 +74,14 @@ describe("store byte estimate", () => {
 
   it("counts two bytes per character for large two-byte strings (about 8 KB each)", async () => {
     const result = await measureWithin(1, 1.6, "300", "two-byte-large");
-    expect(result.spans).toBe(500 * 4);
+    expect(result.spans).toBe(300 * 4);
     expect(result.ratio).toBeGreaterThan(1);
     expect(result.ratio).toBeLessThan(1.6);
   }, 30_000);
 
   it("releases evicted traces: retained heap stays near the estimate", async () => {
     const result = await measureWithin(0.7, 1.6, "5000", "latin1", "evict");
-    expect(result.evictedTraces).toBe(4900);
+    expect(result.evictedTraces).toBe(5000 - 300);
     expect(result.ratio).toBeGreaterThan(0.7);
     expect(result.ratio).toBeLessThan(1.6);
   }, 30_000);
