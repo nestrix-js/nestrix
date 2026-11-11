@@ -1,0 +1,1517 @@
+{
+  "environment": {
+    "node": "v26.13.0",
+    "platform": "darwin-arm64",
+    "cpus": "10 logical",
+    "date": "2026-11-11T07:07:36.206Z"
+  },
+  "settings": {
+    "duration": 10,
+    "runs": 3,
+    "connections": 64,
+    "warmup": 2,
+    "configs": [
+      "baseline",
+      "noexport",
+      "sink",
+      "unreachable",
+      "blackhole",
+      "upstream"
+    ]
+  },
+  "configs": {
+    "baseline": {
+      "label": "uninstrumented",
+      "startupMs": 286.3,
+      "summary": {
+        "GET /hello": {
+          "p50Ms": 1.45,
+          "p99Ms": 3.08,
+          "requestsPerSec": 41052,
+          "cpuPercentOfOneCore": 98.3,
+          "rssMb": 149.5,
+          "errors": 0
+        },
+        "GET /users/:id": {
+          "p50Ms": 1.55,
+          "p99Ms": 3.26,
+          "requestsPerSec": 38781,
+          "cpuPercentOfOneCore": 97.8,
+          "rssMb": 156,
+          "errors": 0
+        }
+      },
+      "runs": [
+        {
+          "startupMs": 281,
+          "routes": {
+            "GET /hello": {
+              "requests": 451576,
+              "requestsPerSec": 41052.4,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.558,
+                "p50": 1.45,
+                "p90": 1.84,
+                "p99": 3.08,
+                "p999": 7,
+                "max": 17.746
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 98.3,
+              "cpuMsPerRequest": 0.0239,
+              "rssMb": 149.5
+            },
+            "GET /users/:id": {
+              "requests": 412511,
+              "requestsPerSec": 37466.9,
+              "seconds": 11.01,
+              "latencyMs": {
+                "mean": 1.706,
+                "p50": 1.59,
+                "p90": 2.03,
+                "p99": 3.43,
+                "p999": 7.11,
+                "max": 20.735
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 97.5,
+              "cpuMsPerRequest": 0.026,
+              "rssMb": 156.1
+            }
+          }
+        },
+        {
+          "startupMs": 346.8,
+          "routes": {
+            "GET /hello": {
+              "requests": 435331,
+              "requestsPerSec": 39575.5,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.616,
+                "p50": 1.5,
+                "p90": 1.96,
+                "p99": 3.27,
+                "p999": 6.79,
+                "max": 33.69
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 96.9,
+              "cpuMsPerRequest": 0.0245,
+              "rssMb": 141.7
+            },
+            "GET /users/:id": {
+              "requests": 426983,
+              "requestsPerSec": 38781.4,
+              "seconds": 11.01,
+              "latencyMs": {
+                "mean": 1.648,
+                "p50": 1.55,
+                "p90": 1.87,
+                "p99": 3.26,
+                "p999": 8.05,
+                "max": 35.947
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 97.8,
+              "cpuMsPerRequest": 0.0252,
+              "rssMb": 148.4
+            }
+          }
+        },
+        {
+          "startupMs": 286.3,
+          "routes": {
+            "GET /hello": {
+              "requests": 467239,
+              "requestsPerSec": 42476.3,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.506,
+                "p50": 1.44,
+                "p90": 1.67,
+                "p99": 2.93,
+                "p999": 7.85,
+                "max": 29.154
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 98.9,
+              "cpuMsPerRequest": 0.0233,
+              "rssMb": 149.7
+            },
+            "GET /users/:id": {
+              "requests": 454100,
+              "requestsPerSec": 41244.3,
+              "seconds": 11.01,
+              "latencyMs": {
+                "mean": 1.55,
+                "p50": 1.49,
+                "p90": 1.7,
+                "p99": 3,
+                "p999": 6.25,
+                "max": 45.658
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 98.7,
+              "cpuMsPerRequest": 0.0239,
+              "rssMb": 156
+            }
+          }
+        }
+      ]
+    },
+    "noexport": {
+      "label": "Nestrix, no endpoint (nothing exported)",
+      "startupMs": 329,
+      "summary": {
+        "GET /hello": {
+          "p50Ms": 1.4,
+          "p99Ms": 3.01,
+          "requestsPerSec": 42214,
+          "cpuPercentOfOneCore": 97.6,
+          "rssMb": 225.8,
+          "errors": 0
+        },
+        "GET /users/:id": {
+          "p50Ms": 1.55,
+          "p99Ms": 3.18,
+          "requestsPerSec": 38843,
+          "cpuPercentOfOneCore": 98.4,
+          "rssMb": 233.6,
+          "errors": 0
+        },
+        "GET /spans (3 manual spans)": {
+          "p50Ms": 1.81,
+          "p99Ms": 3.69,
+          "requestsPerSec": 33641,
+          "cpuPercentOfOneCore": 101.9,
+          "rssMb": 229.6,
+          "errors": 0
+        }
+      },
+      "runs": [
+        {
+          "startupMs": 329,
+          "routes": {
+            "GET /hello": {
+              "requests": 484110,
+              "requestsPerSec": 43970,
+              "seconds": 11.01,
+              "latencyMs": {
+                "mean": 1.454,
+                "p50": 1.4,
+                "p90": 1.56,
+                "p99": 2.81,
+                "p999": 4.51,
+                "max": 42.679
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 98.4,
+              "cpuMsPerRequest": 0.0224,
+              "rssMb": 231.5,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /users/:id": {
+              "requests": 443918,
+              "requestsPerSec": 40319.5,
+              "seconds": 11.01,
+              "latencyMs": {
+                "mean": 1.585,
+                "p50": 1.52,
+                "p90": 1.72,
+                "p99": 3.07,
+                "p999": 5.32,
+                "max": 37.893
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 98.4,
+              "cpuMsPerRequest": 0.0244,
+              "rssMb": 239.9,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /spans (3 manual spans)": {
+              "requests": 370049,
+              "requestsPerSec": 33640.8,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.901,
+                "p50": 1.81,
+                "p90": 2.07,
+                "p99": 3.68,
+                "p999": 6.63,
+                "max": 51.094
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 101.9,
+              "cpuMsPerRequest": 0.0303,
+              "rssMb": 222.3,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            }
+          }
+        },
+        {
+          "startupMs": 321.2,
+          "routes": {
+            "GET /hello": {
+              "requests": 464778,
+              "requestsPerSec": 42214.2,
+              "seconds": 11.01,
+              "latencyMs": {
+                "mean": 1.514,
+                "p50": 1.4,
+                "p90": 1.75,
+                "p99": 3.01,
+                "p999": 6.94,
+                "max": 48.114
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 97.6,
+              "cpuMsPerRequest": 0.0231,
+              "rssMb": 216.2,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /users/:id": {
+              "requests": 427275,
+              "requestsPerSec": 38843.2,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.647,
+                "p50": 1.55,
+                "p90": 1.9,
+                "p99": 3.18,
+                "p999": 6.49,
+                "max": 49.149
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 98.5,
+              "cpuMsPerRequest": 0.0253,
+              "rssMb": 224.2,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /spans (3 manual spans)": {
+              "requests": 341240,
+              "requestsPerSec": 31021.8,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 2.062,
+                "p50": 1.86,
+                "p90": 2.53,
+                "p99": 4.56,
+                "p999": 13.78,
+                "max": 33.507
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 99.9,
+              "cpuMsPerRequest": 0.0322,
+              "rssMb": 229.6,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            }
+          }
+        },
+        {
+          "startupMs": 611.4,
+          "routes": {
+            "GET /hello": {
+              "requests": 445275,
+              "requestsPerSec": 40479.5,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.58,
+                "p50": 1.44,
+                "p90": 1.84,
+                "p99": 3.34,
+                "p999": 12.42,
+                "max": 50.804
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 96.2,
+              "cpuMsPerRequest": 0.0238,
+              "rssMb": 225.8,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /users/:id": {
+              "requests": 411911,
+              "requestsPerSec": 37446.5,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.708,
+                "p50": 1.58,
+                "p90": 1.96,
+                "p99": 3.51,
+                "p999": 8.55,
+                "max": 48.098
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 97.9,
+              "cpuMsPerRequest": 0.0262,
+              "rssMb": 233.6,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /spans (3 manual spans)": {
+              "requests": 370648,
+              "requestsPerSec": 33695.3,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.898,
+                "p50": 1.79,
+                "p90": 2.17,
+                "p99": 3.69,
+                "p999": 6.26,
+                "max": 48.42
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 102.4,
+              "cpuMsPerRequest": 0.0304,
+              "rssMb": 232.8,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "sink": {
+      "label": "Nestrix, local OTLP sink",
+      "startupMs": 504.8,
+      "summary": {
+        "GET /hello": {
+          "p50Ms": 1.5,
+          "p99Ms": 2.98,
+          "requestsPerSec": 41351,
+          "cpuPercentOfOneCore": 98.8,
+          "rssMb": 232.7,
+          "errors": 0
+        },
+        "GET /users/:id": {
+          "p50Ms": 1.61,
+          "p99Ms": 3.23,
+          "requestsPerSec": 38219,
+          "cpuPercentOfOneCore": 98.1,
+          "rssMb": 238,
+          "errors": 0
+        },
+        "GET /spans (3 manual spans)": {
+          "p50Ms": 2.09,
+          "p99Ms": 4.14,
+          "requestsPerSec": 28656,
+          "cpuPercentOfOneCore": 103.8,
+          "rssMb": 242.2,
+          "errors": 0
+        }
+      },
+      "runs": [
+        {
+          "startupMs": 504.8,
+          "routes": {
+            "GET /hello": {
+              "requests": 293005,
+              "requestsPerSec": 29271.2,
+              "seconds": 10.01,
+              "latencyMs": {
+                "mean": 2.181,
+                "p50": 1.75,
+                "p90": 3.37,
+                "p99": 7.17,
+                "p999": 19.31,
+                "max": 77.518
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 86.8,
+              "cpuMsPerRequest": 0.0296,
+              "rssMb": 232.7,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 57369,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /users/:id": {
+              "requests": 318291,
+              "requestsPerSec": 31829.1,
+              "seconds": 10,
+              "latencyMs": {
+                "mean": 2.01,
+                "p50": 1.73,
+                "p90": 2.63,
+                "p99": 5.74,
+                "p999": 13.5,
+                "max": 44.2
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 93.8,
+              "cpuMsPerRequest": 0.0295,
+              "rssMb": 238,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 57369,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /spans (3 manual spans)": {
+              "requests": 304472,
+              "requestsPerSec": 27654.1,
+              "seconds": 11.01,
+              "latencyMs": {
+                "mean": 2.311,
+                "p50": 2.19,
+                "p90": 2.86,
+                "p99": 4.69,
+                "p999": 9.05,
+                "max": 60.875
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 103.2,
+              "cpuMsPerRequest": 0.0373,
+              "rssMb": 287.4,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 970777,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            }
+          },
+          "sinkReceived": {
+            "type": "stats",
+            "posts": 1898,
+            "bytes": 344636898,
+            "spans": 970977,
+            "open": 0
+          }
+        },
+        {
+          "startupMs": 706.4,
+          "routes": {
+            "GET /hello": {
+              "requests": 454863,
+              "requestsPerSec": 41351.2,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.547,
+                "p50": 1.5,
+                "p90": 1.68,
+                "p99": 2.95,
+                "p999": 4.15,
+                "max": 20.037
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 99.3,
+              "cpuMsPerRequest": 0.024,
+              "rssMb": 215.1,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 56517,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /users/:id": {
+              "requests": 420789,
+              "requestsPerSec": 38218.8,
+              "seconds": 11.01,
+              "latencyMs": {
+                "mean": 1.672,
+                "p50": 1.61,
+                "p90": 1.79,
+                "p99": 3.23,
+                "p999": 3.91,
+                "max": 44.136
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 98.3,
+              "cpuMsPerRequest": 0.0257,
+              "rssMb": 195.2,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 56517,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /spans (3 manual spans)": {
+              "requests": 315791,
+              "requestsPerSec": 28656.2,
+              "seconds": 11.02,
+              "latencyMs": {
+                "mean": 2.229,
+                "p50": 2.09,
+                "p90": 2.66,
+                "p99": 4.14,
+                "p999": 7.71,
+                "max": 70.418
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 103.8,
+              "cpuMsPerRequest": 0.0362,
+              "rssMb": 242.2,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 1003717,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            }
+          },
+          "sinkReceived": {
+            "type": "stats",
+            "posts": 1962,
+            "bytes": 356386788,
+            "spans": 1004082,
+            "open": 0
+          }
+        },
+        {
+          "startupMs": 436.9,
+          "routes": {
+            "GET /hello": {
+              "requests": 457362,
+              "requestsPerSec": 41540.6,
+              "seconds": 11.01,
+              "latencyMs": {
+                "mean": 1.538,
+                "p50": 1.45,
+                "p90": 1.75,
+                "p99": 2.98,
+                "p999": 3.9,
+                "max": 48.839
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 98.8,
+              "cpuMsPerRequest": 0.0238,
+              "rssMb": 235.9,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 63315,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /users/:id": {
+              "requests": 429763,
+              "requestsPerSec": 39033.9,
+              "seconds": 11.01,
+              "latencyMs": {
+                "mean": 1.637,
+                "p50": 1.55,
+                "p90": 1.81,
+                "p99": 3.17,
+                "p999": 6.03,
+                "max": 41.328
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 98.1,
+              "cpuMsPerRequest": 0.0251,
+              "rssMb": 243.8,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 63315,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /spans (3 manual spans)": {
+              "requests": 320090,
+              "requestsPerSec": 29072.7,
+              "seconds": 11.01,
+              "latencyMs": {
+                "mean": 2.199,
+                "p50": 2.09,
+                "p90": 2.7,
+                "p99": 3.98,
+                "p999": 6.39,
+                "max": 77.258
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 104.1,
+              "cpuMsPerRequest": 0.0358,
+              "rssMb": 240.4,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 1023315,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            }
+          },
+          "sinkReceived": {
+            "type": "stats",
+            "posts": 2000,
+            "bytes": 363377058,
+            "spans": 1023777,
+            "open": 0
+          }
+        }
+      ]
+    },
+    "unreachable": {
+      "label": "Nestrix, endpoint refuses connections",
+      "startupMs": 334.2,
+      "summary": {
+        "GET /hello": {
+          "p50Ms": 1.44,
+          "p99Ms": 2.94,
+          "requestsPerSec": 42121,
+          "cpuPercentOfOneCore": 98.7,
+          "rssMb": 237,
+          "errors": 0
+        },
+        "GET /users/:id": {
+          "p50Ms": 1.56,
+          "p99Ms": 3.2,
+          "requestsPerSec": 38919,
+          "cpuPercentOfOneCore": 98.5,
+          "rssMb": 245.9,
+          "errors": 0
+        },
+        "GET /spans (3 manual spans)": {
+          "p50Ms": 1.83,
+          "p99Ms": 3.78,
+          "requestsPerSec": 32566,
+          "cpuPercentOfOneCore": 101.8,
+          "rssMb": 250.1,
+          "errors": 0
+        }
+      },
+      "runs": [
+        {
+          "startupMs": 332,
+          "routes": {
+            "GET /hello": {
+              "requests": 463331,
+              "requestsPerSec": 42121,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.519,
+                "p50": 1.44,
+                "p90": 1.66,
+                "p99": 2.94,
+                "p999": 5.86,
+                "max": 57.945
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 98.7,
+              "cpuMsPerRequest": 0.0234,
+              "rssMb": 237,
+              "counters": {
+                "droppedSpans": 65618,
+                "exportedSpans": 0,
+                "exportFailedSpans": 512,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /users/:id": {
+              "requests": 429224,
+              "requestsPerSec": 38984.9,
+              "seconds": 11.01,
+              "latencyMs": {
+                "mean": 1.639,
+                "p50": 1.56,
+                "p90": 1.8,
+                "p99": 3.15,
+                "p999": 3.81,
+                "max": 36.039
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 98.6,
+              "cpuMsPerRequest": 0.0253,
+              "rssMb": 245.7,
+              "counters": {
+                "droppedSpans": 65618,
+                "exportedSpans": 0,
+                "exportFailedSpans": 1024,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /spans (3 manual spans)": {
+              "requests": 364775,
+              "requestsPerSec": 33161.4,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.929,
+                "p50": 1.83,
+                "p90": 2.13,
+                "p99": 3.72,
+                "p999": 6.82,
+                "max": 58.617
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 101.8,
+              "cpuMsPerRequest": 0.0307,
+              "rssMb": 250.1,
+              "counters": {
+                "droppedSpans": 1154503,
+                "exportedSpans": 0,
+                "exportFailedSpans": 3072,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            }
+          }
+        },
+        {
+          "startupMs": 334.2,
+          "routes": {
+            "GET /hello": {
+              "requests": 465829,
+              "requestsPerSec": 42348.1,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.51,
+                "p50": 1.43,
+                "p90": 1.65,
+                "p99": 2.92,
+                "p999": 4.9,
+                "max": 65.948
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 98.9,
+              "cpuMsPerRequest": 0.0234,
+              "rssMb": 237.8,
+              "counters": {
+                "droppedSpans": 64994,
+                "exportedSpans": 0,
+                "exportFailedSpans": 512,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /users/:id": {
+              "requests": 428107,
+              "requestsPerSec": 38918.8,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.644,
+                "p50": 1.55,
+                "p90": 1.81,
+                "p99": 3.2,
+                "p999": 7.14,
+                "max": 47.647
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 98.5,
+              "cpuMsPerRequest": 0.0253,
+              "rssMb": 246.4,
+              "counters": {
+                "droppedSpans": 64994,
+                "exportedSpans": 0,
+                "exportFailedSpans": 1024,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /spans (3 manual spans)": {
+              "requests": 358230,
+              "requestsPerSec": 32566.4,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.964,
+                "p50": 1.83,
+                "p90": 2.21,
+                "p99": 3.78,
+                "p999": 9.76,
+                "max": 84.8
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 102.4,
+              "cpuMsPerRequest": 0.0315,
+              "rssMb": 236.3,
+              "counters": {
+                "droppedSpans": 1134244,
+                "exportedSpans": 0,
+                "exportFailedSpans": 3072,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            }
+          }
+        },
+        {
+          "startupMs": 343.1,
+          "routes": {
+            "GET /hello": {
+              "requests": 450411,
+              "requestsPerSec": 40946.5,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.562,
+                "p50": 1.45,
+                "p90": 1.74,
+                "p99": 3.07,
+                "p999": 8.32,
+                "max": 54.177
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 98.1,
+              "cpuMsPerRequest": 0.0239,
+              "rssMb": 236.8,
+              "counters": {
+                "droppedSpans": 61991,
+                "exportedSpans": 0,
+                "exportFailedSpans": 512,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /users/:id": {
+              "requests": 400131,
+              "requestsPerSec": 36375.5,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.758,
+                "p50": 1.6,
+                "p90": 2.03,
+                "p99": 3.71,
+                "p999": 12.58,
+                "max": 54.277
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 96.9,
+              "cpuMsPerRequest": 0.0266,
+              "rssMb": 245.9,
+              "counters": {
+                "droppedSpans": 61991,
+                "exportedSpans": 0,
+                "exportFailedSpans": 1536,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /spans (3 manual spans)": {
+              "requests": 326719,
+              "requestsPerSec": 29674.8,
+              "seconds": 11.01,
+              "latencyMs": {
+                "mean": 2.154,
+                "p50": 1.94,
+                "p90": 2.59,
+                "p99": 4.82,
+                "p999": 18.13,
+                "max": 58.612
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 98.6,
+              "cpuMsPerRequest": 0.0332,
+              "rssMb": 267.3,
+              "counters": {
+                "droppedSpans": 1038244,
+                "exportedSpans": 0,
+                "exportFailedSpans": 2560,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "blackhole": {
+      "label": "Nestrix, endpoint accepts and never answers",
+      "startupMs": 524.4,
+      "summary": {
+        "GET /hello": {
+          "p50Ms": 1.45,
+          "p99Ms": 3.16,
+          "requestsPerSec": 40686,
+          "cpuPercentOfOneCore": 97.4,
+          "rssMb": 236,
+          "errors": 0
+        },
+        "GET /users/:id": {
+          "p50Ms": 1.58,
+          "p99Ms": 3.31,
+          "requestsPerSec": 37767,
+          "cpuPercentOfOneCore": 95.8,
+          "rssMb": 243.9,
+          "errors": 0
+        },
+        "GET /spans (3 manual spans)": {
+          "p50Ms": 1.86,
+          "p99Ms": 4.29,
+          "requestsPerSec": 31462,
+          "cpuPercentOfOneCore": 100.3,
+          "rssMb": 235.6,
+          "errors": 0
+        }
+      },
+      "runs": [
+        {
+          "startupMs": 524.4,
+          "routes": {
+            "GET /hello": {
+              "requests": 456465,
+              "requestsPerSec": 41496.8,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.541,
+                "p50": 1.41,
+                "p90": 1.78,
+                "p99": 3.16,
+                "p999": 9.97,
+                "max": 30.717
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 97.4,
+              "cpuMsPerRequest": 0.0235,
+              "rssMb": 236,
+              "counters": {
+                "droppedSpans": 60497,
+                "exportedSpans": 0,
+                "exportFailedSpans": 512,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /users/:id": {
+              "requests": 426090,
+              "requestsPerSec": 38700.3,
+              "seconds": 11.01,
+              "latencyMs": {
+                "mean": 1.651,
+                "p50": 1.54,
+                "p90": 1.9,
+                "p99": 3.31,
+                "p999": 7.71,
+                "max": 26.607
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 98,
+              "cpuMsPerRequest": 0.0253,
+              "rssMb": 243.9,
+              "counters": {
+                "droppedSpans": 60497,
+                "exportedSpans": 0,
+                "exportFailedSpans": 1024,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /spans (3 manual spans)": {
+              "requests": 346401,
+              "requestsPerSec": 31462.4,
+              "seconds": 11.01,
+              "latencyMs": {
+                "mean": 2.032,
+                "p50": 1.86,
+                "p90": 2.47,
+                "p99": 4.29,
+                "p999": 9.78,
+                "max": 66.554
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 100.3,
+              "cpuMsPerRequest": 0.0319,
+              "rssMb": 290.9,
+              "counters": {
+                "droppedSpans": 1096308,
+                "exportedSpans": 0,
+                "exportFailedSpans": 2048,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            }
+          },
+          "sinkReceived": {
+            "type": "stats",
+            "posts": 12,
+            "bytes": 2180772,
+            "spans": 0,
+            "open": 4
+          }
+        },
+        {
+          "startupMs": 523.5,
+          "routes": {
+            "GET /hello": {
+              "requests": 447548,
+              "requestsPerSec": 40686.2,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.572,
+                "p50": 1.45,
+                "p90": 1.81,
+                "p99": 3.16,
+                "p999": 9.44,
+                "max": 22.044
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 98.1,
+              "cpuMsPerRequest": 0.0241,
+              "rssMb": 237.5,
+              "counters": {
+                "droppedSpans": 63866,
+                "exportedSpans": 0,
+                "exportFailedSpans": 512,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /users/:id": {
+              "requests": 399961,
+              "requestsPerSec": 36360.1,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.759,
+                "p50": 1.58,
+                "p90": 2.08,
+                "p99": 3.94,
+                "p999": 10.99,
+                "max": 56.141
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 95.8,
+              "cpuMsPerRequest": 0.0263,
+              "rssMb": 245.3,
+              "counters": {
+                "droppedSpans": 63866,
+                "exportedSpans": 0,
+                "exportFailedSpans": 1024,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /spans (3 manual spans)": {
+              "requests": 354068,
+              "requestsPerSec": 32188,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.987,
+                "p50": 1.82,
+                "p90": 2.32,
+                "p99": 4.01,
+                "p999": 10.22,
+                "max": 52.301
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 101.2,
+              "cpuMsPerRequest": 0.0314,
+              "rssMb": 235.6,
+              "counters": {
+                "droppedSpans": 1122678,
+                "exportedSpans": 0,
+                "exportFailedSpans": 2048,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            }
+          },
+          "sinkReceived": {
+            "type": "stats",
+            "posts": 12,
+            "bytes": 2180772,
+            "spans": 0,
+            "open": 3
+          }
+        },
+        {
+          "startupMs": 611.4,
+          "routes": {
+            "GET /hello": {
+              "requests": 443918,
+              "requestsPerSec": 40356.2,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.585,
+                "p50": 1.49,
+                "p90": 1.84,
+                "p99": 3.13,
+                "p999": 6.98,
+                "max": 39.253
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 95.5,
+              "cpuMsPerRequest": 0.0237,
+              "rssMb": 234,
+              "counters": {
+                "droppedSpans": 55523,
+                "exportedSpans": 0,
+                "exportFailedSpans": 512,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /users/:id": {
+              "requests": 415436,
+              "requestsPerSec": 37766.9,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 1.694,
+                "p50": 1.6,
+                "p90": 1.96,
+                "p99": 3.31,
+                "p999": 7.05,
+                "max": 41.159
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 95.8,
+              "cpuMsPerRequest": 0.0254,
+              "rssMb": 242.5,
+              "counters": {
+                "droppedSpans": 55523,
+                "exportedSpans": 0,
+                "exportFailedSpans": 1024,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /spans (3 manual spans)": {
+              "requests": 328920,
+              "requestsPerSec": 29901.8,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 2.139,
+                "p50": 1.95,
+                "p90": 2.57,
+                "p99": 4.68,
+                "p999": 12.92,
+                "max": 64.99
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 95.3,
+              "cpuMsPerRequest": 0.0319,
+              "rssMb": 224.8,
+              "counters": {
+                "droppedSpans": 1038891,
+                "exportedSpans": 0,
+                "exportFailedSpans": 2048,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            }
+          },
+          "sinkReceived": {
+            "type": "stats",
+            "posts": 12,
+            "bytes": 2180772,
+            "spans": 0,
+            "open": 5
+          }
+        }
+      ]
+    },
+    "upstream": {
+      "label": "upstream auto-instrumentation (OpenTelemetry Node)",
+      "startupMs": 726.3,
+      "summary": {
+        "GET /hello": {
+          "p50Ms": 3.71,
+          "p99Ms": 6.71,
+          "requestsPerSec": 17492,
+          "cpuPercentOfOneCore": 109.2,
+          "rssMb": 297.2,
+          "errors": 0
+        },
+        "GET /users/:id": {
+          "p50Ms": 3.88,
+          "p99Ms": 7.01,
+          "requestsPerSec": 16395,
+          "cpuPercentOfOneCore": 108.2,
+          "rssMb": 314.2,
+          "errors": 0
+        }
+      },
+      "runs": [
+        {
+          "startupMs": 806.1,
+          "routes": {
+            "GET /hello": {
+              "requests": 192506,
+              "requestsPerSec": 17500.5,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 3.655,
+                "p50": 3.71,
+                "p90": 4.29,
+                "p99": 6.71,
+                "p999": 13.49,
+                "max": 116.866
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 108.9,
+              "cpuMsPerRequest": 0.0622,
+              "rssMb": 339.5
+            },
+            "GET /users/:id": {
+              "requests": 185796,
+              "requestsPerSec": 16890.5,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 3.787,
+                "p50": 3.83,
+                "p90": 4.52,
+                "p99": 6.24,
+                "p999": 12.67,
+                "max": 126.673
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 108.3,
+              "cpuMsPerRequest": 0.0641,
+              "rssMb": 323.9
+            }
+          },
+          "sinkReceived": {
+            "type": "stats",
+            "posts": 3154,
+            "bytes": 1084928894,
+            "spans": 1614848,
+            "open": 0
+          }
+        },
+        {
+          "startupMs": 500.1,
+          "routes": {
+            "GET /hello": {
+              "requests": 192416,
+              "requestsPerSec": 17492.4,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 3.657,
+                "p50": 3.38,
+                "p90": 4.7,
+                "p99": 7.28,
+                "p999": 16.67,
+                "max": 95.356
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 109.2,
+              "cpuMsPerRequest": 0.0624,
+              "rssMb": 297.2
+            },
+            "GET /users/:id": {
+              "requests": 173161,
+              "requestsPerSec": 15741.9,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 4.064,
+                "p50": 3.96,
+                "p90": 4.99,
+                "p99": 8.32,
+                "p999": 22.29,
+                "max": 128.408
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 107.9,
+              "cpuMsPerRequest": 0.0685,
+              "rssMb": 285.5
+            }
+          },
+          "sinkReceived": {
+            "type": "stats",
+            "posts": 2484,
+            "bytes": 854618572,
+            "spans": 1271808,
+            "open": 0
+          }
+        },
+        {
+          "startupMs": 726.3,
+          "routes": {
+            "GET /hello": {
+              "requests": 190554,
+              "requestsPerSec": 17323.1,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 3.693,
+                "p50": 3.77,
+                "p90": 4.31,
+                "p99": 6.57,
+                "p999": 13.99,
+                "max": 128.286
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 109.3,
+              "cpuMsPerRequest": 0.0631,
+              "rssMb": 296.6
+            },
+            "GET /users/:id": {
+              "requests": 180342,
+              "requestsPerSec": 16394.7,
+              "seconds": 11,
+              "latencyMs": {
+                "mean": 3.902,
+                "p50": 3.88,
+                "p90": 4.79,
+                "p99": 7.01,
+                "p999": 17.8,
+                "max": 138.982
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 108.2,
+              "cpuMsPerRequest": 0.066,
+              "rssMb": 314.2
+            }
+          },
+          "sinkReceived": {
+            "type": "stats",
+            "posts": 3106,
+            "bytes": 1068406507,
+            "spans": 1590272,
+            "open": 0
+          }
+        }
+      ]
+    }
+  }
+}

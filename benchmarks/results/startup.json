@@ -1,0 +1,87 @@
+{
+  "environment": {
+    "node": "v26.13.0",
+    "platform": "darwin-arm64",
+    "cpus": "10 logical",
+    "date": "2026-11-11T07:07:36.204Z"
+  },
+  "settings": {
+    "repeats": 15,
+    "configs": [
+      "baseline",
+      "noexport",
+      "sink"
+    ]
+  },
+  "stats": {
+    "baseline": {
+      "label": "uninstrumented",
+      "medianMs": 281.7,
+      "minMs": 253.8,
+      "maxMs": 310.6,
+      "samplesMs": [
+        281.7,
+        291.5,
+        257.3,
+        253.8,
+        267.9,
+        255.5,
+        258.7,
+        279.5,
+        310.1,
+        307.7,
+        309.8,
+        310.6,
+        300.3,
+        278.9,
+        293
+      ]
+    },
+    "noexport": {
+      "label": "Nestrix, no endpoint (nothing exported)",
+      "medianMs": 338.6,
+      "minMs": 298.1,
+      "maxMs": 493.6,
+      "samplesMs": [
+        354.3,
+        325.5,
+        303.5,
+        300,
+        308.3,
+        319.6,
+        298.1,
+        338.6,
+        368.2,
+        354.2,
+        382.2,
+        493.6,
+        347.7,
+        329,
+        349.2
+      ]
+    },
+    "sink": {
+      "label": "Nestrix, local OTLP sink",
+      "medianMs": 344.2,
+      "minMs": 304.4,
+      "maxMs": 431.5,
+      "samplesMs": [
+        349.7,
+        324.6,
+        310.8,
+        304.4,
+        321.7,
+        313.9,
+        330.7,
+        416.5,
+        361.5,
+        352.3,
+        362.6,
+        431.5,
+        330.4,
+        344.8,
+        344.2
+      ]
+    }
+  }
+}
