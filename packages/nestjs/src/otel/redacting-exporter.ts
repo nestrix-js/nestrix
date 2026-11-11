@@ -30,11 +30,6 @@
  * Runs on the batch processor's timer, never in a request path. Every method catches
  * everything; the result callback is called exactly once per `export`.
  */
-import type {
-  Attributes,
-  AttributeValue,
-  SpanStatus,
-} from "@opentelemetry/api";
 import {
   type ExportResult,
   ExportResultCode,
@@ -46,6 +41,7 @@ import type {
   TimedEvent,
 } from "@opentelemetry/sdk-trace";
 import type { RedactableSpan, RedactHook } from "../options.js";
+import { type RedactedFields, redactSpan } from "./redaction.js";
 import type { TelemetryDiagnostics } from "./types.js";
 
 export interface RedactionCounters {
@@ -265,35 +261,19 @@ function applyRedaction(
 ): ReadableSpan[] {
   const out: ReadableSpan[] = [];
   for (const span of spans) {
-    let view: RedactableSpan;
-    let keep: unknown;
-    try {
-      view = toRedactable(span);
-      options.scrub?.(view);
-      keep = options.redact ? options.redact(view) : undefined;
-      if (isThenable(keep)) {
-        // An async hook: by the time it settles the span has been exported, so its
-        // edits would apply to nothing. Fail closed, and never leave its rejection
-        // unhandled (that would end the host process).
-        keep.then(undefined, () => undefined);
-        options.diagnostics.logOnce(
-          "otel.redact.async",
-          "The redact hook returned a promise. It must be synchronous; spans it returns a promise for are dropped.",
-        );
-        throw new Error("redact hook returned a promise");
-      }
-    } catch (error) {
+    const result = redactSpan(span, options);
+    if (result.outcome === "fail") {
       // Fail closed: a span whose redaction did not finish is not exported.
       options.counters.redactFailedSpans++;
-      options.diagnostics.countFailure("otel.redact", error);
+      options.diagnostics.countFailure("otel.redact", result.error);
       continue;
     }
-    if (keep === false) {
+    if (result.outcome === "drop") {
       options.counters.redactDroppedSpans++;
       continue;
     }
     try {
-      out.push(fromRedactable(span, view, options.diagnostics));
+      out.push(toExportedSpan(span, result));
     } catch (error) {
       options.counters.redactFailedSpans++;
       options.diagnostics.countFailure("otel.redact", error);
@@ -302,99 +282,16 @@ function applyRedaction(
   return out;
 }
 
-function copyAttributes(attributes: Attributes): Record<string, unknown> {
-  const copy: Record<string, unknown> = {};
-  for (const key of Object.keys(attributes)) {
-    const value = attributes[key];
-    copy[key] = Array.isArray(value) ? value.slice() : value;
-  }
-  return copy;
-}
-
-/** A value with a callable `then`. Reading `then` may throw; the caller's catch handles it. */
-function isThenable(value: unknown): value is PromiseLike<unknown> {
-  return (
-    value !== null &&
-    (typeof value === "object" || typeof value === "function") &&
-    typeof (value as { then?: unknown }).then === "function"
-  );
-}
-
-function toRedactable(span: ReadableSpan): RedactableSpan {
-  const status: { code: number; message?: string } = {
-    code: span.status.code,
-  };
-  if (span.status.message !== undefined) status.message = span.status.message;
-  return {
-    name: span.name,
-    kind: span.kind,
-    status,
-    attributes: copyAttributes(span.attributes),
-    events: span.events.map((event) => ({
-      name: event.name,
-      attributes: copyAttributes(event.attributes ?? {}),
-    })),
-  };
-}
-
-function isPrimitive(value: unknown): boolean {
-  return (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  );
-}
-
-function isAttributeValue(value: unknown): value is AttributeValue {
-  if (isPrimitive(value)) return true;
-  return (
-    Array.isArray(value) &&
-    value.every((v) => v === null || v === undefined || isPrimitive(v))
-  );
-}
-
-/** Keeps only valid attribute values, so a hook cannot make the serializer throw for the whole batch. */
-function toAttributes(
-  value: unknown,
-  diagnostics: TelemetryDiagnostics,
-): Attributes {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(
-      "redact hook replaced `attributes` with something that is not an object",
-    );
-  }
-  const attributes: Attributes = {};
-  for (const key of Object.keys(value)) {
-    const v = (value as Record<string, unknown>)[key];
-    if (v === undefined) continue;
-    if (isAttributeValue(v)) {
-      attributes[key] = v;
-    } else {
-      diagnostics.logOnce(
-        "otel.redact.invalid-value",
-        `An attribute value left by the redact hook is not a string, number, boolean or array of those; it was removed (first seen: "${key}").`,
-      );
-    }
-  }
-  return attributes;
-}
-
-function fromRedactable(
+function toExportedSpan(
   span: ReadableSpan,
-  view: RedactableSpan,
-  diagnostics: TelemetryDiagnostics,
+  fields: RedactedFields,
 ): ReadableSpan {
-  const attributes = toAttributes(view.attributes, diagnostics);
-  const events: TimedEvent[] = span.events.map((event, i) => {
-    const edited = view.events[i];
-    return {
-      name: event.name,
-      time: event.time,
-      droppedAttributesCount: event.droppedAttributesCount,
-      attributes: toAttributes(edited?.attributes ?? {}, diagnostics),
-    };
-  });
-  const status = toStatus(view.status);
+  const events: TimedEvent[] = span.events.map((event, i) => ({
+    name: event.name,
+    time: event.time,
+    droppedAttributesCount: event.droppedAttributesCount,
+    attributes: fields.eventAttributes[i] ?? {},
+  }));
   const spanContext = span.spanContext();
   return {
     name: span.name,
@@ -403,8 +300,8 @@ function fromRedactable(
     parentSpanContext: span.parentSpanContext,
     startTime: span.startTime,
     endTime: span.endTime,
-    status,
-    attributes,
+    status: fields.status,
+    attributes: fields.attributes,
     links: span.links,
     events,
     duration: span.duration,
@@ -415,24 +312,6 @@ function fromRedactable(
     droppedEventsCount: span.droppedEventsCount,
     droppedLinksCount: span.droppedLinksCount,
   };
-}
-
-/** The status the hooks left: `code` must stay 0, 1 or 2; `message` a string or absent. */
-function toStatus(value: unknown): SpanStatus {
-  if (value === null || typeof value !== "object") {
-    throw new Error(
-      "redact hook replaced `status` with something that is not an object",
-    );
-  }
-  const { code, message } = value as { code?: unknown; message?: unknown };
-  if (code !== 0 && code !== 1 && code !== 2) {
-    throw new Error(
-      "redact hook set `status.code` to something other than 0, 1 or 2",
-    );
-  }
-  const status: SpanStatus = { code };
-  if (typeof message === "string") status.message = message;
-  return status;
 }
 
 /** Runs `fn` and resolves whatever happens: return, throw or rejection. */
