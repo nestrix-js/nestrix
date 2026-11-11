@@ -81,6 +81,8 @@ const OPTIONS = [
   "store",
   "store.maxTraces",
   "store.maxBytes",
+  "metrics",
+  "metrics.runtime",
 ];
 
 describe("README options", () => {
@@ -97,6 +99,9 @@ describe("README options", () => {
       "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
       "OTEL_EXPORTER_OTLP_HEADERS",
       "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+      "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+      "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+      "OTEL_METRIC_EXPORT_INTERVAL",
     ]) {
       expect(readme).toContain(`| \`${name}\` |`);
     }

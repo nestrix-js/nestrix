@@ -190,6 +190,20 @@ export interface NestrixIntegrationOptions {
   ioredis?: boolean | { rootSpans?: boolean };
 }
 
+/**
+ * Metrics (D-66). Recorded through `@opentelemetry/api`'s metrics API, so a `MeterProvider` your
+ * app registers receives them as is. Exported over OTLP/HTTP only when Nestrix owns the tracer
+ * provider, an endpoint is set, and `@opentelemetry/sdk-metrics` and
+ * `@opentelemetry/exporter-metrics-otlp-http` are installed.
+ */
+export interface NestrixMetricsOptions {
+  /**
+   * Event-loop delay, V8 heap, RSS and CPU time as observable instruments. Default `true`. They
+   * start only once a real `MeterProvider` is registered (your app's or Nestrix's).
+   */
+  runtime?: boolean;
+}
+
 export interface NestrixModuleOptions {
   /** Default `true`. `false`, or `NESTRIX_ENABLED=false` in the environment, registers nothing at all. */
   enabled?: boolean;
@@ -229,4 +243,9 @@ export interface NestrixModuleOptions {
   ui?: false | "auto" | NestrixUiOptions;
   /** Limits of the dashboard's store. Ignored while the dashboard is off. */
   store?: NestrixStoreOptions;
+  /**
+   * `http.server.request.duration` for every request, sampled or not, and runtime metrics. Default
+   * on. `false` records no metrics at all.
+   */
+  metrics?: false | NestrixMetricsOptions;
 }

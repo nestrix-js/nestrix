@@ -51,6 +51,27 @@ export interface ResolvedOptions {
   readonly ui: ResolvedUi;
   /** Store limits, defaults applied. Meaningful only while the dashboard is on. */
   readonly store: Readonly<Required<NestrixStoreOptions>>;
+  /** `false` when `metrics: false`. */
+  readonly metrics: ResolvedMetrics | false;
+}
+
+/** Resolved `metrics` option (P6-02, D-66). */
+export interface ResolvedMetrics {
+  readonly runtime: boolean;
+  /**
+   * Where Nestrix's own `MeterProvider` would export, or `false` when trace export is off or no
+   * metrics URL resolves. Used only when Nestrix owns the tracer provider.
+   */
+  readonly export: ResolvedMetricExport | false;
+}
+
+export interface ResolvedMetricExport {
+  /** Full metrics URL, `/v1/metrics` already applied. */
+  readonly url: string;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly timeoutMillis: number;
+  /** `OTEL_METRIC_EXPORT_INTERVAL`, default 60000. */
+  readonly intervalMillis: number;
 }
 
 /**
@@ -202,6 +223,64 @@ function resolveOtlp(
     headers: Object.freeze(headers),
     timeoutMillis,
   });
+}
+
+const METRICS_PATH = "/v1/metrics";
+export const DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS = 60_000;
+
+/**
+ * The `metrics` option (P6-02). Throws on a wrong shape, like the other options. Export needs
+ * trace export on (`resolveOtlp` not `false`) and a metrics URL: `export.otlp.endpoint` plus
+ * `/v1/metrics`, else `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` as given, else
+ * `OTEL_EXPORTER_OTLP_ENDPOINT` plus `/v1/metrics`. A traces URL set alone
+ * (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) implies no metrics URL. `OTEL_METRIC_EXPORT_INTERVAL`
+ * that is not a positive integer is ignored (the default applies), as the specification says for
+ * environment variables.
+ */
+export function resolveMetrics(
+  options: NestrixModuleOptions,
+  env: Environment,
+): ResolvedMetrics | false {
+  const m = options.metrics;
+  if (m === false) return false;
+  if (m !== undefined && (m === null || typeof m !== "object")) {
+    invalid("metrics must be false or an object");
+  }
+  const runtime = m?.runtime ?? true;
+  if (typeof runtime !== "boolean")
+    invalid("metrics.runtime must be a boolean");
+
+  let exportTo: ResolvedMetricExport | false = false;
+  const traces = resolveOtlp(options, env);
+  if (traces !== false) {
+    const otlp = options.export?.otlp || undefined;
+    const optionEndpoint = blank(otlp?.endpoint);
+    const metricsEnv = blank(env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT);
+    const genericEnv = blank(env.OTEL_EXPORTER_OTLP_ENDPOINT);
+    const withMetricsPath = (base: string) =>
+      `${base.replace(/\/+$/, "")}${METRICS_PATH}`;
+    let url: string | undefined;
+    if (optionEndpoint) url = withMetricsPath(optionEndpoint);
+    else if (metricsEnv) url = metricsEnv;
+    else if (genericEnv) url = withMetricsPath(genericEnv);
+    if (url !== undefined) {
+      const interval = Number(blank(env.OTEL_METRIC_EXPORT_INTERVAL));
+      exportTo = Object.freeze({
+        url,
+        headers: Object.freeze({
+          ...parseHeaderList(env.OTEL_EXPORTER_OTLP_HEADERS),
+          ...parseHeaderList(env.OTEL_EXPORTER_OTLP_METRICS_HEADERS),
+          ...otlp?.headers,
+        }),
+        timeoutMillis: traces.timeoutMillis,
+        intervalMillis:
+          Number.isInteger(interval) && interval > 0
+            ? interval
+            : DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS,
+      });
+    }
+  }
+  return Object.freeze({ runtime, export: exportTo });
 }
 
 const PATH_CHARACTERS = /^[A-Za-z0-9._~/-]+$/;
@@ -429,6 +508,7 @@ export function resolveOptions(
     otelResourceAttributes: blank(env.OTEL_RESOURCE_ATTRIBUTES),
     ui: resolveUi(o.ui, env),
     store: Object.freeze(store),
+    metrics: resolveMetrics(o, env),
   };
   return Object.freeze(resolved);
 }
