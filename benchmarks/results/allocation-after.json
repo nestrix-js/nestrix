@@ -1,0 +1,136 @@
+{
+  "environment": {
+    "node": "v26.13.0",
+    "platform": "darwin-arm64",
+    "cpus": "10 logical",
+    "date": "2026-11-11T11:51:58.560Z"
+  },
+  "settings": {
+    "configs": [
+      "baseline",
+      "interceptor",
+      "headless",
+      "dashboard"
+    ],
+    "runs": 3,
+    "duration": 8
+  },
+  "configs": {
+    "baseline": {
+      "bytesPerRequest": 14584,
+      "scavengesPer10k": 9.89,
+      "majorPer10k": 0,
+      "reqPerSec": 42582,
+      "runs": [
+        {
+          "requests": 342084,
+          "reqPerSec": 42760.5,
+          "bytesPerRequest": 14583.646846973257,
+          "scavengesPer10k": 9.90984670431824,
+          "majorPer10k": 0
+        },
+        {
+          "requests": 340655,
+          "reqPerSec": 42581.875,
+          "bytesPerRequest": 14480.931476126872,
+          "scavengesPer10k": 9.892706697391791,
+          "majorPer10k": 0
+        },
+        {
+          "requests": 338711,
+          "reqPerSec": 42338.875,
+          "bytesPerRequest": 14609.4674693175,
+          "scavengesPer10k": 9.890437570672342,
+          "majorPer10k": 0
+        }
+      ]
+    },
+    "interceptor": {
+      "bytesPerRequest": 31208,
+      "scavengesPer10k": 19.83,
+      "majorPer10k": 0,
+      "reqPerSec": 35724,
+      "runs": [
+        {
+          "requests": 285794,
+          "reqPerSec": 35724.25,
+          "bytesPerRequest": 31154.01020315332,
+          "scavengesPer10k": 19.83946478932378,
+          "majorPer10k": 0
+        },
+        {
+          "requests": 288981,
+          "reqPerSec": 36122.625,
+          "bytesPerRequest": 31207.775680754097,
+          "scavengesPer10k": 19.828293209588175,
+          "majorPer10k": 0
+        },
+        {
+          "requests": 285381,
+          "reqPerSec": 35672.625,
+          "bytesPerRequest": 31407.77341168473,
+          "scavengesPer10k": 19.833135352388563,
+          "majorPer10k": 0
+        }
+      ]
+    },
+    "headless": {
+      "bytesPerRequest": 42057,
+      "scavengesPer10k": 13.92,
+      "majorPer10k": 0.36,
+      "reqPerSec": 27857,
+      "runs": [
+        {
+          "requests": 221328,
+          "reqPerSec": 27666,
+          "bytesPerRequest": 42041.32010409889,
+          "scavengesPer10k": 13.96117978746476,
+          "majorPer10k": 0.3614544928793465
+        },
+        {
+          "requests": 224213,
+          "reqPerSec": 28026.625,
+          "bytesPerRequest": 42057.202677810834,
+          "scavengesPer10k": 13.915339431701105,
+          "majorPer10k": 0.4014040220683011
+        },
+        {
+          "requests": 222859,
+          "reqPerSec": 27857.375,
+          "bytesPerRequest": 42063.55480370997,
+          "scavengesPer10k": 13.865269071475685,
+          "majorPer10k": 0.3589713675462961
+        }
+      ]
+    },
+    "dashboard": {
+      "bytesPerRequest": 45815,
+      "scavengesPer10k": 14.71,
+      "majorPer10k": 0.4,
+      "reqPerSec": 24935,
+      "runs": [
+        {
+          "requests": 199244,
+          "reqPerSec": 24905.5,
+          "bytesPerRequest": 45815.05719620164,
+          "scavengesPer10k": 14.705587119310996,
+          "majorPer10k": 0.401517737046034
+        },
+        {
+          "requests": 201839,
+          "reqPerSec": 25229.875,
+          "bytesPerRequest": 45826.3385371509,
+          "scavengesPer10k": 14.76424278756831,
+          "majorPer10k": 0.3963555110756593
+        },
+        {
+          "requests": 199477,
+          "reqPerSec": 24934.625,
+          "bytesPerRequest": 45802.752477729264,
+          "scavengesPer10k": 14.68841019265379,
+          "majorPer10k": 0.40104874246153693
+        }
+      ]
+    }
+  }
+}

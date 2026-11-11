@@ -58,3 +58,71 @@ describe("NestrixInterceptor passes streams through untouched", () => {
     expect(getFailureCounts().get("http.interceptor")).toBe(1);
   });
 });
+
+describe("NestrixInterceptor reads the request without switchToHttp when it can", () => {
+  it("finds the request state through getArgByIndex(0)", async () => {
+    const { getStateForRequest, setStateForRequest } = await import(
+      "../src/http/request-state.js"
+    );
+    const request = {};
+    const calls: string[] = [];
+    const span = { setAttribute: (k: string) => calls.push(k) };
+    const state = {
+      span,
+      method: "GET",
+      baseName: "GET",
+      route: undefined,
+      reached: false,
+      exception: undefined,
+      ended: false,
+    };
+    setStateForRequest(request, state as never);
+    expect(getStateForRequest(request)).toBe(state);
+    const context = {
+      getType: () => "http",
+      getArgByIndex: (i: number) => (i === 0 ? request : undefined),
+      switchToHttp: () => {
+        throw new Error("switchToHttp must not be needed");
+      },
+      getClass: () => class Cats {},
+      getHandler: () => function list() {},
+    } as unknown as ExecutionContext;
+    const { next } = handler();
+    new NestrixInterceptor().intercept(context, next);
+    expect(state.reached).toBe(true);
+    expect(calls).toEqual(["code.function.name"]);
+    expect(getFailureCounts().size).toBe(0);
+  });
+
+  it("falls back to switchToHttp().getRequest() when the context has no getArgByIndex", async () => {
+    const { getStateForRequest, setStateForRequest } = await import(
+      "../src/http/request-state.js"
+    );
+    const request = {};
+    const calls: string[] = [];
+    const span = { setAttribute: (k: string) => calls.push(k) };
+    const state = {
+      span,
+      method: "GET",
+      baseName: "GET",
+      route: undefined,
+      reached: false,
+      exception: undefined,
+      ended: false,
+    };
+    setStateForRequest(request, state as never);
+    expect(getStateForRequest(request)).toBe(state);
+    const context = {
+      getType: () => "http",
+      switchToHttp: () => ({ getRequest: () => request }),
+      getClass: () => class Cats {},
+      getHandler: () => function list() {},
+    } as unknown as ExecutionContext;
+    expect(context).not.toHaveProperty("getArgByIndex");
+    const { next } = handler();
+    new NestrixInterceptor().intercept(context, next);
+    expect(state.reached).toBe(true);
+    expect(calls).toEqual(["code.function.name"]);
+    expect(getFailureCounts().size).toBe(0);
+  });
+});

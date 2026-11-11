@@ -1,0 +1,29 @@
+{
+  "environment": {
+    "node": "v26.13.0",
+    "platform": "darwin-arm64",
+    "cpus": "10 logical",
+    "date": "2026-11-11T11:54:21.788Z"
+  },
+  "recordNs": 70,
+  "spanWithoutProcessorNs": 1560,
+  "spanWithProcessorNs": 3497,
+  "storeProcessorNsPerSpan": 1937,
+  "raw": {
+    "recordNs": [
+      69.66520833333334,
+      69.53334733333334,
+      69.37027766666667
+    ],
+    "without": [
+      1556.036582,
+      1580.531084,
+      1560.08225
+    ],
+    "withStore": [
+      3497.271832,
+      3560.138416,
+      3473.66175
+    ]
+  }
+}

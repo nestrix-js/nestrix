@@ -94,6 +94,17 @@ function safeString(value: unknown): string {
   }
 }
 
+/**
+ * The request of an HTTP context. `getArgByIndex(0)` is what `switchToHttp().getRequest()` returns,
+ * without `switchToHttp()` assigning three fresh closures onto the host's context object on every
+ * request (P2-15). A context without `getArgByIndex` takes the long way.
+ */
+function requestOf(context: ExecutionContext): unknown {
+  return typeof context.getArgByIndex === "function"
+    ? context.getArgByIndex(0)
+    : context.switchToHttp().getRequest();
+}
+
 @Injectable()
 export class NestrixInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -101,7 +112,7 @@ export class NestrixInterceptor implements NestInterceptor {
     try {
       maybeFault("interceptor");
       if (context.getType() === "http") {
-        state = getStateForRequest(context.switchToHttp().getRequest());
+        state = getStateForRequest(requestOf(context));
         if (state) {
           state.reached = true;
           const className = context.getClass()?.name;
