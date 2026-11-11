@@ -1,0 +1,7 @@
+# Jaeger v2 all-in-one. Pinned; bump deliberately (tags: hub.docker.com/r/jaegertracing/jaeger/tags).
+services:
+  jaeger:
+    image: jaegertracing/jaeger:2.23.0
+    ports:
+      - "16686:16686" # query UI and HTTP API
+      - "4318:4318" # OTLP over HTTP
