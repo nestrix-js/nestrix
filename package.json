@@ -1,0 +1,16 @@
+{
+  "name": "nestrix-workspace",
+  "private": true,
+  "description": "Open-source observability for NestJS 12+ (workspace root)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nestrix-js/nestrix.git"
+  },
+  "packageManager": "pnpm@12.16.1",
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "scripts": {}
+}
