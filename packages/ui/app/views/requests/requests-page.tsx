@@ -13,6 +13,7 @@ import { dataTableFeatures } from "@/components/data-table/features";
 import { Button } from "@/components/ui/button";
 import { getRoutes, getTraces, type QueryParams } from "@/lib/api";
 import { type RequestFilters, requestFilterParsers } from "@/lib/params";
+import { useService } from "@/lib/service";
 import { useCursorList } from "@/lib/use-cursor-list";
 import { columnLabels, columnsFor } from "@/views/requests/columns";
 import { DebouncedInput } from "@/views/requests/debounced-input";
@@ -50,7 +51,11 @@ const isFiltered = (filters: RequestFilters) =>
 
 export function RequestsPage() {
   const [filters, setFilters] = useQueryStates(requestFilterParsers);
-  const params = useMemo(() => filtersToParams(filters), [filters]);
+  const [service] = useService();
+  const params = useMemo(
+    () => ({ ...filtersToParams(filters), service }),
+    [filters, service],
+  );
 
   const list = useCursorList({
     name: "traces",
@@ -60,8 +65,8 @@ export function RequestsPage() {
 
   // Route names for the facet; statistics are complete even when the list is sampled.
   const routeStats = useQuery({
-    queryKey: ["routes", "facet"],
-    queryFn: () => getRoutes(),
+    queryKey: ["routes", "facet", service],
+    queryFn: () => getRoutes({ service }),
     staleTime: 30_000,
   });
   const routeOptions = useMemo(

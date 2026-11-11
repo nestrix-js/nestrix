@@ -5,6 +5,9 @@ export const MAP_HEIGHT = 440;
 /** Targets sit on an ellipse, wider than tall, so side labels fit. */
 const RADIUS_X = 290;
 const RADIUS_Y = 160;
+/** With several services, they sit on a smaller inner ellipse and the targets stay outside it. */
+const INNER_RADIUS_X = 120;
+const INNER_RADIUS_Y = 62;
 
 export interface PlacedNode extends MapNode {
   x: number;
@@ -19,6 +22,8 @@ export interface PlacedEdge extends MapEdge {
   /** Where the label goes: the middle of the edge. */
   labelX: number;
   labelY: number;
+  /** Both ends are services: a call from one service to another, drawn apart from the targets. */
+  serviceToService: boolean;
 }
 
 export interface MapLayout {
@@ -29,9 +34,12 @@ export interface MapLayout {
 const round = (v: number) => Math.round(v * 10) / 10;
 
 /**
- * Radial layout: the `app` node in the centre, every other node on an ellipse around it, evenly
- * spaced from the top, clockwise, in the order the API gave them. Edges whose ends are not in
- * `nodes` are dropped. Without an `app` node all nodes share the ellipse.
+ * Radial layout. One `app` node (an embedded dashboard, or the standalone server filtered to
+ * one service): it sits in the centre and every other node on an ellipse around it. Several
+ * `app` nodes (one per service): the services on an inner ellipse and everything else on the
+ * outer one, so service-to-service edges stay short. Both rings are evenly spaced from the top,
+ * clockwise, in the order the API gave the nodes. Edges whose ends are not in `nodes` are
+ * dropped. Without an `app` node all nodes share the outer ellipse.
  */
 export function layoutMap(
   nodes: readonly MapNode[],
@@ -39,18 +47,21 @@ export function layoutMap(
 ): MapLayout {
   const cx = MAP_WIDTH / 2;
   const cy = MAP_HEIGHT / 2;
-  const center = nodes.find((n) => n.kind === "app");
-  const around = nodes.filter((n) => n !== center);
+  const apps = nodes.filter((n) => n.kind === "app");
+  const around = nodes.filter((n) => n.kind !== "app");
   const placed: PlacedNode[] = [];
-  if (center) placed.push({ ...center, x: cx, y: cy });
-  around.forEach((n, i) => {
-    const angle = -Math.PI / 2 + (2 * Math.PI * i) / around.length;
-    placed.push({
-      ...n,
-      x: round(cx + RADIUS_X * Math.cos(angle)),
-      y: round(cy + RADIUS_Y * Math.sin(angle)),
+  const ring = (list: readonly MapNode[], rx: number, ry: number) =>
+    list.forEach((n, i) => {
+      const angle = -Math.PI / 2 + (2 * Math.PI * i) / list.length;
+      placed.push({
+        ...n,
+        x: round(cx + rx * Math.cos(angle)),
+        y: round(cy + ry * Math.sin(angle)),
+      });
     });
-  });
+  if (apps.length === 1) placed.push({ ...(apps[0] as MapNode), x: cx, y: cy });
+  else ring(apps, INNER_RADIUS_X, INNER_RADIUS_Y);
+  ring(around, RADIUS_X, RADIUS_Y);
   const byId = new Map(placed.map((n) => [n.id, n]));
   const placedEdges: PlacedEdge[] = [];
   for (const e of edges) {
@@ -65,6 +76,7 @@ export function layoutMap(
       y2: b.y,
       labelX: round((a.x + b.x) / 2),
       labelY: round((a.y + b.y) / 2),
+      serviceToService: a.kind === "app" && b.kind === "app",
     });
   }
   return { nodes: placed, edges: placedEdges };

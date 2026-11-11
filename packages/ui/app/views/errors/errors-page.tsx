@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/table";
 import { getErrors, getRoutes } from "@/lib/api";
 import { errorFilterParsers } from "@/lib/params";
+import { useService } from "@/lib/service";
 import { useCursorList } from "@/lib/use-cursor-list";
 import { OTHER_ROUTE, UNMATCHED_ROUTE } from "@/views/routes/route-stats";
 
@@ -112,16 +113,17 @@ function ErrorRow({ item }: { item: ErrorItem }) {
 
 export function ErrorsPage() {
   const [filters, setFilters] = useQueryStates(errorFilterParsers);
+  const [service] = useService();
   const params = useMemo(
-    () => ({ route: filters.route ?? undefined }),
-    [filters.route],
+    () => ({ route: filters.route ?? undefined, service }),
+    [filters.route, service],
   );
   const list = useCursorList({ name: "errors", params, fetchPage: getErrors });
 
   // Route names for the filter; the same query the request list's facet uses.
   const routeStats = useQuery({
-    queryKey: ["routes", "facet"],
-    queryFn: () => getRoutes(),
+    queryKey: ["routes", "facet", service],
+    queryFn: () => getRoutes({ service }),
     staleTime: 30_000,
   });
   const routeOptions = useMemo(() => {

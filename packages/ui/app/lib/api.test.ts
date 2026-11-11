@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { apiUrl } from "@/lib/api";
+import { apiUrl, baseUrl, shouldLogin } from "@/lib/api";
 import { POLL_INTERVAL_MS, pollInterval } from "@/lib/live";
 
 describe("apiUrl", () => {
@@ -33,6 +33,23 @@ describe("apiUrl", () => {
     ]);
     expect(url.searchParams.get("route")).toBe("/a b");
     expect(url.searchParams.get("minDurationMs")).toBe("0");
+  });
+});
+
+describe("login redirect", () => {
+  it("sends a 401 to login unless the API is known to be embedded", () => {
+    expect(shouldLogin(401, "standalone")).toBe(true);
+    expect(shouldLogin(401, undefined)).toBe(true);
+    expect(shouldLogin(401, "embedded")).toBe(false);
+    expect(shouldLogin(403, "standalone")).toBe(false);
+    expect(shouldLogin(500, "standalone")).toBe(false);
+  });
+
+  it("finds login and logout next to the base href, whatever the mount path", () => {
+    expect(baseUrl("login", "http://h/").href).toBe("http://h/login");
+    expect(baseUrl("logout", "http://h/some/_nestrix/").href).toBe(
+      "http://h/some/_nestrix/logout",
+    );
   });
 });
 

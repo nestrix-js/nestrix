@@ -90,6 +90,18 @@ export function startServer(): Promise<{
           },
           JSON.stringify(answer.body),
         );
+      } else if (path === `${BASE_PATH}/logout` && req.method === "POST") {
+        mock.logouts += 1;
+        send(204, { "Cache-Control": "no-store" }, "");
+      } else if (path === `${BASE_PATH}/login`) {
+        send(
+          200,
+          {
+            "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": "no-store",
+          },
+          "<!doctype html><title>Sign in</title><h1>Sign in</h1>",
+        );
       } else if (path === `${BASE_PATH}/__control__`) {
         // Negative control for the harness: the same headers, plus an inline script and an
         // inline style. If the harness does not flag this page it cannot be trusted.

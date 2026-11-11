@@ -1,7 +1,12 @@
 import { traceListParams } from "@nestrix/protocol";
 import { describe, expect, it } from "vitest";
 
-import { numberParser, requestFilterParsers, stringParser } from "@/lib/params";
+import {
+  numberParser,
+  requestFilterParsers,
+  serviceParser,
+  stringParser,
+} from "@/lib/params";
 
 describe("parsers built from the protocol specs", () => {
   it("accepts a number inside the spec's bounds and rejects the rest", () => {
@@ -46,10 +51,13 @@ describe("parsers built from the protocol specs", () => {
     expect(p.parse("warning")).toBeNull();
   });
 
-  it("has a parser for every filter the traces endpoint takes, and none for cursors or limit", () => {
+  it("has a parser for every filter the traces endpoint takes, and none for cursors or limit; the service has its own", () => {
     const filters = Object.keys(traceListParams).filter(
-      (k) => !["limit", "before", "after"].includes(k),
+      (k) => !["limit", "before", "after", "service"].includes(k),
     );
     expect(Object.keys(requestFilterParsers).sort()).toEqual(filters.sort());
+    expect(Object.keys(traceListParams)).toContain("service");
+    expect(serviceParser.parse("orders")).toBe("orders");
+    expect(serviceParser.parse("x".repeat(257))).toBeNull();
   });
 });

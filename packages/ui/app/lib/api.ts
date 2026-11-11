@@ -40,12 +40,30 @@ export function apiUrl(
   return url;
 }
 
+let knownMode: MetaResponse["mode"] | undefined;
+
+/** A path next to `<base href>`, such as `login` or `logout`. */
+export const baseUrl = (path: string, baseUri = document.baseURI) =>
+  new URL(path, baseUri);
+
+/** Sends the browser to the standalone server's login page. */
+export function goToLogin(): void {
+  window.location.assign(baseUrl("login").href);
+}
+
+/** Whether a 401 means "log in": always, unless the API is known to be the embedded one. */
+export const shouldLogin = (
+  status: number,
+  mode: MetaResponse["mode"] | undefined,
+) => status === 401 && mode !== "embedded";
+
 async function getJson<T>(endpoint: string, params?: QueryParams): Promise<T> {
   const response = await fetch(apiUrl(endpoint, params), {
     headers: { Accept: "application/json" },
     credentials: "same-origin",
     cache: "no-store",
   });
+  if (shouldLogin(response.status, knownMode)) goToLogin();
   let body: unknown;
   try {
     body = await response.json();
@@ -67,7 +85,24 @@ async function getJson<T>(endpoint: string, params?: QueryParams): Promise<T> {
   return body as T;
 }
 
-export const getMeta = () => getJson<MetaResponse>("meta");
+export async function getMeta(): Promise<MetaResponse> {
+  const meta = await getJson<MetaResponse>("meta");
+  knownMode = meta.mode ?? "embedded";
+  return meta;
+}
+
+/** Ends the admin session (the server clears the cookie), then shows the login page. */
+export async function signOut(): Promise<void> {
+  try {
+    await fetch(baseUrl("logout"), {
+      method: "POST",
+      credentials: "same-origin",
+    });
+  } catch {
+    // Go to the login page anyway; it shows whether the session is still open.
+  }
+  goToLogin();
+}
 export const getTraces = (params: QueryParams) =>
   getJson<TraceListResponse>("traces", params);
 export const getErrors = (params: QueryParams) =>

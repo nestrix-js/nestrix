@@ -20,6 +20,7 @@ import { getMeta, getRoutes } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser, stringParser } from "@/lib/params";
+import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
 import {
   chartData,
@@ -99,9 +100,10 @@ export function RoutesPage() {
   const windowMinutes = query.windowMinutes ?? DEFAULT_WINDOW;
   const [paused] = usePaused();
 
+  const [service] = useService();
   const stats = useQuery({
-    queryKey: ["routes", "stats", windowMinutes],
-    queryFn: () => getRoutes({ windowMinutes }),
+    queryKey: ["routes", "stats", windowMinutes, service],
+    queryFn: () => getRoutes({ windowMinutes, service }),
     refetchInterval: pollInterval(paused),
     refetchIntervalInBackground: false,
     // Switching the window keeps the old table on screen until the new one arrives.
@@ -109,7 +111,9 @@ export function RoutesPage() {
   });
   // Same key and function as the header's, so this is the cached answer.
   const meta = useQuery({ queryKey: ["meta"], queryFn: getMeta });
-  const note = meta.data ? statisticsNote(meta.data.sampling) : null;
+  const note = meta.data
+    ? statisticsNote(meta.data.sampling, meta.data.mode)
+    : null;
 
   const routes = useMemo(
     () => sortByCount(stats.data?.routes ?? []),

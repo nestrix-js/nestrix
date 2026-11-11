@@ -41,6 +41,13 @@ export class MockApi {
   /** When set, `classes` / `map` answer with this for the asked window instead of the generated data. */
   classStats: ((windowMinutes: number) => ClassStatsResponse) | null = null;
   appMap: ((windowMinutes: number) => AppMapResponse) | null = null;
+  /** The standalone server's extras: `mode` and `services` in meta; unset means embedded. */
+  mode: MetaResponse["mode"] = undefined;
+  services: string[] | undefined = undefined;
+  /** Every API call answers 401, as the standalone server does without a session. */
+  unauthorized = false;
+  /** `POST logout` calls seen. */
+  logouts = 0;
   /** Every request seen, `traces?after=...` and so on, in order. */
   requests: string[] = [];
   private items: Item[] = []; // newest first
@@ -63,6 +70,10 @@ export class MockApi {
     this.routeStats = null;
     this.classStats = null;
     this.appMap = null;
+    this.mode = undefined;
+    this.services = undefined;
+    this.unauthorized = false;
+    this.logouts = 0;
     this.errors.reset(0);
     this.push(count);
   }
@@ -134,6 +145,11 @@ export class MockApi {
     this.requests.push(`${endpoint}${query.size > 0 ? `?${query}` : ""}`);
     if (endpoint === "traces" && this.delayMs > 0)
       await new Promise((r) => setTimeout(r, this.delayMs));
+    if (this.unauthorized)
+      return {
+        status: 401,
+        body: { error: { code: "forbidden", message: "Sign in" } },
+      };
     if (this.failing.has(endpoint as Endpoint))
       return {
         status: 500,
@@ -186,6 +202,8 @@ export class MockApi {
       },
       statistics: { sinceUnixMs: 0, windowsMinutes: [15, 60] },
       warnings: [],
+      ...(this.mode ? { mode: this.mode } : {}),
+      ...(this.services ? { services: this.services } : {}),
     };
   }
 
@@ -293,6 +311,7 @@ export class MockApi {
       "type",
       "release",
       "user",
+      "service",
     ]);
     for (const key of q.keys())
       if (!known.has(key))
