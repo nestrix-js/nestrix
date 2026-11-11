@@ -1,5 +1,7 @@
 import { type DynamicModule, Module } from "@nestjs/common";
 import { NestrixModule } from "@nestrix/nestjs";
+import { AuthModule } from "./auth/auth.module.js";
+import { SessionQueryGuard } from "./auth/query-guard.js";
 import type { ServerConfig } from "./config.js";
 import { ServerConfigModule } from "./config.module.js";
 import { IngestModule } from "./ingest/ingest.module.js";
@@ -7,6 +9,7 @@ import { MemoryIngestSink } from "./ingest/memory-sink.js";
 import { INGEST_TRACES_PATH_PATTERN } from "./ingest/tokens.js";
 import { QueryModule } from "./query/query.module.js";
 import { PostgresIngestSink, StorageModule } from "./storage/index.js";
+import { UiModule } from "./ui/ui.module.js";
 
 export interface AppModuleOptions {
   /**
@@ -39,6 +42,10 @@ export class AppModule {
           integrations: { pg: false },
           ignore: { routes: [INGEST_TRACES_PATH_PATTERN] },
         }),
+        // Admin login (P5-04): its middleware is mounted by `configureApp`, its guard is global
+        // and covers every controller, the query API included.
+        AuthModule,
+        UiModule,
         ...(options.inMemory
           ? [IngestModule.forRoot({ sink: { useClass: MemoryIngestSink } })]
           : [
@@ -49,8 +56,8 @@ export class AppModule {
               IngestModule.forRoot({
                 sink: { useExisting: PostgresIngestSink },
               }),
-              // Closed until P5-04 passes its session guard: QueryModule.forRoot({ guard }).
-              QueryModule.forRoot(),
+              // Opened only for requests the admin login's middleware stamped as a session.
+              QueryModule.forRoot({ guard: { useClass: SessionQueryGuard } }),
             ]),
       ],
     };

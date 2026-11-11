@@ -30,6 +30,7 @@ import type {
 } from "@nestrix/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PostgresIngestSink } from "../../src/storage/writer.js";
+import { signedCookie } from "../auth/helpers.js";
 import { auth, JSON_TYPE, KEY, post } from "../ingest/helpers.js";
 import {
   batch,
@@ -944,12 +945,29 @@ describe.skipIf(noDatabase)(`query API access ${skipReason}`, () => {
   let server: QueryServer;
   beforeAll(async () => {
     db = await createTestDb("queryguard");
-    // No guard configured: the default denies everything.
+    // The default deny guard instead of the session guard: closed even for a signed-in admin.
     server = await startQueryServer(db.url, false);
   });
   afterAll(async () => {
     await server?.close();
     await db?.drop();
+  });
+
+  it("answers 401 signed out and 200 signed in through the real session guard", async () => {
+    const real = await startQueryServer(db.url, true, false);
+    try {
+      const anonymous = await real.get("/api/v1/meta");
+      expect(anonymous.status).toBe(401);
+      expect(await anonymous.json()).toMatchObject({
+        error: { code: "unauthorized" },
+      });
+      const signedIn = await fetch(`${real.baseUrl}/api/v1/meta`, {
+        headers: { cookie: signedCookie() },
+      });
+      expect(signedIn.status).toBe(200);
+    } finally {
+      await real.close();
+    }
   });
 
   it("is closed until a guard opens it", async () => {

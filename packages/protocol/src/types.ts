@@ -296,8 +296,10 @@ export interface AppMapResponse {
 
 export type ApiErrorCode =
   | "bad_request"
+  | "unauthorized"
   | "forbidden"
   | "not_found"
+  | "unavailable"
   | "internal";
 
 export interface ApiError {
