@@ -12,6 +12,7 @@
       "!**/node_modules",
       "!**/coverage",
       "!**/*.generated.*",
+      "!benchmarks/results",
       "!**/*.tsbuildinfo",
       "!**/*.md",
       "!pnpm-lock.yaml"
