@@ -203,12 +203,12 @@ describe("filters", () => {
       message:
         'Query parameter "type" must be one of http, job, scheduled, other.',
     });
-    const release = parseQuery(`/x?release=${"r".repeat(129)}`, traceListSpec);
+    const release = parseQuery(`/x?release=${"r".repeat(256)}`, traceListSpec);
     expect(release).toEqual({
       ok: false,
-      message: 'Query parameter "release" must be at most 128 characters.',
+      message: 'Query parameter "release" must be at most 255 characters.',
     });
-    expect(parseQuery(`/x?release=${"r".repeat(128)}`, traceListSpec).ok).toBe(
+    expect(parseQuery(`/x?release=${"r".repeat(255)}`, traceListSpec).ok).toBe(
       true,
     );
     const user = parseQuery(`/x?user=${"u".repeat(257)}`, traceListSpec);

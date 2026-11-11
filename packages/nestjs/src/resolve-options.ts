@@ -386,11 +386,14 @@ function resolveUiUnguarded(ui: unknown, env: Environment): ResolvedUi {
   });
 }
 
+const MAX_SERVICE_VERSION = 255;
+
 /**
  * `service.version` (D-63), first set value wins: the `serviceVersion` option, then
  * `resourceAttributes['service.version']` (also explicit), then `service.version` in
  * `OTEL_RESOURCE_ATTRIBUTES`, then `GIT_SHA`, then `npm_package_version`. Blank values are
  * skipped. Throws when `serviceVersion` is given and is not a string.
+ * Longer than 255 characters throws, the dashboard's `release` filter limit.
  */
 export function resolveServiceVersion(
   options: Pick<NestrixModuleOptions, "serviceVersion" | "resourceAttributes">,
@@ -400,10 +403,19 @@ export function resolveServiceVersion(
   if (option !== undefined && typeof option !== "string") {
     invalid(`serviceVersion must be a string, got ${typeof option}`);
   }
+  if (typeof option === "string" && option.length > MAX_SERVICE_VERSION) {
+    invalid(
+      `serviceVersion must be at most ${MAX_SERVICE_VERSION} characters, got ${option.length}`,
+    );
+  }
   const fromAttributes = options.resourceAttributes?.["service.version"];
   return (
     blank(option as string | undefined) ??
-    (typeof fromAttributes === "string" ? blank(fromAttributes) : undefined) ??
+    (typeof fromAttributes === "string" ||
+    typeof fromAttributes === "number" ||
+    typeof fromAttributes === "boolean"
+      ? blank(String(fromAttributes))
+      : undefined) ??
     blank(
       parseResourceAttributesEnv(env.OTEL_RESOURCE_ATTRIBUTES)?.[
         "service.version"

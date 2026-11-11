@@ -20,7 +20,7 @@ export const matching: TraceListParamsSpec = {
   minDurationMs: { kind: "number", min: 0, max: 86_400_000 },
   search: { kind: "string", maxLength: 200 },
   type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
-  release: { kind: "string", maxLength: 128 },
+  release: { kind: "string", maxLength: 255 },
   user: { kind: "string", maxLength: 256 },
 };
 
