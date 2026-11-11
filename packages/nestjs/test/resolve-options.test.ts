@@ -22,6 +22,13 @@ describe("resolveOptions defaults", () => {
       ignore: { routes: [], outgoing: [] },
       http: { requestHeaders: [], responseHeaders: [], redactQueryKeys: [] },
       redact: undefined,
+      ui: {
+        mode: "auto",
+        path: "/_nestrix",
+        startupToken: true,
+        auth: undefined,
+      },
+      store: { maxTraces: 5000, maxBytes: 33554432 },
     });
   });
 

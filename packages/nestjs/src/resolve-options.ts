@@ -1,6 +1,11 @@
+import {
+  type SecretDigests,
+  secretDigests,
+} from "./dashboard/startup-token.js";
 import type {
   NestrixModuleOptions,
   NestrixQueueOptions,
+  NestrixStoreOptions,
   RedactHook,
   UrlMatcher,
 } from "./options.js";
@@ -42,7 +47,64 @@ export interface ResolvedOptions {
   readonly redact: RedactHook | undefined;
   /** Raw `OTEL_RESOURCE_ATTRIBUTES`; parsed by the telemetry setup (SDK 3 does not read it). */
   readonly otelResourceAttributes: string | undefined;
+  /** The dashboard's static mode (P2-05). Runtime conditions (HTTP adapter, `@nestrix/ui`) are P2-06's. */
+  readonly ui: ResolvedUi;
+  /** Store limits, defaults applied. Meaningful only while the dashboard is on. */
+  readonly store: Readonly<Required<NestrixStoreOptions>>;
 }
+
+/**
+ * Resolved dashboard authentication. A configured token is kept only as digests: the plain token
+ * is not in `ResolvedOptions`, so dumping the options (they are injectable) does not reveal it.
+ */
+export type ResolvedUiAuth =
+  | ({ readonly kind: "token" } & SecretDigests)
+  | {
+      readonly kind: "custom";
+      /** The user's function, called with `thisArg` as `this`. */
+      readonly authorize: (request: unknown) => unknown;
+      readonly thisArg: unknown;
+    };
+
+/** Why the dashboard is off before any request arrives. */
+export type UiOffReason =
+  /** `ui: false` or `ui.enabled: false`. */
+  | "disabled"
+  /** `'auto'` and `NODE_ENV` set to anything but `development`. */
+  | "node-env"
+  /** `ui.enabled: true` without `ui.auth`. */
+  | "missing-auth"
+  /** A `ui` value of the wrong shape: path, auth, token length, `enabled`, `startupToken`. */
+  | "invalid";
+
+export interface ResolvedUiOff {
+  readonly mode: "off";
+  readonly reason: UiOffReason;
+  /** `error` for `missing-auth` and `invalid`, `info` otherwise. P2-06 logs `message` at this level. */
+  readonly severity: "info" | "error";
+  /** The log line. Never contains a token. */
+  readonly message: string;
+}
+
+export interface ResolvedUiAuto {
+  readonly mode: "auto";
+  /** Validated: starts with `/`, no trailing slash, only `A-Z a-z 0-9 . _ ~ / -`, no empty or dot segment. */
+  readonly path: string;
+  /** Whether requests also need the startup-token cookie (default `true`; `false` is the D-46 opt-out). */
+  readonly startupToken: boolean;
+  /** Checked in addition to the local-only rules, when given. */
+  readonly auth: ResolvedUiAuth | undefined;
+}
+
+export interface ResolvedUiEnabled {
+  readonly mode: "enabled";
+  readonly path: string;
+  /** Always present: `enabled: true` without `auth` resolves to off. */
+  readonly auth: ResolvedUiAuth;
+}
+
+/** The dashboard mode as far as options and `NODE_ENV` decide it (backlog P2, "Mode resolution"). */
+export type ResolvedUi = ResolvedUiOff | ResolvedUiAuto | ResolvedUiEnabled;
 
 export type Environment = Readonly<Record<string, string | undefined>>;
 
@@ -51,6 +113,18 @@ export const DEFAULT_QUEUE: Required<NestrixQueueOptions> = {
   maxExportBatchSize: 512,
   scheduledDelayMillis: 5000,
 };
+/**
+ * Store limits, set from measurement (P2-12): see `store/limits.ts` for the reasoning and keep
+ * the two in step (`test/dashboard-options.test.ts` checks it).
+ */
+export const DEFAULT_STORE: Readonly<Required<NestrixStoreOptions>> =
+  Object.freeze({
+    maxTraces: 5000,
+    maxBytes: 32 * 1024 * 1024,
+  });
+export const DEFAULT_UI_PATH = "/_nestrix";
+/** Shortest `ui.auth.token` accepted (architecture §4.7, backlog P2-05). */
+export const MIN_UI_TOKEN_LENGTH = 32;
 const DEFAULT_TIMEOUT_MILLIS = 10_000;
 const TRACES_PATH = "/v1/traces";
 
@@ -130,6 +204,163 @@ function resolveOtlp(
   });
 }
 
+const PATH_CHARACTERS = /^[A-Za-z0-9._~/-]+$/;
+
+/** The validated path, or an error message. */
+function resolveUiPath(path: unknown): { path: string } | { error: string } {
+  if (path === undefined) return { path: DEFAULT_UI_PATH };
+  if (typeof path !== "string") return { error: "ui.path must be a string" };
+  const trimmed = path.endsWith("/") ? path.slice(0, -1) : path;
+  if (!trimmed.startsWith("/")) return { error: "ui.path must start with /" };
+  if (!PATH_CHARACTERS.test(trimmed)) {
+    return {
+      error: "ui.path may contain only A-Z a-z 0-9 . _ ~ / - characters",
+    };
+  }
+  // `/` alone would put the dashboard over the whole app; `//x` would make the redirect after the
+  // token exchange protocol-relative (`Location: //x/`); `.` and `..` segments are rewritten by
+  // browsers, so routes and the cookie's Path would never match what the browser requests.
+  const segments = trimmed.slice(1).split("/");
+  if (segments.some((s) => s === "" || s === "." || s === "..")) {
+    return {
+      error: "ui.path must not be /, or contain an empty, . or .. segment",
+    };
+  }
+  return { path: trimmed };
+}
+
+function resolveUiAuth(
+  auth: unknown,
+): { auth: ResolvedUiAuth | undefined } | { error: string } {
+  if (auth === undefined) return { auth: undefined };
+  if (auth === null || typeof auth !== "object") {
+    return { error: "ui.auth must be { token } or { authorize(request) }" };
+  }
+  const { token, authorize } = auth as {
+    token?: unknown;
+    authorize?: unknown;
+  };
+  if (token !== undefined && authorize !== undefined) {
+    return { error: "ui.auth must have token or authorize, not both" };
+  }
+  if (token !== undefined) {
+    if (typeof token !== "string" || token.length < MIN_UI_TOKEN_LENGTH) {
+      return {
+        error: `ui.auth.token must be a string of at least ${MIN_UI_TOKEN_LENGTH} characters`,
+      };
+    }
+    return {
+      auth: Object.freeze({ kind: "token", ...secretDigests("token", token) }),
+    };
+  }
+  if (authorize !== undefined) {
+    if (typeof authorize !== "function") {
+      return { error: "ui.auth.authorize must be a function" };
+    }
+    return {
+      auth: Object.freeze({
+        kind: "custom",
+        authorize: authorize as (request: unknown) => unknown,
+        thisArg: auth,
+      }),
+    };
+  }
+  return { error: "ui.auth must be { token } or { authorize(request) }" };
+}
+
+function uiOff(
+  reason: UiOffReason,
+  severity: "info" | "error",
+  message: string,
+): ResolvedUiOff {
+  return Object.freeze({ mode: "off", reason, severity, message });
+}
+
+function uiInvalid(error: string): ResolvedUiOff {
+  return uiOff(
+    "invalid",
+    "error",
+    `Nestrix dashboard: off. Invalid option: ${error}. The application starts without the dashboard.`,
+  );
+}
+
+/**
+ * The static half of the mode table. Never throws: a bad `ui` value turns the dashboard off with
+ * an error to log, and the application starts (architecture §4.7). `NODE_ENV` comes from `env`,
+ * the same object the module factory passes for every other variable.
+ */
+export function resolveUi(ui: unknown, env: Environment): ResolvedUi {
+  try {
+    return resolveUiUnguarded(ui, env);
+  } catch {
+    // A throwing getter or proxy on the option. The message names no option value.
+    return uiInvalid("ui could not be read");
+  }
+}
+
+function resolveUiUnguarded(ui: unknown, env: Environment): ResolvedUi {
+  if (ui === false) {
+    return uiOff("disabled", "info", "Nestrix dashboard: off (ui: false).");
+  }
+  let o: {
+    enabled?: unknown;
+    path?: unknown;
+    auth?: unknown;
+    startupToken?: unknown;
+  };
+  if (ui === undefined || ui === "auto") o = {};
+  else if (ui !== null && typeof ui === "object") o = ui;
+  else return uiInvalid("ui must be false, 'auto' or an object");
+
+  const enabled = o.enabled === undefined ? "auto" : o.enabled;
+  if (enabled === false) {
+    return uiOff(
+      "disabled",
+      "info",
+      "Nestrix dashboard: off (ui.enabled: false).",
+    );
+  }
+  if (enabled !== true && enabled !== "auto") {
+    return uiInvalid("ui.enabled must be true, false or 'auto'");
+  }
+
+  const path = resolveUiPath(o.path);
+  if ("error" in path) return uiInvalid(path.error);
+  const auth = resolveUiAuth(o.auth);
+  if ("error" in auth) return uiInvalid(auth.error);
+  const startupToken = o.startupToken === undefined ? true : o.startupToken;
+  if (typeof startupToken !== "boolean") {
+    return uiInvalid("ui.startupToken must be a boolean");
+  }
+
+  if (enabled === true) {
+    if (!auth.auth) {
+      return uiOff(
+        "missing-auth",
+        "error",
+        "Nestrix dashboard: off. ui.enabled is true but ui.auth is missing; set ui.auth to { token } (at least 32 characters) or { authorize(request) }. The application starts without the dashboard.",
+      );
+    }
+    return Object.freeze({ mode: "enabled", path: path.path, auth: auth.auth });
+  }
+
+  // 'auto': only `development` or unset. An empty string is set, and is not `development`.
+  const nodeEnv = env.NODE_ENV;
+  if (nodeEnv !== undefined && nodeEnv !== "development") {
+    return uiOff(
+      "node-env",
+      "info",
+      `Nestrix dashboard: off, because NODE_ENV is ${JSON.stringify(nodeEnv)} and ui is 'auto', which serves it only when NODE_ENV is development or unset. ui: { enabled: true, auth } serves it in any environment.`,
+    );
+  }
+  return Object.freeze({
+    mode: "auto",
+    path: path.path,
+    startupToken,
+    auth: auth.auth,
+  });
+}
+
 /**
  * Pure: options and an environment object in, fully defaulted and frozen options out.
  * Throws on invalid options; that is a startup error, not a request-path failure.
@@ -167,6 +398,13 @@ export function resolveOptions(
     );
   }
 
+  const store = {
+    maxTraces: o.store?.maxTraces ?? DEFAULT_STORE.maxTraces,
+    maxBytes: o.store?.maxBytes ?? DEFAULT_STORE.maxBytes,
+  };
+  checkPositiveInteger("store.maxTraces", store.maxTraces);
+  checkPositiveInteger("store.maxBytes", store.maxBytes);
+
   const enabled = o.enabled !== false && !isDisabledByEnv(env);
 
   const resolved: ResolvedOptions = {
@@ -189,6 +427,8 @@ export function resolveOptions(
     }),
     redact: o.redact,
     otelResourceAttributes: blank(env.OTEL_RESOURCE_ATTRIBUTES),
+    ui: resolveUi(o.ui, env),
+    store: Object.freeze(store),
   };
   return Object.freeze(resolved);
 }
