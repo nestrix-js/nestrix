@@ -8,6 +8,9 @@
       "path": "packages/nestjs"
     },
     {
+      "path": "packages/nestjs/test"
+    },
+    {
       "path": "packages/ui"
     },
     {
