@@ -1,0 +1,131 @@
+{
+  "environment": {
+    "node": "v26.13.0",
+    "platform": "darwin-arm64",
+    "cpus": "10 logical",
+    "date": "2026-11-11T11:32:26.461Z"
+  },
+  "settings": {
+    "repeats": 20,
+    "configs": [
+      "baseline",
+      "headless",
+      "headless-eager",
+      "dashboard"
+    ]
+  },
+  "stats": {
+    "baseline": {
+      "label": "uninstrumented",
+      "medianMs": 246.1,
+      "minMs": 238.9,
+      "maxMs": 248.9,
+      "samplesMs": [
+        246.6,
+        238.9,
+        246.5,
+        245.8,
+        247.3,
+        244.8,
+        243.1,
+        247.5,
+        246.4,
+        242.9,
+        248.9,
+        247.8,
+        244.9,
+        241.6,
+        243.7,
+        242.9,
+        247.7,
+        243.5,
+        247.3,
+        248.1
+      ]
+    },
+    "headless": {
+      "label": "Nestrix, dashboard off (ui: false), export off",
+      "medianMs": 278.8,
+      "minMs": 271.1,
+      "maxMs": 305.3,
+      "samplesMs": [
+        282.7,
+        279.5,
+        277.7,
+        279.5,
+        284.3,
+        272.6,
+        276.8,
+        273.2,
+        279.6,
+        305.3,
+        273.7,
+        279.3,
+        275.2,
+        275.4,
+        276.7,
+        281.8,
+        280,
+        280.8,
+        271.1,
+        278.3
+      ]
+    },
+    "headless-eager": {
+      "label": "headless plus an eager import of the OTLP exporter (before P2-14)",
+      "medianMs": 295.2,
+      "minMs": 288.6,
+      "maxMs": 300.8,
+      "samplesMs": [
+        292.7,
+        295.3,
+        300.7,
+        295.9,
+        292,
+        295.1,
+        294.8,
+        300.8,
+        295.5,
+        292.4,
+        293.5,
+        295.7,
+        295.2,
+        297.7,
+        293.6,
+        296.6,
+        288.6,
+        292.3,
+        292.5,
+        296
+      ]
+    },
+    "dashboard": {
+      "label": "Nestrix, dashboard on ('auto', NODE_ENV=development), export off",
+      "medianMs": 282.9,
+      "minMs": 272,
+      "maxMs": 288.8,
+      "samplesMs": [
+        284.7,
+        283.4,
+        278.9,
+        283.3,
+        282.5,
+        285,
+        285.4,
+        288.8,
+        281,
+        277,
+        277.1,
+        285.4,
+        287.2,
+        283.5,
+        279.4,
+        272,
+        279.2,
+        279.1,
+        284.9,
+        281.7
+      ]
+    }
+  }
+}

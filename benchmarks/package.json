@@ -12,8 +12,13 @@
     "bench:blackhole": "node src/throughput.mjs --configs=blackhole",
     "bench:upstream": "node src/throughput.mjs --configs=upstream",
     "bench:throughput": "node src/throughput.mjs",
+    "bench:dashboard": "node src/throughput.mjs --configs=headless,dashboard --duration=5 --runs=2 --name=dashboard-passA",
+    "bench:store-bytes": "node src/store-bytes.mjs",
+    "bench:dashboard-memory": "node src/dashboard-memory.mjs",
+    "bench:dashboard-micro": "node src/dashboard-micro.mjs",
     "bench:startup": "node src/startup.mjs",
     "bench:outage": "node src/outage.mjs",
+    "bench:memory": "node src/memory.mjs",
     "bench:install-size": "node src/install-size.mjs",
     "all": "node src/all.mjs",
     "smoke": "node src/all.mjs --smoke"

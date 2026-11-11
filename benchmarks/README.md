@@ -19,7 +19,11 @@ Results go to `results/<name>.json` (machine readable, with the raw runs and sam
 
 - `src/app.mjs`: the app, one fresh process per run. Routes `GET /hello` and `GET /users/:id` come from `examples/express-esm`'s `AppModule`. Nestrix configurations add `GET /spans`, which creates three spans with `withSpan`; it exists so the export queue is exercised before HTTP server spans exist, and should stay after they do (it adds a known span rate).
 - `src/sink.mjs`: the OTLP endpoint stand-in, a separate process. `sink` answers 200; `blackhole` accepts the request and never answers.
-- Configurations: `baseline` (no Nestrix), `noexport` (`forRoot()`, no endpoint), `sink`, `unreachable` (closed port), `blackhole`, `upstream` (OpenTelemetry's `auto-instrumentations-node`, loaded with `node --import .../register`).
+- Configurations: `baseline` (no Nestrix), `headless` (`ui: false`, no export) and `dashboard` (`ui: 'auto'` with `NODE_ENV=development`, no export), which differ only in the dashboard (P2-12; `results/dashboard.md`), `headless-eager` (headless plus an eager import of the OTLP exporter, the cost before P2-14), `noexport` (`forRoot()` with no endpoint and the default `ui: 'auto'`, so it has the dashboard on whenever `NODE_ENV` is unset or `development`), `sink`, `unreachable` (closed port), `blackhole`, `upstream` (OpenTelemetry's `auto-instrumentations-node`, loaded with `node --import .../register`).
 - `upstream` is installed on first use into `node_modules/.cache/upstream` (network needed), not into the workspace: adding it to the workspace lockfile changed how `@nestjs/microservices` peers resolve in other packages.
 - Load: autocannon, in the parent process. Latency is recorded per response at 10 µs resolution (autocannon's own histogram rounds to milliseconds).
 - CPU is the app's `process.cpuUsage()` over each route's run; RSS is read from `ps` outside the process.
+
+## Dashboard (P2-12)
+
+`pnpm --filter benchmarks run bench:store-bytes | bench:dashboard | bench:dashboard-memory | bench:dashboard-micro`. Each takes under a minute at its defaults, except `bench:dashboard`, which is about 75 s per pass; `results/dashboard.md` has the commands that produced its numbers. Run them one at a time on an otherwise idle machine. The dashboard UI is not open during these runs (its polling would add requests).

@@ -1,3 +1,5 @@
+> The dashboard's cost (store processor, route statistics), the store's bytes per trace and default limits, and the lazy OTLP exporter's saving (P2-12, P2-14) are in `dashboard.md`; its throughput numbers include HTTP server spans and are not comparable with the table below.
+
 > **Throughput and latency below were measured before HTTP server spans existed** (earlier in P1-13, with `noexport`/`sink`/... only creating the `withSpan` spans of `/spans`). They are not re-run and do not show the cost of HTTP server spans. Startup, install size and the outage run below are from current main (HTTP server spans, outbound spans, single-flight export).
 
 # Throughput and latency

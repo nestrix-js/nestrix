@@ -96,6 +96,7 @@ export async function runThroughput(args) {
           ),
           rssMb: round((await up.app.rssKb()) / 1024, 1),
           counters: after.counters,
+          store: after.store,
         };
       }
       const end = await up.finish();

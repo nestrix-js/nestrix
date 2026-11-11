@@ -1,0 +1,175 @@
+{
+  "environment": {
+    "node": "v26.13.0",
+    "platform": "darwin-arm64",
+    "cpus": "10 logical",
+    "date": "2026-11-11T11:26:46.482Z"
+  },
+  "settings": {
+    "repeats": 3
+  },
+  "fillAtDefaultLimits": {
+    "1": {
+      "label": "server span only",
+      "tracesFed": 20200,
+      "storedTraces": 5000,
+      "evictedTraces": 15200,
+      "estimateMiB": 7.3,
+      "heapGrowthMiB": 7
+    },
+    "2": {
+      "label": "server + 5 client spans",
+      "tracesFed": 20200,
+      "storedTraces": 5000,
+      "evictedTraces": 15200,
+      "estimateMiB": 23.2,
+      "heapGrowthMiB": 19.5
+    },
+    "3": {
+      "label": "server + 50 spans, attributes, exception event",
+      "tracesFed": 3200,
+      "storedTraces": 1052,
+      "evictedTraces": 2148,
+      "estimateMiB": 32,
+      "heapGrowthMiB": 28.1
+    }
+  },
+  "wallSeconds": 5.8,
+  "shapes": {
+    "1": {
+      "label": "server span only",
+      "spansPerTrace": 1,
+      "heapBytesPerTrace": 1358,
+      "estimateBytesPerTrace": 1523,
+      "estimateOverHeap": 1.12,
+      "runs": [
+        {
+          "storedTraces": 4200,
+          "evictedTraces": 0,
+          "storedBytesEstimate": 6395554,
+          "traces": 4000,
+          "spans": 4000,
+          "heapBytes": 5431600,
+          "estimatedBytes": 6090890,
+          "heapPerTrace": 1357.9,
+          "estimatePerTrace": 1522.7225,
+          "spansPerTrace": 1
+        },
+        {
+          "storedTraces": 4200,
+          "evictedTraces": 0,
+          "storedBytesEstimate": 6395554,
+          "traces": 4000,
+          "spans": 4000,
+          "heapBytes": 5433400,
+          "estimatedBytes": 6090890,
+          "heapPerTrace": 1358.35,
+          "estimatePerTrace": 1522.7225,
+          "spansPerTrace": 1
+        },
+        {
+          "storedTraces": 4200,
+          "evictedTraces": 0,
+          "storedBytesEstimate": 6395554,
+          "traces": 4000,
+          "spans": 4000,
+          "heapBytes": 5431360,
+          "estimatedBytes": 6090890,
+          "heapPerTrace": 1357.84,
+          "estimatePerTrace": 1522.7225,
+          "spansPerTrace": 1
+        }
+      ]
+    },
+    "2": {
+      "label": "server + 5 client spans",
+      "spansPerTrace": 6,
+      "heapBytesPerTrace": 3972,
+      "estimateBytesPerTrace": 4852,
+      "estimateOverHeap": 1.22,
+      "runs": [
+        {
+          "storedTraces": 2200,
+          "evictedTraces": 0,
+          "storedBytesEstimate": 10673864,
+          "traces": 2000,
+          "spans": 12000,
+          "heapBytes": 7944680,
+          "estimatedBytes": 9703340,
+          "heapPerTrace": 3972.34,
+          "estimatePerTrace": 4851.67,
+          "spansPerTrace": 6
+        },
+        {
+          "storedTraces": 2200,
+          "evictedTraces": 0,
+          "storedBytesEstimate": 10673864,
+          "traces": 2000,
+          "spans": 12000,
+          "heapBytes": 7944176,
+          "estimatedBytes": 9703340,
+          "heapPerTrace": 3972.088,
+          "estimatePerTrace": 4851.67,
+          "spansPerTrace": 6
+        },
+        {
+          "storedTraces": 2200,
+          "evictedTraces": 0,
+          "storedBytesEstimate": 10673864,
+          "traces": 2000,
+          "spans": 12000,
+          "heapBytes": 7947760,
+          "estimatedBytes": 9703340,
+          "heapPerTrace": 3973.88,
+          "estimatePerTrace": 4851.67,
+          "spansPerTrace": 6
+        }
+      ]
+    },
+    "3": {
+      "label": "server + 50 spans, attributes, exception event",
+      "spansPerTrace": 51,
+      "heapBytesPerTrace": 27798,
+      "estimateBytesPerTrace": 31846,
+      "estimateOverHeap": 1.15,
+      "runs": [
+        {
+          "storedTraces": 700,
+          "evictedTraces": 0,
+          "storedBytesEstimate": 22297342,
+          "traces": 500,
+          "spans": 25500,
+          "heapBytes": 13899280,
+          "estimatedBytes": 15923150,
+          "heapPerTrace": 27798.56,
+          "estimatePerTrace": 31846.3,
+          "spansPerTrace": 51
+        },
+        {
+          "storedTraces": 700,
+          "evictedTraces": 0,
+          "storedBytesEstimate": 22297342,
+          "traces": 500,
+          "spans": 25500,
+          "heapBytes": 13898496,
+          "estimatedBytes": 15923150,
+          "heapPerTrace": 27796.992,
+          "estimatePerTrace": 31846.3,
+          "spansPerTrace": 51
+        },
+        {
+          "storedTraces": 700,
+          "evictedTraces": 0,
+          "storedBytesEstimate": 22297342,
+          "traces": 500,
+          "spans": 25500,
+          "heapBytes": 13898920,
+          "estimatedBytes": 15923150,
+          "heapPerTrace": 27797.84,
+          "estimatePerTrace": 31846.3,
+          "spansPerTrace": 51
+        }
+      ]
+    }
+  }
+}
