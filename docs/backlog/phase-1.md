@@ -14,8 +14,8 @@ Update this table as work moves. One line of notes at most; detail goes in the t
 | P1-03 | OpenTelemetry setup and export pipeline | opus | P1-01 | done | 39 otel tests; reviewed, 7 fixes (async redact, linger after close, refcount, diag line, status.message). SDK 3.1.1 lets up to 30 exports overlap in an outage: documented bound. |
 | P1-04 | Privacy helpers | sonnet | P1-00 | done | 61 tests; reviewed (no leaks found), test gaps, speed and `//authority` hardening fixed. A target starting with `//` loses its first segment in `splitUrl`. |
 | P1-05 | `Span` and `withSpan` | sonnet | P1-01 | done | 40 tests; reviewed, 3 fixes applied; fire-and-forget promise case accepted and documented in architecture §4.3. |
-| P1-06 | HTTP server spans | opus | P1-02, P1-03, P1-04 | doing | review required |
-| P1-07 | Handler attribution and exceptions | opus | P1-06 | todo | review required; same agent as P1-06 |
+| P1-06 | HTTP server spans | opus | P1-02, P1-03, P1-04 | done | Abort signal `req.socket.destroyed` verified on 22.15/24.16/26.13; 404 rule run per adapter; platform-node response headers via `writeHead` invisible (limit). Reviewed (nothing blocking); doc and test fixes applied. |
+| P1-07 | Handler attribution and exceptions | opus | P1-06 | done | `APP_INTERCEPTOR`; status at `close`; `uncaughtExceptionMonitor` only, child-process exit unchanged. Reviewed (nothing blocking); doc and test fixes applied. |
 | P1-08 | Outbound `node:http` spans and the shared outbound rules | opus | P1-02, P1-03, P1-04 | doing | review required |
 | P1-09 | Outbound fetch/undici spans | opus | P1-08 | todo | review required; same agent as P1-08 |
 | P1-10 | Conformance suite | sonnet | P1-07, P1-09 | todo | |
