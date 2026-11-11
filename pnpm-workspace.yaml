@@ -5,9 +5,12 @@ packages:
   - spikes/*
   - benchmarks
   - e2e
+  - docs-site
 # D-51: fail an install that needs a too-new release instead of pnpm adding minimumReleaseAgeExclude entries itself.
 minimumReleaseAgeStrict: true
 allowBuilds:
+  # docs-site (VitePress): esbuild resolves its platform binary without the postinstall.
+  esbuild: false
   "@parcel/watcher": false
   "@swc/core": false
   # Optional native accelerator pulled in by bullmq (spikes/p0-s6); msgpackr falls back to pure JS.

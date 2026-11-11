@@ -17,7 +17,9 @@
       "!apps/server/test/ingest/fixtures/*.json",
       "!**/*.tsbuildinfo",
       "!**/*.md",
-      "!pnpm-lock.yaml"
+      "!pnpm-lock.yaml",
+      "!docs-site/.vitepress/cache",
+      "!docs-site/.vitepress/dist"
     ]
   },
   "formatter": {
