@@ -19,11 +19,20 @@ export const columnLabels: Record<string, string> = {
   duration: "Duration",
   spans: "Spans",
   error: "Error",
+  release: "Release",
+  user: "User",
 };
+
+const textOrDash = (value: string | undefined) =>
+  value ? (
+    <span className="font-mono">{value}</span>
+  ) : (
+    <span className="text-muted-foreground">-</span>
+  );
 
 // Ids `method`, `route` and `status` are the URL parameter names: the table's filter state
 // is keyed by them, and the server does the filtering.
-export const columns = helper.columns([
+const allColumns = helper.columns([
   helper.accessor("startTimeUnixMs", {
     id: "time",
     header: ({ column }) => (
@@ -125,4 +134,36 @@ export const columns = helper.columns([
         <span className="text-muted-foreground">-</span>
       ),
   }),
+  helper.accessor((row) => row.release, {
+    id: "release",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Release" />
+    ),
+    enableSorting: false,
+    enableColumnFilter: false,
+    cell: (info) => textOrDash(info.getValue()),
+  }),
+  helper.accessor((row) => row.user, {
+    id: "user",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="User" />
+    ),
+    enableSorting: false,
+    enableColumnFilter: false,
+    cell: (info) => textOrDash(info.getValue()),
+  }),
 ]);
+
+/** The release and user columns exist only while some listed trace has the value. */
+export function columnsFor(
+  hasRelease: boolean,
+  hasUser: boolean,
+): (typeof allColumns)[number][] {
+  const out: (typeof allColumns)[number][] = [];
+  for (const column of allColumns) {
+    if (column.id === "release" && !hasRelease) continue;
+    if (column.id === "user" && !hasUser) continue;
+    out.push(column);
+  }
+  return out;
+}

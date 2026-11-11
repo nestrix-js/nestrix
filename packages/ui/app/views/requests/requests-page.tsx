@@ -14,10 +14,16 @@ import { Button } from "@/components/ui/button";
 import { getRoutes, getTraces, type QueryParams } from "@/lib/api";
 import { type RequestFilters, requestFilterParsers } from "@/lib/params";
 import { useCursorList } from "@/lib/use-cursor-list";
-import { columnLabels, columns } from "@/views/requests/columns";
+import { columnLabels, columnsFor } from "@/views/requests/columns";
 import { DebouncedInput } from "@/views/requests/debounced-input";
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+const TYPES = [
+  { label: "All", value: "" },
+  { label: "HTTP", value: "http" },
+  { label: "Jobs", value: "job" },
+  { label: "Scheduled", value: "scheduled" },
+];
 const STATUSES = [
   { label: "ok", value: "ok" },
   { label: "error", value: "error" },
@@ -72,6 +78,13 @@ export function RequestsPage() {
         filters[id] === null ? [] : [{ id, value: filters[id] }],
       ),
     [filters],
+  );
+
+  const hasRelease = list.items.some((i) => i.release);
+  const hasUser = list.items.some((i) => i.user);
+  const columns = useMemo(
+    () => columnsFor(hasRelease, hasUser),
+    [hasRelease, hasUser],
   );
 
   const table = useTable({
@@ -132,6 +145,38 @@ export function RequestsPage() {
         title="Status"
         options={STATUSES}
       />
+      <select
+        aria-label="Type"
+        data-testid="type-filter"
+        className="h-7 rounded-lg border border-border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+        value={filters.type ?? ""}
+        onChange={(e) => {
+          const type = TYPES.find((t) => t.value === e.target.value)?.value;
+          void setFilters({
+            type: type ? (type as RequestFilters["type"]) : null,
+          });
+        }}
+      >
+        {TYPES.map((t) => (
+          <option key={t.value} value={t.value}>
+            {t.value === "" ? "Type: All" : t.label}
+          </option>
+        ))}
+      </select>
+      <DebouncedInput
+        aria-label="Release"
+        placeholder="Release"
+        className="h-7 w-28"
+        value={filters.release ?? ""}
+        onCommit={(v) => void setFilters({ release: v === "" ? null : v })}
+      />
+      <DebouncedInput
+        aria-label="User"
+        placeholder="User"
+        className="h-7 w-28"
+        value={filters.user ?? ""}
+        onCommit={(v) => void setFilters({ user: v === "" ? null : v })}
+      />
       <DebouncedInput
         aria-label="Minimum duration (ms)"
         placeholder="Min ms"
@@ -168,7 +213,7 @@ export function RequestsPage() {
       {list.status === "loading" && (
         <>
           {toolbar}
-          <DataTableSkeleton columnCount={columns.length} />
+          <DataTableSkeleton columnCount={7} />
         </>
       )}
       {list.status === "error" && (
