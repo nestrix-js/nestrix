@@ -22,7 +22,7 @@ Update this table as work moves. One line of notes at most; detail goes in the t
 | P1-11 | CI matrix and nightly | sonnet | P1-10 | todo | |
 | P1-12 | Jaeger example, two services | sonnet | P1-09 | doing | |
 | P1-13 | Benchmarks: baseline, exporter outage, install size, startup | sonnet | P1-09 | doing | |
-| P1-14 | CommonJS decorated-class check | haiku | P1-02 | doing | Left open by P0-S4 |
+| P1-14 | CommonJS decorated-class check | haiku | P1-02 | done | Consume fixtures boot `forRoot` and read the injected options in CJS (Node 22.15, 26) and ESM apps. |
 | P1-15 | User documentation | sonnet | P1-07, P1-09, P1-13 | todo | |
 | P1-16 | Phase report | lead | all | todo | |
 
