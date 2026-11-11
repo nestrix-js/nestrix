@@ -152,7 +152,7 @@ describe("createRedactingExporter (fault injection)", () => {
     return { got, cb: (r: ExportResult) => got.push(r) };
   }
 
-  it("a synchronous throw from the inner exporter fails the batch once", () => {
+  it("a synchronous throw from the inner exporter fails the batch once (counted; the processor is answered SUCCESS)", () => {
     const d = recordingDiagnostics();
     const c = counters();
     const exporter = createRedactingExporter(
@@ -167,7 +167,9 @@ describe("createRedactingExporter (fault injection)", () => {
     const { got, cb } = results();
     exporter.export([fakeSpan], cb);
     expect(got).toHaveLength(1);
-    expect(got[0]?.code).toBe(ExportResultCode.FAILED);
+    // The batch processor is never told an export failed (redacting-exporter.ts).
+    expect(got[0]?.code).toBe(ExportResultCode.SUCCESS);
+    expect(c.exportFailedSpans).toBe(1);
     expect(d.failures[0]?.where).toBe("otel.exporter.export");
   });
 

@@ -190,6 +190,12 @@ Server span name: `METHOD /route/template`, or `METHOD` when there is no route. 
 
 **Do.** The `benchmarks/` workspace from architecture §4.9, minus the dashboard configuration (phase 2): the fixture app uninstrumented, headless with a local OTLP sink, and headless with the endpoint unreachable. Upstream auto-instrumentation as a fourth configuration if it runs on Nest 12 with its documented loader flags; if it does not, say so in the results. Record p50/p99 latency, throughput, CPU, RSS and startup time. The outage run: ten minutes under load, RSS sampled every few seconds; it passes when RSS growth after the first minute stays within a bound derived from the configured queue size (derive and state it) and p99 is within 5% of the reachable run. Measure install size (`du` of a fresh install of the packed tarball with production dependencies) and added startup time.
 
+**Outage pass criterion (decided by the lead after the first run; replaces "RSS growth after minute 1 within a queue-derived bound").** The current metric, peak RSS minus one sample after minute 1, is noise-dominated: the healthy control scores 20.7 MB on it in the benchmark, and RSS moves in steps of tens of MB as the allocator returns pages (in all six probe runs, healthy included, RSS fell by 18 to 33 MB in one step between seconds 46 and 76). Proposal, all three measured from minute 1 to the end, with a forced GC before each heap sample:
+  1. Heap plateau: the median of heap-after-GC is at most the healthy control's median plus a queue-derived allowance, `(maxQueueSize + 2 × maxExportBatchSize) × B_span + maxExportBatchSize × B_wire`, with `B_span` and `B_wire` measured once in the same benchmark (the benchmark's 865 B heap per span and 355 B on the wire per span), plus a fixed margin of 5 MB.
+  2. No heap trend: the least-squares slope of heap-after-GC is below 0.5 MB/min, which over ten minutes is less than the allowance in 1.
+  3. No RSS trend: the least-squares slope of RSS is at most the healthy control's slope plus 1 MB/min. A slope uses every sample, so one allocator step barely moves it, while a real leak of the size seen before this change (+9.6 MB/min) fails it plainly.
+  Plus a functional check that needs no memory number: the collector never sees more than 2 open connections before shutdown starts.
+
 **Done when.** `pnpm --filter benchmarks run` produces a results file; the outage criterion is evaluated and reported with its numbers; install size and startup cost are in the report for P1-15.
 
 ### P1-14 CommonJS decorated-class check
