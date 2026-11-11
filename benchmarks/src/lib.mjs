@@ -373,7 +373,25 @@ export const CONFIGS = {
     label: "uninstrumented plus a no-op global interceptor",
     nestrix: false,
   },
+  // `noexport` predates the dashboard: it is `forRoot()` with the default `ui: 'auto'`, which is on
+  // when NODE_ENV is unset. Use `headless` and `dashboard` to compare with and without it.
   noexport: { label: "Nestrix, no endpoint (nothing exported)", nestrix: true },
+  headless: {
+    label: "Nestrix, dashboard off (ui: false), export off",
+    nestrix: true,
+    env: { NODE_ENV: "development" },
+  },
+  dashboard: {
+    label: "Nestrix, dashboard on ('auto', NODE_ENV=development), export off",
+    nestrix: true,
+    env: { NODE_ENV: "development" },
+  },
+  // headless with the OTLP exporter module forced in at startup: the "before P2-14" cost.
+  "headless-eager": {
+    label: "headless plus an eager import of the OTLP exporter (before P2-14)",
+    nestrix: true,
+    env: { NODE_ENV: "development", BENCH_EAGER_EXPORTER: "1" },
+  },
   sink: { label: "Nestrix, local OTLP sink", nestrix: true, sink: "sink" },
   unreachable: {
     label: "Nestrix, endpoint refuses connections",
@@ -427,7 +445,7 @@ export async function bringUp(config, { queueSize, execArgv } = {}) {
           OTEL_METRICS_EXPORTER: "none",
           OTEL_LOGS_EXPORTER: "none",
         }
-      : {},
+      : { ...spec.env },
   });
   return {
     app,

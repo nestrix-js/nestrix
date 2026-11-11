@@ -1,0 +1,530 @@
+{
+  "environment": {
+    "node": "v26.13.0",
+    "platform": "darwin-arm64",
+    "cpus": "10 logical",
+    "date": "2026-11-11T11:28:56.643Z"
+  },
+  "settings": {
+    "duration": 5,
+    "runs": 2,
+    "connections": 64,
+    "warmup": 2,
+    "configs": [
+      "dashboard",
+      "headless"
+    ]
+  },
+  "configs": {
+    "dashboard": {
+      "label": "Nestrix, dashboard on ('auto', NODE_ENV=development), export off",
+      "startupMs": 283,
+      "summary": {
+        "GET /hello": {
+          "p50Ms": 2.61,
+          "p99Ms": 3.72,
+          "requestsPerSec": 23831,
+          "cpuPercentOfOneCore": 108.1,
+          "rssMb": 324.3,
+          "errors": 0
+        },
+        "GET /users/:id": {
+          "p50Ms": 2.715,
+          "p99Ms": 3.9,
+          "requestsPerSec": 22855,
+          "cpuPercentOfOneCore": 107.8,
+          "rssMb": 300.9,
+          "errors": 0
+        },
+        "GET /spans (3 manual spans)": {
+          "p50Ms": 3.08,
+          "p99Ms": 4.46,
+          "requestsPerSec": 19978,
+          "cpuPercentOfOneCore": 110.1,
+          "rssMb": 342.2,
+          "errors": 0
+        }
+      },
+      "runs": [
+        {
+          "startupMs": 286.1,
+          "routes": {
+            "GET /hello": {
+              "requests": 118223,
+              "requestsPerSec": 23644.6,
+              "seconds": 5,
+              "latencyMs": {
+                "mean": 2.706,
+                "p50": 2.63,
+                "p90": 3.16,
+                "p99": 3.74,
+                "p999": 8.66,
+                "max": 109.792
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 108.5,
+              "cpuMsPerRequest": 0.0459,
+              "rssMb": 319.6,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              },
+              "store": {
+                "traces": 5000,
+                "listedTraces": 5000,
+                "spans": 5000,
+                "errorItems": 0,
+                "bytes": 6760000,
+                "maxTraces": 5000,
+                "maxBytes": 33554432,
+                "evictedTraces": 152660,
+                "droppedSpans": 0,
+                "queueDroppedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0,
+                "invalidSpans": 0,
+                "oversizeSpans": 0,
+                "receivedSpans": 196945,
+                "processors": 0,
+                "attached": 1
+              }
+            },
+            "GET /users/:id": {
+              "requests": 113345,
+              "requestsPerSec": 22623.8,
+              "seconds": 5.01,
+              "latencyMs": {
+                "mean": 2.823,
+                "p50": 2.75,
+                "p90": 3.27,
+                "p99": 3.96,
+                "p999": 8.48,
+                "max": 93.042
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 107,
+              "cpuMsPerRequest": 0.0473,
+              "rssMb": 293,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              },
+              "store": {
+                "traces": 5000,
+                "listedTraces": 5000,
+                "spans": 5000,
+                "errorItems": 0,
+                "bytes": 6850000,
+                "maxTraces": 5000,
+                "maxBytes": 33554432,
+                "evictedTraces": 266069,
+                "droppedSpans": 0,
+                "queueDroppedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0,
+                "invalidSpans": 0,
+                "oversizeSpans": 0,
+                "receivedSpans": 310354,
+                "processors": 0,
+                "attached": 1
+              }
+            },
+            "GET /spans (3 manual spans)": {
+              "requests": 99765,
+              "requestsPerSec": 19913.2,
+              "seconds": 5.01,
+              "latencyMs": {
+                "mean": 3.207,
+                "p50": 3.09,
+                "p90": 3.78,
+                "p99": 4.4,
+                "p999": 11.13,
+                "max": 104.883
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 110,
+              "cpuMsPerRequest": 0.0553,
+              "rssMb": 341.1,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              },
+              "store": {
+                "traces": 5000,
+                "listedTraces": 5000,
+                "spans": 20000,
+                "errorItems": 0,
+                "bytes": 12570000,
+                "maxTraces": 5000,
+                "maxBytes": 33554432,
+                "evictedTraces": 365897,
+                "droppedSpans": 0,
+                "queueDroppedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0,
+                "invalidSpans": 0,
+                "oversizeSpans": 0,
+                "receivedSpans": 709666,
+                "processors": 0,
+                "attached": 1
+              }
+            }
+          }
+        },
+        {
+          "startupMs": 279.9,
+          "routes": {
+            "GET /hello": {
+              "requests": 120326,
+              "requestsPerSec": 24017.2,
+              "seconds": 5.01,
+              "latencyMs": {
+                "mean": 2.659,
+                "p50": 2.59,
+                "p90": 3.1,
+                "p99": 3.7,
+                "p999": 8.9,
+                "max": 95.916
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 107.6,
+              "cpuMsPerRequest": 0.0448,
+              "rssMb": 329,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              },
+              "store": {
+                "traces": 5000,
+                "listedTraces": 5000,
+                "spans": 5000,
+                "errorItems": 0,
+                "bytes": 6760000,
+                "maxTraces": 5000,
+                "maxBytes": 33554432,
+                "evictedTraces": 155290,
+                "droppedSpans": 0,
+                "queueDroppedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0,
+                "invalidSpans": 0,
+                "oversizeSpans": 0,
+                "receivedSpans": 200139,
+                "processors": 0,
+                "attached": 1
+              }
+            },
+            "GET /users/:id": {
+              "requests": 115662,
+              "requestsPerSec": 23086.2,
+              "seconds": 5.01,
+              "latencyMs": {
+                "mean": 2.767,
+                "p50": 2.68,
+                "p90": 3.23,
+                "p99": 3.84,
+                "p999": 9.93,
+                "max": 79.314
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 108.5,
+              "cpuMsPerRequest": 0.047,
+              "rssMb": 308.7,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              },
+              "store": {
+                "traces": 5000,
+                "listedTraces": 5000,
+                "spans": 5000,
+                "errorItems": 0,
+                "bytes": 6850000,
+                "maxTraces": 5000,
+                "maxBytes": 33554432,
+                "evictedTraces": 271021,
+                "droppedSpans": 0,
+                "queueDroppedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0,
+                "invalidSpans": 0,
+                "oversizeSpans": 0,
+                "receivedSpans": 315870,
+                "processors": 0,
+                "attached": 1
+              }
+            },
+            "GET /spans (3 manual spans)": {
+              "requests": 100418,
+              "requestsPerSec": 20043.5,
+              "seconds": 5.01,
+              "latencyMs": {
+                "mean": 3.186,
+                "p50": 3.07,
+                "p90": 3.73,
+                "p99": 4.52,
+                "p999": 10.96,
+                "max": 108.531
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 110.1,
+              "cpuMsPerRequest": 0.0549,
+              "rssMb": 343.2,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              },
+              "store": {
+                "traces": 5000,
+                "listedTraces": 5000,
+                "spans": 20000,
+                "errorItems": 0,
+                "bytes": 12570000,
+                "maxTraces": 5000,
+                "maxBytes": 33554432,
+                "evictedTraces": 371482,
+                "droppedSpans": 0,
+                "queueDroppedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0,
+                "invalidSpans": 0,
+                "oversizeSpans": 0,
+                "receivedSpans": 717714,
+                "processors": 0,
+                "attached": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "headless": {
+      "label": "Nestrix, dashboard off (ui: false), export off",
+      "startupMs": 278.6,
+      "summary": {
+        "GET /hello": {
+          "p50Ms": 2.19,
+          "p99Ms": 4.345,
+          "requestsPerSec": 27925,
+          "cpuPercentOfOneCore": 103.3,
+          "rssMb": 277.4,
+          "errors": 0
+        },
+        "GET /users/:id": {
+          "p50Ms": 2.28,
+          "p99Ms": 4.51,
+          "requestsPerSec": 26960,
+          "cpuPercentOfOneCore": 103.1,
+          "rssMb": 252,
+          "errors": 0
+        },
+        "GET /spans (3 manual spans)": {
+          "p50Ms": 2.425,
+          "p99Ms": 4.82,
+          "requestsPerSec": 25219,
+          "cpuPercentOfOneCore": 104.6,
+          "rssMb": 273.6,
+          "errors": 0
+        }
+      },
+      "runs": [
+        {
+          "startupMs": 278.3,
+          "routes": {
+            "GET /hello": {
+              "requests": 138906,
+              "requestsPerSec": 27725.7,
+              "seconds": 5.01,
+              "latencyMs": {
+                "mean": 2.303,
+                "p50": 2.2,
+                "p90": 2.72,
+                "p99": 4.39,
+                "p999": 7.42,
+                "max": 64.462
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 103.1,
+              "cpuMsPerRequest": 0.0372,
+              "rssMb": 277.5,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /users/:id": {
+              "requests": 134634,
+              "requestsPerSec": 26873.1,
+              "seconds": 5.01,
+              "latencyMs": {
+                "mean": 2.376,
+                "p50": 2.29,
+                "p90": 2.78,
+                "p99": 4.53,
+                "p999": 5.32,
+                "max": 63.863
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 103.1,
+              "cpuMsPerRequest": 0.0384,
+              "rssMb": 272.5,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /spans (3 manual spans)": {
+              "requests": 126483,
+              "requestsPerSec": 25246.1,
+              "seconds": 5.01,
+              "latencyMs": {
+                "mean": 2.529,
+                "p50": 2.43,
+                "p90": 2.97,
+                "p99": 4.8,
+                "p999": 5.77,
+                "max": 88.292
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 104.3,
+              "cpuMsPerRequest": 0.0413,
+              "rssMb": 273.3,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            }
+          }
+        },
+        {
+          "startupMs": 278.9,
+          "routes": {
+            "GET /hello": {
+              "requests": 140901,
+              "requestsPerSec": 28124,
+              "seconds": 5.01,
+              "latencyMs": {
+                "mean": 2.271,
+                "p50": 2.18,
+                "p90": 2.69,
+                "p99": 4.3,
+                "p999": 5.04,
+                "max": 69.972
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 103.4,
+              "cpuMsPerRequest": 0.0368,
+              "rssMb": 277.3,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /users/:id": {
+              "requests": 135509,
+              "requestsPerSec": 27047.7,
+              "seconds": 5.01,
+              "latencyMs": {
+                "mean": 2.361,
+                "p50": 2.27,
+                "p90": 2.77,
+                "p99": 4.49,
+                "p999": 5.26,
+                "max": 67.379
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 103.1,
+              "cpuMsPerRequest": 0.0381,
+              "rssMb": 231.4,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            },
+            "GET /spans (3 manual spans)": {
+              "requests": 126208,
+              "requestsPerSec": 25191.2,
+              "seconds": 5.01,
+              "latencyMs": {
+                "mean": 2.535,
+                "p50": 2.42,
+                "p90": 2.96,
+                "p99": 4.84,
+                "p999": 8.33,
+                "max": 87.189
+              },
+              "errors": 0,
+              "timeouts": 0,
+              "non2xx": 0,
+              "cpuPercentOfOneCore": 104.8,
+              "cpuMsPerRequest": 0.0416,
+              "rssMb": 273.9,
+              "counters": {
+                "droppedSpans": 0,
+                "exportedSpans": 0,
+                "exportFailedSpans": 0,
+                "redactDroppedSpans": 0,
+                "redactFailedSpans": 0
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -30,16 +30,36 @@ subscribe("net.client.socket", (message) => {
   }
 });
 
+// Young-generation collections (kind minor = scavenge), counted only when BENCH_GC_COUNT=1 (P2-15).
+const gcCounts = { scavenges: 0, major: 0 };
+if (process.env.BENCH_GC_COUNT === "1") {
+  const { PerformanceObserver, constants } = await import("node:perf_hooks");
+  new PerformanceObserver((list) => {
+    for (const e of list.getEntries()) {
+      if (e.detail?.kind === constants.NODE_PERFORMANCE_GC_MINOR)
+        gcCounts.scavenges++;
+      else gcCounts.major++;
+    }
+  }).observe({ entryTypes: ["gc"] });
+}
+
 const config = process.env.BENCH_CONFIG ?? "baseline";
 const port = Number(process.env.PORT ?? 3000);
-const usesNestrix = ["noexport", "sink", "unreachable", "blackhole"].includes(
-  config,
-);
+const usesNestrix = [
+  "noexport",
+  "headless",
+  "dashboard",
+  "headless-eager",
+  "sink",
+  "unreachable",
+  "blackhole",
+].includes(config);
 
 const { AppModule } = await import("express-esm/app.module");
 const imports = [AppModule];
 const controllers = [];
 let core;
+let storeModule;
 
 if (usesNestrix) {
   const { NestrixModule, withSpan } = await import("@nestrix/nestjs");
@@ -52,13 +72,37 @@ if (usesNestrix) {
     core = undefined;
   }
   const options = {};
-  if (config !== "noexport") {
+  // `headless` and `dashboard` differ only in `ui`; neither exports.
+  if (config === "headless" || config === "headless-eager") options.ui = false;
+  if (config === "dashboard") options.ui = "auto";
+  // "Before P2-14": load the exporter graph at startup, as the pipeline did before it became lazy.
+  if (process.env.BENCH_EAGER_EXPORTER) {
+    // Not a dependency of this package: resolve it as @nestrix/nestjs does, and take the same ESM
+    // entry its dynamic import gets (require.resolve returns the .cjs sibling).
+    const { createRequire } = await import("node:module");
+    const { fileURLToPath, pathToFileURL } = await import("node:url");
+    const cjs = createRequire(
+      fileURLToPath(import.meta.resolve("@nestrix/nestjs")),
+    ).resolve("@opentelemetry/exporter-trace-otlp-http");
+    await import(pathToFileURL(cjs.replace(/index\.cjs$/, "index.mjs")).href);
+  }
+  if (
+    !["noexport", "headless", "dashboard", "headless-eager"].includes(config)
+  ) {
     options.export = { otlp: { endpoint: process.env.BENCH_ENDPOINT } };
     if (process.env.BENCH_QUEUE_SIZE) {
       options.export.queue = {
         maxQueueSize: Number(process.env.BENCH_QUEUE_SIZE),
       };
     }
+  }
+  // The dashboard's store is internal; read its counters from the built package, as above.
+  try {
+    storeModule = await import(
+      new URL("store/index.js", import.meta.resolve("@nestrix/nestjs")).href
+    );
+  } catch {
+    storeModule = undefined;
   }
   imports.push(NestrixModule.forRoot(options));
 
@@ -122,6 +166,7 @@ function snapshot(withGc) {
     heapUsed: mem.heapUsed,
     heapTotal: mem.heapTotal,
     allocatedBytes: getHeapStatistics().total_allocated_bytes,
+    gc: { ...gcCounts },
     modules: globalThis.__benchLoadedModules?.size,
     spaces: Object.fromEntries(
       getHeapSpaceStatistics().map((s) => [
@@ -132,6 +177,7 @@ function snapshot(withGc) {
     external: mem.external,
     arrayBuffers: mem.arrayBuffers,
     counters,
+    store: storeModule?.getStore()?.stats(),
     connections: { ...conn },
   };
 }

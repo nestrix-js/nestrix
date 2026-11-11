@@ -1,0 +1,42 @@
+{
+  "environment": {
+    "node": "v26.13.0",
+    "platform": "darwin-arm64",
+    "cpus": "10 logical",
+    "date": "2026-11-11T11:32:49.657Z"
+  },
+  "settings": {
+    "duration": 3
+  },
+  "rows": {
+    "headless": {
+      "idleRssMb": 125.4,
+      "idleHeapMb": 21.3,
+      "rssAfterLoadMb": 245.9,
+      "rssAfterLoadAndGcMb": 245.9,
+      "heapAfterLoadGcMb": 23.5,
+      "heapTotalAfterLoadGcMb": 98.5,
+      "externalMb": 4.8
+    },
+    "headless-eager": {
+      "idleRssMb": 126,
+      "idleHeapMb": 22.4,
+      "rssAfterLoadMb": 274.9,
+      "rssAfterLoadAndGcMb": 274.8,
+      "heapAfterLoadGcMb": 24.6,
+      "heapTotalAfterLoadGcMb": 89.5,
+      "externalMb": 4.7
+    },
+    "dashboard": {
+      "idleRssMb": 121.2,
+      "idleHeapMb": 21.5,
+      "rssAfterLoadMb": 317.5,
+      "rssAfterLoadAndGcMb": 317.6,
+      "heapAfterLoadGcMb": 31.5,
+      "heapTotalAfterLoadGcMb": 101.5,
+      "externalMb": 5.5,
+      "storeTraces": 5000,
+      "storeEstimateMb": 6.5
+    }
+  }
+}
