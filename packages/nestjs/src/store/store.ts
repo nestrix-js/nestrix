@@ -236,6 +236,12 @@ const ATTR_NESTRIX_ENTRY = "nestrix.entry";
  * otherwise `other`.
  */
 export function traceTypeOf(root: SpanRecord): TraceType {
+  // A `@MessagePattern` handler's SERVER span carries a messaging operation: not HTTP.
+  if (
+    root.kind === "server" &&
+    root.attributes["messaging.operation.type"] !== undefined
+  )
+    return "other";
   if (root.kind === "server") return "http";
   const entry = root.attributes[ATTR_NESTRIX_ENTRY];
   if (root.kind === "consumer" || entry === "job") return "job";
