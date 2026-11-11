@@ -9,7 +9,7 @@ Objective, deliverables and acceptance: [roadmap.md](../roadmap.md#phase-4-micro
 | P4-00 | Backlog | lead | — | done | This file. |
 | P4-01 | Spike, then build: handler spans, context extraction, dispatch-hook injection, client spans, helper | opus | P4-00 | done | Spike `docs/spikes/P4-S1.md`. Built in `src/microservices/`, tests in `test/microservices/` (TCP in process, hybrid fixture, microservice-only, faults). `emit` is hot (span at the call). Hybrid default needs the pre-request hook line. |
 | P4-02 | End-to-end over TCP, Redis, NATS, Kafka, RabbitMQ with containers; hybrid-app fixture | sonnet | P4-01 | done | `test/microservices-e2e/` (one hybrid app per transport, brokers from `brokers.global.ts`): TCP, Redis, NATS, RabbitMQ, Kafka and MQTT 5 pass. gRPC untested (no `send`/`emit`; P4-S1 "Left open"). |
-| P4-03 | Review of P4-01 | opus reviewer | P4-01 | todo | Required (request path). |
+| P4-03 | Review of P4-01 | opus reviewer | P4-01 | done | Fixes merged: host dispatch hook kept, RPC roots typed `other`, per-app enable, invalid emit. |
 | P4-04 | Documentation and phase report | sonnet + lead | all | todo | |
 
 ## Rules for every task
