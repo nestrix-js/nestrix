@@ -161,37 +161,6 @@ function nameToString(name: unknown): string | undefined {
   return undefined;
 }
 
-/** Yields `[name, value]` for every container shape. */
-function* iterateHeaders(
-  headers: HeadersInput,
-): Generator<[string, HeaderValue]> {
-  if (Array.isArray(headers)) {
-    const list = headers as readonly unknown[];
-    let i = 0;
-    while (i < list.length) {
-      const item = list[i];
-      if (Array.isArray(item)) {
-        // A `[name, value]` pair.
-        const name = nameToString(item[0]);
-        if (name !== undefined) yield [name, item[1] as HeaderValue];
-        i += 1;
-      } else {
-        // Flat `name, value` entries. A trailing name with no value is dropped.
-        const name = nameToString(item);
-        if (name !== undefined && i + 1 < list.length)
-          yield [name, list[i + 1] as HeaderValue];
-        i += 2;
-      }
-    }
-    return;
-  }
-  if (headers !== null && typeof headers === "object") {
-    for (const name of Object.keys(headers)) {
-      yield [name, (headers as Record<string, HeaderValue>)[name]];
-    }
-  }
-}
-
 /**
  * Picks the allowlisted headers and returns them as span attributes, `prefix + lowercase name`
  * mapped to a string array (the conventions' shape for headers, also for single values).
@@ -210,23 +179,80 @@ export function headerAttributes(
   prefix: HeaderAttributePrefix,
 ): Record<string, string[]> {
   const out: Record<string, string[]> = {};
+  collectHeaderAttributes(headers, allowlist, prefix, out);
+  return out;
+}
+
+/**
+ * {@link headerAttributes} writing into `out` instead of a new object, for a caller that
+ * already holds the object it would copy them into (the request hook's attributes). Same
+ * rules; never throws; what was collected before a failure stays in `out`. Walks the container
+ * in place: no generator and no `[name, value]` pair per header (P2-15).
+ */
+export function collectHeaderAttributes(
+  headers: HeadersInput | null | undefined,
+  allowlist: ReadonlySet<string>,
+  prefix: HeaderAttributePrefix,
+  out: Record<string, unknown>,
+): void {
   try {
-    if (headers === null || headers === undefined) return out;
-    for (const [rawName, rawValue] of iterateHeaders(headers)) {
-      const name = rawName.toLowerCase();
-      if (name === "__proto__" || !allowlist.has(name)) continue;
-      const values = valueToStrings(rawValue);
-      if (values.length === 0) continue;
-      const key = prefix + name;
-      const shown = ALWAYS_REDACTED_HEADERS.has(name) ? [REDACTED] : values;
-      const existing = Object.hasOwn(out, key) ? out[key] : undefined;
-      if (existing === undefined) out[key] = shown;
-      else if (!ALWAYS_REDACTED_HEADERS.has(name)) existing.push(...shown);
+    if (headers === null || headers === undefined) return;
+    if (Array.isArray(headers)) {
+      const list = headers as readonly unknown[];
+      let i = 0;
+      while (i < list.length) {
+        const item = list[i];
+        if (Array.isArray(item)) {
+          // A `[name, value]` pair.
+          const name = nameToString(item[0]);
+          if (name !== undefined) {
+            addHeader(out, name, item[1] as HeaderValue, allowlist, prefix);
+          }
+          i += 1;
+        } else {
+          // Flat `name, value` entries. A trailing name with no value is dropped.
+          const name = nameToString(item);
+          if (name !== undefined && i + 1 < list.length) {
+            addHeader(out, name, list[i + 1] as HeaderValue, allowlist, prefix);
+          }
+          i += 2;
+        }
+      }
+      return;
+    }
+    if (typeof headers === "object") {
+      for (const name of Object.keys(headers)) {
+        addHeader(
+          out,
+          name,
+          (headers as Record<string, HeaderValue>)[name],
+          allowlist,
+          prefix,
+        );
+      }
     }
   } catch {
-    // Fail closed for the rest: return what was collected so far.
+    // Fail closed for the rest: what was collected so far stays.
   }
-  return out;
+}
+
+function addHeader(
+  out: Record<string, unknown>,
+  rawName: string,
+  rawValue: HeaderValue,
+  allowlist: ReadonlySet<string>,
+  prefix: HeaderAttributePrefix,
+): void {
+  const name = rawName.toLowerCase();
+  if (name === "__proto__" || !allowlist.has(name)) return;
+  const values = valueToStrings(rawValue);
+  if (values.length === 0) return;
+  const key = prefix + name;
+  const shown = ALWAYS_REDACTED_HEADERS.has(name) ? [REDACTED] : values;
+  const existing = Object.hasOwn(out, key) ? out[key] : undefined;
+  if (existing === undefined) out[key] = shown;
+  else if (!ALWAYS_REDACTED_HEADERS.has(name))
+    (existing as string[]).push(...shown);
 }
 
 // ---------------------------------------------------------------------------------------------
