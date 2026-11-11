@@ -9,6 +9,7 @@ import { diagnostics } from "./diagnostics.js";
 import { installHttpInstrumentation } from "./http/server.js";
 import { setupTelemetry } from "./otel/setup.js";
 import type { TelemetryHandle } from "./otel/types.js";
+import { installOutbound } from "./outbound/index.js";
 import { buildRedactedQueryKeys, scrubSpanAttributes } from "./privacy.js";
 import { installProcessErrorMonitor } from "./process-errors.js";
 import type { ResolvedOptions } from "./resolve-options.js";
@@ -44,6 +45,8 @@ export class NestrixCore implements OnApplicationShutdown {
           },
           diagnostics,
         );
+        // Outbound subscribers work with or without an HTTP adapter, and with a host-owned SDK.
+        this.disposers.push(installOutbound(options, diagnostics));
         // HTTP hooks now, or from `init$` under @nestjs/testing; nothing without an adapter.
         this.disposers.push(
           installHttpInstrumentation(adapterHost, options, diagnostics),

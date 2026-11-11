@@ -16,14 +16,14 @@ Update this table as work moves. One line of notes at most; detail goes in the t
 | P1-05 | `Span` and `withSpan` | sonnet | P1-01 | done | 40 tests; reviewed, 3 fixes applied; fire-and-forget promise case accepted and documented in architecture §4.3. |
 | P1-06 | HTTP server spans | opus | P1-02, P1-03, P1-04 | done | Abort signal `req.socket.destroyed` verified on 22.15/24.16/26.13; 404 rule run per adapter; platform-node response headers via `writeHead` invisible (limit). Reviewed (nothing blocking); doc and test fixes applied. |
 | P1-07 | Handler attribution and exceptions | opus | P1-06 | done | `APP_INTERCEPTOR`; status at `close`; `uncaughtExceptionMonitor` only, child-process exit unchanged. Reviewed (nothing blocking); doc and test fixes applied. |
-| P1-08 | Outbound `node:http` spans and the shared outbound rules | opus | P1-02, P1-03, P1-04 | doing | review required |
-| P1-09 | Outbound fetch/undici spans | opus | P1-08 | todo | review required; same agent as P1-08 |
+| P1-08 | Outbound `node:http` spans and the shared outbound rules | opus | P1-02, P1-03, P1-04 | done | 134 outbound tests on Node 22.15, 24.22, 26.13; reviewed, 7 fixes (proxy userinfo leak, host case, QUERY, refcount, cancel after head = `cancelled`); wired into NestrixCore by the lead. |
+| P1-09 | Outbound fetch/undici spans | opus | P1-08 | done | Channel facts in research.md; unread large body ends via a 30 s grace timer; upgrade spans end on 22.15; `undici` 7 devDependency. Reviewed. |
 | P1-10 | Conformance suite | sonnet | P1-07, P1-09 | done | Every table row passes on 3 adapters at 12.4.2, Express/Fastify 12.0.0, platform-node 12.3.2, Node 22.15 and 26. Header versioning skipped on Fastify 12.0.0: Nest itself fails to boot it (FST_ERR_DUPLICATED_ROUTE). |
-| P1-11 | CI matrix and nightly | sonnet | P1-10 | todo | |
+| P1-11 | CI matrix and nightly | sonnet | P1-10 | doing | |
 | P1-12 | Jaeger example, two services | sonnet | P1-09 | doing | Example, compose (jaeger 2.23.0) and check script merged; export to Jaeger verified; the trace assertion runs after P1-06/09 merge. |
 | P1-13 | Benchmarks: baseline, exporter outage, install size, startup | sonnet | P1-09 | doing | |
 | P1-14 | CommonJS decorated-class check | haiku | P1-02 | done | Consume fixtures boot `forRoot` and read the injected options in CJS (Node 22.15, 26) and ESM apps. |
-| P1-15 | User documentation | sonnet | P1-07, P1-09, P1-13 | todo | |
+| P1-15 | User documentation | sonnet | P1-07, P1-09, P1-13 | doing | |
 | P1-16 | Phase report | lead | all | todo | |
 
 Statuses: `todo`, `doing`, `review`, `done`, `blocked` (say on what).
@@ -65,7 +65,7 @@ withSpan<T>(name: string, fn: (span: api.Span) => T, options?: SpanOptions): T  
 |---|---|---|
 | `code.function.name` | server span | `Controller.handler`, set by the interceptor |
 | `nestrix.http.aborted` | server span | `true` when the client went away before the response finished |
-| `nestrix.http.body` | client span | `"not consumed"` when the span ended at the response head because nothing read the body (§4.2) |
+| `nestrix.http.body` | client span | `"not consumed"` when the span ended at the response head because nothing read the body; `"cancelled"` when the caller cancelled or aborted the body after the head (not an error; the head's status code is kept) (§4.2) |
 
 Server span name: `METHOD /route/template`, or `METHOD` when there is no route. Client span name: `METHOD`.
 
