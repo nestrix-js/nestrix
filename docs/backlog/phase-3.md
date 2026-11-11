@@ -16,7 +16,7 @@ Objective, deliverables and acceptance: [roadmap.md](../roadmap.md#phase-3-provi
 | P3-07 | UI: trace view query insights (slow, repeated), links between traces, release/user/type in the request list | sonnet | P3-03 | done | 783 KB; 73 chromium e2e. |
 | P3-08 | BullMQ: documented setup, example, linked job trace; acceptance end-to-end (three queries + a job) | sonnet | P3-01, P3-02, P3-03 | done | One trace: BullMQ's consumer span is a child of the producer (not a link); `new BullMQOtel({ tracerName })`. |
 | P3-09 | Reviews: P3-01, P3-02, P3-03 | opus reviewer | each | todo | Required (request path). |
-| P3-10 | Documentation: README, architecture §4.3/§4.4/§7, nest-hooks | sonnet + lead | all | todo | |
+| P3-10 | Documentation: README, architecture §4.3/§4.4/§7, nest-hooks | sonnet + lead | all | done | README sections for level 2, level 3, BullMQ, releases/users, classes/map (7 new typechecked samples); architecture §2/§4.2/§4.4/§7 and nest-hooks §4 aligned. |
 | P3-11 | Phase report | lead | all | todo | |
 
 Statuses: `todo`, `doing`, `review`, `done`, `blocked` (say on what).
