@@ -62,7 +62,9 @@ P0-S1, S2, S5 and S6 are independent of each other once P0-05 is done and can ru
 - A job that packs both packages, installs the tarballs into a fresh ESM fixture and a fresh CommonJS fixture, and boots a trivial Nest 12 app in each.
 - A scheduled nightly run that installs the latest `@nestjs/*` 12.x.
 
-**Done when.** The workflow passes `actionlint` (or the skill's own validation). It cannot run on GitHub until the `nestrix-js` organisation exists; say so in the notes instead of marking it verified there.
+**Done when.** The workflow passes `actionlint` (or the skill's own validation), and, once the owner has asked for it to be pushed, a run on `nestrix-js/nestrix` is green. Until a run has been seen, the status is `review`, not `done`.
+
+**Know before you start.** The repository exists and is private (see "GitHub: what is set up" in [decisions.md](../decisions.md)). The default workflow token is read-only, so each workflow declares the `permissions` it needs. Private repositories get 2,000 Actions minutes a month: run the full Node matrix on pull requests and `main`, not on every branch push, and keep the nightly job to one Node version.
 
 ### P0-04 Example apps
 
@@ -95,7 +97,7 @@ Build the Express ESM app first (sonnet). The other three are the same app on an
 
 **Do.** Changesets with fixed versioning across the published packages; a release workflow using npm trusted publishing with provenance, following the `npm-release` skill if available. Add a pull-request check that changes come with a changeset.
 
-**Done when.** `pnpm changeset status` works. Nothing is published: the npm organisation does not exist yet, and publishing is the owner's call.
+**Done when.** `pnpm changeset status` works. Nothing is published: the `@nestrix` npm organisation does not exist yet, npm provenance needs the repository to be public, and publishing is the owner's call.
 
 ### P0-07 Phase report and doc updates
 

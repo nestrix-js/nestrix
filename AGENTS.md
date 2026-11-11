@@ -6,6 +6,8 @@ Open-source observability for NestJS 12+: Nest-aware OpenTelemetry tracing, with
 
 **Current state:** phase 0. The repository holds documentation and workspace root files only; no package code exists yet. Next work: `docs/backlog/phase-0.md`.
 
+**Remote:** `github.com/nestrix-js/nestrix`, private, already configured (`docs/decisions.md`, "GitHub: what is set up"). There is nothing left to set up on GitHub before implementing.
+
 ## Read before working
 
 | File | What it is |
@@ -40,7 +42,7 @@ NestJS 12, OpenTelemetry JS SDK 3, TypeScript 6 and Node 26 are newer than most 
 - A task is done when its checks have been run and their output read. If something fails, say so with the output. Do not weaken a check to make it pass.
 - A mechanism marked **(spike)** in the docs is unproven. Do not build on it until its spike has a result.
 - When work contradicts a doc, fix the doc in the same change. Stale docs are worse here than usual, because agents start from them.
-- Do not commit, push or publish unless the owner asks. Commits use `git commit -s` (DCO sign-off).
+- Do not commit, push or publish unless the owner asks. If the owner tells a session to commit as it goes, make one commit per completed task. Commits use `git commit -s` (DCO sign-off). Publishing to npm and making the repository public are always separate, explicit requests.
 - Stop for the owner at every phase gate, and for anything listed under "Things only the owner decides" in `docs/ai/orchestration.md`.
 
 ## Splitting work across agents
