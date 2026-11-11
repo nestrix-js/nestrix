@@ -27,6 +27,16 @@ const exporter = setupTracing();
 const tracer = trace.getTracer("review");
 const names = () => exporter.getFinishedSpans().map((s) => s.name);
 const tick = (ms = 5) => new Promise((r) => setTimeout(r, ms));
+// Polls until the condition holds (the deadline is the only bound); see q5-schedule-bullmq.test.ts.
+async function waitFor(condition: () => boolean, deadlineMs = 15_000) {
+  const end = Date.now() + deadlineMs;
+  while (!condition()) {
+    if (Date.now() > end) {
+      throw new Error(`condition not met within ${deadlineMs} ms`);
+    }
+    await tick(10);
+  }
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -128,7 +138,14 @@ describe("review 2: entry methods start a new root span, linked to the active sp
         return a;
       });
       try {
-        await tick(60);
+        // Waits until the interval has fired more than twice, rather than for a fixed 60 ms
+        // that a loaded machine can end before the third tick. The assertions below still
+        // check every tick.
+        await waitFor(
+          () =>
+            exporter.getFinishedSpans().filter((s) => s.name === "Ticker.tick")
+              .length > 2,
+        );
       } finally {
         await app.close();
       }
@@ -156,7 +173,7 @@ describe("review 2: entry methods start a new root span, linked to the active sp
       } else {
         expect(children).toBe(ticks.length);
       }
-    });
+    }, 20_000);
   }
 });
 

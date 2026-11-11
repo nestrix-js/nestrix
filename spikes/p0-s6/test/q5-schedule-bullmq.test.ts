@@ -27,6 +27,17 @@ import {
 
 const exporter = setupTracing();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Polls for a condition instead of sleeping a fixed time: under full-suite load a fixed
+// window can end before the scheduler has fired enough times. The deadline is the only bound.
+async function waitFor(condition: () => boolean, deadlineMs = 15_000) {
+  const end = Date.now() + deadlineMs;
+  while (!condition()) {
+    if (Date.now() > end) {
+      throw new Error(`condition not met within ${deadlineMs} ms`);
+    }
+    await sleep(10);
+  }
+}
 const NO_METADATA: CopyOptions = {
   metadata: false,
   ownProps: false,
@@ -55,7 +66,10 @@ describe("Q5 @nestjs/schedule", () => {
       try {
         await app.init();
         expect(isWrapper(app.get(TickService).tick)).toBe(true);
-        await sleep(1300);
+        // The same conditions the assertions below check, waited for rather than slept for.
+        await waitFor(
+          () => TickService.intervalRuns > 5 && TickService.cronRuns >= 1,
+        );
       } finally {
         await app.close();
       }
@@ -71,7 +85,7 @@ describe("Q5 @nestjs/schedule", () => {
       expect(names.filter((n) => n === "TickService.everySecond").length).toBe(
         TickService.cronRuns,
       );
-    });
+    }, 20_000);
 
     it(`${strategy}: a wrapper without the metadata silently unschedules the job`, async () => {
       TickService.intervalRuns = 0;
