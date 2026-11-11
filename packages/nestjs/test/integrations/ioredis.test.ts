@@ -42,6 +42,16 @@ describe("redisText", () => {
     expect(redisText("AUTH", ["hunter2"])).toBe("AUTH");
     expect(redisText("HELLO", ["3", "AUTH", "u", "p"])).toBe("HELLO");
     expect(redisText("PING", [])).toBe("PING");
+    for (const c of [
+      "EVAL",
+      "EVAL_RO",
+      "EVALSHA",
+      "EVALSHA_RO",
+      "FCALL",
+      "FCALL_RO",
+      "SCRIPT",
+    ])
+      expect(redisText(c, ["return 'secret-literal'", "0"])).toBe(c);
     expect(redisText("GET", ["k".repeat(1000)])?.length).toBe(4 + 256);
   });
 });
@@ -115,6 +125,18 @@ describe.skipIf(reason !== undefined)("ioredis against Redis 8", () => {
       }
       expect(JSON.stringify(found.map((s) => s.attributes))).not.toContain(
         "secret-value",
+      );
+    });
+
+    it("EVAL records the command name only, never the script body", async () => {
+      const { result } = await inParent(() =>
+        redis.eval("return 'script-literal-xyz'", 0),
+      );
+      expect(result).toBe("script-literal-xyz");
+      const found = spans();
+      expect(found.map((s) => s.attributes["db.query.text"])).toEqual(["EVAL"]);
+      expect(JSON.stringify(found.map((s) => s.attributes))).not.toContain(
+        "script-literal-xyz",
       );
     });
 
