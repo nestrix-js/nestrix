@@ -10,7 +10,7 @@ Objective and deliverables: [roadmap.md](../roadmap.md#phase-7-profiler-alerting
 | P7-01 | Spike: profiling a running Nest app on demand | opus | P7-00 | todo | Result in `docs/spikes/P7-S1.md`. |
 | P7-02 | Profiler: on-demand capture in the SDK, dashboard endpoint and view | opus + sonnet | P7-01 | todo | Security: review required (first state-changing dashboard action). |
 | P7-03 | Alerting rules and webhook notifications in the standalone server | opus | P5-04 | review | Merged; 140+ tests incl. SSRF, signatures, two evaluators; security review pending. |
-| P7-04 | SLOs over stored history in the standalone server, with UI | sonnet | P7-03 | todo | |
+| P7-04 | SLOs over stored history in the standalone server, with UI | sonnet | P7-03 | review | Built on branch; see "P7-04 as built". |
 | P7-05 | Docs and phase report | sonnet + lead | all | todo | |
 
 ## Settled design (before the spike)
@@ -30,6 +30,13 @@ Objective and deliverables: [roadmap.md](../roadmap.md#phase-7-profiler-alerting
 - **API** (`src/alerts/alerts.controller.ts`, types in `packages/protocol/src/alerts.ts`, types only): `GET /api/v1/alerts`, `POST` (201 `{ rule, secret }`), `GET|PATCH|DELETE /api/v1/alerts/:id`, `POST /api/v1/alerts/:id/test` (one attempt, recorded as a `test` event), `GET /api/v1/alerts/events?rule=&limit=` (newest first, 1–200, default 50). Unknown fields and parameters are 400. Covered by the admin middleware and global guard (401 signed out; state-changing methods need a same-origin `Origin`), plus `SessionQueryGuard` on the controller.
 - **Configuration:** `NESTRIX_WEBHOOK_ALLOWED_HOSTS`, and `NESTRIX_PUBLIC_URL` (optional; the dashboard link in payloads, `null` without it).
 - **For P7-04 (burn-rate alerts):** add a metric function to `METRICS` in `metrics.ts` (signature `(db, rule, nowMs) => Promise<number | null>`, `null` for no data), a new `metric` value in a migration's `CHECK` (and a column such as `slo_id` if the rule needs one), and reuse `transition()` and the evaluator unchanged; the threshold is then a burn-rate multiple.
+
+## P7-04 as built
+- **Storage:** `migrations/0003_slos.sql`: table `slos` (service, optional route, kind `availability` | `latency`, `latency_threshold_ms` for latency only, `objective` strictly between 0 and 1, `window_days` 7 or 30), `alert_rules.slo_id` (cascade delete) and the `slo_burn_rate` value in the metric check (a rule has an `slo_id` exactly when its metric is `slo_burn_rate`).
+- **Formulas** (`src/slos/compute.ts`, sums of `route_minutes` with `now - period < minute <= now`, any method; a route SLO reads that route, otherwise every route of the service). Availability: bad = `errors`, the rollup's definition (span status error or HTTP 5xx; a thrown 4xx is not an error). Latency: good = requests faster than the threshold, estimated from the histogram (buckets whose upper bound is at or below the threshold in full, the bucket holding the threshold in proportion, linear inside the bucket; so the result is as exact as the histogram, about 48% bucket width); bad = count - good. attainment = good / count; budget = (1 - objective) * count; remaining = budget - bad (negative when overspent; fraction = remaining / budget); burn rate over a period = (bad / count) / (1 - objective), over the last 1 h and 6 h; `null` without requests. `breached` is attainment below the objective.
+- **API** (`src/slos/`, types in `packages/protocol/src/slos.ts`): `GET|POST /api/v1/slos`, `GET|PATCH|DELETE /api/v1/slos/:id`; the status is computed on every read. Access as alerts (session, same-origin `Origin` on writes, no CORS).
+- **Burn-rate alerts:** `POST /api/v1/alerts` with `metric: "slo_burn_rate"`, `sloId`, `threshold` (a multiple, above 0 up to 1000, e.g. 14.4) and `windowMinutes` (5 to 60, the burn-rate window, e.g. 60). `service` and `route` are not given: they are copied from the SLO at create or when `sloId` changes. The metric reads the SLO at each evaluation (so editing the SLO applies at once). `min_requests` applies to the window. The webhook payload is unchanged (`metric: "slo_burn_rate"`, `value` is the burn rate).
+- **UI:** an "SLOs" tab shown only when `meta.mode` is `standalone` (the `#/slos` route in an embedded dashboard says SLOs need the standalone server): objective, attainment, budget bar, 1 h and 6 h burn rates, create/edit form (fetch, not a form post), delete with a confirmation. The page does not manage burn-rate alert rules; they are created through the API.
 
 ## Acceptance (delivery mode: functional checks, local)
 

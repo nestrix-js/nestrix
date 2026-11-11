@@ -172,7 +172,10 @@ export const alertRules = pgTable("alert_rules", {
   name: text("name").notNull(),
   serviceName: text("service_name").notNull(),
   route: text("route"),
-  metric: text("metric").$type<"error_rate" | "p95_ms">().notNull(),
+  metric: text("metric")
+    .$type<"error_rate" | "p95_ms" | "slo_burn_rate">()
+    .notNull(),
+  sloId: bigint("slo_id", { mode: "number" }),
   comparator: text("comparator").$type<">">().notNull().default(">"),
   threshold: doublePrecision("threshold").notNull(),
   windowMinutes: integer("window_minutes").notNull(),
@@ -181,6 +184,20 @@ export const alertRules = pgTable("alert_rules", {
   webhookUrl: text("webhook_url").notNull(),
   secret: text("secret").notNull(),
   enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
+});
+
+/** SLOs (migrations/0003_slos.sql, src/slos/). */
+export const slos = pgTable("slos", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  serviceName: text("service_name").notNull(),
+  route: text("route"),
+  kind: text("kind").$type<"availability" | "latency">().notNull(),
+  latencyThresholdMs: doublePrecision("latency_threshold_ms"),
+  objective: doublePrecision("objective").notNull(),
+  windowDays: integer("window_days").notNull(),
   createdAt: timestamp("created_at", tz).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
 });
@@ -217,6 +234,7 @@ export const schema = {
   traces,
   routeMinutes,
   classMinutes,
+  slos,
   alertRules,
   alertState,
   alertEvents,

@@ -7,6 +7,7 @@ import type {
   ClassStatsResponse,
   MetaResponse,
   RouteStatsResponse,
+  Slo,
   TraceListResponse,
   TraceResponse,
   TraceSummary,
@@ -48,6 +49,12 @@ export class MockApi {
   unauthorized = false;
   /** `POST logout` calls seen. */
   logouts = 0;
+  /** The SLOs of the standalone server's `slos` endpoint (list and writes). */
+  slos: Slo[] = [];
+  /** When set, writes to `slos` answer 400 with this message. */
+  sloRefusal: string | null = null;
+  /** Write requests to `slos` seen: method, path after `slos`, parsed body. */
+  sloWrites: { method: string; id: string | null; body: unknown }[] = [];
   /** Every request seen, `traces?after=...` and so on, in order. */
   requests: string[] = [];
   private items: Item[] = []; // newest first
@@ -74,6 +81,9 @@ export class MockApi {
     this.services = undefined;
     this.unauthorized = false;
     this.logouts = 0;
+    this.slos = [];
+    this.sloRefusal = null;
+    this.sloWrites = [];
     this.errors.reset(0);
     this.push(count);
   }
@@ -182,6 +192,78 @@ export class MockApi {
           body: { error: { code: "not_found", message: "Not found" } },
         };
     }
+  }
+
+  /** `slos` and `slos/<id>`: list, create (echoes a computed-looking status), patch, delete. */
+  handleSlos(
+    method: string,
+    id: string | null,
+    body: unknown,
+  ): { status: number; body: unknown } {
+    this.requests.push(id === null ? "slos" : `slos/${id}`);
+    if (this.unauthorized)
+      return {
+        status: 401,
+        body: { error: { code: "unauthorized", message: "Sign in" } },
+      };
+    if (method === "GET" && id === null)
+      return { status: 200, body: { slos: this.slos } };
+    this.sloWrites.push({ method, id, body });
+    if (this.sloRefusal !== null)
+      return {
+        status: 400,
+        body: { error: { code: "bad_request", message: this.sloRefusal } },
+      };
+    const input = (body ?? {}) as Record<string, unknown>;
+    if (method === "POST") {
+      const slo: Slo = {
+        id: String(this.slos.length + 100),
+        name: String(input.name),
+        service: String(input.service),
+        route: (input.route as string | null | undefined) ?? null,
+        kind: input.kind === "latency" ? "latency" : "availability",
+        latencyThresholdMs: (input.latencyThresholdMs as number) ?? null,
+        objective: Number(input.objective),
+        windowDays: input.windowDays === 7 ? 7 : 30,
+        createdAtUnixMs: 0,
+        updatedAtUnixMs: 0,
+        status: {
+          totalRequests: 0,
+          goodRequests: 0,
+          badRequests: 0,
+          attainment: null,
+          errorBudget: {
+            totalRequests: 0,
+            remainingRequests: 0,
+            remainingFraction: null,
+          },
+          burnRate: { "1h": null, "6h": null },
+          breached: false,
+        },
+      };
+      this.slos.push(slo);
+      return { status: 201, body: slo };
+    }
+    const at = this.slos.findIndex((s) => s.id === id);
+    const found = this.slos[at];
+    if (found === undefined)
+      return {
+        status: 404,
+        body: { error: { code: "not_found", message: "No such SLO." } },
+      };
+    if (method === "DELETE") {
+      this.slos.splice(at, 1);
+      return { status: 204, body: undefined };
+    }
+    const updated: Slo = {
+      ...found,
+      ...(input.name !== undefined ? { name: String(input.name) } : {}),
+      ...(input.objective !== undefined
+        ? { objective: Number(input.objective) }
+        : {}),
+    };
+    this.slos[at] = updated;
+    return { status: 200, body: updated };
   }
 
   private meta(): MetaResponse {

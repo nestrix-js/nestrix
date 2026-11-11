@@ -4,8 +4,12 @@
  * Types only: this file adds no runtime export.
  */
 
-/** `error_rate`: errors / requests as a fraction (0.05 is 5%). `p95_ms`: latency in ms. */
-export type AlertMetric = "error_rate" | "p95_ms";
+/**
+ * `error_rate`: errors / requests as a fraction (0.05 is 5%). `p95_ms`: latency in ms.
+ * `slo_burn_rate`: the burn rate of the rule's SLO over the rule's window (14.4 spends a 30-day
+ * budget in 2 days); the rule has `sloId`, and takes its service and route from the SLO.
+ */
+export type AlertMetric = "error_rate" | "p95_ms" | "slo_burn_rate";
 
 /** `pending`: breaching, but not yet for `forMinutes`. */
 export type AlertStateName = "ok" | "pending" | "firing";
@@ -18,6 +22,8 @@ export interface AlertRule {
   /** `null`: every route of the service. */
   route: string | null;
   metric: AlertMetric;
+  /** The SLO of a `slo_burn_rate` rule; `null` for the other metrics. */
+  sloId: string | null;
   comparator: ">";
   threshold: number;
   windowMinutes: number;
@@ -40,9 +46,12 @@ export interface AlertRule {
 /** `POST /api/v1/alerts`. Unknown fields are refused (400). */
 export interface AlertRuleCreate {
   name: string;
-  service: string;
+  /** Required unless `metric` is `slo_burn_rate` (then taken from the SLO). */
+  service?: string;
   route?: string | null;
   metric: AlertMetric;
+  /** Required for, and only for, `slo_burn_rate`: the id of an existing SLO. */
+  sloId?: string;
   comparator?: ">";
   threshold: number;
   windowMinutes: number;

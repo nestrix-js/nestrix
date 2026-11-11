@@ -9,6 +9,7 @@ import { IngestModule } from "./ingest/ingest.module.js";
 import { MemoryIngestSink } from "./ingest/memory-sink.js";
 import { INGEST_TRACES_PATH_PATTERN } from "./ingest/tokens.js";
 import { QueryModule } from "./query/query.module.js";
+import { SlosModule } from "./slos/slos.module.js";
 import { PostgresIngestSink, StorageModule } from "./storage/index.js";
 import { UiModule } from "./ui/ui.module.js";
 
@@ -61,6 +62,8 @@ export class AppModule {
               QueryModule.forRoot({ guard: { useClass: SessionQueryGuard } }),
               // Alert rules, evaluator and webhooks (P7-03); `/api/v1/alerts` is admin-only.
               AlertsModule.forRoot(),
+              // SLOs over the rollups (P7-04); `/api/v1/slos` is admin-only.
+              SlosModule,
             ]),
       ],
     };

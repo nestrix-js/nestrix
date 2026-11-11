@@ -25,6 +25,7 @@ const COLUMNS: (keyof RuleFields)[] = [
   "service_name",
   "route",
   "metric",
+  "slo_id",
   "threshold",
   "window_minutes",
   "for_minutes",
@@ -91,6 +92,30 @@ export class AlertsService {
     return rows[0];
   }
 
+  /**
+   * A `slo_burn_rate` rule takes its service and route from its SLO. Returns the fields to store,
+   * or a message when the SLO does not exist.
+   */
+  async withSloTarget(
+    fields: RuleFields,
+  ): Promise<
+    { ok: true; fields: RuleFields } | { ok: false; message: string }
+  > {
+    if (fields.slo_id === undefined || fields.slo_id === null) {
+      return { ok: true, fields };
+    }
+    const { rows } = await this.pool.query<{
+      service_name: string;
+      route: string | null;
+    }>("SELECT service_name, route FROM slos WHERE id = $1", [fields.slo_id]);
+    const slo = rows[0];
+    if (slo === undefined) return { ok: false, message: "No such SLO." };
+    return {
+      ok: true,
+      fields: { ...fields, service_name: slo.service_name, route: slo.route },
+    };
+  }
+
   async create(fields: RuleFields): Promise<AlertRuleCreateResponse> {
     const secret = generateSecret();
     const names = COLUMNS.filter((c) => fields[c] !== undefined);
@@ -128,6 +153,7 @@ export class AlertsService {
         fields.enabled === false ||
         fields.service_name !== undefined ||
         fields.route !== undefined ||
+        fields.slo_id !== undefined ||
         fields.metric !== undefined
       ) {
         await client.query("DELETE FROM alert_state WHERE rule_id = $1", [id]);
