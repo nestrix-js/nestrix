@@ -21,10 +21,10 @@ Update this table as work moves. One line of notes at most; detail goes in the t
 | P1-10 | Conformance suite | sonnet | P1-07, P1-09 | done | Every table row passes on 3 adapters at 12.4.2, Express/Fastify 12.0.0, platform-node 12.3.2, Node 22.15 and 26. Header versioning skipped on Fastify 12.0.0: Nest itself fails to boot it (FST_ERR_DUPLICATED_ROUTE). |
 | P1-11 | CI matrix and nightly | sonnet | P1-10 | done | verify on Node 22.15/24/26 already runs the 12.0/12.3.2/latest conformance projects; Jaeger job added; nightly conformance on latest 12.x; nightly update step fixed to skip pinned workspaces. actionlint passes; jobs pass under act. Needs a GitHub run. |
 | P1-12 | Jaeger example, two services | sonnet | P1-09 | done | `pnpm --filter jaeger-example check` passes: one trace, service-a server → client → service-b server, route names set (jaeger 2.23.0). CI job added in P1-11. |
-| P1-13 | Benchmarks: baseline, exporter outage, install size, startup | sonnet | P1-09 | review | Final run on current main (HTTP server spans, outbound spans, single-flight export): outage criterion PASS for `unreachable` and `blackhole`; startup +50 ms; install +19.4 MB. Throughput not re-run (measured before HTTP spans). |
+| P1-13 | Benchmarks: baseline, exporter outage, install size, startup | sonnet | P1-09 | done | Final run: memory criteria met for unreachable and hanging collectors; p99 inconclusive (disturbed control; re-run stopped by the owner to save cost). Startup +50 ms, install +19.4 MB. |
 | P1-14 | CommonJS decorated-class check | haiku | P1-02 | done | Consume fixtures boot `forRoot` and read the injected options in CJS (Node 22.15, 26) and ESM apps. |
-| P1-15 | User documentation | sonnet | P1-07, P1-09, P1-13 | review | Package README (full reference) and root README; samples typechecked and kept identical by a test; doc review: 17 corrections applied. Install size and startup numbers wait for P1-13. |
-| P1-16 | Phase report | lead | all | todo | |
+| P1-15 | User documentation | sonnet | P1-07, P1-09, P1-13 | done | Package README (full reference) and root README; samples typechecked; doc review applied; size and startup numbers filled. |
+| P1-16 | Phase report | lead | all | done | `docs/phase-1-report.md`. Waiting for the owner. |
 
 Statuses: `todo`, `doing`, `review`, `done`, `blocked` (say on what).
 

@@ -1,0 +1,1746 @@
+{
+  "environment": {
+    "node": "v26.13.0",
+    "platform": "darwin-arm64",
+    "cpus": "10 logical",
+    "date": "2026-11-11T07:38:46.005Z"
+  },
+  "settings": {
+    "runs": 3,
+    "duration": 10,
+    "connections": 64,
+    "execArgv": [
+      "--expose-gc",
+      "--import",
+      "file:///Users/lltamayo/developments/nov/nestrix/.claude/worktrees/agent-a835193b4706e6ab2/benchmarks/src/module-count.mjs"
+    ],
+    "configs": [
+      "baseline",
+      "interceptor",
+      "noexport",
+      "sink"
+    ]
+  },
+  "configs": {
+    "baseline": {
+      "idle": {
+        "rssMb": 115.9,
+        "heapUsedMb": 19.1,
+        "heapTotalMb": 37.5,
+        "externalMb": 4.6,
+        "arrayBuffersMb": 0.4,
+        "modules": 911,
+        "newSpaceMb": 16,
+        "oldSpaceMb": 17.3,
+        "codeSpaceMb": 1.3,
+        "kbAllocatedPerRequest": 0
+      },
+      "loaded": {
+        "rssMb": 149.2,
+        "heapUsedMb": 20.5,
+        "heapTotalMb": 54.3,
+        "externalMb": 5.8,
+        "arrayBuffersMb": 0.3,
+        "modules": 911,
+        "newSpaceMb": 29.5,
+        "oldSpaceMb": 19,
+        "codeSpaceMb": 2,
+        "kbAllocatedPerRequest": 14.4
+      },
+      "runs": [
+        {
+          "idle": {
+            "rssMb": 115.40625,
+            "heapUsedMb": 19.147239685058594,
+            "heapTotalMb": 37.03125,
+            "externalMb": 4.644939422607422,
+            "arrayBuffersMb": 0.39058399200439453,
+            "modules": 911,
+            "newSpaceMb": 16,
+            "oldSpaceMb": 16.75,
+            "codeSpaceMb": 1.25,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 16777216,
+                "used": 19008
+              },
+              "old_space": {
+                "size": 17563648,
+                "used": 16259640
+              },
+              "code_space": {
+                "size": 1310720,
+                "used": 845120
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 2621440,
+                "used": 2471424
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 557056,
+                "used": 520848
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 0
+          },
+          "loaded": {
+            "rssMb": 147.796875,
+            "heapUsedMb": 20.514541625976562,
+            "heapTotalMb": 53.53125,
+            "externalMb": 6.834648132324219,
+            "arrayBuffersMb": 2.580254554748535,
+            "modules": 911,
+            "newSpaceMb": 29.25,
+            "oldSpaceMb": 18.25,
+            "codeSpaceMb": 2,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 30670848,
+                "used": 17672
+              },
+              "old_space": {
+                "size": 19136512,
+                "used": 16498216
+              },
+              "code_space": {
+                "size": 2097152,
+                "used": 1571712
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 3670016,
+                "used": 2936504
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 557056,
+                "used": 520848
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 14.522706537889569
+          }
+        },
+        {
+          "idle": {
+            "rssMb": 115.890625,
+            "heapUsedMb": 19.157028198242188,
+            "heapTotalMb": 37.78125,
+            "externalMb": 4.644939422607422,
+            "arrayBuffersMb": 0.39058399200439453,
+            "modules": 911,
+            "newSpaceMb": 16,
+            "oldSpaceMb": 17.25,
+            "codeSpaceMb": 1.25,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 16777216,
+                "used": 19008
+              },
+              "old_space": {
+                "size": 18087936,
+                "used": 16259096
+              },
+              "code_space": {
+                "size": 1310720,
+                "used": 850656
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 2883584,
+                "used": 2476808
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 557056,
+                "used": 520848
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 0
+          },
+          "loaded": {
+            "rssMb": 149.765625,
+            "heapUsedMb": 20.528160095214844,
+            "heapTotalMb": 54.53125,
+            "externalMb": 5.082921028137207,
+            "arrayBuffersMb": 0.32802295684814453,
+            "modules": 911,
+            "newSpaceMb": 29.5,
+            "oldSpaceMb": 19.25,
+            "codeSpaceMb": 2,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 30932992,
+                "used": 17672
+              },
+              "old_space": {
+                "size": 20185088,
+                "used": 16498240
+              },
+              "code_space": {
+                "size": 2097152,
+                "used": 1578592
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 3407872,
+                "used": 2943880
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 557056,
+                "used": 520848
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 14.370438987817659
+          }
+        },
+        {
+          "idle": {
+            "rssMb": 116.25,
+            "heapUsedMb": 19.147071838378906,
+            "heapTotalMb": 37.53125,
+            "externalMb": 4.582378387451172,
+            "arrayBuffersMb": 0.32802295684814453,
+            "modules": 911,
+            "newSpaceMb": 16,
+            "oldSpaceMb": 17.25,
+            "codeSpaceMb": 1.25,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 16777216,
+                "used": 19008
+              },
+              "old_space": {
+                "size": 18087936,
+                "used": 16258304
+              },
+              "code_space": {
+                "size": 1310720,
+                "used": 845408
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 2621440,
+                "used": 2472408
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 557056,
+                "used": 520848
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 0
+          },
+          "loaded": {
+            "rssMb": 149.21875,
+            "heapUsedMb": 20.517494201660156,
+            "heapTotalMb": 54.28125,
+            "externalMb": 5.833653450012207,
+            "arrayBuffersMb": 0.32802295684814453,
+            "modules": 911,
+            "newSpaceMb": 29.5,
+            "oldSpaceMb": 19,
+            "codeSpaceMb": 2,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 30932992,
+                "used": 17672
+              },
+              "old_space": {
+                "size": 19922944,
+                "used": 16498456
+              },
+              "code_space": {
+                "size": 2097152,
+                "used": 1576608
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 3407872,
+                "used": 2934464
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 557056,
+                "used": 520848
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 14.337359536772269
+          }
+        }
+      ]
+    },
+    "interceptor": {
+      "idle": {
+        "rssMb": 116.2,
+        "heapUsedMb": 19.2,
+        "heapTotalMb": 37.8,
+        "externalMb": 4.6,
+        "arrayBuffersMb": 0.3,
+        "modules": 911,
+        "newSpaceMb": 15.8,
+        "oldSpaceMb": 17.5,
+        "codeSpaceMb": 1.3,
+        "kbAllocatedPerRequest": 0
+      },
+      "loaded": {
+        "rssMb": 158.3,
+        "heapUsedMb": 20.9,
+        "heapTotalMb": 58,
+        "externalMb": 6.2,
+        "arrayBuffersMb": 0.3,
+        "modules": 911,
+        "newSpaceMb": 32,
+        "oldSpaceMb": 20,
+        "codeSpaceMb": 2.3,
+        "kbAllocatedPerRequest": 30.7
+      },
+      "runs": [
+        {
+          "idle": {
+            "rssMb": 116.3125,
+            "heapUsedMb": 19.217727661132812,
+            "heapTotalMb": 38.03125,
+            "externalMb": 4.582378387451172,
+            "arrayBuffersMb": 0.32802295684814453,
+            "modules": 911,
+            "newSpaceMb": 16,
+            "oldSpaceMb": 17.5,
+            "codeSpaceMb": 1.25,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 16777216,
+                "used": 19008
+              },
+              "old_space": {
+                "size": 18350080,
+                "used": 16287192
+              },
+              "code_space": {
+                "size": 1310720,
+                "used": 860864
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 2883584,
+                "used": 2502152
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 557056,
+                "used": 520848
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 0
+          },
+          "loaded": {
+            "rssMb": 158.640625,
+            "heapUsedMb": 20.918617248535156,
+            "heapTotalMb": 58.53125,
+            "externalMb": 5.833653450012207,
+            "arrayBuffersMb": 0.32802295684814453,
+            "modules": 911,
+            "newSpaceMb": 32,
+            "oldSpaceMb": 20.25,
+            "codeSpaceMb": 2.25,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 33554432,
+                "used": 17672
+              },
+              "old_space": {
+                "size": 21233664,
+                "used": 16585432
+              },
+              "code_space": {
+                "size": 2359296,
+                "used": 1752800
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 3670016,
+                "used": 3091904
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 557056,
+                "used": 520848
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 30.740068052929335
+          }
+        },
+        {
+          "idle": {
+            "rssMb": 116.171875,
+            "heapUsedMb": 19.221359252929688,
+            "heapTotalMb": 37.78125,
+            "externalMb": 4.582378387451172,
+            "arrayBuffersMb": 0.32802295684814453,
+            "modules": 911,
+            "newSpaceMb": 15.75,
+            "oldSpaceMb": 17.5,
+            "codeSpaceMb": 1.25,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 16515072,
+                "used": 19008
+              },
+              "old_space": {
+                "size": 18350080,
+                "used": 16290304
+              },
+              "code_space": {
+                "size": 1310720,
+                "used": 861280
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 2883584,
+                "used": 2502432
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 557056,
+                "used": 520848
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 0
+          },
+          "loaded": {
+            "rssMb": 158.25,
+            "heapUsedMb": 20.890342712402344,
+            "heapTotalMb": 58.03125,
+            "externalMb": 6.209019660949707,
+            "arrayBuffersMb": 0.32802295684814453,
+            "modules": 911,
+            "newSpaceMb": 32,
+            "oldSpaceMb": 20,
+            "codeSpaceMb": 2.25,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 33554432,
+                "used": 17672
+              },
+              "old_space": {
+                "size": 20971520,
+                "used": 16586160
+              },
+              "code_space": {
+                "size": 2359296,
+                "used": 1734400
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 3407872,
+                "used": 3079928
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 557056,
+                "used": 520848
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 30.692523083867517
+          }
+        },
+        {
+          "idle": {
+            "rssMb": 115.359375,
+            "heapUsedMb": 19.207374572753906,
+            "heapTotalMb": 37.03125,
+            "externalMb": 4.582378387451172,
+            "arrayBuffersMb": 0.32802295684814453,
+            "modules": 911,
+            "newSpaceMb": 15.25,
+            "oldSpaceMb": 17.25,
+            "codeSpaceMb": 1.25,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 15990784,
+                "used": 19008
+              },
+              "old_space": {
+                "size": 18087936,
+                "used": 16283832
+              },
+              "code_space": {
+                "size": 1310720,
+                "used": 856928
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 2883584,
+                "used": 2498592
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 557056,
+                "used": 520848
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 0
+          },
+          "loaded": {
+            "rssMb": 156.90625,
+            "heapUsedMb": 20.89435577392578,
+            "heapTotalMb": 58.03125,
+            "externalMb": 6.396702766418457,
+            "arrayBuffersMb": 0.32802295684814453,
+            "modules": 911,
+            "newSpaceMb": 32,
+            "oldSpaceMb": 19.5,
+            "codeSpaceMb": 2.25,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 33554432,
+                "used": 17672
+              },
+              "old_space": {
+                "size": 20447232,
+                "used": 16587136
+              },
+              "code_space": {
+                "size": 2359296,
+                "used": 1735424
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 3932160,
+                "used": 3082136
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 557056,
+                "used": 520848
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 30.681621210655834
+          }
+        }
+      ]
+    },
+    "noexport": {
+      "idle": {
+        "rssMb": 127.4,
+        "heapUsedMb": 22.8,
+        "heapTotalMb": 47.9,
+        "externalMb": 4.7,
+        "arrayBuffersMb": 0.4,
+        "modules": 1176,
+        "newSpaceMb": 21.5,
+        "oldSpaceMb": 21.3,
+        "codeSpaceMb": 1.3,
+        "kbAllocatedPerRequest": 0
+      },
+      "loaded": {
+        "rssMb": 230.5,
+        "heapUsedMb": 23,
+        "heapTotalMb": 98.4,
+        "externalMb": 4.8,
+        "arrayBuffersMb": 0.4,
+        "modules": 1176,
+        "newSpaceMb": 62,
+        "oldSpaceMb": 29,
+        "codeSpaceMb": 2.5,
+        "kbAllocatedPerRequest": 43.6
+      },
+      "runs": [
+        {
+          "idle": {
+            "rssMb": 128.203125,
+            "heapUsedMb": 22.80047607421875,
+            "heapTotalMb": 49.171875,
+            "externalMb": 4.699019432067871,
+            "arrayBuffersMb": 0.3906898498535156,
+            "modules": 1176,
+            "newSpaceMb": 22.5,
+            "oldSpaceMb": 21.25,
+            "codeSpaceMb": 1.5,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 23592960,
+                "used": 27408
+              },
+              "old_space": {
+                "size": 22282240,
+                "used": 19609648
+              },
+              "code_space": {
+                "size": 1572864,
+                "used": 913664
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 3407872,
+                "used": 2759016
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 704512,
+                "used": 659144
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 0
+          },
+          "loaded": {
+            "rssMb": 230.546875,
+            "heapUsedMb": 23.043228149414062,
+            "heapTotalMb": 98.421875,
+            "externalMb": 4.750177383422852,
+            "arrayBuffersMb": 0.3906898498535156,
+            "modules": 1176,
+            "newSpaceMb": 62.75,
+            "oldSpaceMb": 29,
+            "codeSpaceMb": 2.5,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 65798144,
+                "used": 18680
+              },
+              "old_space": {
+                "size": 30408704,
+                "used": 19245008
+              },
+              "code_space": {
+                "size": 2621440,
+                "used": 2062112
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 3670016,
+                "used": 2215272
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 704512,
+                "used": 659144
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 43.649368469874474
+          }
+        },
+        {
+          "idle": {
+            "rssMb": 127.375,
+            "heapUsedMb": 22.802230834960938,
+            "heapTotalMb": 47.921875,
+            "externalMb": 4.699019432067871,
+            "arrayBuffersMb": 0.3906898498535156,
+            "modules": 1176,
+            "newSpaceMb": 21.5,
+            "oldSpaceMb": 21.25,
+            "codeSpaceMb": 1.25,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 22544384,
+                "used": 27408
+              },
+              "old_space": {
+                "size": 22282240,
+                "used": 19608728
+              },
+              "code_space": {
+                "size": 1310720,
+                "used": 915232
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 3407872,
+                "used": 2760208
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 704512,
+                "used": 659144
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 0
+          },
+          "loaded": {
+            "rssMb": 216.9375,
+            "heapUsedMb": 23.02300262451172,
+            "heapTotalMb": 95.421875,
+            "externalMb": 4.750177383422852,
+            "arrayBuffersMb": 0.3906898498535156,
+            "modules": 1176,
+            "newSpaceMb": 61.75,
+            "oldSpaceMb": 26.5,
+            "codeSpaceMb": 2.5,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 64749568,
+                "used": 18680
+              },
+              "old_space": {
+                "size": 27787264,
+                "used": 19239424
+              },
+              "code_space": {
+                "size": 2621440,
+                "used": 2053760
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 4194304,
+                "used": 2208000
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 704512,
+                "used": 659144
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 43.60328931003286
+          }
+        },
+        {
+          "idle": {
+            "rssMb": 126.96875,
+            "heapUsedMb": 22.795738220214844,
+            "heapTotalMb": 47.421875,
+            "externalMb": 4.699019432067871,
+            "arrayBuffersMb": 0.3906898498535156,
+            "modules": 1176,
+            "newSpaceMb": 21.5,
+            "oldSpaceMb": 21,
+            "codeSpaceMb": 1,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 22544384,
+                "used": 27408
+              },
+              "old_space": {
+                "size": 22020096,
+                "used": 19604680
+              },
+              "code_space": {
+                "size": 1048576,
+                "used": 913664
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 3407872,
+                "used": 2759016
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 704512,
+                "used": 659144
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 0
+          },
+          "loaded": {
+            "rssMb": 244.453125,
+            "heapUsedMb": 23.050155639648438,
+            "heapTotalMb": 115.171875,
+            "externalMb": 4.937860488891602,
+            "arrayBuffersMb": 0.3906898498535156,
+            "modules": 1176,
+            "newSpaceMb": 62,
+            "oldSpaceMb": 47.25,
+            "codeSpaceMb": 2.25,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 65011712,
+                "used": 18680
+              },
+              "old_space": {
+                "size": 49545216,
+                "used": 19243912
+              },
+              "code_space": {
+                "size": 2359296,
+                "used": 2066400
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 3145728,
+                "used": 2219344
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 704512,
+                "used": 659144
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 43.694687209000065
+          }
+        }
+      ]
+    },
+    "sink": {
+      "idle": {
+        "rssMb": 128.1,
+        "heapUsedMb": 22.9,
+        "heapTotalMb": 48.4,
+        "externalMb": 4.7,
+        "arrayBuffersMb": 0.4,
+        "modules": 1176,
+        "newSpaceMb": 22.3,
+        "oldSpaceMb": 21,
+        "codeSpaceMb": 1.3,
+        "kbAllocatedPerRequest": 0
+      },
+      "loaded": {
+        "rssMb": 230.5,
+        "heapUsedMb": 24,
+        "heapTotalMb": 113.7,
+        "externalMb": 5.8,
+        "arrayBuffersMb": 0.4,
+        "modules": 1176,
+        "newSpaceMb": 63.5,
+        "oldSpaceMb": 44,
+        "codeSpaceMb": 2.8,
+        "kbAllocatedPerRequest": 48.7
+      },
+      "runs": [
+        {
+          "idle": {
+            "rssMb": 128.125,
+            "heapUsedMb": 22.86480712890625,
+            "heapTotalMb": 49.421875,
+            "externalMb": 4.699019432067871,
+            "arrayBuffersMb": 0.3906898498535156,
+            "modules": 1176,
+            "newSpaceMb": 22,
+            "oldSpaceMb": 22,
+            "codeSpaceMb": 1.5,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 23068672,
+                "used": 27408
+              },
+              "old_space": {
+                "size": 23068672,
+                "used": 19658592
+              },
+              "code_space": {
+                "size": 1572864,
+                "used": 914304
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 3407872,
+                "used": 2777112
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 704512,
+                "used": 659144
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 0
+          },
+          "loaded": {
+            "rssMb": 294.09375,
+            "heapUsedMb": 24.1170654296875,
+            "heapTotalMb": 113.671875,
+            "externalMb": 5.772050857543945,
+            "arrayBuffersMb": 0.3906898498535156,
+            "modules": 1176,
+            "newSpaceMb": 62.75,
+            "oldSpaceMb": 44,
+            "codeSpaceMb": 2.75,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 65798144,
+                "used": 18680
+              },
+              "old_space": {
+                "size": 46137344,
+                "used": 19765392
+              },
+              "code_space": {
+                "size": 2883584,
+                "used": 2430944
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 3670016,
+                "used": 2452296
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 704512,
+                "used": 659144
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 48.679977636860684
+          }
+        },
+        {
+          "idle": {
+            "rssMb": 127.421875,
+            "heapUsedMb": 22.865264892578125,
+            "heapTotalMb": 48.421875,
+            "externalMb": 4.699019432067871,
+            "arrayBuffersMb": 0.3906898498535156,
+            "modules": 1176,
+            "newSpaceMb": 22.25,
+            "oldSpaceMb": 21,
+            "codeSpaceMb": 1.25,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 23330816,
+                "used": 27408
+              },
+              "old_space": {
+                "size": 22020096,
+                "used": 19656920
+              },
+              "code_space": {
+                "size": 1310720,
+                "used": 915520
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 3407872,
+                "used": 2778048
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 704512,
+                "used": 659144
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 0
+          },
+          "loaded": {
+            "rssMb": 229.546875,
+            "heapUsedMb": 23.967628479003906,
+            "heapTotalMb": 98.921875,
+            "externalMb": 5.16721248626709,
+            "arrayBuffersMb": 0.3906898498535156,
+            "modules": 1176,
+            "newSpaceMb": 64,
+            "oldSpaceMb": 27.25,
+            "codeSpaceMb": 2.75,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 67108864,
+                "used": 18680
+              },
+              "old_space": {
+                "size": 28573696,
+                "used": 19595920
+              },
+              "code_space": {
+                "size": 2883584,
+                "used": 2436352
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 4456448,
+                "used": 2459664
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 704512,
+                "used": 659144
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 48.675465721424445
+          }
+        },
+        {
+          "idle": {
+            "rssMb": 128.078125,
+            "heapUsedMb": 22.863525390625,
+            "heapTotalMb": 48.421875,
+            "externalMb": 4.699019432067871,
+            "arrayBuffersMb": 0.3906898498535156,
+            "modules": 1176,
+            "newSpaceMb": 22.5,
+            "oldSpaceMb": 20.75,
+            "codeSpaceMb": 1.25,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 23592960,
+                "used": 27408
+              },
+              "old_space": {
+                "size": 21757952,
+                "used": 19658232
+              },
+              "code_space": {
+                "size": 1310720,
+                "used": 913760
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 3407872,
+                "used": 2776672
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 704512,
+                "used": 659144
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 0
+          },
+          "loaded": {
+            "rssMb": 230.453125,
+            "heapUsedMb": 23.881248474121094,
+            "heapTotalMb": 120.171875,
+            "externalMb": 5.834526062011719,
+            "arrayBuffersMb": 0.3906898498535156,
+            "modules": 1176,
+            "newSpaceMb": 63.5,
+            "oldSpaceMb": 49,
+            "codeSpaceMb": 3,
+            "spaces": {
+              "read_only_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_space": {
+                "size": 66584576,
+                "used": 18680
+              },
+              "old_space": {
+                "size": 51380224,
+                "used": 19488784
+              },
+              "code_space": {
+                "size": 3145728,
+                "used": 2444352
+              },
+              "shared_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_space": {
+                "size": 4194304,
+                "used": 2468224
+              },
+              "shared_trusted_space": {
+                "size": 0,
+                "used": 0
+              },
+              "new_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "large_object_space": {
+                "size": 704512,
+                "used": 659144
+              },
+              "code_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "shared_trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              },
+              "trusted_large_object_space": {
+                "size": 0,
+                "used": 0
+              }
+            },
+            "kbAllocatedPerRequest": 48.56008302112977
+          }
+        }
+      ]
+    }
+  }
+}

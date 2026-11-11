@@ -369,6 +369,10 @@ export async function upstreamArgv() {
 /** Which sink (if any) a configuration needs, and whether it loads Nestrix. */
 export const CONFIGS = {
   baseline: { label: "uninstrumented", nestrix: false },
+  interceptor: {
+    label: "uninstrumented plus a no-op global interceptor",
+    nestrix: false,
+  },
   noexport: { label: "Nestrix, no endpoint (nothing exported)", nestrix: true },
   sink: { label: "Nestrix, local OTLP sink", nestrix: true, sink: "sink" },
   unreachable: {

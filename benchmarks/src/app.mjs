@@ -9,8 +9,9 @@
 // --expose-gc) and `stop` (app.close(), then exit).
 import { subscribe } from "node:diagnostics_channel";
 import "reflect-metadata";
+import { getHeapSpaceStatistics, getHeapStatistics } from "node:v8";
 import { Controller, Get, Module } from "@nestjs/common";
-import { NestFactory } from "@nestjs/core";
+import { APP_INTERCEPTOR, NestFactory } from "@nestjs/core";
 
 // Outgoing TCP connections the app opens (the exporter's; the app makes no other), counted from
 // Node's own `net.client.socket` channel so an unreachable endpoint, which has no server to count
@@ -79,8 +80,20 @@ if (usesNestrix) {
   controllers.push(SpansController);
 }
 
+// `interceptor`: the uninstrumented app plus one global interceptor that only returns
+// next.handle(), to separate Nest's own per-request cost of having any interceptor.
+const providers = [];
+if (config === "interceptor") {
+  class NoopInterceptor {
+    intercept(_context, next) {
+      return next.handle();
+    }
+  }
+  providers.push({ provide: APP_INTERCEPTOR, useClass: NoopInterceptor });
+}
+
 class BenchModule {}
-Module({ imports, controllers })(BenchModule);
+Module({ imports, controllers, providers })(BenchModule);
 
 const app = await NestFactory.create(BenchModule, {
   logger: ["error", "warn"],
@@ -107,6 +120,15 @@ function snapshot(withGc) {
     cpuSystemUs: cpu.system,
     rss: mem.rss,
     heapUsed: mem.heapUsed,
+    heapTotal: mem.heapTotal,
+    allocatedBytes: getHeapStatistics().total_allocated_bytes,
+    modules: globalThis.__benchLoadedModules?.size,
+    spaces: Object.fromEntries(
+      getHeapSpaceStatistics().map((s) => [
+        s.space_name,
+        { size: s.space_size, used: s.space_used_size },
+      ]),
+    ),
     external: mem.external,
     arrayBuffers: mem.arrayBuffers,
     counters,
@@ -118,7 +140,38 @@ process.on("message", async (m) => {
   if (m?.type === "stats") process.send({ type: "stats", ...snapshot(false) });
   else if (m?.type === "gcstats")
     process.send({ type: "gcstats", ...snapshot(true) });
-  else if (m?.type === "stop") {
+  else if (m?.type === "modules")
+    process.send({
+      type: "modules",
+      urls: [...(globalThis.__benchLoadedModules ?? [])],
+    });
+  else if (m?.type === "allocprof-start") {
+    // Sampling allocation profile that keeps objects later collected by GC, so it shows
+    // what is allocated per request, not only what survives.
+    const { Session } = await import("node:inspector/promises");
+    globalThis.__benchSession = new Session();
+    globalThis.__benchSession.connect();
+    await globalThis.__benchSession.post("HeapProfiler.startSampling", {
+      samplingInterval: 4096,
+      includeObjectsCollectedByMajorGC: true,
+      includeObjectsCollectedByMinorGC: true,
+    });
+    process.send({ type: "allocprof-start" });
+  } else if (m?.type === "allocprof-stop") {
+    const { profile } = await globalThis.__benchSession.post(
+      "HeapProfiler.stopSampling",
+    );
+    const { writeFileSync } = await import("node:fs");
+    const path =
+      m.path ??
+      `${process.env.BENCH_OUT_DIR ?? "."}/allocprof-${process.pid}.json`;
+    writeFileSync(path, JSON.stringify(profile));
+    process.send({ type: "allocprof-stop", path });
+  } else if (m?.type === "heapsnapshot") {
+    globalThis.gc?.();
+    const { writeHeapSnapshot } = await import("node:v8");
+    process.send({ type: "heapsnapshot", path: writeHeapSnapshot(m.path) });
+  } else if (m?.type === "stop") {
     try {
       await app.close();
     } finally {
