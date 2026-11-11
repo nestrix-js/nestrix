@@ -1,0 +1,45 @@
+import type { TraceListResponse } from "../src/index.js";
+
+export const traceList = {
+  head: "c.1794400000000.0af7651916cd43dd8448eb211c80319c",
+  older: "c.1794399990000.d4cda95b652f4a1592b449d5929fda1b",
+  reset: false,
+  items: [
+    {
+      traceId: "0af7651916cd43dd8448eb211c80319c",
+      rootSpanId: "b7ad6b7169203331",
+      name: "GET /orders/:id",
+      method: "GET",
+      route: "/orders/:id",
+      statusCode: 500,
+      error: true,
+      startTimeUnixMs: 1_794_400_000_000.25,
+      durationMs: 182.4,
+      spanCount: 4,
+      cursor: "c.1794400000000.0af7651916cd43dd8448eb211c80319c",
+    },
+    {
+      traceId: "d4cda95b652f4a1592b449d5929fda1b",
+      rootSpanId: "f6bb6c0a2d3f4e91",
+      name: "GET /orders",
+      method: "GET",
+      route: "/orders",
+      statusCode: 200,
+      error: false,
+      startTimeUnixMs: 1_794_399_990_000.5,
+      durationMs: 12.8,
+      spanCount: 3,
+      cursor: "c.1794399990000.d4cda95b652f4a1592b449d5929fda1b",
+    },
+    {
+      traceId: "6e0c63257de34c926f9efcd91d0ed2b8",
+      rootSpanId: "1d8a5e0b7c3f9a24",
+      name: "orders.reconcile",
+      error: false,
+      startTimeUnixMs: 1_794_399_980_000.0,
+      durationMs: 2_250.1,
+      spanCount: 9,
+      cursor: "c.1794399980000.6e0c63257de34c926f9efcd91d0ed2b8",
+    },
+  ],
+} satisfies TraceListResponse;

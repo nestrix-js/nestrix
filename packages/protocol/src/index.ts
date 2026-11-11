@@ -1,4 +1,5 @@
-/** Placeholder type. The real query-API types arrive with the query API. */
-export interface ProtocolVersion {
-  readonly version: number;
-}
+export * from "./params.js";
+export * from "./types.js";
+
+/** Version of the query API; the `/api/v1/` path segment and `MetaResponse.protocolVersion`. */
+export const PROTOCOL_VERSION = 1;
