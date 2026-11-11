@@ -43,7 +43,9 @@ export function getMethodCallSink(): MethodCallSink | undefined {
 }
 
 /** Installs (or with `undefined`, removes) the sink. Returns a disposer that removes it if still installed. */
-export function setMethodCallSink(sink: MethodCallSink | undefined): () => void {
+export function setMethodCallSink(
+  sink: MethodCallSink | undefined,
+): () => void {
   current = sink;
   return () => {
     if (current === sink) current = undefined;

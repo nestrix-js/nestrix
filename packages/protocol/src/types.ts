@@ -233,7 +233,13 @@ export interface ClassStatsResponse {
   classes: ClassStats[];
 }
 
-export type MapNodeKind = "app" | "database" | "cache" | "http" | "queue" | "other";
+export type MapNodeKind =
+  | "app"
+  | "database"
+  | "cache"
+  | "http"
+  | "queue"
+  | "other";
 
 /** A node of the app map: the app itself, or something it calls. */
 export interface MapNode {

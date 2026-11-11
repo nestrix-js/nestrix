@@ -144,7 +144,12 @@ export interface NestrixStoreOptions {
  * Names a class for `methods.include` / `methods.exclude`: the class itself, its exact name, or a
  * `RegExp` tested against its name.
  */
-export type ClassMatcher = string | RegExp | (abstract new (...args: never[]) => unknown);
+export type ClassMatcher =
+  | string
+  | RegExp
+  | (abstract new (
+      ...args: never[]
+    ) => unknown);
 
 /** Enhancer roles whose spans can be switched on (D-47, D-57). */
 export type NestrixEnhancerKind = "guard" | "pipe" | "interceptor" | "filter";
