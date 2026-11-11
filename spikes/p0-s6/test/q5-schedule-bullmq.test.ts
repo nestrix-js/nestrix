@@ -151,7 +151,7 @@ const completed: string[] = [];
 function makeModule(queueName: string, client: unknown) {
   @Processor(queueName)
   class S6Processor extends WorkerHost {
-    async process(job: Job): Promise<string> {
+    async process(job: Parameters<WorkerHost["process"]>[0]): Promise<string> {
       processed.push(job.data);
       return "done";
     }
