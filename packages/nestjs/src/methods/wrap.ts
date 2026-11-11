@@ -97,6 +97,9 @@ export function listMethods(proto: object): Array<[string, Fn]> {
       const d = Object.getOwnPropertyDescriptor(p, name);
       if (!d || d.get || d.set || typeof d.value !== "function") continue;
       const fn = d.value as Fn;
+      // A class or an ordinary function expression stored on the prototype (`proto.Item = Item`)
+      // may be used with `new`; concise and async methods have no own `prototype`.
+      if (Object.hasOwn(fn, "prototype")) continue;
       if (
         fn instanceof GeneratorFunction ||
         fn instanceof AsyncGeneratorFunction ||
@@ -107,6 +110,11 @@ export function listMethods(proto: object): Array<[string, Fn]> {
     }
   }
   return out;
+}
+
+function hasValidSpan(active: Context): boolean {
+  const sc = trace.getSpanContext(active);
+  return sc !== undefined && isSpanContextValid(sc);
 }
 
 const SKIP_OWN_KEYS: ReadonlySet<PropertyKey> = new Set([
@@ -318,9 +326,12 @@ export function makeWrapper(
           root: true,
           links: sc && isSpanContextValid(sc) ? [{ context: sc }] : undefined,
         });
-      } else if (!underUnsampledParent(active)) {
-        // Ordinary methods and BullMQ `process`: a child of the active span, or a new root when
-        // there is none (D-62 for `process`).
+      } else if (
+        !underUnsampledParent(active) &&
+        (entry === "job" || hasValidSpan(active))
+      ) {
+        // Ordinary methods: a child of the active span; with no valid active span they get none
+        // (D-67). BullMQ `process` starts a root when there is none (D-62).
         span = trace
           .getTracer(TRACER_NAME)
           .startSpan(spanName, { kind: SpanKind.INTERNAL, attributes }, active);

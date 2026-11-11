@@ -97,18 +97,17 @@ export function classKind(
     if (ownMeta(CONTROLLER_WATERMARK, ctor) === true) return "controller";
     if (ownMeta(BULLMQ_PROCESSOR_METADATA, ctor) !== undefined)
       return "processor";
+    if (ownMeta(CATCH_WATERMARK, ctor) !== undefined) return "filter";
+    // The name suffix wins over the method-name rules: `MapperService.transform` and
+    // `FeatureFlagService.canActivate` are services, not a pipe and a guard.
+    if (className.endsWith("Repository")) return "repository";
+    if (className.endsWith("Service")) return "service";
     const has = (n: string) => findMethod(proto, n) !== undefined;
-    if (
-      ownMeta(CATCH_WATERMARK, ctor) !== undefined ||
-      // A class with `catch` and `then` is a thenable, not a filter.
-      (has("catch") && !has("then"))
-    )
-      return "filter";
+    // A class with `catch` and `then` is a thenable, not a filter.
+    if (has("catch") && !has("then")) return "filter";
     if (has("canActivate")) return "guard";
     if (has("intercept")) return "interceptor";
     if (has("transform")) return "pipe";
-    if (className.endsWith("Repository")) return "repository";
-    if (className.endsWith("Service")) return "service";
   } catch {
     // fall through
   }

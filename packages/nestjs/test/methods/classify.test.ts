@@ -139,6 +139,28 @@ describe("class kind", () => {
   const kind = (c: { prototype: object; name: string }) =>
     classKind(c, c.prototype, c.name);
 
+  it("the Service / Repository suffix wins over the enhancer method names", () => {
+    @Injectable()
+    class MapperService {
+      transform(v: unknown): unknown {
+        return v;
+      }
+    }
+    @Injectable()
+    class FeatureFlagService {
+      canActivate(): boolean {
+        return true;
+      }
+    }
+    @Injectable()
+    class AuditRepository {
+      intercept(): void {}
+    }
+    expect(kind(MapperService)).toBe("service");
+    expect(kind(FeatureFlagService)).toBe("service");
+    expect(kind(AuditRepository)).toBe("repository");
+  });
+
   it("by marker, then by the method Nest calls, then by name", () => {
     expect(kind(C)).toBe("controller");
     expect(kind(F)).toBe("filter");

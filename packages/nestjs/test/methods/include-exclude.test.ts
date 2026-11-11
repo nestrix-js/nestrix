@@ -118,6 +118,8 @@ afterEach(async () => {
 });
 
 async function traced(methods?: NestrixMethodOptions): Promise<string[]> {
+  // With two live apps a class is traced if either configuration says so: close the previous one.
+  await booted?.close();
   booted = await bootInstrumented(
     "express",
     appWith(methods),

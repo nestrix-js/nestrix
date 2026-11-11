@@ -37,12 +37,37 @@ export interface ClassPlan extends PlanSwitch {
   readonly methods: ReadonlyArray<readonly [string, Fn]>;
 }
 
+/** One entry per live app (`configureMethods` call that was not disposed), oldest first. */
+const configs: MethodsConfig[] = [];
+/** The newest active configuration: what the "current" accessors and `planFor` read. */
 let config: MethodsConfig | undefined;
 let decoratedAny = false;
 /** Plans by class prototype. A prototype with no wrappable method maps to `null`. */
 const plans = new WeakMap<object, ClassPlan | null>();
-/** Every plan built, so `configureMethods` can switch the ones built before it. */
-const allPlans = new Set<ClassPlan>();
+/** Every plan built, held weakly so classes can be collected; dead refs are pruned on iteration. */
+const allPlans = new Set<WeakRef<ClassPlan>>();
+
+function livePlans(): ClassPlan[] {
+  const out: ClassPlan[] = [];
+  for (const ref of allPlans) {
+    const plan = ref.deref();
+    if (plan) out.push(plan);
+    else allPlans.delete(ref);
+  }
+  return out;
+}
+
+/** A plan is on when any active configuration decides it on (several apps in one process). */
+function decideAll(plan: ClassPlan): boolean {
+  for (const c of configs) {
+    if (decide(c, plan.ctor, plan.className, plan.kind)) return true;
+  }
+  return false;
+}
+
+function redecideAll(): void {
+  for (const plan of livePlans()) plan.on = decideAll(plan);
+}
 /** Unmarked classes known not to be included under the current config; replaced on configure. */
 let notIncluded = new WeakSet<object>();
 /** Nestrix's own classes (`NestrixCore`, `NestrixInterceptor`): never wrapped. */
@@ -121,7 +146,7 @@ function buildPlan(proto: object, ctor: unknown): ClassPlan | null {
     ctor,
     className: name,
     kind,
-    on: config ? decide(config, ctor, name, kind) : false,
+    on: false,
     methods,
   };
   for (const [method, fn] of listMethods(proto)) {
@@ -141,7 +166,8 @@ function buildPlan(proto: object, ctor: unknown): ClassPlan | null {
     }
   }
   if (methods.length === 0) return null;
-  allPlans.add(plan);
+  plan.on = decideAll(plan);
+  allPlans.add(new WeakRef(plan));
   return plan;
 }
 
@@ -164,9 +190,10 @@ function planFor(proto: object): ClassPlan | null {
     return null;
   }
   if (!isMarkedClass(ctor)) {
-    if (!config || !matches(config.include, ctor, className(ctor))) {
-      // Not cached before the config exists: an `include` may name it.
-      if (config) notIncluded.add(proto);
+    const name = className(ctor);
+    if (!configs.some((c) => c.enabled && matches(c.include, ctor, name))) {
+      // Not cached before a config exists: an `include` may name it.
+      if (configs.length > 0) notIncluded.add(proto);
       return null;
     }
   }
@@ -182,7 +209,7 @@ function planFor(proto: object): ClassPlan | null {
 export function nestrixInstanceDecorator(instance: unknown): unknown {
   try {
     decoratedAny = true;
-    if (config && !config.enabled) return instance;
+    if (configs.length > 0 && !configs.some((c) => c.enabled)) return instance;
     // Functions (plain middleware, factory results) and primitives pass untouched.
     if (instance === null || typeof instance !== "object") return instance;
     const proto = Object.getPrototypeOf(instance) as object | null;
@@ -190,8 +217,9 @@ export function nestrixInstanceDecorator(instance: unknown): unknown {
     if (proto === null || proto === Object.prototype) return instance;
     const plan = planFor(proto);
     if (plan === null) return instance;
-    // Planned off under a known config: install nothing.
-    if (config && !plan.on) return instance;
+    // A plan that is off still gets its (disabled) wrappers: a second app's own class can be
+    // decorated before that app's `NestrixCore` computes its own set, while only the first app's
+    // configuration is live, so "off now" does not mean "off for good".
     if (!Object.isExtensible(instance)) return instance;
     for (const [method, w] of plan.methods) {
       // A class field of that name, or an earlier decoration (the same instance arrives again for
@@ -231,20 +259,22 @@ export function configureMethods(
       exclude: options.exclude,
       enhancers: new Set(options.enhancers),
     };
+    configs.push(mine);
     config = mine;
     notIncluded = new WeakSet();
-    for (const plan of allPlans) {
-      plan.on = decide(mine, plan.ctor, plan.className, plan.kind);
-    }
+    redecideAll();
   } catch (error) {
     diagnostics.countFailure("methods.configure", error);
   }
   return () => {
     try {
-      if (!mine || config !== mine) return;
-      config = undefined;
+      if (!mine) return;
+      const at = configs.indexOf(mine);
+      if (at === -1) return;
+      configs.splice(at, 1);
+      config = configs[configs.length - 1];
       notIncluded = new WeakSet();
-      for (const plan of allPlans) plan.on = false;
+      redecideAll();
     } catch (error) {
       diagnostics.countFailure("methods.dispose", error);
     }
@@ -271,8 +301,9 @@ export function planOf(ctor: { prototype: object }): ClassPlan | undefined {
 
 /** Internal, for tests only: forget the configuration and the "decorated" flag (plans stay). */
 export function resetMethodsForTests(): void {
+  configs.length = 0;
   config = undefined;
   decoratedAny = false;
   notIncluded = new WeakSet();
-  for (const plan of allPlans) plan.on = false;
+  for (const plan of livePlans()) plan.on = false;
 }
