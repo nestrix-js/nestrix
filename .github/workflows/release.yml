@@ -1,0 +1,86 @@
+name: Release
+
+# Off by default. Every job is gated on the repository variable NPM_PUBLISH_ENABLED
+# (Settings > Secrets and variables > Actions > Variables). While it is unset, a push to
+# main starts this workflow and all jobs are skipped; no minutes are used and nothing can
+# publish. The owner sets it to "true" only after the steps in RELEASING.md are done.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false # never cancel a release halfway
+
+jobs:
+  select:
+    if: vars.NPM_PUBLISH_ENABLED == 'true' && github.repository == 'nestrix-js/nestrix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - id: mode
+        uses: changesets/action/select-mode@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+
+  # Opens or updates the "chore(release): version packages" PR. No publish permissions here.
+  version:
+    needs: select
+    if: needs.select.outputs.mode == 'version'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - uses: changesets/action/version@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          script: pnpm version-packages
+          commit-message: "chore(release): version packages"
+          pr-title: "chore(release): version packages"
+          # RELEASE_PAT is optional: PRs opened with GITHUB_TOKEN do not trigger CI.
+          github-token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+
+  # Runs after the version PR is merged. The only job with id-token: write.
+  # No NPM_TOKEN or NODE_AUTH_TOKEN: npm and pnpm exchange the job's OIDC token themselves
+  # (npm trusted publishing) and attach provenance.
+  publish:
+    needs: select
+    if: needs.select.outputs.mode == 'publish'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write # git tags and GitHub releases
+      id-token: write # npm trusted publishing (OIDC) and provenance
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # Not ./.github/actions/setup: a release build restores no cache.
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify # the same checks as CI: a release cannot skip any
+      - uses: changesets/action/publish@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          script: pnpm release

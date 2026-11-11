@@ -60,7 +60,13 @@ pnpm typecheck      # tsc -b --noEmit over the references in the root tsconfig.j
 pnpm check:packages # publint + attw --pack --profile esm-only on each published package (their check:package script)
 pnpm check:tla      # scripts/check-no-tla.mjs: require() every published entry and every built file from CommonJS and fail on a top-level await (ERR_REQUIRE_ASYNC_MODULE); needs `pnpm build` first
 pnpm verify         # build, check:packages, check:tla, test, lint, typecheck in that order, stopping at the first failure
+pnpm changeset      # add a changeset (needed for changes to a published package; @nestrix/nestjs and @nestrix/ui share one version)
+pnpm changeset status --since=origin/main  # what the PR check runs; exits non-zero if a published package changed without a changeset
+pnpm version-packages # changeset version: CI runs it for the version PR; do not run it locally and commit the result
+pnpm release        # refuses to run outside .github/workflows/release.yml on main; never publish from a laptop (RELEASING.md)
 ```
+
+Releases are Changesets plus npm trusted publishing and are switched off until the owner sets the `NPM_PUBLISH_ENABLED` repository variable. Agents never publish, set that variable or run `changeset publish`; `RELEASING.md` has the owner's steps.
 
 CI runs locally with [`act`](https://nektosact.com) and Docker, without spending GitHub Actions minutes (the repository is private, 2,000 minutes a month). On colima, `--container-daemon-socket -` is required:
 
