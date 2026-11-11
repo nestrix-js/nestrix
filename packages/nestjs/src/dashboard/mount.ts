@@ -45,6 +45,7 @@ import {
   type ApiSources,
   apiError,
   errorsHandler,
+  mapHandler,
   metaHandler,
   PROTOCOL_VERSION,
   routesHandler,
@@ -356,6 +357,7 @@ export class Dashboard {
         `${api}/routes`,
         this.handler("api", (t) => routesHandler(t, sources())),
       ],
+      [`${api}/map`, this.handler("api", (t) => mapHandler(t, sources()))],
     );
     for (const [route, handler] of routes) {
       try {

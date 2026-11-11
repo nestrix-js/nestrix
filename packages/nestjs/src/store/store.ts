@@ -136,6 +136,18 @@ export interface TraceStore {
   /** All stored spans of a trace, by start time; `undefined` when not stored. */
   getTrace(traceId: string): TraceResponse | undefined;
   listErrors(query: ErrorListQuery): ErrorListResponse;
+  /**
+   * Calls `visit` for every listed trace (one with a local root) whose root started at or after
+   * `sinceUnixMs`, oldest first. `visit` must not keep or change `spans`. Never throws.
+   */
+  scanTraces(
+    sinceUnixMs: number,
+    visit: (
+      root: SpanRecord,
+      spans: readonly SpanRecord[],
+      resource: Attributes,
+    ) => void,
+  ): void;
   stats(): StoreStats;
 }
 
@@ -780,6 +792,25 @@ class Store implements TraceStore {
     } catch (error) {
       this.diagnostics.countFailure("store.query", error);
       return { items: [], head: null, older: null, reset: true };
+    }
+  }
+
+  scanTraces(
+    sinceUnixMs: number,
+    visit: (
+      root: SpanRecord,
+      spans: readonly SpanRecord[],
+      resource: Attributes,
+    ) => void,
+  ): void {
+    try {
+      for (const entry of this.listed) {
+        if (entry.dead || entry.root === undefined) continue;
+        if (!(entry.root.startTimeUnixMs >= sinceUnixMs)) continue;
+        visit(entry.root, entry.spans, entry.resource);
+      }
+    } catch {
+      // A failed query answers with what it had; it never reaches the caller.
     }
   }
 

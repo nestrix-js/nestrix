@@ -14,6 +14,8 @@ import type {
   ApiError,
   ApiErrorCode,
   ApiWarning,
+  AppMapParamsSpec,
+  AppMapResponse,
   ErrorListParamsSpec,
   ErrorListResponse,
   MetaResponse,
@@ -26,6 +28,7 @@ import type {
   TraceResponse,
 } from "@nestrix/protocol";
 import type { RouteStatistics } from "../stats/route-stats.js";
+import { buildAppMap } from "../store/app-map.js";
 import type { StoreStats, TraceStore } from "../store/store.js";
 import { type DashboardResponse, JSON_TYPE } from "./respond.js";
 
@@ -51,6 +54,16 @@ export const errorListSpec: ErrorListParamsSpec = {
 };
 
 export const routeStatsSpec: RouteStatsParamsSpec = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+};
+
+export const appMapSpec: AppMapParamsSpec = {
   windowMinutes: {
     kind: "int",
     min: 15,
@@ -368,6 +381,22 @@ export function routesHandler(
   const body: RouteStatsResponse = sources.stats.query(
     parsed.values.windowMinutes as number,
     now,
+  );
+  return ok(body);
+}
+
+export function mapHandler(
+  target: unknown,
+  sources: ApiSources,
+  now: number = Date.now(),
+): DashboardResponse {
+  const parsed = parseQuery(target, appMapSpec);
+  if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
+  const body: AppMapResponse = buildAppMap(
+    sources.store,
+    parsed.values.windowMinutes as number,
+    now,
+    sources.service.name,
   );
   return ok(body);
 }
