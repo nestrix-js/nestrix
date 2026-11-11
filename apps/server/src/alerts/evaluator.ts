@@ -252,14 +252,16 @@ export class AlertEvaluator {
          VALUES ($1, $2, $3, $4, $5) RETURNING id`,
         [id, new Date(nowMs), kind, value, rule.threshold],
       );
+      const eventId = Number(ev.rows[0]?.id);
       notification = {
-        eventId: Number(ev.rows[0]?.id),
+        eventId,
         ruleId: id,
         url: rule.webhook_url,
         secret: rule.secret,
         body: JSON.stringify(
           buildPayload(
             rule,
+            eventId,
             kind,
             value,
             t.startedAtMs,
@@ -282,6 +284,7 @@ export class AlertEvaluator {
         n.url,
         n.secret,
         n.body,
+        { eventId: n.eventId },
       );
     } catch {
       result = {

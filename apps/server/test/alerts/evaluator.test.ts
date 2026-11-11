@@ -164,7 +164,15 @@ describe.skipIf(noDatabase)(`alert evaluator ${skipReason}`, () => {
     expect(receiver.requests).toHaveLength(1);
     const hook = receiver.requests[0];
     expect(hook && verifySignature(hook, KEY)).toBe(true);
+    const [firingEvent] = (
+      await db.pool.query<{ id: string }>(
+        "SELECT id FROM alert_events WHERE rule_id = $1 AND kind = 'firing'",
+        [id],
+      )
+    ).rows;
+    expect(hook?.headers["x-nestrix-delivery"]).toBe(String(firingEvent?.id));
     expect(JSON.parse(hook?.body ?? "")).toEqual({
+      eventId: String(firingEvent?.id),
       rule: {
         id: String(id),
         name: "rule for shop",

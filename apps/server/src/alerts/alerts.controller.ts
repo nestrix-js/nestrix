@@ -29,7 +29,7 @@ import {
   QUERY_HEADERS,
   QueryExceptionFilter,
 } from "../query/exception.filter.js";
-import { AlertsService } from "./alerts.service.js";
+import { AlertsService, RuleInconsistentError } from "./alerts.service.js";
 import { validateRuleInput } from "./store.js";
 import { ALERTS_OPTIONS, type ResolvedAlertsOptions } from "./tokens.js";
 
@@ -161,7 +161,18 @@ export class AlertsController {
     if (!v.ok) apiError(400, "bad_request", v.message);
     const t = await this.alerts.withSloTarget(v.fields);
     if (!t.ok) apiError(400, "bad_request", t.message);
-    return (await this.alerts.update(ruleId, t.fields)) ?? notFound();
+    try {
+      return (await this.alerts.update(ruleId, t.fields)) ?? notFound();
+    } catch (error) {
+      if (error instanceof RuleInconsistentError) {
+        apiError(
+          400,
+          "bad_request",
+          "The rule changed meanwhile: the threshold no longer suits the metric. Send both fields together.",
+        );
+      }
+      throw error;
+    }
   }
 
   @Delete(":id")

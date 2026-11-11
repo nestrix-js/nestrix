@@ -10,10 +10,13 @@
  * `2001::/32`, documentation `2001:db8::/32`, unique-local `fc00::/7`, link-local `fe80::/10`,
  * site-local `fec0::/10`, multicast `ff00::/8`, NAT64 local-use `64:ff9b:1::/48`; and the IPv4
  * address embedded in IPv4-mapped `::ffff:0:0/96`, NAT64 `64:ff9b::/96` and 6to4 `2002::/16`
- * is checked against the IPv4 rules. Anything that does not parse is refused.
+ * is checked against the IPv4 rules. IPv6 is otherwise allowed only inside global unicast
+ * `2000::/3`, minus documentation `3fff::/20`, benchmarking `2001:2::/48`, ORCHID
+ * `2001:10::/28` and `2001:20::/28`, and IPv4-translated `::ffff:0:0:0/96` is refused.
+ * Anything that does not parse is refused.
  *
  * Written by hand, not with `net.BlockList`, so the IPv4-mapped and embedded forms are handled
- * explicitly and tested (`test/alerts/address.test.ts`).
+ * explicitly and tested (`test/alerts/unit.test.ts`).
  */
 import { isIPv4, isIPv6 } from "node:net";
 
@@ -118,9 +121,17 @@ function v6Reason(g: readonly number[]): string | undefined {
       return reason === undefined ? undefined : `NAT64 ${reason}`;
     }
   }
+  if (
+    g0 === 0 &&
+    g1 === 0 &&
+    g2 === 0 &&
+    g3 === 0 &&
+    g4 === 0xffff &&
+    g5 === 0
+  ) {
+    return "IPv4-translated";
+  }
   if (g0 === 0x100 && g1 === 0 && g2 === 0 && g3 === 0) return "discard";
-  if (g0 === 0x2001 && g1 === 0) return "Teredo";
-  if (g0 === 0x2001 && g1 === 0xdb8) return "documentation";
   if (g0 === 0x2002) {
     const reason = v4Reason(v4FromGroups(g1, g2));
     return reason === undefined ? undefined : `6to4 ${reason}`;
@@ -129,6 +140,14 @@ function v6Reason(g: readonly number[]): string | undefined {
   if ((g0 & 0xffc0) === 0xfe80) return "link-local";
   if ((g0 & 0xffc0) === 0xfec0) return "site-local";
   if ((g0 & 0xff00) === 0xff00) return "multicast";
+  // Only global unicast 2000::/3 is allowed, minus the non-global ranges inside it.
+  if ((g0 & 0xe000) !== 0x2000) return "not global unicast";
+  if (g0 === 0x2001 && g1 === 0) return "Teredo";
+  if (g0 === 0x2001 && g1 === 0xdb8) return "documentation";
+  if (g0 === 0x2001 && g1 === 2 && g2 === 0) return "benchmarking";
+  if (g0 === 0x2001 && (g1 & 0xfff0) === 0x10) return "ORCHID";
+  if (g0 === 0x2001 && (g1 & 0xfff0) === 0x20) return "ORCHIDv2";
+  if (g0 === 0x3fff && (g1 & 0xf000) === 0) return "documentation";
   return undefined;
 }
 

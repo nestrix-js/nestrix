@@ -11,6 +11,7 @@ import type {
   AlertRuleListResponse,
   AlertTestResponse,
 } from "@nestrix/protocol";
+import type { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AlertEvaluator } from "../../src/alerts/evaluator.js";
 import { STORAGE_POOL } from "../../src/storage/storage.module.js";
@@ -248,6 +249,44 @@ describe.skipIf(noDatabase)(`alerts API ${skipReason}`, () => {
       );
     });
 
+    it("concurrent PATCHes cannot leave a threshold that does not suit the metric", async () => {
+      const pool = server.app.get<Pool>(STORAGE_POOL);
+      const ids: string[] = [];
+      // Each rule starts as p95_ms 0.5; one PATCH switches the metric (valid against 0.5), the
+      // other sets a threshold valid for p95_ms only. Applied together they must not both stick.
+      for (let i = 0; i < 12; i++) {
+        ids.push((await create({ metric: "p95_ms", threshold: 0.5 })).rule.id);
+      }
+      const results = await Promise.all(
+        ids.flatMap((id) => [
+          server.call("PATCH", `/api/v1/alerts/${id}`, {
+            metric: "error_rate",
+          }),
+          server.call("PATCH", `/api/v1/alerts/${id}`, { threshold: 5000 }),
+        ]),
+      );
+      for (const res of results) expect([200, 400]).toContain(res.status);
+      const { rows } = await pool.query<{ metric: string; threshold: number }>(
+        "SELECT metric, threshold FROM alert_rules WHERE id = ANY($1::bigint[])",
+        [ids],
+      );
+      expect(rows).toHaveLength(12);
+      for (const row of rows) {
+        expect(
+          row.metric === "error_rate"
+            ? row.threshold >= 0 && row.threshold < 1
+            : row.threshold > 0 && row.threshold <= 3_600_000,
+        ).toBe(true);
+      }
+      // The database refuses the combination by itself.
+      await expect(
+        pool.query(
+          "UPDATE alert_rules SET metric = 'error_rate', threshold = 5000 WHERE id = $1",
+          [ids[0]],
+        ),
+      ).rejects.toMatchObject({ code: "23514" });
+    });
+
     it("test-send delivers one signed test notification and records it", async () => {
       const { rule: r, secret } = await create({ name: "Test send" });
       const before = receiver.requests.length;
@@ -266,9 +305,11 @@ describe.skipIf(noDatabase)(`alerts API ${skipReason}`, () => {
       const hook = receiver.requests.at(-1);
       expect(hook && verifySignature(hook, secret)).toBe(true);
       expect(JSON.parse(hook?.body ?? "")).toMatchObject({
+        eventId: event.id,
         state: "test",
         service: "shop",
       });
+      expect(hook?.headers["x-nestrix-delivery"]).toBe(event.id);
 
       const list = (await (
         await server.call("GET", `/api/v1/alerts/events?rule=${r.id}&limit=5`)
@@ -320,6 +361,9 @@ describe.skipIf(noDatabase)(`alerts API ${skipReason}`, () => {
     expect(receiver.requests).toHaveLength(before + 1);
     const fired = receiver.requests.at(-1);
     expect(fired && verifySignature(fired, secret)).toBe(true);
+    expect(fired?.headers["x-nestrix-delivery"]).toBe(
+      JSON.parse(fired?.body ?? "").eventId,
+    );
     expect(JSON.parse(fired?.body ?? "")).toMatchObject({
       rule: { id: r.id, name: "Acceptance" },
       state: "firing",

@@ -105,11 +105,13 @@ export interface AlertTestResponse {
 }
 
 /**
- * The JSON body of a webhook `POST`. Headers: `x-nestrix-timestamp` (Unix seconds) and
+ * The JSON body of a webhook `POST`. Headers: `x-nestrix-timestamp` (Unix seconds),
  * `x-nestrix-signature: sha256=<hex>`, the HMAC-SHA256 with the rule's secret of
- * `<timestamp>.<raw body>`.
+ * `<timestamp>.<raw body>`, and `x-nestrix-delivery`, the `eventId`, the same on every retry.
  */
 export interface AlertWebhookPayload {
+  /** The id of the notification (`AlertEvent.id`): stable across retries; dedupe on it. */
+  eventId: string;
   rule: { id: string; name: string; metric: AlertMetric; comparator: ">" };
   state: "firing" | "resolved" | "test";
   value: number | null;

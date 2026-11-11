@@ -60,6 +60,14 @@ function withState(row: RuleWithState): AlertRule {
   );
 }
 
+/** An update would leave the threshold unsuited to the metric (the table's CHECK refused it). */
+export class RuleInconsistentError extends Error {
+  constructor() {
+    super("threshold does not suit the metric");
+    this.name = "RuleInconsistentError";
+  }
+}
+
 /** Rules and history in Postgres, for the API. */
 @Injectable()
 export class AlertsService {
@@ -161,6 +169,11 @@ export class AlertsService {
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);
+      // Two concurrent PATCHes can each pass the API's check against the old row; the table's
+      // CHECK (0004_alert_checks.sql) is what refuses the combination.
+      if ((error as { code?: string }).code === "23514") {
+        throw new RuleInconsistentError();
+      }
       throw error;
     } finally {
       client.release();
@@ -204,14 +217,22 @@ export class AlertsService {
     );
     const eventId = Number(rows[0]?.id);
     const body = JSON.stringify(
-      buildPayload(rule, "test", null, nowMs, nowMs, this.options.publicUrl),
+      buildPayload(
+        rule,
+        eventId,
+        "test",
+        null,
+        nowMs,
+        nowMs,
+        this.options.publicUrl,
+      ),
     );
     const result = await this.sender.send(
       String(id),
       rule.webhook_url,
       rule.secret,
       body,
-      { maxAttempts: 1 },
+      { maxAttempts: 1, eventId },
     );
     await recordDelivery(this.pool, eventId, id, result);
     const ev = await this.pool.query<AlertEventRow>(

@@ -229,6 +229,25 @@ describe("redirects, timeouts and retries", () => {
     ]);
   });
 
+  it("sends the same x-nestrix-delivery header on every attempt of one event", async () => {
+    const r = await receiver((_req, res, i) => {
+      res.writeHead(i < 2 ? 503 : 200).end();
+    });
+    const result = await sender({ allowedHosts: ["127.0.0.1"] }).send(
+      "1",
+      r.url,
+      KEY,
+      BODY,
+      { eventId: 42 },
+    );
+    expect(result).toMatchObject({ delivery: "sent", attempts: 3 });
+    expect(r.requests.map((q) => q.headers["x-nestrix-delivery"])).toEqual([
+      "42",
+      "42",
+      "42",
+    ]);
+  });
+
   it("does not retry a 4xx other than 408 and 429, and never reads the body", async () => {
     const r = await receiver((_req, res) => {
       res.writeHead(400).end("x".repeat(100_000));
@@ -336,6 +355,118 @@ describe("one delivery in flight per rule", () => {
       "timeout",
       "queue_full",
     ]);
+  });
+});
+
+describe("one deadline per attempt", () => {
+  it("counts the DNS lookup against the attempt's deadline", async () => {
+    const r = await receiver(() => "hang");
+    let given = 0;
+    const lookup: Lookup = async (_host, { timeoutMs }) => {
+      given = timeoutMs;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return [{ address: "127.0.0.1", family: 4 }];
+    };
+    const started = Date.now();
+    const result = await sender({
+      lookup,
+      allowedHosts: ["hooks.test"],
+      timeoutMs: 500,
+      maxAttempts: 1,
+    }).send("1", `http://hooks.test:${r.port}/hook`, KEY, BODY);
+    const elapsed = Date.now() - started;
+    expect(result).toMatchObject({ delivery: "failed", error: "timeout" });
+    expect(given).toBeLessThanOrEqual(500);
+    // 300 ms of lookup plus a fresh 500 ms for the request would be 800 ms.
+    expect(elapsed).toBeLessThan(700);
+  });
+
+  it("the default resolver reports a name that does not exist as a dns failure", async () => {
+    const result = await sender({ timeoutMs: 1500, maxAttempts: 1 }).send(
+      "1",
+      "http://nestrix-no-such-host.invalid/",
+      KEY,
+      BODY,
+    );
+    expect(result).toMatchObject({ delivery: "failed", error: "dns" });
+  }, 10_000);
+});
+
+describe("shutdown", () => {
+  it("a delivery waiting in backoff resolves as shutdown when the sender closes", async () => {
+    const r = await receiver((_req, res) => {
+      res.writeHead(503).end();
+    });
+    const s = sender({ allowedHosts: ["127.0.0.1"], backoffMs: () => 60_000 });
+    const pending = s.send("1", r.url, KEY, BODY);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await s.close(50);
+    await expect(pending).resolves.toEqual({
+      delivery: "failed",
+      attempts: 1,
+      status: null,
+      error: "shutdown",
+    });
+    expect(r.requests).toHaveLength(1);
+  });
+});
+
+describe("receiver example in apps/server/README.md", () => {
+  type Verify = (
+    secret: string,
+    headers: Record<string, string | undefined>,
+    rawBody: string,
+  ) => boolean;
+
+  /** The README's `verify` code block, run as written. */
+  async function loadVerify(): Promise<Verify> {
+    const { readFile } = await import("node:fs/promises");
+    const { createHmac, timingSafeEqual } = await import("node:crypto");
+    const readme = await readFile(
+      new URL("../../README.md", import.meta.url),
+      "utf8",
+    );
+    const block =
+      /```js\n(import [^\n]*\n[\s\S]*?function verify[\s\S]*?)```/.exec(
+        readme,
+      )?.[1];
+    expect(block, "README has the verify example").toBeDefined();
+    const code = (block as string).replace(/^import [^\n]*\n/m, "");
+    return new Function(
+      "createHmac",
+      "timingSafeEqual",
+      `${code}\nreturn verify;`,
+    )(createHmac, timingSafeEqual) as Verify;
+  }
+
+  const headersOf = (r: { headers: unknown }) =>
+    r.headers as Record<string, string | undefined>;
+
+  it("accepts a real delivery and rejects a changed body, a wrong secret and an old timestamp", async () => {
+    const verify = await loadVerify();
+    const r = await receiver();
+    const body = JSON.stringify({ eventId: "7", state: "firing" });
+    const result = await sender({ allowedHosts: ["127.0.0.1"] }).send(
+      "1",
+      r.url,
+      KEY,
+      body,
+      { eventId: 7 },
+    );
+    expect(result.delivery).toBe("sent");
+    const got = r.requests[0] as NonNullable<(typeof r.requests)[0]>;
+    expect(verify(KEY, headersOf(got), got.body)).toBe(true);
+    expect(verify(KEY, headersOf(got), `${got.body} `)).toBe(false);
+    expect(verify("x".repeat(43), headersOf(got), got.body)).toBe(false);
+    expect(headersOf(got)["x-nestrix-delivery"]).toBe("7");
+
+    const old = await receiver();
+    await sender({
+      allowedHosts: ["127.0.0.1"],
+      nowSeconds: () => Math.floor(Date.now() / 1000) - 3600,
+    }).send("1", old.url, KEY, body, { eventId: 7 });
+    const oldReq = old.requests[0] as NonNullable<(typeof old.requests)[0]>;
+    expect(verify(KEY, headersOf(oldReq), oldReq.body)).toBe(false);
   });
 });
 

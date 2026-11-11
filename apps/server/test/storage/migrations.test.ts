@@ -30,7 +30,12 @@ describe.skipIf(noDatabase)(`migrations ${skipReason}`, () => {
       runMigrations(db.pool),
     ]);
     // The advisory lock serialises the two runs: one applies, the other finds it done.
-    const all = ["0001_init.sql", "0002_alerts.sql", "0003_slos.sql"];
+    const all = [
+      "0001_init.sql",
+      "0002_alerts.sql",
+      "0003_slos.sql",
+      "0004_alert_checks.sql",
+    ];
     const applied = [...a.applied, ...b.applied];
     expect(applied).toEqual(all);
     expect([...a.skipped, ...b.skipped]).toEqual(all);

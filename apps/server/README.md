@@ -136,7 +136,14 @@ curl -X POST https://nestrix.example.com/api/v1/alerts \
 
 The response includes the signing `secret` (`whsec_…`) **once**; store it. `POST /api/v1/alerts/:id/test` sends a test notification, and `GET /api/v1/alerts/events` lists deliveries.
 
-**Webhooks.** The server sends a `POST` with a JSON body (state `firing`, `resolved` or `test`, the rule, value, threshold, service, route, times and a dashboard `url` when `NESTRIX_PUBLIC_URL` is set) and two headers: `x-nestrix-timestamp` (Unix seconds) and `x-nestrix-signature: sha256=<hex>`, the HMAC-SHA256 of `<timestamp>.<raw body>` with the rule's secret. Each attempt has a 5 s limit; up to 3 attempts, retried on network errors, timeouts, 408, 429 and 5xx; redirects are never followed. Delivery is at most once across a server crash. A receiver should verify the signature over the raw body and reject old timestamps:
+**Webhooks.** The server sends a `POST` with a JSON body (state `firing`, `resolved` or `test`, the rule, value, threshold, service, route, times and a dashboard `url` when `NESTRIX_PUBLIC_URL` is set) and two headers: `x-nestrix-timestamp` (Unix seconds) and `x-nestrix-signature: sha256=<hex>`, the HMAC-SHA256 of `<timestamp>.<raw body>` with the rule's secret. Each attempt has a 5 s limit; up to 3 attempts, retried on network errors, timeouts, 408, 429 and 5xx; redirects are never followed. Delivery is at most once across a server crash. Every notification has an `eventId` (also the `x-nestrix-delivery` header), the same on every retry of that notification. A receiver should:
+
+- **dedupe on `eventId`**: a retry after a slow or lost answer delivers the same event again, and a receiver that pages someone must not page twice;
+- **order by `sentAt`, not by arrival**: retries and parallel deliveries can arrive out of order, so a late `firing` must not overwrite a newer `resolved`;
+- **check the timestamp** is within 5 minutes of now, to reject replays;
+- **verify the signature over the raw body** (not a re-serialised parse), comparing with `crypto.timingSafeEqual`.
+
+The example below does the timestamp and signature checks (`test/alerts/webhook.test.ts` runs this exact code against a real delivery):
 
 ```js
 import { createHmac, timingSafeEqual } from "node:crypto";
