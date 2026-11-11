@@ -8,8 +8,6 @@ Include what you can: the affected version, the adapter (Express, Fastify, platf
 
 You will get an acknowledgement, and then updates as the report is assessed and fixed. A fix is released before the details are published, and reporters are credited unless they ask not to be.
 
-<!-- Owner action before the first release: enable private vulnerability reporting in the repository settings. -->
-
 ## What counts
 
 Nestrix runs inside the host application and can hold request metadata, SQL text and stack traces. These are treated as vulnerabilities:

@@ -105,6 +105,8 @@ Taken by the lead agent under delivery mode (owner, 2026-11-11: conservative opt
 
 ## GitHub: what is set up
 
+**Public since 2026-11-12** (owner's decision, D-6 fulfilled). History rewritten before going public so commits carry the GitHub noreply address; the closed pull requests #5 to #7 still reference pre-rewrite commits until GitHub Support purges them. Done after going public: private vulnerability reporting, secret scanning with push protection, rulesets blocking deletion and force-pushes on `main` and on release tags (`v*`, `@nestrix-js/*`), and "Allow GitHub Actions to create and approve pull requests" (org and repository).
+
 Done on 2026-11-11 and read back from the API. Do not redo it.
 
 - Organisation `nestrix-js` (Free plan, two-factor authentication required). Repository `nestrix-js/nestrix`, **private**, default branch `main`, remote `origin` over SSH.
