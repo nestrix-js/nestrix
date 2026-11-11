@@ -1,8 +1,19 @@
 # @nestrix/server
 
-The standalone Nestrix server: an OTLP/HTTP receiver, PostgreSQL storage, the query API and the dashboard, on one port. (The full README is written in P5-08.)
+The standalone Nestrix server. One process, one port (default `4318`), backed by PostgreSQL 18:
+
+| Path | What |
+|---|---|
+| `POST /v1/traces` | OTLP/HTTP receiver (protobuf or JSON, optional gzip) |
+| `GET /api/v1/*` | Query API, the same shapes as the embedded dashboard, plus alert rules |
+| `/` | The dashboard (the `@nestrix/ui` build) |
+| `/login`, `/logout` | Admin sign-in |
+
+Use it when you want history beyond one process's memory, several services in one place, or a dashboard that is not inside your app. It is private (not on npm) and distributed as a Docker image built from this repository. Pre-release: the image is not published to a registry yet.
 
 ## Run with Docker
+
+`docker-compose.yml` starts PostgreSQL 18 and the server:
 
 ```bash
 cd apps/server
@@ -10,14 +21,152 @@ cp example.env .env        # then set NESTRIX_ADMIN_PASSWORD (at least 12 charac
 docker compose up --build
 ```
 
-This starts PostgreSQL 18 and the server on <http://localhost:4318>. Sign in at `/login` with the admin password. Point any OpenTelemetry-instrumented service at it with one variable:
+The dashboard is at <http://localhost:4318>; sign in at `/login` with the admin password. `docker compose down -v` removes the stack and its data.
+
+**The compose file is a demo.** It sets `NESTRIX_INGEST_AUTH=none`, so any client that can reach the port may send spans without a key, and its database trusts connections inside the compose network (no password; no published port). For anything shared, remove the opt-out, set `NESTRIX_INGEST_KEYS` and give the database a password.
+
+To build the image alone (from the repository root; it runs as the unprivileged `node` user and exposes 4318):
 
 ```bash
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+docker build -f apps/server/Dockerfile -t nestrix-server .
+docker run -p 4318:4318 -e DATABASE_URL=postgres://… -e NESTRIX_INGEST_KEYS=… -e NESTRIX_ADMIN_PASSWORD=… nestrix-server
 ```
 
-The compose file sets `NESTRIX_INGEST_AUTH=none`, so any client that can reach the port may send spans without a key. That is for a local demo only. For anything shared, remove it and set `NESTRIX_INGEST_KEYS` (comma-separated keys of at least 32 characters; clients send `Authorization: Bearer <key>`). The database in the compose file trusts connections inside the compose network and publishes no port; do not reuse that file as is outside a demo.
+The image's health check requests `/login` and passes for any status below 500.
 
-The image is built from the repository root (`docker build -f apps/server/Dockerfile -t nestrix-server .`); it runs as the unprivileged `node` user and exposes 4318. `docker compose down -v` removes the stack and its data.
+## Point your apps at it
 
-End-to-end check (builds the image, runs two example services against it): `NESTRIX_E2E_DOCKER=1 pnpm exec vitest run --project @nestrix/server test/e2e`.
+Set the standard OpenTelemetry variables in each service. With a Nestrix-instrumented Nest app or any OTLP/HTTP trace exporter:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://nestrix.internal:4318
+# when ingest keys are set:
+OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer <one of NESTRIX_INGEST_KEYS>
+```
+
+The key may instead be sent as `x-nestrix-key: <key>`. Keys are compared in constant time. With neither `NESTRIX_INGEST_KEYS` nor `NESTRIX_INGEST_AUTH=none`, ingest answers 401 to everything and a start-up log line says how to configure it.
+
+**Only `/v1/traces` is accepted.** The server has no metrics or logs receiver. An exporter pointed at it for metrics or logs is refused (see "Only traces" below); send those signals to an OpenTelemetry Collector instead.
+
+## Configuration
+
+Read once from the environment at start and validated. A bad value exits with one message listing every problem; secret values are never echoed.
+
+| Variable | Default | Validation and meaning |
+|---|---|---|
+| `DATABASE_URL` | required | A `postgres://` or `postgresql://` URL. |
+| `PORT` | `4318` | Whole number, 1 to 65535. |
+| `NESTRIX_INGEST_KEYS` | none | Comma-separated keys, each at least 32 characters. |
+| `NESTRIX_INGEST_AUTH` | unset | Only `none` is accepted: an explicit opt-out of ingest authentication, logged as a warning on every start. Setting it together with `NESTRIX_INGEST_KEYS` is an error. |
+| `NESTRIX_ADMIN_PASSWORD` | none | At least 12 characters. Without it the UI, `/login` and the query API answer 503 and a log line says why; ingest still works. |
+| `NESTRIX_SESSION_SECRET` | random per start | At least 32 characters. Part of the session signing key; see "Admin login" for what it does and does not do. |
+| `NESTRIX_RETENTION_DAYS` | `7` | Whole number, 1 to 3650. |
+| `NESTRIX_MAX_CONNECTIONS` | `1024` | Whole number, 1 to 1 000 000. Node's `server.maxConnections`. |
+| `NESTRIX_WEBHOOK_ALLOWED_HOSTS` | empty | Comma-separated host names or IP addresses (no scheme, port or path) that alert webhooks may reach although they resolve to private addresses. |
+| `NESTRIX_PUBLIC_URL` | unset | `http://` or `https://` address of the dashboard, without credentials, query or fragment. Put in alert notifications as a link. |
+
+Not configurable by environment: the ingest limits and rate limit below, and the HTTP timeouts (`requestTimeout` 60 s, `headersTimeout` 20 s).
+
+## Admin login
+
+- `POST /login` checks the password in constant time and sets an `HttpOnly`, `SameSite=Strict` cookie, valid for 8 hours from sign-in (absolute, not extended). The cookie is `Secure` unless the request is plain HTTP to a loopback host.
+- **A restart signs everyone out**, even with a fixed `NESTRIX_SESSION_SECRET`, because sign-out revocations are held in memory and a per-process random value is part of the signing key. Changing the admin password also ends every session. Plan on signing in again after an upgrade.
+- The cookie name includes the port (`nestrix_admin_<port>`), because browsers share cookies across ports on one host.
+- Rate limits: 5 login attempts per minute per client address (IPv6 by /64), counted on every attempt, and a global budget of 60 failed logins a minute across all clients; once it is spent every `POST /login` answers 429 until the oldest failure leaves the minute.
+- Every request except `/v1/traces`, `/login` and `/logout` needs a session, including paths added later. A state-changing request needs a same-origin `Origin` header. The API never emits CORS headers, so a browser page on another origin cannot read it.
+- **Behind a reverse proxy:** pass the `Host` header through (`proxy_set_header Host $host;` in nginx), or the `Origin` check fails and login answers 403. Serve it over HTTPS: on a non-loopback host the cookie is `Secure`, so a browser will not send it over plain HTTP. The limiter keys on the connection's address and never trusts `X-Forwarded-For`, so behind a proxy all visitors share one login limit.
+
+## Ingest
+
+Accepted: `application/x-protobuf` and `application/json`, `Content-Encoding: gzip` or none. Responses use the request's content type. Spans that fail validation (bad ids, end before start, times far in the future) are rejected individually and reported through OTLP `partial_success`.
+
+| Limit | Value |
+|---|---|
+| Request body | 20 MiB, applied to the compressed bytes and, separately, to the inflated size |
+| Spans per request | 100 000 |
+| Protobuf submessages (or JSON objects) per request | 400 000 |
+| JSON values (`{`, `[`, `,`) per request | 1 200 000 |
+| Memory for requests in flight, whole server | 320 MiB |
+| Rate limit | 100 requests per second per key, burst 200 (per client address with `NESTRIX_INGEST_AUTH=none`) |
+
+What the answers mean:
+
+| Status | Meaning | Client should |
+|---|---|---|
+| 400 | Malformed body, bad gzip, or invalid UTF-8 | Not retry. |
+| 401 | Missing or wrong key, or auth not configured | Fix the key. |
+| 413 | Body or inflated body over 20 MiB, or over a count cap, or a request too large for the memory budget | Send smaller batches; do not retry as is. |
+| 415 | Unsupported `Content-Type` or `Content-Encoding` | Send protobuf or JSON, gzip or none. |
+| 429 | Over the rate limit; has `Retry-After` | Retry after that many seconds. |
+| 503 | Memory budget full (`Retry-After: 1`), the write queue is full, or the database is unavailable (`Retry-After: 5`) | Retry; OTLP exporters do. |
+
+The 20 MiB limit matches the OpenTelemetry Collector's OTLP receiver. A batch of 2 048 spans, as the SDK's batch processor sends them, is far below every cap.
+
+### Only traces
+
+There is no `/v1/metrics` or `/v1/logs`. A request to them is not an ingest request: the admin layer answers it (403 for a `POST` without a same-origin `Origin` header, which OTLP exporters do not send; 503 when no admin password is set). Exporters treat both as failures and may retry. A Nestrix app that exports metrics or logs to the same base endpoint will log these errors; point those signals at a collector (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`) or turn them off, and set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://nestrix.internal:4318/v1/traces` for traces.
+
+## The measured envelope
+
+Preliminary, from one run (`benchmarks/results/server-ingest.md`): on a laptop (Apple silicon, Docker in a VM with 7.7 GiB, load generator, server and Postgres on the same host, default Postgres settings), the server accepted and stored **about 20 000 spans per second** for 45 seconds with nothing refused, and about 22 000 spans per second when offered 80 000, refusing the rest with back-pressure rather than growing memory. Every accepted span was stored. The server process used 250 to 310 MiB.
+
+**This is not a guarantee.** The paced run met its target, so 20 000 is a lower bound for that machine, not a ceiling; a different machine, network, span size or concurrent dashboard use will differ. The full benchmark is deferred. Beyond what you measure on your own hardware, send OTLP to a dedicated backend.
+
+## Retention and partitions
+
+`spans`, `traces` and the per-minute rollups are partitioned by UTC day. At start and then every hour the server creates partitions for today and the next two days and drops partitions older than `NESTRIX_RETENTION_DAYS`. With 7 and today 2026-11-11, 2026-11-04 is the oldest day kept: at least 7 days of data, up to nearly 8. Retention is by dropping partitions, so it is instant and leaves no dead rows. Per-route and per-class statistics are rolled up per minute at ingest; a retried export is not counted twice. Class counts are post-sampling, because the server sees only what services chose to export.
+
+## Alerting
+
+Alert rules are managed through the API (`/api/v1/alerts`, admin session required); the dashboard has no alerts page yet. A rule watches one service, optionally one route, over a window of 5 to 60 minutes:
+
+- `metric`: `error_rate` (a fraction; 0.05 is 5%) or `p95_ms`, compared with `>` to a `threshold`.
+- `forMinutes` (0 to 60, default 2): how long the condition must hold before the alert fires.
+- `minRequests` (default 10): fewer requests in the window is "no data", which changes nothing, so a dead service does not resolve a firing alert.
+- States: `ok`, `pending`, `firing`. A notification is sent when a rule starts firing and when it resolves. Rules are evaluated every 60 seconds by one instance at a time.
+
+Create a rule (sign in first, send `Origin` for a state-changing call):
+
+```bash
+curl -X POST https://nestrix.example.com/api/v1/alerts \
+  -H 'Origin: https://nestrix.example.com' -b cookies.txt \
+  -H 'content-type: application/json' \
+  -d '{"name":"checkout errors","service":"checkout","metric":"error_rate","threshold":0.05,"windowMinutes":5,"webhookUrl":"https://hooks.example.com/nestrix"}'
+```
+
+The response includes the signing `secret` (`whsec_…`) **once**; store it. `POST /api/v1/alerts/:id/test` sends a test notification, and `GET /api/v1/alerts/events` lists deliveries.
+
+**Webhooks.** The server sends a `POST` with a JSON body (state `firing`, `resolved` or `test`, the rule, value, threshold, service, route, times and a dashboard `url` when `NESTRIX_PUBLIC_URL` is set) and two headers: `x-nestrix-timestamp` (Unix seconds) and `x-nestrix-signature: sha256=<hex>`, the HMAC-SHA256 of `<timestamp>.<raw body>` with the rule's secret. Each attempt has a 5 s limit; up to 3 attempts, retried on network errors, timeouts, 408, 429 and 5xx; redirects are never followed. Delivery is at most once across a server crash. A receiver should verify the signature over the raw body and reject old timestamps:
+
+```js
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+function verify(secret, headers, rawBody) {
+  const timestamp = headers["x-nestrix-timestamp"];
+  const signature = headers["x-nestrix-signature"];
+  if (!timestamp || !signature) return false;
+  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false; // replay window
+  const expected = `sha256=${createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex")}`;
+  const a = Buffer.from(signature);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+```
+
+**Private addresses are refused.** The server resolves the webhook host and refuses the delivery if any address is loopback, private, link-local or otherwise not public (this also covers IPv4 addresses embedded in IPv6). To send to an internal receiver, list its host name in `NESTRIX_WEBHOOK_ALLOWED_HOSTS` (exact host names or IP addresses, no ports). Only hosts you trust belong there, because the check is the protection against a rule being used to reach internal services. Alert events are deleted after `NESTRIX_RETENTION_DAYS`.
+
+## Upgrading
+
+Pull or rebuild the image and restart. Migrations are applied at start, in order, under a PostgreSQL advisory lock, so several instances starting together are safe; each runs in a transaction, and a migration file changed after it was applied stops the start. There is no downgrade: back up the database before upgrading. A restart signs every admin out (see "Admin login").
+
+## Security notes
+
+- **The ingest port is the admin port.** Ingest, the login form, the dashboard and the API all share one port, so exposing it to your services exposes `/login` to them too. Login is rate limited and the password needs 12 characters, but put the server behind a TLS-terminating proxy and, where you can, restrict who can reach it.
+- Without TLS, ingest keys and the admin password cross the network in clear text.
+- `NESTRIX_INGEST_AUTH=none` is for local demos. Anyone who can reach the port can write spans.
+- The server stores the span attributes services send it; it does not scrub them. Redaction happens in each service's `@nestrix/nestjs` configuration before export.
+- The alert signing secret is stored in clear in the database, because the server signs with it. Protect the database.
+
+## Checks
+
+End-to-end test (builds the image, runs two example services against it): `NESTRIX_E2E_DOCKER=1 pnpm exec vitest run --project @nestrix/server test/e2e`.

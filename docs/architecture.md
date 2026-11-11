@@ -290,7 +290,10 @@ The dashboard can expose URLs, SQL and stack traces, so it is closed unless some
 - Receiver: `/v1/traces` first; protobuf and JSON; gzip; 20 MiB body limit (as the OpenTelemetry Collector), caps on spans and decoded messages checked on the raw bytes before decoding, and a memory budget for requests in flight; partial success; 429/503 with `Retry-After`. Decoding with `@bufbuild/protobuf` and code generated from a pinned `opentelemetry-proto`, checked in. OTLP's JSON form gets its own mapping.
 - Storage: PostgreSQL 18 with Drizzle. `spans` partitioned by day, `resources`, and a per-minute rollup per service and route written at ingest. Retention by dropping partitions. Partition DDL in hand-written SQL migrations. Start on Drizzle 0.45; move to 1.0 when it is stable.
 - Scope is stated honestly: the supported ingest rate is measured and published. Beyond it, send OTLP to a dedicated backend.
-- Ingest authenticated by API key; one admin login for the UI.
+- Ingest authenticated by API key (`NESTRIX_INGEST_KEYS`; `NESTRIX_INGEST_AUTH=none` is an explicit demo opt-out); one admin login for the UI (8-hour sessions that end at every restart; the ingest port also serves `/login`, so put it behind TLS). Only `/v1/traces` is received; metrics and logs go to a collector.
+- Alerting (phase 7): rules over the per-minute rollups, evaluated every 60 s under an advisory lock, signed webhooks with a private-address check (`NESTRIX_WEBHOOK_ALLOWED_HOSTS`). Rules are managed through the API; there is no UI for them yet.
+- Migrations are applied at start under an advisory lock. Partitions are created and dropped at start and then hourly.
+- Measured (preliminary, one laptop, `benchmarks/results/server-ingest.md`): about 20 000 spans/s sustained, nothing refused. Not a guarantee. The operator's guide is `apps/server/README.md`.
 
 ## 5. Packages
 
