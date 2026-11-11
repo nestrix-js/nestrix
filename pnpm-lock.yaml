@@ -276,6 +276,25 @@ importers:
         version: 26.6.6
 
   packages/nestjs:
+    dependencies:
+      '@opentelemetry/context-async-hooks':
+        specifier: ^3.1.1
+        version: 3.1.1(@opentelemetry/api@1.10.0)
+      '@opentelemetry/core':
+        specifier: ^3.1.1
+        version: 3.1.1(@opentelemetry/api@1.10.0)
+      '@opentelemetry/exporter-trace-otlp-http':
+        specifier: ^0.301.1
+        version: 0.301.1(@opentelemetry/api@1.10.0)
+      '@opentelemetry/resources':
+        specifier: ^3.1.1
+        version: 3.1.1(@opentelemetry/api@1.10.0)
+      '@opentelemetry/sdk-trace':
+        specifier: ^3.1.1
+        version: 3.1.1(@opentelemetry/api@1.10.0)
+      '@opentelemetry/semantic-conventions':
+        specifier: ^1.45.0
+        version: 1.45.0
     devDependencies:
       '@nestjs/common':
         specifier: ^12.4.2
@@ -286,9 +305,21 @@ importers:
       '@nestjs/microservices':
         specifier: ^12.4.2
         version: 12.4.2(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)(ioredis@6.0.0(supports-color@7.2.0))(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/testing':
+        specifier: ^12.4.2
+        version: 12.4.2(@nestjs/common@12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.4.2)(@nestjs/microservices@12.4.2)(@nestjs/platform-express@12.4.2)
+      '@nestrix/testing':
+        specifier: workspace:*
+        version: link:../testing
       '@opentelemetry/api':
         specifier: ~1.10.0
         version: 1.10.0
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
+      express-esm:
+        specifier: workspace:*
+        version: link:../../examples/express-esm
       pg:
         specifier: ^8.23.1
         version: 8.23.1

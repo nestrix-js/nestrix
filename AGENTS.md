@@ -4,7 +4,7 @@ Instructions for AI coding agents working on this repository. This is the one sh
 
 Open-source observability for NestJS 12+: Nest-aware OpenTelemetry tracing, with an optional dashboard served by the host application. Apache-2.0. Pre-release.
 
-**Current state:** phase 0 is complete and its gate is passed. The repository holds the workspace toolchain, package skeletons (placeholder exports only), example apps, the test harness, CI and release plumbing, and six spike results in `docs/spikes/`. No instrumentation exists yet. The owner decided the phase 0 questions (D-40 to D-51 in `docs/decisions.md`); the next work is writing `docs/backlog/phase-1.md` from the roadmap. `docs/phase-0-report.md` has the evidence behind them.
+**Current state:** phase 0 is complete and its gate is passed. The repository holds the workspace toolchain, package skeletons (placeholder exports only), example apps, the test harness, CI and release plumbing, and six spike results in `docs/spikes/`. The owner decided the phase 0 questions (D-40 to D-51 in `docs/decisions.md`; evidence in `docs/phase-0-report.md`). Phase 1 (headless tracing) is in progress: `docs/backlog/phase-1.md`.
 
 **Remote:** `github.com/nestrix-js/nestrix`, private, already configured (`docs/decisions.md`, "GitHub: what is set up"). There is nothing left to set up on GitHub before implementing.
 
@@ -17,7 +17,7 @@ Open-source observability for NestJS 12+: Nest-aware OpenTelemetry tracing, with
 | `docs/nest-hooks.md` | The NestJS 12 extension points the design rests on, per adapter. |
 | `docs/research.md` | Facts verified against primary sources, with dates. |
 | `docs/roadmap.md` | Phases and their acceptance criteria. |
-| `docs/backlog/phase-0.md` | The current task list, with a status table. |
+| `docs/backlog/phase-1.md` | The current task list, with a status table and the settled public API. |
 | `docs/ai/orchestration.md` | For the lead agent: which model does which work, how to brief and check subagents. |
 | `docs/ai/owner-brief.md` | The owner's original brief. Background on intent; the decision log wins where they differ. |
 
