@@ -5,6 +5,10 @@ import type {
   ErrorListResponse,
   MetaResponse,
   RouteStatsResponse,
+  Slo,
+  SloCreate,
+  SloListResponse,
+  SloUpdate,
   TraceListResponse,
   TraceResponse,
 } from "@nestrix/protocol";
@@ -58,15 +62,34 @@ export const shouldLogin = (
 ) => status === 401 && mode !== "embedded";
 
 async function getJson<T>(endpoint: string, params?: QueryParams): Promise<T> {
+  return requestJson<T>("GET", endpoint, params);
+}
+
+/**
+ * One call to the API. A write sends JSON; the browser adds the same-origin `Origin` header the
+ * standalone server requires for it. A 204 answers `undefined`.
+ */
+async function requestJson<T>(
+  method: "GET" | "POST" | "PATCH" | "DELETE",
+  endpoint: string,
+  params?: QueryParams,
+  body?: unknown,
+): Promise<T> {
   const response = await fetch(apiUrl(endpoint, params), {
-    headers: { Accept: "application/json" },
+    method,
+    headers: {
+      Accept: "application/json",
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     credentials: "same-origin",
     cache: "no-store",
   });
   if (shouldLogin(response.status, knownMode)) goToLogin();
-  let body: unknown;
+  if (response.status === 204) return undefined as T;
+  let parsed: unknown;
   try {
-    body = await response.json();
+    parsed = await response.json();
   } catch {
     throw new ApiRequestError(
       response.status,
@@ -75,14 +98,14 @@ async function getJson<T>(endpoint: string, params?: QueryParams): Promise<T> {
     );
   }
   if (!response.ok) {
-    const error = (body as Partial<ApiError> | null)?.error;
+    const error = (parsed as Partial<ApiError> | null)?.error;
     throw new ApiRequestError(
       response.status,
       error?.code ?? "unknown",
       error?.message ?? `HTTP ${response.status}`,
     );
   }
-  return body as T;
+  return parsed as T;
 }
 
 export async function getMeta(): Promise<MetaResponse> {
@@ -114,3 +137,12 @@ export const getClasses = (params: QueryParams = {}) =>
   getJson<ClassStatsResponse>("classes", params);
 export const getMap = (params: QueryParams = {}) =>
   getJson<AppMapResponse>("map", params);
+
+// SLOs: the standalone server only (`/api/v1/slos`).
+export const getSlos = () => getJson<SloListResponse>("slos");
+export const createSlo = (body: SloCreate) =>
+  requestJson<Slo>("POST", "slos", undefined, body);
+export const updateSlo = (id: string, body: SloUpdate) =>
+  requestJson<Slo>("PATCH", `slos/${encodeURIComponent(id)}`, undefined, body);
+export const deleteSlo = (id: string) =>
+  requestJson<undefined>("DELETE", `slos/${encodeURIComponent(id)}`);

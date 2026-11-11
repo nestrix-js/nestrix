@@ -225,6 +225,7 @@ export class AlertEvaluator {
               route: rule.route,
               windowMinutes: rule.window_minutes,
               minRequests: rule.min_requests,
+              sloId: rule.slo_id === null ? null : Number(rule.slo_id),
             },
             nowMs,
           );

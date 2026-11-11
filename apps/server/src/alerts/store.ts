@@ -5,6 +5,7 @@
 import { randomBytes } from "node:crypto";
 import type {
   AlertEvent,
+  AlertMetric,
   AlertRule,
   AlertRuleCreate,
   AlertWebhookPayload,
@@ -19,7 +20,8 @@ export interface AlertRuleRow {
   name: string;
   service_name: string;
   route: string | null;
-  metric: "error_rate" | "p95_ms";
+  metric: AlertMetric;
+  slo_id: string | null;
   comparator: ">";
   threshold: number;
   window_minutes: number;
@@ -70,6 +72,7 @@ export function toApiRule(
     service: rule.service_name,
     route: rule.route,
     metric: rule.metric,
+    sloId: rule.slo_id === null ? null : String(rule.slo_id),
     comparator: rule.comparator,
     threshold: rule.threshold,
     windowMinutes: rule.window_minutes,
@@ -146,7 +149,8 @@ export interface RuleFields {
   name?: string;
   service_name?: string;
   route?: string | null;
-  metric?: "error_rate" | "p95_ms";
+  metric?: AlertMetric;
+  slo_id?: number | null;
   threshold?: number;
   window_minutes?: number;
   for_minutes?: number;
@@ -164,6 +168,7 @@ const KEYS = new Set<keyof AlertRuleCreate>([
   "service",
   "route",
   "metric",
+  "sloId",
   "comparator",
   "threshold",
   "windowMinutes",
@@ -174,7 +179,6 @@ const KEYS = new Set<keyof AlertRuleCreate>([
 ]);
 const REQUIRED: (keyof AlertRuleCreate)[] = [
   "name",
-  "service",
   "metric",
   "threshold",
   "windowMinutes",
@@ -227,7 +231,9 @@ export function validateRuleInput(
   body: unknown,
   partial: boolean,
   allowedHosts: readonly string[],
-  existing?: Pick<AlertRuleRow, "metric" | "threshold">,
+  existing?: Pick<AlertRuleRow, "metric" | "threshold"> & {
+    slo_id?: string | null;
+  },
 ): Validation {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
     return { ok: false, message: "The body must be a JSON object." };
@@ -271,10 +277,23 @@ export function validateRuleInput(
     }
   }
   if (has("metric")) {
-    if (input.metric !== "error_rate" && input.metric !== "p95_ms") {
-      return fail('metric must be "error_rate" or "p95_ms".');
+    if (
+      input.metric !== "error_rate" &&
+      input.metric !== "p95_ms" &&
+      input.metric !== "slo_burn_rate"
+    ) {
+      return fail('metric must be "error_rate", "p95_ms" or "slo_burn_rate".');
     }
     fields.metric = input.metric;
+  }
+  if (has("sloId")) {
+    if (
+      typeof input.sloId !== "string" ||
+      !/^[1-9][0-9]{0,15}$/.test(input.sloId)
+    ) {
+      return fail("sloId must be the decimal id of an SLO.");
+    }
+    fields.slo_id = Number(input.sloId);
   }
   if (has("comparator") && input.comparator !== ">") {
     return fail('comparator must be ">".');
@@ -322,6 +341,33 @@ export function validateRuleInput(
 
   const metric = fields.metric ?? existing?.metric;
   const threshold = fields.threshold ?? existing?.threshold;
+  if (metric === "slo_burn_rate") {
+    if (fields.slo_id === undefined && existing?.slo_id == null) {
+      return fail("sloId is required for slo_burn_rate.");
+    }
+    if (fields.service_name !== undefined || fields.route !== undefined) {
+      return fail(
+        "service and route of a slo_burn_rate rule come from its SLO.",
+      );
+    }
+  } else {
+    if (fields.slo_id !== undefined) {
+      return fail("sloId is only for slo_burn_rate.");
+    }
+    if (!partial && fields.service_name === undefined) {
+      return fail("service is required.");
+    }
+    if (partial && existing?.metric === "slo_burn_rate") {
+      fields.slo_id = null;
+    }
+  }
+  if (metric === "slo_burn_rate" && threshold !== undefined) {
+    if (!(threshold > 0 && threshold <= 1000)) {
+      return fail(
+        "threshold of slo_burn_rate is a burn-rate multiple above 0 and at most 1000, e.g. 14.4.",
+      );
+    }
+  }
   if (metric !== undefined && threshold !== undefined) {
     if (metric === "error_rate" && !(threshold >= 0 && threshold < 1)) {
       return fail(

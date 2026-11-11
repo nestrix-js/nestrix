@@ -18,6 +18,8 @@ const nav = [
   { to: "/classes", label: "Classes" },
   { to: "/map", label: "Map" },
 ] as const;
+// Needs the standalone server's stored history.
+const sloNav = { to: "/slos", label: "SLOs" } as const;
 
 type Connection = "connecting" | "live" | "paused" | "disconnected";
 
@@ -137,7 +139,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           aria-label="Sections"
           className="mx-auto flex max-w-6xl gap-1 px-4"
         >
-          {nav.map((item) => (
+          {(standalone ? [...nav, sloNav] : nav).map((item) => (
             <Link
               key={item.to}
               to={`${item.to}${keep}` as typeof item.to}

@@ -13,6 +13,7 @@ import { ErrorsPage } from "@/views/errors/errors-page";
 import { MapPage } from "@/views/map/map-page";
 import { RequestsPage } from "@/views/requests/requests-page";
 import { RoutesPage } from "@/views/routes/routes-page";
+import { SlosPage } from "@/views/slos/slos-page";
 import { TracePage } from "@/views/trace/trace-page";
 
 // The nuqs adapter reads the router through hooks, so it lives inside the router tree.
@@ -50,6 +51,11 @@ const mapRoute = createRoute({
   path: "/map",
   component: MapPage,
 });
+const slosRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/slos",
+  component: SlosPage,
+});
 const traceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/traces/$traceId",
@@ -65,6 +71,7 @@ export const router = createRouter({
     routesRoute,
     classesRoute,
     mapRoute,
+    slosRoute,
     traceRoute,
   ]),
   history: createHashHistory(),

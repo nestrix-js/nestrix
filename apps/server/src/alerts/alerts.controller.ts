@@ -93,7 +93,9 @@ export class AlertsController {
   async create(@Body() body: unknown): Promise<AlertRuleCreateResponse> {
     const v = validateRuleInput(body, false, this.options.allowedHosts);
     if (!v.ok) apiError(400, "bad_request", v.message);
-    return this.alerts.create(v.fields);
+    const t = await this.alerts.withSloTarget(v.fields);
+    if (!t.ok) apiError(400, "bad_request", t.message);
+    return this.alerts.create(t.fields);
   }
 
   /** `?rule=<id>&limit=<1..200, default 50>`, newest first. */
@@ -157,7 +159,9 @@ export class AlertsController {
       existing,
     );
     if (!v.ok) apiError(400, "bad_request", v.message);
-    return (await this.alerts.update(ruleId, v.fields)) ?? notFound();
+    const t = await this.alerts.withSloTarget(v.fields);
+    if (!t.ok) apiError(400, "bad_request", t.message);
+    return (await this.alerts.update(ruleId, t.fields)) ?? notFound();
   }
 
   @Delete(":id")
