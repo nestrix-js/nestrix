@@ -116,6 +116,7 @@ export function buildPayload(
     | "service_name"
     | "route"
   >,
+  eventId: number,
   kind: EventKind,
   value: number | null,
   startedAtMs: number,
@@ -123,6 +124,7 @@ export function buildPayload(
   publicUrl: string | undefined,
 ): AlertWebhookPayload {
   return {
+    eventId: String(eventId),
     rule: {
       id: String(rule.id),
       name: rule.name,

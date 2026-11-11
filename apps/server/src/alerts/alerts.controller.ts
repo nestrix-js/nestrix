@@ -29,7 +29,7 @@ import {
   QUERY_HEADERS,
   QueryExceptionFilter,
 } from "../query/exception.filter.js";
-import { AlertsService } from "./alerts.service.js";
+import { AlertsService, RuleInconsistentError } from "./alerts.service.js";
 import { validateRuleInput } from "./store.js";
 import { ALERTS_OPTIONS, type ResolvedAlertsOptions } from "./tokens.js";
 
@@ -157,7 +157,18 @@ export class AlertsController {
       existing,
     );
     if (!v.ok) apiError(400, "bad_request", v.message);
-    return (await this.alerts.update(ruleId, v.fields)) ?? notFound();
+    try {
+      return (await this.alerts.update(ruleId, v.fields)) ?? notFound();
+    } catch (error) {
+      if (error instanceof RuleInconsistentError) {
+        apiError(
+          400,
+          "bad_request",
+          "The rule changed meanwhile: the threshold no longer suits the metric. Send both fields together.",
+        );
+      }
+      throw error;
+    }
   }
 
   @Delete(":id")

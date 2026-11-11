@@ -4,22 +4,25 @@
  * Security rules, each tested in `test/alerts/webhook.test.ts`:
  *
  * - `http:` and `https:` only; no credentials in the URL.
- * - The host is resolved once per attempt (`lookup`, every address), and the attempt is refused
+ * - The host is resolved once per attempt (`dns.promises.Resolver`, A and AAAA, with its own
+ *   timeout and a single try; IP literals are not resolved), and the attempt is refused
  *   when **any** address is private, loopback, link-local, unique-local, multicast, unspecified
  *   or otherwise not public unicast (`address.ts`), unless the URL's host is listed in
  *   `NESTRIX_WEBHOOK_ALLOWED_HOSTS`. The socket then connects to the address that was checked
  *   (`host` is the IP, `Host` and TLS SNI/verification use the name), so a second DNS answer
  *   cannot swap in another address (no DNS-rebinding window).
  * - Redirects are never followed: a 3xx is a failed delivery and is not retried.
- * - Each attempt has a 5 s deadline (connect, TLS, request and response headers); the response
- *   body is never read.
+ * - Each attempt has one 5 s deadline, started before the DNS lookup and covering lookup,
+ *   connect, TLS, request and response headers; the response body is never read.
  * - Up to 3 attempts with backoff (1 s, then 2 s) on network errors, timeouts, 408, 429 and 5xx.
+ *   Every attempt of one event carries the same `x-nestrix-delivery` header (the event id), so a
+ *   receiver can drop duplicates.
  * - One delivery in flight per key (the rule id); later ones wait in a short queue.
  * - Nothing logged or stored here contains the secret, the URL's path or query, or a response
  *   body: results carry a status code and a short error category.
  */
 import { createHmac } from "node:crypto";
-import { lookup as dnsLookup } from "node:dns/promises";
+import { Resolver } from "node:dns/promises";
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { blockedReason, ipLiteral } from "./address.js";
@@ -33,7 +36,7 @@ export interface DeliveryResult {
   status: number | null;
   /**
    * `null` when sent. Otherwise a category: `invalid_url`, `refused_address`, `dns`, `timeout`,
-   * `network`, `redirect`, `http_status`, `queue_full`, `closed`, `internal`.
+   * `network`, `redirect`, `http_status`, `queue_full`, `closed`, `shutdown`, `internal`.
    */
   error: string | null;
 }
@@ -43,18 +46,22 @@ export interface ResolvedAddress {
   family: number;
 }
 
-export type Lookup = (hostname: string) => Promise<ResolvedAddress[]>;
+/** Resolves `hostname` to every A and AAAA address within `timeoutMs`. */
+export type Lookup = (
+  hostname: string,
+  options: { timeoutMs: number },
+) => Promise<ResolvedAddress[]>;
 
 export interface WebhookSenderOptions {
   /** Normalized hostnames exempt from the address check (`ServerConfig.alerts.allowedHosts`). */
   allowedHosts: readonly string[];
-  /** Per attempt. Default 5000. */
+  /** Per attempt, DNS lookup included. Default 5000. */
   timeoutMs?: number;
   /** Default 3. */
   maxAttempts?: number;
   /** Delay before attempt `n + 1` after attempt `n` failed (n from 1). Default 1000 * 2^(n-1). */
   backoffMs?: (attempt: number) => number;
-  /** DNS resolution; replaceable in tests. Default `dns.lookup` with `all: true`. */
+  /** DNS resolution; replaceable in tests. Default: `dns.promises.Resolver`, `resolve4` and `resolve6`. */
   lookup?: Lookup;
   /** Deliveries waiting per key beyond the one in flight. Default 16. */
   maxQueued?: number;
@@ -64,6 +71,7 @@ export interface WebhookSenderOptions {
 
 export const SIGNATURE_HEADER = "x-nestrix-signature";
 export const TIMESTAMP_HEADER = "x-nestrix-timestamp";
+export const DELIVERY_HEADER = "x-nestrix-delivery";
 const USER_AGENT = "nestrix-server-webhook/1";
 
 /** `sha256=<hex>`: HMAC-SHA256 with `secret` of `<timestamp>.<body>`. */
@@ -75,11 +83,33 @@ export function signPayload(
   return `sha256=${createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex")}`;
 }
 
-const defaultLookup: Lookup = async (hostname) =>
-  (await dnsLookup(hostname, { all: true, verbatim: true })).map((a) => ({
-    address: a.address,
-    family: a.family,
-  }));
+/**
+ * A and AAAA through c-ares with a per-query timeout and one try, so a slow resolver cannot hold
+ * an attempt past its deadline. A host with one family only is fine; none of either is an error.
+ */
+const defaultLookup: Lookup = async (hostname, { timeoutMs }) => {
+  const resolver = new Resolver({ timeout: Math.max(1, timeoutMs), tries: 1 });
+  try {
+    const [v4, v6] = await Promise.allSettled([
+      resolver.resolve4(hostname),
+      resolver.resolve6(hostname),
+    ]);
+    const out: ResolvedAddress[] = [];
+    if (v4.status === "fulfilled") {
+      for (const address of v4.value) out.push({ address, family: 4 });
+    }
+    if (v6.status === "fulfilled") {
+      for (const address of v6.value) out.push({ address, family: 6 });
+    }
+    if (out.length === 0) {
+      const reason = v4.status === "rejected" ? v4.reason : undefined;
+      throw reason instanceof Error ? reason : new Error("no addresses");
+    }
+    return out;
+  } finally {
+    resolver.cancel();
+  }
+};
 
 /**
  * Checks a webhook URL's shape without resolving it: `undefined` when acceptable, else the
@@ -153,7 +183,8 @@ export class WebhookSender {
     { tail: Promise<unknown>; size: number }
   >();
   private readonly inflight = new Set<Promise<unknown>>();
-  private readonly timers = new Set<NodeJS.Timeout>();
+  /** Pending backoff sleeps: the timer, and the resolver of the promise waiting on it. */
+  private readonly timers = new Map<NodeJS.Timeout, () => void>();
   private closed = false;
 
   constructor(options: WebhookSenderOptions) {
@@ -176,7 +207,7 @@ export class WebhookSender {
     url: string,
     secret: string,
     body: string,
-    options: { maxAttempts?: number } = {},
+    options: { maxAttempts?: number; eventId?: number | string } = {},
   ): Promise<DeliveryResult> {
     if (this.closed) return Promise.resolve(failed("closed", 0));
     const chain = this.chains.get(key) ?? {
@@ -188,7 +219,13 @@ export class WebhookSender {
     }
     chain.size++;
     const run = chain.tail.then(() =>
-      this.deliver(url, secret, body, options.maxAttempts ?? this.maxAttempts),
+      this.deliver(
+        url,
+        secret,
+        body,
+        options.maxAttempts ?? this.maxAttempts,
+        options.eventId === undefined ? undefined : String(options.eventId),
+      ),
     );
     const settled = run.then(
       (r) => r,
@@ -219,8 +256,12 @@ export class WebhookSender {
       }),
     ]);
     if (timer !== undefined) clearTimeout(timer);
-    for (const t of this.timers) clearTimeout(t);
-    this.timers.clear();
+    // Wake deliveries still in backoff: they record a `shutdown` result instead of hanging.
+    for (const [t, wake] of [...this.timers]) {
+      clearTimeout(t);
+      this.timers.delete(t);
+      wake();
+    }
   }
 
   private async deliver(
@@ -228,12 +269,13 @@ export class WebhookSender {
     secret: string,
     body: string,
     maxAttempts: number,
+    eventId: string | undefined,
   ): Promise<DeliveryResult> {
     let last: AttemptResult = { status: null, error: "internal", retry: false };
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      if (this.closed && attempt > 1) return failed("closed", attempt - 1);
+      if (this.closed && attempt > 1) return failed("shutdown", attempt - 1);
       try {
-        last = await this.attempt(url, secret, body);
+        last = await this.attempt(url, secret, body, eventId);
       } catch {
         last = { status: null, error: "internal", retry: false };
       }
@@ -273,7 +315,7 @@ export class WebhookSender {
         resolve();
       }, ms);
       timer.unref();
-      this.timers.add(timer);
+      this.timers.set(timer, () => resolve());
     });
   }
 
@@ -281,7 +323,10 @@ export class WebhookSender {
     raw: string,
     secret: string,
     body: string,
+    eventId: string | undefined,
   ): Promise<AttemptResult> {
+    // One deadline for the whole attempt: lookup, connect, TLS, request and response head.
+    const deadline = Date.now() + this.timeoutMs;
     const checked = checkUrl(raw, [...this.allowed]);
     if (!("url" in checked)) {
       return { status: null, error: checked.error, retry: false };
@@ -296,7 +341,9 @@ export class WebhookSender {
       addresses = [{ address: literal, family: literal.includes(":") ? 6 : 4 }];
     } else {
       try {
-        addresses = await withTimeout(this.lookup(host), this.timeoutMs);
+        addresses = await this.lookup(host, {
+          timeoutMs: Math.max(1, deadline - Date.now()),
+        });
       } catch {
         return { status: null, error: "dns", retry: true };
       }
@@ -319,6 +366,7 @@ export class WebhookSender {
       "user-agent": USER_AGENT,
       [TIMESTAMP_HEADER]: timestamp,
       [SIGNATURE_HEADER]: signPayload(secret, timestamp, body),
+      ...(eventId === undefined ? {} : { [DELIVERY_HEADER]: eventId }),
     };
     const options = {
       host: target.address,
@@ -361,10 +409,13 @@ export class WebhookSender {
       const req = isHttps
         ? httpsRequest(options, onResponse)
         : httpRequest(options, onResponse);
-      const timer = setTimeout(() => {
-        finish({ status: null, error: "timeout", retry: true });
-        req.destroy();
-      }, this.timeoutMs);
+      const timer = setTimeout(
+        () => {
+          finish({ status: null, error: "timeout", retry: true });
+          req.destroy();
+        },
+        Math.max(1, deadline - Date.now()),
+      );
       timer.unref();
       req.on("error", () =>
         finish({ status: null, error: "network", retry: true }),
@@ -380,21 +431,4 @@ function failed(
   status: number | null = null,
 ): DeliveryResult {
   return { delivery: "failed", attempts, status, error };
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("timeout")), ms);
-    timer.unref();
-    promise.then(
-      (v) => {
-        clearTimeout(timer);
-        resolve(v);
-      },
-      (e) => {
-        clearTimeout(timer);
-        reject(e);
-      },
-    );
-  });
 }
