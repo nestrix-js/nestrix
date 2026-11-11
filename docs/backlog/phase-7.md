@@ -9,7 +9,7 @@ Objective and deliverables: [roadmap.md](../roadmap.md#phase-7-profiler-alerting
 | P7-00 | Backlog | lead | — | done | |
 | P7-01 | Spike: profiling a running Nest app on demand | opus | P7-00 | todo | Result in `docs/spikes/P7-S1.md`. |
 | P7-02 | Profiler: on-demand capture in the SDK, dashboard endpoint and view | opus + sonnet | P7-01 | todo | Security: review required (first state-changing dashboard action). |
-| P7-03 | Alerting rules and webhook notifications in the standalone server | opus | P5-04 | todo | Outbound requests to user URLs: review required. |
+| P7-03 | Alerting rules and webhook notifications in the standalone server | opus | P5-04 | review | Merged; 140+ tests incl. SSRF, signatures, two evaluators; security review pending. |
 | P7-04 | SLOs over stored history in the standalone server, with UI | sonnet | P7-03 | todo | |
 | P7-05 | Docs and phase report | sonnet + lead | all | todo | |
 
