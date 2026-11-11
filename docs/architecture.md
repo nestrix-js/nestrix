@@ -27,7 +27,7 @@ Supported: NestJS 12.0+ (microservice propagation needs `@nestjs/microservices` 
 | Outbound HTTP | Small first-party subscribers for fetch/undici and `node:http` (D-42) | 1 |
 | Custom tracing | Thin helpers over the OpenTelemetry API | 1 |
 | Embedded dashboard | Build | 2 |
-| Method spans | Build, on Nest's `instrument` option. By default controllers, queue processors and scheduled methods; services and guard, pipe, interceptor and filter spans opt in (D-47) | 3 |
+| Method spans | Build, on Nest's `instrument` option. By default the app's own controllers, services, repositories, queue processors and scheduled methods; library providers not by default; guard, pipe, interceptor and filter spans opt in (D-57) | 3 |
 | Database and cache | Build thin driver-level spans for `pg` (on when present), `mysql2` and `ioredis` (opt-in, D-49). Nothing ORM-specific. | 3 |
 | Background jobs | Reuse BullMQ's own telemetry; scheduled jobs through level 2 | 3 |
 | Microservices | Build on Nest's packet-metadata hooks | 4 |
@@ -36,7 +36,7 @@ Supported: NestJS 12.0+ (microservice propagation needs `@nestjs/microservices` 
 | Metrics | Delegated to the OpenTelemetry Metrics API. Nestrix adds request-duration and runtime metrics. | 6 |
 | Health monitoring | Not built. `@nestjs/terminus` does it. | — |
 
-Deferred, with no phase yet: MongoDB driver spans (candidate: the driver's command-monitoring events), GraphQL resolvers, WebSocket gateways, alerting, profiling, service map, multi-tenancy, an `init` CLI, NestJS 11 support, ClickHouse storage, SQLite persistence for the embedded store.
+Added by D-56: users on requests and releases (phase 3), a map of one app (phase 3) and across services (phase 5), a classes view (phase 3), and a profiler, alerting and SLOs (phase 7). Deferred, with no phase yet: MongoDB driver spans (candidate: the driver's command-monitoring events), GraphQL resolvers, WebSocket gateways, multi-tenancy, an `init` CLI, NestJS 11 support, ClickHouse storage, SQLite persistence for the embedded store.
 
 ## 3. One pipeline, three modes
 
@@ -60,7 +60,7 @@ Deferred, with no phase yet: MongoDB driver spans (candidate: the driver's comma
 | Level | What the developer does | What they get |
 |---|---|---|
 | 1. Module only | `imports: [NestrixModule.forRoot()]` | HTTP server spans with route template and status; exceptions thrown by handlers; outbound HTTP spans and `traceparent` propagation; microservice handler spans and client-side propagation (phase 4); the dashboard; OTLP export |
-| 2. One line in `main.ts` | `NestFactory.create(AppModule, { instrument: NestrixInstrument })` | Spans for controller methods, scheduled jobs and queue processors by default; services, guards, pipes, interceptors and filters by opt-in (D-47). Exceptions thrown by guards are captured when their spans are on. Not applied under `@nestjs/testing` (D-48) |
+| 2. One line in `main.ts` | `NestFactory.create(AppModule, { instrument: NestrixInstrument })` | Spans for the app's own controllers, services, repositories, scheduled jobs and queue processors by default; guards, pipes, interceptors and filters by opt-in (D-57). Exceptions thrown by guards are captured when their spans are on. Not applied under `@nestjs/testing` (D-48) |
 | 3. Library spans | Nothing for `pg`: it switches on when present and can be switched off. `mysql2` and `ioredis` are opt-in, one setting each (D-49). One line of BullMQ's own config for jobs. | Query and command spans, which cover TypeORM, Drizzle and Prisma on `@prisma/adapter-pg` (verified, P0-S2); MikroORM, including when its `pg` is a nested copy that was already loaded (the module-cache scan of §4.4, D-50); Knex not tested. Job spans. Enabling `mysql2` or `ioredis` makes the library swallow certain errors instead of crashing (§4.4); the docs say so where the option is introduced. |
 | 4. Anything else | The user sets up an upstream `@opentelemetry/instrumentation-*` package with the loader flags upstream documents | Kafka client, AMQP, MongoDB driver, gRPC spans. They use the same OpenTelemetry API, so they join the same traces. Nestrix neither manages nor requires the flags. Caveat (P0-S3): in a CommonJS app where Nestrix owns the provider, an upstream instrumentation constructed or registered before Nestrix registers produces no spans (it took its tracer from the `.cjs` API copy at construction). The host must construct it after `NestFactory.create`, or own the provider itself. |
 
@@ -137,7 +137,7 @@ Requirements, each backed by a test:
 - Functions and non-class values pass through untouched.
 - Only prototype methods are wrapped, never callable own properties.
 - Entry methods (scheduled jobs, queue processors) start a new root span linked to the span active at call time.
-- What is wrapped by default (D-47): controllers, queue processors and scheduled methods. Services opt in through `include`, and so do guard, pipe, interceptor and filter spans; there is no denylist of framework classes to keep up to date (evidence in spike P0-S6, Q1, Q7). Users can always `include` and `exclude` by class or pattern.
+- What is wrapped by default (D-57, superseding D-47's set): the app's own controllers, services, repositories, queue processors and scheduled methods. Providers from installed libraries are not wrapped by default, so there is still no denylist of framework classes to keep up to date (wrapping every provider traced over 1,000 library spans at startup, spike P0-S6, Q1, Q7); how "the app's own" is recognised is designed in phase 3. Guard, pipe, interceptor and filter spans opt in through `include`. Users can always `include` and `exclude` by class or pattern.
 - Under `@nestjs/testing`, level 2 does not apply in 0.2 and the docs say so; HTTP spans still work there (D-48; [nest-hooks.md](nest-hooks.md) §4).
 
 Wrappers skip span creation when the parent span context is valid and lacks `TraceFlags.SAMPLED`, so an unsampled request costs about 70 ns per wrapped call over a raw call; without the skip a non-recording span still costs about 0.7 µs (P0-S6). `Span.isRecording()` is not the test: in SDK 3 it turns false as soon as a sampled span ends, which would drop spans for work that outlives the request.

@@ -90,7 +90,7 @@ Attribute names follow the OpenTelemetry HTTP semantic conventions current at im
 
 **Objective.** A trace explains where the time went inside the request.
 
-**Deliverables.** `NestrixInstrument` and `composeInstrument`; method spans by default for controllers, queue processors and scheduled methods, with service spans and guard, pipe, interceptor and filter spans opt in (D-47); level 2 not applied under `@nestjs/testing`, documented (D-48); the `pg` integration on when present, wrapping nested copies already loaded (D-50), and opt-in `mysql2` and `ioredis` integrations that document the errors they then swallow (D-49); documented BullMQ setup and job views; scheduled jobs; slow-query highlighting and repeated-query grouping in the UI.
+**Deliverables.** `NestrixInstrument` and `composeInstrument`; method spans by default for the app's own controllers, services, repositories, queue processors and scheduled methods, with guard, pipe, interceptor and filter spans opt in (D-57, superseding D-47's default set); level 2 not applied under `@nestjs/testing`, documented (D-48); the `pg` integration on when present, wrapping nested copies already loaded (D-50), and opt-in `mysql2` and `ioredis` integrations that document the errors they then swallow (D-49); documented BullMQ setup and job views; scheduled jobs; slow-query highlighting and repeated-query grouping in the UI. Added by D-56: users on requests (opt-in), releases (`service.version`) and filtering by release, a map of the app and what it calls, and a classes view (total and own time, calls and errors per class and method, counted before sampling).
 
 **First task.** Verify in a Nest app the timing of the `pg` `require.cache` scan (at enable and at `onApplicationBootstrap`), and settle the pool-wait rule (proposed: database spans cover the query only) (D-50).
 
@@ -120,7 +120,7 @@ Attribute names follow the OpenTelemetry HTTP semantic conventions current at im
 
 **Objective.** Several services send to one self-hosted Nestrix.
 
-**Deliverables.** `apps/server`: OTLP/HTTP receiver, Postgres storage through Drizzle, retention, API-key ingest, admin login, the same UI build; a Docker image and a `docker compose` file.
+**Deliverables.** `apps/server`: OTLP/HTTP receiver, Postgres storage through Drizzle, retention, API-key ingest, admin login, the same UI build; a Docker image and a `docker compose` file. Added by D-56: a map across services.
 
 **Depends on.** Phases 1 and 2; the query API being stable.
 
@@ -142,3 +142,13 @@ Attribute names follow the OpenTelemetry HTTP semantic conventions current at im
 **Acceptance.** A documented upgrade path from 0.x; the compatibility matrix published; no open issue labelled as a 1.0 blocker.
 
 **Validation.** The full matrix in CI; the examples run as smoke tests against the release candidate.
+
+## Phase 7: profiler, alerting and SLOs
+
+**Objective.** Find where CPU time goes, and be told when something breaks (D-56).
+
+**Deliverables.** A spike first on profiling a running Nest app without changing its behaviour or slowing it noticeably (likely on demand: "profile for 30 seconds"); then the profiler view. Alerting rules on route and class statistics (error rate, latency) with notifications (webhook first). SLOs over stored history. Alerting and SLOs run in the standalone server.
+
+**Depends on.** Phase 5 (stored history); the profiler spike.
+
+**Acceptance and validation.** Written when the phase starts, from the spike result.
