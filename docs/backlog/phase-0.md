@@ -13,11 +13,11 @@ Update this table as work moves. One line of notes at most; detail goes in the t
 | P0-03 | CI | sonnet | P0-02 | review | All jobs green locally under `act` (ci: 7/7, nightly: 1/1, 2026-11-11); needs a green run on GitHub at the first push. |
 | P0-04 | Example apps | sonnet, then haiku | P0-01 | done | Four apps pass `check:run`; Express apps add `POST /upload-multer` (multer interceptor path for P0-S1 Q2). |
 | P0-05 | Test harness | sonnet | P0-02, P0-04 | done | `packages/testing`: `bootApp` on 3 adapters (+ `@nestjs/testing`), in-memory spans; no context manager registered; Vitest's oxc honours `emitDecoratorMetadata` from tsconfig. |
-| P0-S1 | Spike: HTTP adapter hooks | opus | P0-05 | review | Mechanism holds on all 3 adapters; amendments: 404 route naming, close-status rule, platform-node floor 12.3.2. `docs/spikes/P0-S1.md`. |
+| P0-S1 | Spike: HTTP adapter hooks | opus | P0-05 | done | Mechanism holds on all 3 adapters (12.0.0, 12.3.2, 12.4.2); reviewed, fixes applied, docs updated. platform-node floor 12.3.2 is an owner question. |
 | P0-S2 | Spike: library spans without a preload | opus | P0-05 | doing | |
 | P0-S3 | Spike: coexistence with a host SDK and Sentry | opus | P0-S1 | todo | |
 | P0-S4 | Spike: CommonJS consumption | sonnet | P0-02 | done | Loads clean on 22.15/24.22/26.13; `pnpm check:tla` in verify; Jest needs `--experimental-vm-modules` (24.9+) or a transform on 22.x. Reviewed; doc edits applied. |
-| P0-S5 | Spike: dashboard mounting | opus | P0-05 | review | [Result](../spikes/P0-S5.md): works on 3 adapters + testing; raw writes + hijack needed; host CORS/filters leak; loopback-rule limit; D-31 trade-offs for owner. |
+| P0-S5 | Spike: dashboard mounting | opus | P0-05 | done | Works on all 3 adapters + testing; reviewed, fixes applied, docs updated. D-31 and the `ui: 'auto'` token are owner decisions. |
 | P0-S6 | Spike: instance-decorator wrapping | opus | P0-05 | doing | |
 | P0-06 | Release plumbing, without publishing | sonnet | P0-03 | done | Changesets (fixed: nestjs + ui), release workflow gated on `vars.NPM_PUBLISH_ENABLED` (unset), PR changeset check; `pnpm release` refuses outside CI. Nothing published. Owner steps in RELEASING.md. |
 | P0-07 | Phase report and doc updates | lead | all | todo | |

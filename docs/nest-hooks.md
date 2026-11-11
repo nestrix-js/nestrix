@@ -1,6 +1,6 @@
 # NestJS 12 extension points Nestrix builds on
 
-Read from the NestJS source (`nestjs/nest`, `master`, the 12.x line) on 2026-11-11. Nothing here was established by running code: every behaviour marked **spike** is confirmed or corrected in phase 0 before anything is built on it. Paths are relative to `packages/` in the Nest repository.
+Read from the NestJS source (`nestjs/nest`, `master`, the 12.x line) on 2026-11-11. Phase 0 spikes (P0-S1, P0-S5, P0-S6; results in `docs/spikes/`) then ran what follows on Nest 12.0.0, 12.3.x and 12.4.2; statements they confirmed or corrected cite them. Anything still marked **spike** is unproven. Paths are relative to `packages/` in the Nest repository.
 
 ## 1. Bootstrap order
 
@@ -24,9 +24,10 @@ What follows from that:
 - Under `NestFactory.create`, the adapter exists when providers are constructed, so a provider constructor can call adapter setters.
 - Routes are registered **before** `onModuleInit`. Anything that must be in place when routes are registered (`setOnRouteTriggered`) has to be set at construction.
 - A route added in `onModuleInit` lands after the host's routes and before the not-found handler. A route added in `onApplicationBootstrap` lands after the not-found handler, which on Express makes it unreachable when there is no global prefix.
-- A provider constructor runs before `initHttpServer`. The platform-node adapter's comments assume `initHttpServer` runs before any middleware is added, so registering routes or middleware from a constructor is risky there. **spike**
-- `createMicroservice` and `createApplicationContext` have no HTTP adapter at all. `HttpAdapterHost.httpAdapter` is undefined; code must tolerate that.
-- Under `@nestjs/testing`, providers may be constructed before the adapter is set (that was the order in Nest 11). Constructor-time setup must not assume an adapter, and needs a later fallback. **spike**
+- A provider constructor runs before `initHttpServer`. Despite the platform-node adapter's comments, registering routes from a constructor works on all three adapters; the effect is ordering: such routes land before the host's middleware and routes (P0-S5).
+- Apps without HTTP: `HttpAdapterHost.httpAdapter` is **`null` or `undefined`, and `init$` may never emit**. It is `null` under `NestFactory.createMicroservice` and `createApplicationContext` (where `init$` emits `null`), and `undefined` under `@nestjs/testing`'s `createNestMicroservice()` and for a compiled testing module never turned into an app (where `init$` never emits). Test truthiness; never wait on `init$` (P0-S1).
+- Under `@nestjs/testing` the adapter is `undefined` in provider constructors (12.0.0 and 12.4.2). It is set at the start of `createNestApplication()`, before `app.init()`.
+- `HttpAdapterHost.init$` is public (`@publicApi`, `helpers/http-adapter-host.d.ts`) and emits from the `httpAdapter` setter, i.e. when the adapter is **set**, which is before routes are registered under both `NestFactory` and `@nestjs/testing`. Hooks set from an `init$` subscription made in a constructor therefore work, `setOnRouteTriggered` included (P0-S1, P0-S5). Two conditions: its JSDoc says it emits "when the HTTP application is initialized", so this relies on the code, not the comment (a nightly test on the latest 12.x guards it); and a subscriber runs inside Nest's setter, where a throw is rethrown by RxJS asynchronously as `uncaughtException` and kills a process with no handler, so the subscriber's entire body must catch everything.
 
 ## 2. HTTP adapter hooks
 
@@ -45,29 +46,33 @@ getOnRouteTriggered(): typeof hook | undefined     // the only one with a getter
 |---|---|---|---|
 | Where it runs | First middleware, added in the adapter constructor | First `onRequest` hook, added in the adapter constructor | First middleware |
 | Read when | Per request (`if (this.onRequestHook)`), so it can be set late | Per request | Per request |
-| How the request continues | Only by calling `done()`. A resolved promise does not continue it. | `done()` **or** a resolved promise | Only `done()` |
-| If the hook throws | The error goes to `done(err)`: **the user's request fails** | Same | Same |
+| How the request continues | Only by calling `done()`. A resolved promise does not continue it. | `done()`, or a resolved promise from 12.1.3 (before that, only `done()`) | Only `done()` |
+| If the hook throws | From 12.1.3: a throw before `done()` becomes `done(err)` once, **the user's request fails** (500, no guard or handler runs); a throw after `done()` is logged. Before 12.1.3 there is no guard: a throw after `done()` also gives a 500 though the handler ran | Same; a throw after `done()` is dropped | Same as Express |
 | Runs for 404s | Yes | Yes | Yes |
-| Requests that skip it | — | Malformed URLs and over-long parameters are answered before any hook | — |
+| Requests that skip it | A host-supplied server instance's own middleware, which runs first and outside the store | Malformed percent-encoding (400) and a parameter over `maxParamLength`, default 100 (414); a host-supplied instance's own `onRequest` hooks | — |
+
+On every adapter, whatever Node's HTTP parser rejects (bad header name 400, headers over 16 KiB 431, a target without a leading slash 400) never reaches the hook. Inferred, not run: Node's `requestTimeout` / `headersTimeout`, `upgrade` and `CONNECT`, and `Expect: 100-continue` with a `checkContinue` listener. (P0-S1.)
 
 Rules for Nestrix's hook, which follow directly:
 - Write it as a synchronous function that calls `done()` exactly once, on every path.
 - Wrap the whole body so nothing can throw into `done(err)`.
-- Call `done()` inside the span's context (`context.with(ctx, done)`). `done` continues the pipeline synchronously, so everything downstream inherits the context. Whether the context survives body parsing on each adapter is a **spike**.
+- Call `done()` inside the span's context (`context.with(ctx, done)`). `done` continues the pipeline synchronously, so everything downstream inherits the context. The context survives body parsing (JSON, multipart, multer, bodies arriving in later packets) on Express and Fastify from 12.0.0 and on platform-node from 12.3.2; platform-node 12.3.0 loses it after the JSON parser, and 12.3.1 does by its source (P0-S1, run on 12.0.0, 12.3.0, 12.3.2 and 12.4.2, 50 concurrent requests, Node 24 and 26 with and without AsyncContextFrame).
 
 ### Response hook
 
 Do not use it. On Express and platform-node it is attached to the response's `finish` event only, so it never fires for a client abort. On Fastify it is an `onResponse` hook that completes only on `done()`, a settled promise or a throw, so a plain synchronous `(req, res) => void` hook leaves the chain hanging.
 
-Instead: in the request hook, attach a `close` listener to the raw `ServerResponse` (`res` on Express and platform-node, `reply.raw` on Fastify) and end the span there. `close` fires for finished and aborted responses alike. This also leaves one fewer single-slot hook to contend for.
+Instead: in the request hook, attach a `close` listener to the raw `ServerResponse` (`res` on Express and platform-node, `reply.raw` on Fastify) and end the span there. `close` fires exactly once for finished and aborted responses alike (P0-S1: 200, 404, 403, 500, 418, a stream, three kinds of abort, all three adapters). This also leaves one fewer single-slot hook to contend for.
+
+Reading the outcome at `close` (P0-S1): `headersSent` true means `statusCode` is what was sent; `writableEnded && !writableFinished` means the app finished but delivery was cut; `!headersSent && !writableFinished` means no response was sent, so record no status code (`statusCode` still reads 200 there). When the client goes away the listener runs **outside** the request's async context, so it must hold its span itself.
 
 ### Route-triggered hook
 
 - Captured when routes are registered (`core/router/router-explorer.ts`), so it must be set before `app.init()`: at provider construction.
 - Fires right before the route handler proxy runs, which is before guards.
-- Receives `(requestMethod, path)` where `path` is the declared route path before `normalizePath`, built by the route path factory (global prefix, module path, URI version, controller path and method path are composed there; exact composition is a **spike**).
+- Receives `(requestMethod, path)` where `path` is the declared route path before `normalizePath`, built by the route path factory (composition, P0-S1: global prefix, then `/v<version>` under URI versioning, then controller path and method path, leading slash, parameters as declared; header versioning puts no version in the path).
 - Receives **no request object**. Finding the active server span depends entirely on async context.
-- Can fire for a route whose host or version filter then declines; treat the last value as authoritative.
+- It wraps the version and host filters, so it fires before any of them can decline. Under header versioning on Express and platform-node it fires once per handler tried, and still fires for a request that ends in a 404 because no version matched. A declining handler has the same path as the one that accepts, so the last value is right whenever some handler accepts. On Fastify it fires only for the matched route. Fires before guards (also for a guard-rejected route); the store is readable inside it (P0-S1).
 - Does not fire for unmatched requests. A 404 span is named by method only (`GET`), with `http.route` unset, as the OpenTelemetry HTTP conventions require.
 - It has a getter, so chain what is already there: `const prev = adapter.getOnRouteTriggered?.()`.
 
@@ -83,10 +88,14 @@ Routes added through `httpAdapter.get(path, handler)` bypass the Nest pipeline: 
 
 | | Express | Fastify | platform-node |
 |---|---|---|---|
-| Host `app.use()` middleware | Only middleware registered earlier | All of it (middie and the constructor-level hooks wrap every route) | **spike** |
-| `enableCors()` | `use(cors())`, applied at the start of `init()` | An `onRequest` hook covering every route | **spike** |
-| Order-sensitive routing | Yes: an earlier catch-all route shadows later routes | No (matched by specificity) | No (radix tree, specificity) |
-| Late route registration | Works until the not-found handler is added | Works until `ready`; nothing calls `ready` before `listen` | **spike** |
+| Host `app.use()` middleware | Only middleware registered earlier | All of it, including middleware added after `listen()` | Only middleware registered earlier |
+| `enableCors()` | `use(cors())` when called, so it covers routes added later (the `cors` factory option is applied at the start of `init()`: read from source) | An `onRequest` hook covering every route; with `hook` other than `onRequest` it runs after the handler and only hijacking avoids it | `use(cors())` when called |
+| Order-sensitive routing | Yes: an earlier catch-all route shadows later routes | No (matched by specificity) | Partly: specificity within a contiguous run of routes, registration order across runs separated by any `use()` (`isRouteOrderSensitive()` returning `false`: read from source) |
+| Late route registration | Works until the not-found handler is added | Works until `ready`; nothing calls `ready` before `listen` | Works from `onModuleInit` (from `onApplicationBootstrap`: not tested) |
+| Exception thrown or rejected by the handler | Reaches Nest's exception handler and the host's global filters | Same | Same |
+| `reply()` / `end()` | `httpAdapter.reply(res, buffer)` JSON-encodes a `Buffer` | `httpAdapter.end()` bypasses the reply's headers; hijacked replies still run host `onResponse` hooks | — |
+
+(All rows: spike P0-S5, run on 12.4.2 unless marked.) `app.getHttpAdapter()` is typed `HttpServer`, which does not declare `setOnRequestHook`; `HttpAdapterHost.httpAdapter` is typed `AbstractHttpAdapter`, which does.
 
 Consequences for the dashboard are in [architecture.md](architecture.md#46-embedded-dashboard).
 
