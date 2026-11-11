@@ -611,7 +611,7 @@ Shutdown is bounded: Nestrix waits at most 5 seconds for the collector. When sev
 
 | | |
 |---|---|
-| Node.js | 26.0 and later |
+| Node.js | 26.13 and later |
 | NestJS | 12 |
 | `@nestjs/platform-express`, `@nestjs/platform-fastify` | from 12.0.0 |
 | `@nestjs/platform-node` | from 12.3.2 (12.3.0 and 12.3.1 lose the request context after JSON body parsing) |

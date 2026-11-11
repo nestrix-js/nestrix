@@ -39,7 +39,7 @@ Planned, not available yet: spans for controller methods and jobs through `NestF
 | | |
 |---|---|
 | NestJS | 12.0 and later |
-| Node.js | 26.0 and later |
+| Node.js | 26.13 and later |
 | HTTP adapters | Express 5 and Fastify 5 from Nest 12.0.0, `@nestjs/platform-node` from 12.3.2 |
 | OpenTelemetry JS | SDK 3.x |
 
