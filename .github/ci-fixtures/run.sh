@@ -43,8 +43,8 @@ while IFS= read -r peer; do peers+=("$peer"); done < <(node -e '
 echo "peers: ${peers[*]}"
 
 npm install --no-audit --no-fund --loglevel=error \
-  "$work"/tarballs/nestrix-nestjs-*.tgz \
-  "$work"/tarballs/nestrix-ui-*.tgz \
+  "$work"/tarballs/nestrix-js-nestjs-*.tgz \
+  "$work"/tarballs/nestrix-js-ui-*.tgz \
   "${peers[@]}" \
   "@nestjs/platform-express@^12"
 

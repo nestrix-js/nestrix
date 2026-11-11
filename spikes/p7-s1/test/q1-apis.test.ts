@@ -40,14 +40,19 @@ describe("Q1: APIs", () => {
     20_000,
   );
 
-  it("sampleInterval 10 ms gives samples about 10-15 ms apart after the start burst", async () => {
-    const rows = (await probe("q1-apis.mjs", ["all", "10"])) as Row[];
-    for (const r of rows) {
-      expect(r.problems).toEqual([]);
-      expect(r.medianDeltaUs).toBeGreaterThan(9000);
-      expect(r.medianDeltaUs).toBeLessThan(20000);
-    }
-  }, 20_000);
+  // Timing measurement from the spike (macOS); hosted CI runners differ, so it runs locally only.
+  it.skipIf(Boolean(process.env.CI))(
+    "sampleInterval 10 ms gives samples about 10-15 ms apart after the start burst",
+    async () => {
+      const rows = (await probe("q1-apis.mjs", ["all", "10"])) as Row[];
+      for (const r of rows) {
+        expect(r.problems).toEqual([]);
+        expect(r.medianDeltaUs).toBeGreaterThan(9000);
+        expect(r.medianDeltaUs).toBeLessThan(20000);
+      }
+    },
+    20_000,
+  );
 });
 
 // Inlined functions (V8 CPU profiler behaviour, pinned). Counted over 10 runs each on 2026-11-11,
@@ -85,17 +90,22 @@ describe("Q1: attribution of inlined functions", () => {
 });
 
 describe("Q3: the start pause", () => {
-  it("grows with the amount of compiled code, on every capture", async () => {
-    const rows = (await probe("start-cost.mjs", ["small-first"])) as Row[];
-    const [small1, small2, big1, big2] = rows as Row[];
-    console.log(JSON.stringify(rows));
-    expect(big1.codeMB).toBeGreaterThan(10 * small1.codeMB);
-    expect(big1.startMs).toBeGreaterThan(5 * small1.startMs);
-    // Not a one-time cost: the next capture pays about the same.
-    expect(big2.startMs).toBeGreaterThan(0.6 * big1.startMs);
-    expect(small2.startMs).toBeGreaterThan(0);
-    expect(big1.stopMs).toBeLessThan(50);
-  }, 60_000);
+  // Timing measurement from the spike (macOS); hosted CI runners differ, so it runs locally only.
+  it.skipIf(Boolean(process.env.CI))(
+    "grows with the amount of compiled code, on every capture",
+    async () => {
+      const rows = (await probe("start-cost.mjs", ["small-first"])) as Row[];
+      const [small1, small2, big1, big2] = rows as Row[];
+      console.log(JSON.stringify(rows));
+      expect(big1.codeMB).toBeGreaterThan(10 * small1.codeMB);
+      expect(big1.startMs).toBeGreaterThan(5 * small1.startMs);
+      // Not a one-time cost: the next capture pays about the same.
+      expect(big2.startMs).toBeGreaterThan(0.6 * big1.startMs);
+      expect(small2.startMs).toBeGreaterThan(0);
+      expect(big1.stopMs).toBeLessThan(50);
+    },
+    60_000,
+  );
 });
 
 describe("Q1: in a Nest app", () => {
