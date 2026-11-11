@@ -474,6 +474,7 @@ Ignored while the dashboard is off. See [Memory and the `store` option](#memory-
 |---|---|---|
 | `metrics` | an object | `false` records no metrics at all. See [Metrics](#metrics). |
 | `metrics.runtime` | `true` | Event-loop delay, V8 heap, RSS and CPU time. `false` keeps the request histogram only. |
+| `metrics.export` | `true` | `false` turns Nestrix's own OTLP metric export off and keeps recording through the API, so a `MeterProvider` your app registers still receives the metrics. |
 
 ## Environment variables
 
@@ -565,8 +566,8 @@ The consumer span is a **child** of the producer span in the same trace, with no
 
 Nestrix records metrics through `@opentelemetry/api`'s metrics API. If your app registers a `MeterProvider` (the OpenTelemetry Node SDK does), it receives them as they are, with your readers and exporters.
 
-- **`http.server.request.duration`**, a histogram in seconds with the bucket boundaries the HTTP semantic conventions advise, for every request, sampled or not: it is right at any `sampleRate` and under your own sampler. Attributes: `http.request.method`, `http.route` (when a handler matched), `http.response.status_code` (when a response was sent) and `error.type` (on the same rule as the span's error status). Requests under `ignore.routes` and the dashboard path are not counted.
-- **Runtime metrics**, read only when a reader collects: `nodejs.eventloop.delay.p50`, `.p99` and `.max` (seconds, since the previous collection), `v8js.memory.heap.used` and `v8js.memory.heap.space.size` (bytes, per `v8js.heap.space.name`), `process.memory.usage` (RSS, bytes) and `process.cpu.time` (seconds, per `cpu.mode`). Names follow `@opentelemetry/semantic-conventions` 1.45.0, where they are still experimental and may be renamed. `v8js.memory.heap.limit` is deprecated there and not reported.
+- **`http.server.request.duration`**, a histogram in seconds with the bucket boundaries the HTTP semantic conventions advise, for every request, sampled or not: it is right at any `sampleRate` and under your own sampler. Attributes: `http.request.method`, `url.scheme` (`http` or `https`), `http.route` (when a handler matched), `http.response.status_code` (when a response was sent) and `error.type` (on the same rule as the span's error status). Requests under `ignore.routes` and the dashboard path are not counted.
+- **Runtime metrics**, read only when a reader collects: `nodejs.eventloop.delay.p50`, `.p99` and `.max` (seconds, covering the time since the last collection by any reader, so with two readers each sees only the window the other left), `v8js.memory.heap.used` and `v8js.memory.heap.space.size` (bytes, per `v8js.heap.space.name`), `process.memory.usage` (RSS, bytes) and `process.cpu.time` (seconds, per `cpu.mode`). Names follow `@opentelemetry/semantic-conventions` 1.45.0, where they are still experimental and may be renamed. `v8js.memory.heap.limit` is deprecated there and not reported.
 
 With no `MeterProvider` registered and no export, nothing is recorded and the event-loop monitor does not run.
 

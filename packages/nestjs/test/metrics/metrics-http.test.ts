@@ -84,6 +84,7 @@ describe.each(ADAPTERS)("http.server.request.duration on %s", (adapter) => {
         {
           attributes: {
             "http.request.method": "GET",
+            "url.scheme": "http",
             "http.response.status_code": 404,
           },
           count: 1,
@@ -91,6 +92,7 @@ describe.each(ADAPTERS)("http.server.request.duration on %s", (adapter) => {
         {
           attributes: {
             "http.request.method": "GET",
+            "url.scheme": "http",
             "http.route": "/m/bad",
             "http.response.status_code": 400,
           },
@@ -100,6 +102,7 @@ describe.each(ADAPTERS)("http.server.request.duration on %s", (adapter) => {
           attributes: {
             "error.type": "TypeError",
             "http.request.method": "GET",
+            "url.scheme": "http",
             "http.route": "/m/boom",
             "http.response.status_code": 500,
           },
@@ -108,6 +111,7 @@ describe.each(ADAPTERS)("http.server.request.duration on %s", (adapter) => {
         {
           attributes: {
             "http.request.method": "GET",
+            "url.scheme": "http",
             "http.route": "/m/ok/:id",
             "http.response.status_code": 200,
           },

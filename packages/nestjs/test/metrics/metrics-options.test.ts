@@ -37,10 +37,23 @@ describe("metrics option", () => {
     [null, "metrics must be false or an object"],
     ["on", "metrics must be false or an object"],
     [{ runtime: "yes" }, "metrics.runtime must be a boolean"],
+    [{ export: "no" }, "metrics.export must be a boolean"],
   ])("rejects %j at forRoot time", (value, message) => {
     expect(() =>
       resolveOptions({ metrics: value } as unknown as NestrixModuleOptions, {}),
     ).toThrow(`Invalid Nestrix options: ${message}`);
+  });
+
+  it("export: false resolves no export destination even with an endpoint", () => {
+    expect(
+      resolveOptions(
+        {
+          metrics: { export: false },
+          export: { otlp: { endpoint: "http://c:4318" } },
+        },
+        {},
+      ).metrics,
+    ).toEqual({ runtime: true, export: false });
   });
 
   it("is frozen", () => {

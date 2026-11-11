@@ -39,6 +39,8 @@ export interface RequestState {
    * not `false`); `0` otherwise, with no clock read.
    */
   startedAt?: number;
+  /** `https` when the connection is TLS, else `http`; the `url.scheme` metric attribute. */
+  scheme?: "http" | "https";
 }
 
 /**

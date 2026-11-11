@@ -162,6 +162,13 @@ export class NestrixCore
     } catch (error) {
       diagnostics.countFailure("core.bootstrap", error);
     }
+    // After every host `onModuleInit`, so a MeterProvider the host registers there is found by
+    // the silent probe and Nestrix does not claim the global slot first (P6-02).
+    try {
+      this.metrics?.startExport();
+    } catch (error) {
+      diagnostics.countFailure("core.bootstrap", error);
+    }
   }
 
   /** Runs on `app.close()`; on SIGTERM/SIGINT only with `app.enableShutdownHooks()`. Never rejects. */

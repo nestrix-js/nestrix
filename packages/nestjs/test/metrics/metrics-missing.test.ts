@@ -98,6 +98,7 @@ describe("optional packages missing", () => {
       { ownsProvider: true },
       diagnostics,
     );
+    started?.startExport();
     await started?.export?.ready;
     expect(diagnostics.logs.size).toBe(0);
     expect(diagnostics.failures.map((f) => f.where)).toEqual([
