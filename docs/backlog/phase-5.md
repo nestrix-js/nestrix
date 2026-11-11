@@ -13,7 +13,7 @@ Objective, deliverables and acceptance: [roadmap.md](../roadmap.md#phase-5-stand
 | P5-02 | Storage: schema, migrations, day partitions, retention, ingest writer, rollups | opus | P5-00 | done | `src/storage/`, `migrations/0001_init.sql`; schema notes for P5-03 in `src/storage/schema.ts` and `traces.ts`. |
 | P5-03 | Query API over Postgres; protocol additions for several services | sonnet | P5-01, P5-02 | done | As built: "P5-03 as built" below. |
 | P5-04 | UI hosting and admin login | opus | P5-01 | review | Integrated with P5-03 (query API guarded by the admin session). Security: review (P5-07) pending. As built: "P5-04 as built" below. |
-| P5-05 | UI: service selector, map across services | sonnet | P5-03 | todo | |
+| P5-05 | UI: service selector, map across services | sonnet | P5-03 | done | Selector when several services, `service` on every query, layered map, sign-out and 401 → login in standalone; 786 KB. |
 | P5-06 | Docker image, `docker compose`, example apps end to end, short ingest measurement | sonnet | P5-03, P5-04 | todo | |
 | P5-07 | Reviews of P5-01 and P5-04 | opus reviewer | each | todo | |
 | P5-08 | Documentation, phase report | sonnet + lead | all | todo | |
