@@ -10,19 +10,19 @@ Update this table as work moves. One line of notes at most; detail goes in the t
 |---|---|---|---|---|---|
 | P1-00 | Backlog, public option types | lead | — | done | This file; `packages/nestjs/src/options.ts`. |
 | P1-01 | Runtime dependencies | haiku | P1-00 | done | Done by the lead: sdk-trace, resources, core, context-async-hooks 3.1.1; exporter-trace-otlp-http 0.301.1; semconv 1.45.0. `pnpm verify` passes. |
-| P1-02 | Module, option resolution, internal diagnostics | sonnet | P1-01 | doing | |
-| P1-03 | OpenTelemetry setup and export pipeline | opus | P1-01 | doing | review required |
+| P1-02 | Module, option resolution, internal diagnostics | sonnet | P1-01 | done | 57 tests; forRootAsync factory resolved before NestrixCore; `enabled:false` from an async factory leaves inert providers. |
+| P1-03 | OpenTelemetry setup and export pipeline | opus | P1-01 | review | 31 tests; wired into NestrixCore with `scrubSpanAttributes`; independent review running. |
 | P1-04 | Privacy helpers | sonnet | P1-00 | done | 61 tests; reviewed (no leaks found), test gaps, speed and `//authority` hardening fixed. A target starting with `//` loses its first segment in `splitUrl`. |
 | P1-05 | `Span` and `withSpan` | sonnet | P1-01 | done | 40 tests; reviewed, 3 fixes applied; fire-and-forget promise case accepted and documented in architecture §4.3. |
-| P1-06 | HTTP server spans | opus | P1-02, P1-03, P1-04 | todo | review required |
+| P1-06 | HTTP server spans | opus | P1-02, P1-03, P1-04 | doing | review required |
 | P1-07 | Handler attribution and exceptions | opus | P1-06 | todo | review required; same agent as P1-06 |
-| P1-08 | Outbound `node:http` spans and the shared outbound rules | opus | P1-02, P1-03, P1-04 | todo | review required |
+| P1-08 | Outbound `node:http` spans and the shared outbound rules | opus | P1-02, P1-03, P1-04 | doing | review required |
 | P1-09 | Outbound fetch/undici spans | opus | P1-08 | todo | review required; same agent as P1-08 |
 | P1-10 | Conformance suite | sonnet | P1-07, P1-09 | todo | |
 | P1-11 | CI matrix and nightly | sonnet | P1-10 | todo | |
-| P1-12 | Jaeger example, two services | sonnet | P1-09 | todo | |
-| P1-13 | Benchmarks: baseline, exporter outage, install size, startup | sonnet | P1-09 | todo | |
-| P1-14 | CommonJS decorated-class check | haiku | P1-02 | todo | Left open by P0-S4 |
+| P1-12 | Jaeger example, two services | sonnet | P1-09 | doing | |
+| P1-13 | Benchmarks: baseline, exporter outage, install size, startup | sonnet | P1-09 | doing | |
+| P1-14 | CommonJS decorated-class check | haiku | P1-02 | doing | Left open by P0-S4 |
 | P1-15 | User documentation | sonnet | P1-07, P1-09, P1-13 | todo | |
 | P1-16 | Phase report | lead | all | todo | |
 
