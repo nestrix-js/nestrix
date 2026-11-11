@@ -22,6 +22,7 @@ Read from the NestJS source (`nestjs/nest`, `master`, the 12.x line) on 2026-11-
 What follows from that:
 
 - Under `NestFactory.create`, the adapter exists when providers are constructed, so a provider constructor can call adapter setters.
+- Providers are not constructed in module order. `createInstances` maps every module through `Promise.all` (12.4.2 `injector/instance-loader.js:40-44`), so which constructor runs first depends on how many microtask turns each provider's dependency resolution takes. `NestrixCore` (which waits for `NESTRIX_OPTIONS` and `HttpAdapterHost`) is constructed after a dependency-free `useFactory` anywhere in the app, and before a factory that awaits real work; `onApplicationBootstrap` runs after all of them (P3-01, the `pg` cache scan of architecture §4.4).
 - Routes are registered **before** `onModuleInit`. Anything that must be in place when routes are registered (`setOnRouteTriggered`) has to be set at construction.
 - A route added in `onModuleInit` lands after the host's routes and before the not-found handler. A route added in `onApplicationBootstrap` lands after the not-found handler, which on Express makes it unreachable when there is no global prefix.
 - A provider constructor runs before `initHttpServer`. Despite the platform-node adapter's comments, registering routes from a constructor works on all three adapters; the effect is ordering: such routes land before the host's middleware and routes (P0-S5).

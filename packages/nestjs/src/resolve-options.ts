@@ -6,6 +6,7 @@ import { DEFAULT_METHODS, type ResolvedMethods } from "./methods/resolved.js";
 import type {
   ClassMatcher,
   NestrixEnhancerKind,
+  NestrixIntegrationOptions,
   NestrixModuleOptions,
   NestrixQueueOptions,
   NestrixStoreOptions,
@@ -71,6 +72,8 @@ export interface ResolvedOptions {
   readonly methods: ResolvedMethods;
   /** `false` when `metrics: false`. */
   readonly metrics: ResolvedMetrics | false;
+  /** Level 3 integrations (P3-01): `pg` on, `mysql2` and `ioredis` off by default (D-49). */
+  readonly integrations: ResolvedIntegrations;
 }
 
 /** Resolved `metrics` option (P6-02, D-66). */
@@ -90,6 +93,13 @@ export interface ResolvedMetricExport {
   readonly timeoutMillis: number;
   /** `OTEL_METRIC_EXPORT_INTERVAL`, default 60000. */
   readonly intervalMillis: number;
+}
+
+/** `integrations`, defaults applied. `ioredis` is `false` or its options. */
+export interface ResolvedIntegrations {
+  readonly pg: boolean;
+  readonly mysql2: boolean;
+  readonly ioredis: false | { readonly rootSpans: boolean };
 }
 
 /**
@@ -519,6 +529,50 @@ export function resolveUser(user: unknown): NestrixUserFunction | undefined {
   return user as NestrixUserFunction;
 }
 
+function checkBoolean(name: string, value: unknown): void {
+  if (value !== undefined && typeof value !== "boolean") {
+    invalid(`${name} must be a boolean, got ${typeof value}`);
+  }
+}
+
+/**
+ * `integrations` (P3-01): `pg` defaults to `true` (on when installed), `mysql2` and `ioredis` to
+ * `false` (D-49). `ioredis` takes `true` or `{ rootSpans }` (D-60: root commands dropped unless
+ * `rootSpans` is `true`). Anything else throws at `forRoot()`.
+ */
+export function resolveIntegrations(
+  integrations: NestrixIntegrationOptions | undefined,
+): ResolvedIntegrations {
+  if (
+    integrations !== undefined &&
+    (integrations === null || typeof integrations !== "object")
+  ) {
+    invalid("integrations must be an object");
+  }
+  const i = integrations ?? {};
+  checkBoolean("integrations.pg", i.pg);
+  checkBoolean("integrations.mysql2", i.mysql2);
+  let ioredis: ResolvedIntegrations["ioredis"] = false;
+  const r: unknown = i.ioredis;
+  if (r === true) {
+    ioredis = Object.freeze({ rootSpans: false });
+  } else if (r !== undefined && r !== false) {
+    if (r === null || typeof r !== "object" || Array.isArray(r)) {
+      invalid(
+        "integrations.ioredis must be a boolean or { rootSpans?: boolean }",
+      );
+    }
+    const rootSpans = (r as { rootSpans?: unknown }).rootSpans;
+    checkBoolean("integrations.ioredis.rootSpans", rootSpans);
+    ioredis = Object.freeze({ rootSpans: rootSpans === true });
+  }
+  return Object.freeze({
+    pg: i.pg ?? true,
+    mysql2: i.mysql2 ?? false,
+    ioredis,
+  });
+}
+
 /**
  * Pure: options and an environment object in, fully defaulted and frozen options out.
  * Throws on invalid options; that is a startup error, not a request-path failure.
@@ -595,6 +649,7 @@ export function resolveOptions(
     }),
     methods: resolveMethods(o.methods),
     metrics: resolveMetrics(o, env),
+    integrations: resolveIntegrations(o.integrations),
   };
   return Object.freeze(resolved);
 }
