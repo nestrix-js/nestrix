@@ -5,7 +5,7 @@
 [`release.yml`](./.github/workflows/release.yml) workflow. `@nestrix-js/protocol` and
 `@nestrix-js/testing` are private and are never versioned, tagged or published.
 
-**Nothing is published yet, and the workflow cannot publish yet.** Every job in `release.yml` is
+**Publishing is on** (`NPM_PUBLISH_ENABLED=true` since 2026-11-12; first release `0.1.0-alpha.0` under the `alpha` tag, with provenance). The text below is kept as the record of how it was set up. Every job in `release.yml` is
 skipped until the repository variable `NPM_PUBLISH_ENABLED` is set to `true` (see
 [Keeping publishing off](#keeping-publishing-off)). The owner flips that switch last.
 
@@ -56,7 +56,7 @@ Four independent layers, so a single mistake cannot publish:
 
 ## One-time setup (owner)
 
-None of this has been done. Do it in this order.
+All done on 2026-11-12 (the npm scope is `@nestrix-js`, D-71). Kept for reference.
 
 - [ ] npm account with **2FA**, and the **`@nestrix-js` organisation** created on npmjs.com. This is
       also the test of whether the scope is free (`docs/decisions.md`, "Owner actions

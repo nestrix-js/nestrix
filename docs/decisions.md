@@ -130,8 +130,8 @@ For whoever is asked to do it, in this order:
 
 ## Owner actions outstanding
 
-Needed before anything is published. Local work is not blocked.
+Done on 2026-11-12: the `@nestrix-js` npm organisation (D-71), the repository made public, the code-of-conduct contact, trusted publishing configured for both packages, `NPM_PUBLISH_ENABLED` set, and the first release through CI: `0.1.0-alpha.0` under the `alpha` tag with provenance (the hand-published `0.0.0` placeholders hold `latest`). Still the owner's:
 
-- Create the `@nestrix-js` npm organisation (D-71: `@nestrix` belongs to another npm account).
-- Provide a contact for `CODE_OF_CONDUCT.md` (it still says `[INSERT CONTACT METHOD]`).
-- Decide when the repository goes public (D-6).
+- Ask GitHub Support to purge the refs of closed pull requests #5 to #7 (pre-rewrite commits with the old email).
+- The trademark search for the name (O-5).
+- When to publish a stable release (exit pre mode; 1.0.0 needs a `major` changeset).
