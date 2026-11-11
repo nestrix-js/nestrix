@@ -12,5 +12,18 @@
   "engines": {
     "node": ">=22.15.0"
   },
-  "scripts": {}
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "test": "vitest run --passWithNoTests",
+    "lint": "biome check .",
+    "typecheck": "tsc -b --noEmit",
+    "verify": "pnpm build && pnpm test && pnpm lint && pnpm typecheck"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@biomejs/biome": "^2.6.6",
+    "publint": "^0.3.25",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.12"
+  }
 }

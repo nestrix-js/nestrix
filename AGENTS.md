@@ -51,13 +51,16 @@ A lead agent takes tasks from the backlog and hands bounded pieces to cheaper ag
 
 ## Commands
 
-The toolchain is set up by task P0-01. Until then only this works:
-
 ```bash
-pnpm install        # no dependencies yet
+pnpm install        # install the workspace
+pnpm build          # pnpm -r --if-present build: each package's own build script
+pnpm test           # vitest run --passWithNoTests; every workspace dir with a package.json is a Vitest project
+pnpm lint           # biome check . (lint and format; Markdown is not checked)
+pnpm typecheck      # tsc -b --noEmit over the references in the root tsconfig.json
+pnpm verify         # build, test, lint, typecheck in that order, stopping at the first failure
 ```
 
-Replace this section with the real `build`, `test`, `lint`, `typecheck` and `verify` commands when P0-01 lands.
+TypeScript config: every package has its own `tsconfig.json` that extends `tsconfig.base.json`, sets `composite`, `rootDir` and `outDir`, and is added to `references` in the root `tsconfig.json`. `verbatimModuleSyntax` is on: import types with `import type`, but import classes used as Nest constructor parameters as values (an `import type` there makes `design:paramtypes` silently `Function`).
 
 ## Layout
 
