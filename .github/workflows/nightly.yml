@@ -15,6 +15,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Fast, focused signal: the conformance suite (three adapters, the @nestjs/testing http.route
+  # assertion of architecture §4.2 among them) on the newest @nestjs/* 12.x, on the Node floor
+  # and the newest Node. `latest-nest` below runs the whole verify on top of this.
+  conformance-latest:
+    name: conformance on latest @nestjs/* 12.x (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22.15.0", "26"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Update @nestjs/* to the latest 12.x (not committed)
+        run: |
+          # The workspaces that pin an exact Nest version (the two conformance packages and the
+          # spikes) are left alone: their tests assert that the pinned version is the one loaded.
+          pnpm update -r "@nestjs/*@^12" \
+            --filter '!@nestrix/conformance-*' --filter '!@nestrix/spike-p0-s1*' \
+            --filter '!spike-p0-s6' --filter '!@nestrix-spikes/p0-s4'
+          pnpm list -r --depth 0 | grep '@nestjs/' || true
+      # The conformance suite imports the built fixture app (examples/express-esm).
+      - run: pnpm build
+      - name: Conformance files and the @nestjs/testing assertion
+        run: >
+          pnpm --filter @nestrix/nestjs exec vitest run
+          test/conformance-http.test.ts test/conformance-apps.test.ts test/http-testing.test.ts
+
   latest-nest:
     name: verify against latest @nestjs/* 12.x
     runs-on: ubuntu-latest
@@ -28,6 +61,8 @@ jobs:
           node-version: "26"
       - name: Update @nestjs/* to the latest 12.x (not committed)
         run: |
-          pnpm update -r "@nestjs/*@^12"
+          pnpm update -r "@nestjs/*@^12" \
+            --filter '!@nestrix/conformance-*' --filter '!@nestrix/spike-p0-s1*' \
+            --filter '!spike-p0-s6' --filter '!@nestrix-spikes/p0-s4'
           pnpm list -r --depth 0 | grep '@nestjs/' || true
       - run: pnpm verify

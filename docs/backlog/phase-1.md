@@ -19,7 +19,7 @@ Update this table as work moves. One line of notes at most; detail goes in the t
 | P1-08 | Outbound `node:http` spans and the shared outbound rules | opus | P1-02, P1-03, P1-04 | done | 134 outbound tests on Node 22.15, 24.22, 26.13; reviewed, 7 fixes (proxy userinfo leak, host case, QUERY, refcount, cancel after head = `cancelled`); wired into NestrixCore by the lead. |
 | P1-09 | Outbound fetch/undici spans | opus | P1-08 | done | Channel facts in research.md; unread large body ends via a 30 s grace timer; upgrade spans end on 22.15; `undici` 7 devDependency. Reviewed. |
 | P1-10 | Conformance suite | sonnet | P1-07, P1-09 | done | Every table row passes on 3 adapters at 12.4.2, Express/Fastify 12.0.0, platform-node 12.3.2, Node 22.15 and 26. Header versioning skipped on Fastify 12.0.0: Nest itself fails to boot it (FST_ERR_DUPLICATED_ROUTE). |
-| P1-11 | CI matrix and nightly | sonnet | P1-10 | doing | |
+| P1-11 | CI matrix and nightly | sonnet | P1-10 | done | verify on Node 22.15/24/26 already runs the 12.0/12.3.2/latest conformance projects; Jaeger job added; nightly conformance on latest 12.x; nightly update step fixed to skip pinned workspaces. actionlint passes; jobs pass under act. Needs a GitHub run. |
 | P1-12 | Jaeger example, two services | sonnet | P1-09 | done | `pnpm --filter jaeger-example check` passes: one trace, service-a server → client → service-b server, route names set (jaeger 2.23.0). CI job added in P1-11. |
 | P1-13 | Benchmarks: baseline, exporter outage, install size, startup | sonnet | P1-09 | doing | |
 | P1-14 | CommonJS decorated-class check | haiku | P1-02 | done | Consume fixtures boot `forRoot` and read the injected options in CJS (Node 22.15, 26) and ESM apps. |

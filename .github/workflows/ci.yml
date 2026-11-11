@@ -14,6 +14,14 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # The architecture §8 matrix lives here, in one job per Node line. `pnpm verify` runs every
+  # Vitest project, and three of them run the shared conformance files
+  # (packages/nestjs/test/conformance-*.test.ts) against different Nest installs:
+  #   @nestrix/nestjs                  Nest latest 12.x, Express + Fastify + platform-node
+  #   @nestrix/conformance-nest12-0    Nest 12.0.0, Express + Fastify
+  #   @nestrix/conformance-nest12-3-2  Nest 12.3.2, platform-node
+  # So Node (22.15, 24, 26) x Nest (12.0, 12.3.2, latest) x adapter is covered by these three
+  # cells; a second matrix axis would run the same projects again.
   verify:
     name: verify (node ${{ matrix.node }})
     runs-on: ubuntu-latest
@@ -59,12 +67,24 @@ jobs:
           FORMAT: ${{ matrix.format }}
         run: .github/ci-fixtures/run.sh "$FORMAT" "$RUNNER_TEMP/consume-$FORMAT"
 
-  # P0-S4 adds its top-level-await check for published entry points here (spike; not built yet).
+  # Two Nest services exporting to a Jaeger all-in-one started with docker compose; the script
+  # asserts one trace holding service A's server and client spans and service B's server span.
+  jaeger:
+    name: jaeger trace check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: pnpm build
+      - run: pnpm --filter jaeger-example check
 
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [verify, consume]
+    needs: [verify, consume, jaeger]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
