@@ -4,7 +4,9 @@ import {
   Module,
   type ModuleMetadata,
 } from "@nestjs/common";
+import { APP_INTERCEPTOR } from "@nestjs/core";
 import { NestrixCore } from "./core.js";
+import { NestrixInterceptor } from "./http/interceptor.js";
 import type { NestrixModuleOptions } from "./options.js";
 import { isDisabledByEnv, resolveOptions } from "./resolve-options.js";
 import { NESTRIX_OPTIONS } from "./tokens.js";
@@ -37,6 +39,7 @@ export class NestrixModule {
       providers: [
         { provide: NESTRIX_OPTIONS, useValue: resolved },
         NestrixCore,
+        { provide: APP_INTERCEPTOR, useClass: NestrixInterceptor },
       ],
       exports: [NESTRIX_OPTIONS, NestrixCore],
     };
@@ -62,6 +65,7 @@ export class NestrixModule {
             ),
         },
         NestrixCore,
+        { provide: APP_INTERCEPTOR, useClass: NestrixInterceptor },
       ],
       exports: [NESTRIX_OPTIONS, NestrixCore],
     };

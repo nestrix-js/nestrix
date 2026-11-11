@@ -1,8 +1,16 @@
-import { Inject, Injectable, type OnApplicationShutdown } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  type OnApplicationShutdown,
+  Optional,
+} from "@nestjs/common";
+import { HttpAdapterHost } from "@nestjs/core";
 import { diagnostics } from "./diagnostics.js";
+import { installHttpInstrumentation } from "./http/server.js";
 import { setupTelemetry } from "./otel/setup.js";
 import type { TelemetryHandle } from "./otel/types.js";
 import { buildRedactedQueryKeys, scrubSpanAttributes } from "./privacy.js";
+import { installProcessErrorMonitor } from "./process-errors.js";
 import type { ResolvedOptions } from "./resolve-options.js";
 import { NESTRIX_OPTIONS } from "./tokens.js";
 
@@ -18,8 +26,13 @@ import { NESTRIX_OPTIONS } from "./tokens.js";
 export class NestrixCore implements OnApplicationShutdown {
   /** Undefined when disabled or when setup failed. */
   readonly telemetry: TelemetryHandle | undefined;
+  private readonly disposers: Array<() => void> = [];
 
-  constructor(@Inject(NESTRIX_OPTIONS) readonly options: ResolvedOptions) {
+  constructor(
+    @Inject(NESTRIX_OPTIONS) readonly options: ResolvedOptions,
+    // Explicit token, so injection does not depend on `design:paramtypes` being emitted.
+    @Optional() @Inject(HttpAdapterHost) adapterHost?: HttpAdapterHost,
+  ) {
     let telemetry: TelemetryHandle | undefined;
     try {
       if (options.enabled) {
@@ -31,7 +44,11 @@ export class NestrixCore implements OnApplicationShutdown {
           },
           diagnostics,
         );
-        // P1-06: install HTTP hooks (check describeForeignRouteHook first and log the result)
+        // HTTP hooks now, or from `init$` under @nestjs/testing; nothing without an adapter.
+        this.disposers.push(
+          installHttpInstrumentation(adapterHost, options, diagnostics),
+          installProcessErrorMonitor(),
+        );
       }
     } catch (error) {
       diagnostics.countFailure("core.constructor", error);
@@ -41,6 +58,13 @@ export class NestrixCore implements OnApplicationShutdown {
 
   /** Runs on `app.close()`; on SIGTERM/SIGINT only with `app.enableShutdownHooks()`. Never rejects. */
   async onApplicationShutdown(): Promise<void> {
+    for (const dispose of this.disposers.splice(0)) {
+      try {
+        dispose();
+      } catch (error) {
+        diagnostics.countFailure("core.shutdown", error);
+      }
+    }
     try {
       await this.telemetry?.shutdown();
     } catch (error) {

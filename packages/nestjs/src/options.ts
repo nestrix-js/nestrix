@@ -34,7 +34,11 @@ export interface RedactableSpan {
  */
 export type RedactHook = (span: RedactableSpan) => undefined | boolean;
 
-/** Matches a request path (without query string) or an outgoing URL. */
+/**
+ * Matches a request path (without query string) or an outgoing URL. A `RegExp` is tested and a
+ * function is called with that value; what a plain string means depends on the list (below).
+ * A matcher that throws counts as a match, and the failure is counted.
+ */
 export type UrlMatcher = string | RegExp | ((value: string) => boolean);
 
 export interface NestrixOtlpOptions {
@@ -66,10 +70,15 @@ export interface NestrixExportOptions {
 }
 
 export interface NestrixIgnoreOptions {
-  /** Incoming requests that get no server span (matched against the path, no query string). */
+  /**
+   * Incoming requests that get no server span. Matched against the request path without the
+   * query string; a string must equal the path exactly (`'/health'` does not match `'/health/live'`).
+   */
   routes?: UrlMatcher[];
   /**
-   * Outgoing requests that get no client span and no `traceparent` (matched against the full URL).
+   * Outgoing requests that get no client span and no `traceparent`. Matched against the recorded
+   * `url.full` (userinfo removed, listed query values already `REDACTED`); a string is a prefix,
+   * e.g. `'https://o123.ingest.sentry.io/'`.
    * For requests another tool makes inside a request, e.g. an error reporter's transport (§4.2).
    */
   outgoing?: UrlMatcher[];

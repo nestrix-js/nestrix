@@ -198,7 +198,16 @@ Measured with a plain `node:http` server: the handler calls `res.end(Buffer.allo
 
 On Node 22.x and on 24 before 24.20, destroying the socket completes the pending write callbacks, so the response emits `finish` a few milliseconds after `end()` and `writableFinished` is true although the client never received the body. The rule "`writableEnded && !writableFinished` means delivery was cut" (architecture.md section 4.2, nest-hooks.md, P0-S1) therefore holds only from Node 24.20. `engines` allows 22.15, so on 22.x a cut delivery of a response the app already ended is indistinguishable from a completed one by those two flags. A response aborted before the app ended (`writableEnded: false`) is still detected on every version (the P0-S1 abort tests pass on 22.15.0).
 
-Observed on 22.15.0 in a small probe (not yet a spike result): at `close`, `req.socket.destroyed` was true for the cut response and false for a completed keep-alive response and for one sent with `Connection: close`; `req.destroyed` and `req.aborted` were false in all three. Whether the socket check holds in general is not verified. The P0-S1 test asserts `writableFinished` per version (`CUT_DELIVERY_VISIBLE` in `spikes/p0-s1/test/q4-close.test.ts`), so the behaviour is pinned on both sides of the change.
+Settled in P1-06 (2026-11-11, plain `node:http` probes, then the Nest test suite). At `close`, per case, on Node 22.15.0, 24.16.0 and 26.13.0:
+
+| Case | `writableEnded` / `writableFinished` | `req.socket.destroyed` |
+|---|---|---|
+| Completed: keep-alive, `Connection: close`, HTTP/1.0, two pipelined requests, client closing right after the full response, a 413 sent without reading a 2 MB request body | true / true | false |
+| 10 B, 64 KiB and 16 MiB responses read in full, keep-alive and `Connection: close`, 5 each | true / true | false |
+| Cut after the app ended (16 MiB, client leaves after the first bytes) | true / **true** on 22.15 and 24.16, false on 26.13 | **true** on all three |
+| Abort mid-stream, abort before headers, app calls `res.destroy()` | false / false | true |
+
+`req.destroyed` is not usable: on 26.13 it is true for every completed response, on 22.15 false for the cut. `res.socket` is `null` at `close` for completed responses, so the check reads the request's socket. Nestrix marks an abort when `!writableEnded || !writableFinished || req.socket.destroyed` (architecture.md §4.2); `packages/nestjs/test/http-server.test.ts` asserts the cut and the aborts on Express, Fastify and platform-node, and that these are not marked: 16 MiB read in full (keep-alive, `Connection: close`), HTTP/1.0 with and without keep-alive, three pipelined requests, client half-close (1.1 and 1.0), a 4 MiB request body left unread (sent fully and partly), `Upgrade: websocket` to a normal route, `HEAD` and `Expect: 100-continue`. It passes on 22.15.0 and 26.13.0; the reviewer also ran these on 24.16.0. Not covered: HTTP/2 and HTTPS servers. The P0-S1 test asserts `writableFinished` per version (`CUT_DELIVERY_VISIBLE` in `spikes/p0-s1/test/q4-close.test.ts`), so the behaviour is pinned on both sides of the change.
 
 ## Export pipeline facts (checked 2026-11-11, P1-03)
 
