@@ -10,9 +10,13 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "generate:proto": "node scripts/generate-proto.mjs",
+    "record:fixtures": "node test/ingest/fixtures/record.ts",
+    "test": "vitest run"
   },
   "dependencies": {
+    "@bufbuild/protobuf": "^2.17.0",
     "@nestjs/common": "^12.4.2",
     "@nestjs/core": "^12.4.2",
     "@nestjs/platform-express": "^12.4.2",
@@ -23,7 +27,14 @@
     "rxjs": "^7.8.2"
   },
   "devDependencies": {
+    "@bufbuild/buf": "^1.75.0",
+    "@bufbuild/protoc-gen-es": "^2.17.0",
+    "@nestjs/testing": "^12.4.2",
     "@nestrix/protocol": "workspace:*",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.301.1",
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.301.1",
+    "@opentelemetry/resources": "^3.1.1",
+    "@opentelemetry/sdk-trace": "^3.1.1",
     "@types/node": "^26.6.6"
   }
 }

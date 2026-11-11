@@ -12,6 +12,8 @@ allowBuilds:
   "@swc/core": false
   # Optional native accelerator pulled in by bullmq (spikes/p0-s6); msgpackr falls back to pure JS.
   msgpackr-extract: false
+  # apps/server proto generation only; its bin/buf shim resolves the platform binary without the postinstall.
+  "@bufbuild/buf": false
 # @fastify/helmet and @fastify/compress import `fastify` in their types without
 # declaring it, so TypeScript finds whichever copy pnpm hoists (the lowest
 # version installed). Declaring it as a peer makes each consumer's own copy win.

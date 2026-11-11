@@ -1,0 +1,12 @@
+// Wire-compatible subset of google.rpc.Status (googleapis google/rpc/status.proto): the body of
+// every OTLP/HTTP 4xx and 5xx response. Written for Nestrix; `details` (field 3) is left out
+// because the receiver never sets it.
+syntax = "proto3";
+
+package google.rpc;
+
+message Status {
+  int32 code = 1;
+  string message = 2;
+  reserved 3;
+}
