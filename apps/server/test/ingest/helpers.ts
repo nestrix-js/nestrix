@@ -75,7 +75,7 @@ export async function startServer(
     bodyParser: false,
     logger: false,
   });
-  configureApp(app);
+  configureApp(app, config);
   await app.listen(0, "127.0.0.1");
   const { port } = app.getHttpServer().address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${port}`;

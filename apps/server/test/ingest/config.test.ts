@@ -27,7 +27,15 @@ describe("loadConfig", () => {
     expect(c.retentionDays).toBe(7);
     expect(c.ingest.auth).toBe("unconfigured");
     expect(c.ingest.keys).toEqual([]);
-    expect(c.ingest.maxBodyBytes).toBe(64 * MIB);
+    expect(c.ingest.maxBodyBytes).toBe(20 * MIB);
+    expect(c.ingest.maxSpans).toBe(100_000);
+    expect(c.ingest.maxMessages).toBe(400_000);
+    expect(c.ingest.inflightBudgetBytes).toBe(320 * MIB);
+    expect(c.http).toEqual({
+      maxConnections: 1024,
+      requestTimeoutMs: 60_000,
+      headersTimeoutMs: 20_000,
+    });
     expect(c.adminPassword).toBeUndefined();
     expect(c.sessionSecret).toHaveLength(32);
     expect(c.sessionSecretGenerated).toBe(true);
@@ -52,6 +60,17 @@ describe("loadConfig", () => {
     expect(result.config.sessionSecret.toString()).toBe(SESSION);
     expect(result.config.sessionSecretGenerated).toBe(false);
     expect(result.config.retentionDays).toBe(30);
+  });
+
+  it("reads NESTRIX_MAX_CONNECTIONS", () => {
+    const result = loadConfig({
+      DATABASE_URL: DB,
+      NESTRIX_MAX_CONNECTIONS: "50",
+    });
+    expect(result.ok && result.config.http.maxConnections).toBe(50);
+    expect(
+      errors({ DATABASE_URL: DB, NESTRIX_MAX_CONNECTIONS: "0" })[0],
+    ).toMatch(/^NESTRIX_MAX_CONNECTIONS/);
   });
 
   it("accepts the explicit opt-out", () => {

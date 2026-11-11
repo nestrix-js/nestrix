@@ -287,7 +287,7 @@ The dashboard can expose URLs, SQL and stack traces, so it is closed unless some
 ### 4.10 Standalone server (phase 5)
 
 - One Docker image: a NestJS 12 app, instrumented with Nestrix itself, with an OTLP/HTTP receiver, storage, the query API and the same UI build.
-- Receiver: `/v1/traces` first; protobuf and JSON; gzip; 64 MiB limit; partial success; 429/503 with `Retry-After`. Decoding with `@bufbuild/protobuf` and code generated from a pinned `opentelemetry-proto`, checked in. OTLP's JSON form gets its own mapping.
+- Receiver: `/v1/traces` first; protobuf and JSON; gzip; 20 MiB body limit (as the OpenTelemetry Collector), caps on spans and decoded messages checked on the raw bytes before decoding, and a memory budget for requests in flight; partial success; 429/503 with `Retry-After`. Decoding with `@bufbuild/protobuf` and code generated from a pinned `opentelemetry-proto`, checked in. OTLP's JSON form gets its own mapping.
 - Storage: PostgreSQL 18 with Drizzle. `spans` partitioned by day, `resources`, and a per-minute rollup per service and route written at ingest. Retention by dropping partitions. Partition DDL in hand-written SQL migrations. Start on Drizzle 0.45; move to 1.0 when it is stable.
 - Scope is stated honestly: the supported ingest rate is measured and published. Beyond it, send OTLP to a dedicated backend.
 - Ingest authenticated by API key; one admin login for the UI.

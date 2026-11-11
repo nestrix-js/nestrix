@@ -123,8 +123,11 @@ export function nsToIso(ns: bigint): string {
   return `${iso.slice(0, -1)}${micros.toString().padStart(3, "0")}Z`;
 }
 
-/** Latest Unix ns that is a valid JS Date and an int8 (both hold far beyond any accepted day). */
-const MAX_NS = 8_640_000_000_000_000_000_000n;
+/**
+ * Latest Unix ns that fits PostgreSQL `int8` (2^63 - 1, about the year 2262). Its millisecond
+ * value is also a valid JS Date (whose limit, 8.64e15 ms, is 8.64e21 ns: far larger).
+ */
+export const MAX_NS = 9_223_372_036_854_775_807n;
 
 function stringAttr(a: IngestAttributes, key: string): string | null {
   const v = a[key];

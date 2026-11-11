@@ -28,7 +28,18 @@ import {
   parseContentEncoding,
   readBody,
 } from "./body.js";
-import { type BodyFormat, DecodeError, decodeRequest } from "./decode.js";
+import {
+  type BodyFormat,
+  checkBody,
+  DecodeError,
+  decodeRequest,
+} from "./decode.js";
+import {
+  ByteBudget,
+  type DecodeLimits,
+  decodeCharge,
+  LimitError,
+} from "./limits.js";
 import { toIngestBatch } from "./map.js";
 import { IngestBusyError, type IngestSink } from "./model.js";
 import { RateLimiter } from "./rate-limit.js";
@@ -43,6 +54,18 @@ const LOG_INTERVAL_MS = 60_000;
  * sees the response; beyond it the connection is destroyed.
  */
 export const DISCARD_BUDGET_BYTES = 4 * 1024 * 1024;
+/** Message nesting accepted in a request (deeper is 400). */
+const MAX_DEPTH = 64;
+/** Retry-After when the in-flight memory budget is full. */
+const BUSY_RETRY_SECONDS = 1;
+
+function busy(): Reply {
+  return {
+    status: 503,
+    message: "the server is busy with other requests, retry later",
+    headers: { "Retry-After": String(BUSY_RETRY_SECONDS) },
+  };
+}
 
 /** `application/x-protobuf` or `application/json` (parameters ignored); anything else is `undefined`. */
 export function parseContentType(
@@ -68,6 +91,9 @@ export class IngestReceiver implements OnApplicationBootstrap {
   private readonly logger = new Logger("Ingest");
   private readonly auth: IngestAuth;
   private readonly limiter: RateLimiter;
+  /** Shared by every request this server handles (one server per process). */
+  readonly budget: ByteBudget;
+  private readonly limits: DecodeLimits;
   private lastSinkLogMs = Number.NEGATIVE_INFINITY;
   private suppressedSinkLogs = 0;
 
@@ -77,6 +103,13 @@ export class IngestReceiver implements OnApplicationBootstrap {
   ) {
     this.auth = new IngestAuth(config.ingest);
     this.limiter = new RateLimiter(config.ingest.rateLimit);
+    this.budget = new ByteBudget(config.ingest.inflightBudgetBytes);
+    this.limits = {
+      maxSpans: config.ingest.maxSpans,
+      maxMessages: config.ingest.maxMessages,
+      maxJsonTokens: config.ingest.maxJsonTokens,
+      maxDepth: MAX_DEPTH,
+    };
   }
 
   onApplicationBootstrap(): void {
@@ -163,27 +196,62 @@ export class IngestReceiver implements OnApplicationBootstrap {
       };
     }
 
-    let body: Buffer;
+    // Everything this request holds in memory is charged to the shared budget and released
+    // when it is done, whatever the outcome.
+    let charged = 0;
+    const reserve = (bytes: number): boolean => {
+      if (!this.budget.tryTake(bytes)) return false;
+      charged += bytes;
+      return true;
+    };
     try {
-      body = await readBody(req, encoding, limit);
-    } catch (error) {
-      if (error instanceof ClientGoneError) return undefined;
-      if (error instanceof BodyError) {
-        return { status: error.status, message: error.message };
-      }
-      throw error;
-    }
+      if (this.budget.inUse >= this.budget.capacity) return busy();
 
-    let batch: ReturnType<typeof toIngestBatch>;
-    try {
-      batch = toIngestBatch(decodeRequest(body, format));
-    } catch (error) {
-      if (error instanceof DecodeError) {
-        return { status: 400, message: error.message };
+      let body: Buffer;
+      try {
+        body = await readBody(req, encoding, limit, reserve);
+      } catch (error) {
+        if (error instanceof ClientGoneError) return undefined;
+        if (error instanceof BodyError) {
+          return error.status === 503
+            ? busy()
+            : { status: error.status, message: error.message };
+        }
+        throw error;
       }
-      throw error;
-    }
 
+      let batch: ReturnType<typeof toIngestBatch>;
+      try {
+        const cost = checkBody(body, format, this.limits);
+        const charge = decodeCharge(cost);
+        if (charged + charge > this.budget.capacity) {
+          return {
+            status: 413,
+            message: "request would decode into more than the server accepts",
+          };
+        }
+        if (!reserve(charge)) return busy();
+        batch = toIngestBatch(decodeRequest(body, format, this.limits));
+      } catch (error) {
+        if (error instanceof DecodeError) {
+          return { status: 400, message: error.message };
+        }
+        if (error instanceof LimitError) {
+          return { status: 413, message: error.message };
+        }
+        throw error;
+      }
+
+      return await this.store(batch, format);
+    } finally {
+      this.budget.release(charged);
+    }
+  }
+
+  private async store(
+    batch: ReturnType<typeof toIngestBatch>,
+    format: BodyFormat,
+  ): Promise<{ body: Uint8Array | string } | Reply> {
     if (batch.resourceSpans.length > 0) {
       try {
         await this.sink.write(batch);
@@ -233,7 +301,13 @@ export class IngestReceiver implements OnApplicationBootstrap {
     const close = unread && reply.close === true;
     // The client is usually still sending: keep reading (and discarding) so it gets this answer
     // instead of stalling on a paused socket or a reset.
-    if (unread && !close) discardRest(req, DISCARD_BUDGET_BYTES);
+    if (unread && !close) {
+      discardRest(
+        req,
+        DISCARD_BUDGET_BYTES,
+        this.config.ingest.discardTimeoutMs,
+      );
+    }
     try {
       const status = create(StatusSchema, { message: reply.message });
       const body =

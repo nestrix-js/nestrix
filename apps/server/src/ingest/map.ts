@@ -30,13 +30,33 @@ import type {
 
 /** Nesting below this depth in an attribute's JSON text is replaced by `null`. */
 const MAX_JSON_DEPTH = 16;
+/** Strings (attribute keys and values, names, status messages) are cut to this many UTF-16 units. */
+export const MAX_STRING_LENGTH = 16 * 1024;
+/** Per attribute map (span, event, link, resource). */
+export const MAX_ATTRIBUTES = 256;
+export const MAX_EVENTS = 1000;
+export const MAX_LINKS = 1000;
+/**
+ * Attributes that record what was dropped: the sender's own OTLP `dropped_*_count` plus what the
+ * caps above removed. Present only when non-zero.
+ */
+export const DROPPED_ATTRIBUTES = "nestrix.dropped_attributes_count";
+export const DROPPED_EVENTS = "nestrix.dropped_events_count";
+export const DROPPED_LINKS = "nestrix.dropped_links_count";
+
+/** Largest value of PostgreSQL `int8`, where times are stored. */
+const MAX_INT8 = 2n ** 63n - 1n;
+/** A span may start or end at most this far ahead of the server's clock. */
+export const MAX_FUTURE_NS = 86_400n * 1_000_000_000n;
 
 type RejectReason =
   | "invalid trace id"
   | "invalid span id"
   | "invalid parent span id"
   | "missing start time"
-  | "end time before start time";
+  | "end time before start time"
+  | "time out of range"
+  | "time more than a day in the future";
 
 const KINDS: Record<number, IngestSpanKind> = {
   1: "internal",
@@ -46,7 +66,11 @@ const KINDS: Record<number, IngestSpanKind> = {
   5: "consumer",
 };
 
-export function toIngestBatch(request: ExportTraceServiceRequest): IngestBatch {
+export function toIngestBatch(
+  request: ExportTraceServiceRequest,
+  nowUnixNano: bigint = BigInt(Date.now()) * 1_000_000n,
+): IngestBatch {
+  const latest = nowUnixNano + MAX_FUTURE_NS;
   const rejected = new Map<RejectReason, number>();
   const resourceSpans: IngestResourceSpans[] = [];
   let total = 0;
@@ -54,10 +78,10 @@ export function toIngestBatch(request: ExportTraceServiceRequest): IngestBatch {
   for (const rs of request.resourceSpans) {
     const spans: IngestSpan[] = [];
     for (const ss of rs.scopeSpans) {
-      const scope = ss.scope?.name ? safe(ss.scope.name) : undefined;
+      const scope = ss.scope?.name ? text(ss.scope.name) : undefined;
       for (const span of ss.spans) {
         total++;
-        const reason = validate(span);
+        const reason = validate(span, latest);
         if (reason !== undefined) {
           rejected.set(reason, (rejected.get(reason) ?? 0) + 1);
           continue;
@@ -67,7 +91,10 @@ export function toIngestBatch(request: ExportTraceServiceRequest): IngestBatch {
     }
     if (spans.length > 0) {
       resourceSpans.push({
-        resource: attributes(rs.resource?.attributes ?? []),
+        resource: attributes(
+          rs.resource?.attributes ?? [],
+          rs.resource?.droppedAttributesCount ?? 0,
+        ),
         spans,
       });
     }
@@ -95,16 +122,18 @@ function validId(bytes: Uint8Array, length: number): boolean {
   return bytes.length === length && !isZero(bytes);
 }
 
-function validate(span: Span): RejectReason | undefined {
+function validate(span: Span, latest: bigint): RejectReason | undefined {
   if (!validId(span.traceId, 16)) return "invalid trace id";
   if (!validId(span.spanId, 8)) return "invalid span id";
   if (span.parentSpanId.length !== 0 && span.parentSpanId.length !== 8) {
     return "invalid parent span id";
   }
-  if (span.startTimeUnixNano === 0n) return "missing start time";
-  if (span.endTimeUnixNano < span.startTimeUnixNano) {
-    return "end time before start time";
-  }
+  const start = span.startTimeUnixNano;
+  const end = span.endTimeUnixNano;
+  if (start === 0n) return "missing start time";
+  if (end < start) return "end time before start time";
+  if (end > MAX_INT8) return "time out of range"; // start <= end
+  if (end > latest) return "time more than a day in the future";
   return undefined;
 }
 
@@ -115,20 +144,29 @@ function hex(bytes: Uint8Array): string {
 }
 
 function toSpan(span: Span, scope: string | undefined): IngestSpan {
+  const attrs = attributes(span.attributes, span.droppedAttributesCount);
+  const events = span.events.slice(0, MAX_EVENTS).map((e) => ({
+    name: text(e.name),
+    timeUnixNano: e.timeUnixNano,
+    attributes: attributes(e.attributes, e.droppedAttributesCount),
+  }));
+  const droppedEvents =
+    span.droppedEventsCount + Math.max(0, span.events.length - MAX_EVENTS);
+  if (droppedEvents > 0) attrs[DROPPED_EVENTS] = droppedEvents;
+  const kept = links(span.links);
+  const droppedLinks =
+    span.droppedLinksCount + (span.links.length - kept.length);
+  if (droppedLinks > 0) attrs[DROPPED_LINKS] = droppedLinks;
   const out: IngestSpan = {
     traceId: hex(span.traceId),
     spanId: hex(span.spanId),
-    name: safe(span.name),
+    name: text(span.name),
     kind: KINDS[span.kind] ?? "internal",
     startTimeUnixNano: span.startTimeUnixNano,
     endTimeUnixNano: span.endTimeUnixNano,
-    attributes: attributes(span.attributes),
-    events: span.events.map((e) => ({
-      name: safe(e.name),
-      timeUnixNano: e.timeUnixNano,
-      attributes: attributes(e.attributes),
-    })),
-    links: links(span.links),
+    attributes: attrs,
+    events,
+    links: kept,
     status: status(span),
   };
   // An all-zero parent id is treated as no parent.
@@ -142,12 +180,13 @@ function toSpan(span: Span, scope: string | undefined): IngestSpan {
 function links(input: Span_Link[]): IngestLink[] {
   const out: IngestLink[] = [];
   for (const link of input) {
-    // A link with an invalid id is dropped; it does not reject its span.
+    if (out.length >= MAX_LINKS) break;
+    // A link with an invalid id is dropped (and counted); it does not reject its span.
     if (!validId(link.traceId, 16) || !validId(link.spanId, 8)) continue;
     out.push({
       traceId: hex(link.traceId),
       spanId: hex(link.spanId),
-      attributes: attributes(link.attributes),
+      attributes: attributes(link.attributes, link.droppedAttributesCount),
     });
   }
   return out;
@@ -161,7 +200,16 @@ function status(span: Span): IngestSpan["status"] {
         ? "error"
         : "unset";
   const message = span.status?.message;
-  return message ? { code, message: safe(message) } : { code };
+  return message ? { code, message: text(message) } : { code };
+}
+
+/** `safe`, after cutting to `MAX_STRING_LENGTH` (a pair cut in half becomes U+FFFD). */
+function text(value: string): string {
+  return safe(
+    value.length > MAX_STRING_LENGTH
+      ? value.slice(0, MAX_STRING_LENGTH)
+      : value,
+  );
 }
 
 const LONE_NUL = /\0/g;
@@ -174,12 +222,28 @@ export function safe(value: string): string {
     : wellFormed;
 }
 
-export function attributes(input: KeyValue[]): IngestAttributes {
+/**
+ * At most `MAX_ATTRIBUTES` distinct keys (the first ones seen; a repeated key still takes its
+ * last value). `reported` is the sender's own dropped count, added to what is dropped here.
+ */
+export function attributes(input: KeyValue[], reported = 0): IngestAttributes {
   const out: IngestAttributes = Object.create(null);
+  let count = 0;
+  let dropped = reported;
   for (const kv of input) {
     const value = attributeValue(kv.value);
-    if (value !== undefined) out[safe(kv.key)] = value;
+    if (value === undefined) continue;
+    const key = text(kv.key);
+    if (!(key in out)) {
+      if (count >= MAX_ATTRIBUTES) {
+        dropped++;
+        continue;
+      }
+      count++;
+    }
+    out[key] = value;
   }
+  if (dropped > 0) out[DROPPED_ATTRIBUTES] = dropped;
   return out;
 }
 
@@ -197,7 +261,7 @@ function double(value: number): number | string {
 function scalar(value: AnyValue): IngestAttributeScalar | undefined {
   switch (value.value.case) {
     case "stringValue":
-      return safe(value.value.value);
+      return text(value.value.value);
     case "boolValue":
       return value.value.value;
     case "intValue":
@@ -239,8 +303,9 @@ function attributeValue(
   return jsonText(value);
 }
 
+/** Cut like any string, so it may no longer parse as JSON when the value was huge. */
 function jsonText(value: AnyValue): string {
-  return JSON.stringify(toJson(value, 0));
+  return text(JSON.stringify(toJson(value, 0)));
 }
 
 function toJson(value: AnyValue | undefined, depth: number): unknown {
@@ -248,7 +313,7 @@ function toJson(value: AnyValue | undefined, depth: number): unknown {
   const v = value.value;
   switch (v.case) {
     case "stringValue":
-      return safe(v.value);
+      return text(v.value);
     case "boolValue":
       return v.value;
     case "intValue":
@@ -262,7 +327,7 @@ function toJson(value: AnyValue | undefined, depth: number): unknown {
     case "kvlistValue": {
       const out: Record<string, unknown> = Object.create(null);
       for (const kv of v.value.values) {
-        out[safe(kv.key)] = toJson(kv.value, depth + 1);
+        out[text(kv.key)] = toJson(kv.value, depth + 1);
       }
       return out;
     }
