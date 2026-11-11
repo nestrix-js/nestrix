@@ -15,6 +15,8 @@ import {
   TraceIdRatioBasedSampler,
   TracerProvider,
 } from "@opentelemetry/sdk-trace";
+import { createStoreProcessor } from "../store/processor.js";
+import { getOrCreateStore, type TraceStore } from "../store/store.js";
 import {
   contextSurvivesAwait,
   hasContextManager,
@@ -24,6 +26,7 @@ import {
   createPipeline,
   type Pipeline,
   type PipelineCounters,
+  spanProcessors,
 } from "./pipeline.js";
 import { settle } from "./redacting-exporter.js";
 import { buildResource } from "./resource.js";
@@ -39,6 +42,8 @@ const DEFAULT_SHUTDOWN_TIMEOUT_MILLIS = 5_000;
 interface Owned {
   provider: TracerProvider;
   pipeline: Pipeline | undefined;
+  /** The dashboard store fed by this provider's store processor, when the first app had the dashboard on. */
+  store: TraceStore | undefined;
   counters: PipelineCounters;
   contextManagerRegistered: boolean;
   propagatorRegistered: boolean;
@@ -69,8 +74,13 @@ function newCounters(): PipelineCounters {
   };
 }
 
-function inertHandle(counters: PipelineCounters): TelemetryHandle {
+function inertHandle(
+  counters: PipelineCounters,
+  attachment: StoreAttachment = NO_STORE,
+): TelemetryHandle {
+  let shutdownPromise: Promise<void> | undefined;
   return {
+    store: attachment.store,
     ownsProvider: false,
     registered: {
       tracerProvider: false,
@@ -78,9 +88,42 @@ function inertHandle(counters: PipelineCounters): TelemetryHandle {
       propagator: false,
     },
     counters,
+    detachStore: attachment.detach,
     forceFlush: () => Promise.resolve(),
-    shutdown: () => Promise.resolve(),
+    shutdown: () => {
+      shutdownPromise ??= settle(attachment.detach);
+      return shutdownPromise;
+    },
   };
+}
+
+/** This app's hold on the dashboard store; `detach` is idempotent and never throws. */
+interface StoreAttachment {
+  readonly store: TraceStore | undefined;
+  readonly detach: () => void;
+}
+
+const NO_STORE: StoreAttachment = { store: undefined, detach: () => {} };
+
+/**
+ * Attaches this app to `store` with its scrub step and `redact` hook, when the dashboard
+ * is on (`dashboardStore` set) and there is a store to attach to. Never throws.
+ */
+function attachStore(
+  config: TelemetryConfig,
+  store: TraceStore | undefined,
+  diagnostics: TelemetryDiagnostics,
+): StoreAttachment {
+  if (!config.dashboardStore || !store) return NO_STORE;
+  try {
+    // Limits of a later app: applied while the store is still empty, else logged and ignored.
+    getOrCreateStore(config.dashboardStore, diagnostics);
+    const detach = store.attach({ scrub: config.scrub, redact: config.redact });
+    return { store, detach };
+  } catch (error) {
+    diagnostics.countFailure("store.attach", error);
+    return NO_STORE;
+  }
 }
 
 /** Resolves after `ms` without keeping the process alive. */
@@ -128,11 +171,21 @@ function setup(
       "otel.second-instance",
       "Another Nestrix instance in this process already owns the OpenTelemetry tracer provider; this one reports through it, with that instance's export, sampleRate, resource and redact settings.",
     );
-    return ownedHandle(owned, false);
+    if (config.dashboardStore && !owned.store) {
+      diagnostics.logOnce(
+        "store.second-instance",
+        "Another Nestrix instance in this process built the OpenTelemetry provider with the dashboard off, so the dashboard store receives no spans in this process.",
+      );
+    }
+    return ownedHandle(
+      owned,
+      false,
+      attachStore(config, owned.store, diagnostics),
+    );
   }
 
   if (lostTo !== undefined && trace.getTracerProvider() === lostTo) {
-    return hostHandle(diagnostics);
+    return hostHandle(config, diagnostics);
   }
 
   // Built before registering, because SDK 3's TracerProvider takes processors only in
@@ -140,6 +193,16 @@ function setup(
   // down after a lost race touches nothing of the host's (architecture §4.5).
   const counters = newCounters();
   const pipeline = createPipeline(config, counters, diagnostics);
+  let store: TraceStore | undefined;
+  let storeProcessor: ReturnType<typeof createStoreProcessor> | undefined;
+  try {
+    if (config.dashboardStore) {
+      store = getOrCreateStore(config.dashboardStore, diagnostics);
+      storeProcessor = createStoreProcessor(store);
+    }
+  } catch (error) {
+    diagnostics.countFailure("store.setup", error);
+  }
   const provider = new TracerProvider({
     resource: buildResource(config, () =>
       diagnostics.logOnce(
@@ -150,7 +213,7 @@ function setup(
     sampler: new ParentBasedSampler({
       root: new TraceIdRatioBasedSampler(config.sampleRate),
     }),
-    spanProcessors: pipeline ? [pipeline.processor] : [],
+    spanProcessors: spanProcessors(pipeline, storeProcessor),
   });
 
   // When a host provider exists this writes one "Attempted duplicate registration of
@@ -163,7 +226,7 @@ function setup(
     } catch {
       lostTo = undefined;
     }
-    return hostHandle(diagnostics);
+    return hostHandle(config, diagnostics);
   }
 
   if (!pipeline) {
@@ -199,6 +262,7 @@ function setup(
   owned = {
     provider,
     pipeline,
+    store,
     counters,
     contextManagerRegistered,
     propagatorRegistered,
@@ -207,10 +271,13 @@ function setup(
     diagnostics,
     refs: 1,
   };
-  return ownedHandle(owned, true);
+  return ownedHandle(owned, true, attachStore(config, store, diagnostics));
 }
 
-function hostHandle(diagnostics: TelemetryDiagnostics): TelemetryHandle {
+function hostHandle(
+  config: TelemetryConfig,
+  diagnostics: TelemetryDiagnostics,
+): TelemetryHandle {
   diagnostics.logOnce(
     "otel.host-provider",
     "An OpenTelemetry tracer provider is already registered, so Nestrix uses it: Nestrix's spans go to that SDK's exporters, and Nestrix's export, sampleRate, resource and redact options are ignored.",
@@ -227,14 +294,32 @@ function hostHandle(diagnostics: TelemetryDiagnostics): TelemetryHandle {
       "The registered OpenTelemetry SDK has no propagator, so no traceparent is read or sent. Register one (for example W3CTraceContextPropagator from @opentelemetry/core) with propagation.setGlobalPropagator().",
     );
   }
-  return inertHandle(newCounters());
+  let store: TraceStore | undefined;
+  try {
+    if (config.dashboardStore) {
+      store = getOrCreateStore(config.dashboardStore, diagnostics);
+      if (store.stats().processors === 0) {
+        diagnostics.logOnce(
+          "store.host-processor-hint",
+          "The dashboard shows only spans that reach its store. Your application registered its own OpenTelemetry provider, so add Nestrix's processor to it: spanProcessors: [..., nestrixSpanProcessor()] (imported from @nestrix/nestjs).",
+        );
+      }
+    }
+  } catch (error) {
+    diagnostics.countFailure("store.setup", error);
+  }
+  return inertHandle(newCounters(), attachStore(config, store, diagnostics));
 }
 
 /**
  * A handle on the shared owned provider. `first` is the handle that registered the
  * globals; later ones registered nothing (their `registered` flags are false).
  */
-function ownedHandle(state: Owned, first: boolean): TelemetryHandle {
+function ownedHandle(
+  state: Owned,
+  first: boolean,
+  attachment: StoreAttachment,
+): TelemetryHandle {
   let shutdownPromise: Promise<void> | undefined;
   const forceFlush = (): Promise<void> =>
     settle(() =>
@@ -248,16 +333,23 @@ function ownedHandle(state: Owned, first: boolean): TelemetryHandle {
       propagator: first && state.propagatorRegistered,
     },
     counters: state.counters,
+    store: attachment.store,
+    detachStore: attachment.detach,
     forceFlush: () => (shutdownPromise ? Promise.resolve() : forceFlush()),
     shutdown: () => {
       shutdownPromise ??= settle(async () => {
-        state.refs--;
-        if (state.refs > 0) {
-          // Other apps still serve: flush what is buffered, keep everything registered.
-          await bounded(forceFlush, state.timeoutMillis);
-          return;
+        try {
+          state.refs--;
+          if (state.refs > 0) {
+            // Other apps still serve: flush what is buffered, keep everything registered.
+            await bounded(forceFlush, state.timeoutMillis);
+            return;
+          }
+          await teardown(state);
+        } finally {
+          // After the flush, so spans ending during it still reach the store.
+          attachment.detach();
         }
-        await teardown(state);
       });
       return shutdownPromise;
     },

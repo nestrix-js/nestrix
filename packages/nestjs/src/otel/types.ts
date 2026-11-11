@@ -4,6 +4,8 @@
  * below are the ones the caller adds when wiring.
  */
 import type { RedactableSpan, RedactHook } from "../options.js";
+import type { StoreLimits } from "../store/limits.js";
+import type { TraceStore } from "../store/store.js";
 
 export interface TelemetryOtlpConfig {
   /** Full traces URL, `/v1/traces` already applied. Passed to the exporter as is. */
@@ -47,6 +49,15 @@ export interface TelemetryConfig {
   readonly scrub?: ((span: RedactableSpan) => void) | undefined;
   /** Upper bound for `shutdown()`. Default 5000. */
   readonly shutdownTimeoutMillis?: number | undefined;
+  /**
+   * Set only when the dashboard is on (P2-06 decides). Nestrix-owned provider: the store
+   * processor is added to it. Host-owned provider: nothing is added, and a log line asks
+   * the host to add `nestrixSpanProcessor()` unless it already has. Either way this app
+   * attaches to the process's store, with `scrub` and `redact`, until it shuts down.
+   * Named apart from the resolved `store` option, which is present even when the
+   * dashboard is off.
+   */
+  readonly dashboardStore?: StoreLimits | undefined;
 }
 
 /** Same shape as `Diagnostics` in diagnostics.ts. Neither method may throw. */
@@ -83,6 +94,14 @@ export interface TelemetryHandle {
     readonly propagator: boolean;
   };
   readonly counters: TelemetryCounters;
+  /** The process's dashboard store, when `dashboardStore` was set and this app attached to it. */
+  readonly store?: TraceStore | undefined;
+  /**
+   * Stops this app's hold on the dashboard store before shutdown (P2-06: the dashboard turned out
+   * to have no HTTP adapter, or `@nestrix/ui` could not be loaded). Idempotent; never throws.
+   * `shutdown()` still detaches as before.
+   */
+  detachStore(): void;
   /** Exports what is buffered. Never rejects. Does nothing for a host-owned provider. */
   forceFlush(): Promise<void>;
   /**
