@@ -30,17 +30,18 @@ describe.skipIf(noDatabase)(`migrations ${skipReason}`, () => {
       runMigrations(db.pool),
     ]);
     // The advisory lock serialises the two runs: one applies, the other finds it done.
+    const all = ["0001_init.sql", "0002_alerts.sql"];
     const applied = [...a.applied, ...b.applied];
-    expect(applied).toEqual(["0001_init.sql"]);
-    expect([...a.skipped, ...b.skipped]).toEqual(["0001_init.sql"]);
+    expect(applied).toEqual(all);
+    expect([...a.skipped, ...b.skipped]).toEqual(all);
 
     const again = await runMigrations(db.pool);
-    expect(again).toEqual({ applied: [], skipped: ["0001_init.sql"] });
+    expect(again).toEqual({ applied: [], skipped: all });
 
     const { rows } = await db.pool.query(
       "SELECT name FROM nestrix_schema_migrations ORDER BY name",
     );
-    expect(rows.map((r) => r.name)).toEqual(["0001_init.sql"]);
+    expect(rows.map((r) => r.name)).toEqual(all);
   });
 
   it("refuses to start when an applied migration was edited", async () => {
