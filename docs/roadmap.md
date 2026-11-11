@@ -2,7 +2,7 @@
 
 Each phase is a vertical slice that ends with something a user can run. A phase is done when its acceptance criteria pass in CI, not when the code is written. At the end of every phase, work stops for the owner's review before the next phase starts.
 
-Current phase: **1, in progress.** Task list: [backlog/phase-1.md](backlog/phase-1.md). Phase 0 is complete (task list [backlog/phase-0.md](backlog/phase-0.md), report [phase-0-report.md](phase-0-report.md), gate decisions D-40 to D-51 in [decisions.md](decisions.md)). Later phases get their task list written when they start, by whoever leads the work, from the deliverables below.
+Current phase: **1, complete; waiting for the owner's review.** Task list: [backlog/phase-1.md](backlog/phase-1.md). Report: [phase-1-report.md](phase-1-report.md). Phase 0 is complete (task list [backlog/phase-0.md](backlog/phase-0.md), report [phase-0-report.md](phase-0-report.md), gate decisions D-40 to D-51 in [decisions.md](decisions.md)). Later phases get their task list written when they start, by whoever leads the work, from the deliverables below.
 
 ## Phase 0: foundations and spikes
 

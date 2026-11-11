@@ -251,6 +251,28 @@ Scratch probe on Node 22.15.0, 24.22.1 and 26.13.0 (identical results on all thr
 | undici, after `headers`: `fetch` `res.body.cancel()` publishes `undici:request:error` with an `AbortError` (DOMException, code 20); `cancel("why")` publishes the string `"why"`; aborting the signal after the head publishes `AbortError`; `undici.request`'s `body.destroy()` and aborting its signal publish `AbortError` (`UND_ERR_ABORTED`). A server cut publishes `SocketError` (`UND_ERR_SOCKET`, "other side closed") for both clients. | run |
 | `node:http`, at the response's `close` after a cut mid-body: the response looks the same after a caller's `req.destroy()` and after a server cut (`complete: false`, `errored.code === "ECONNRESET"`, request destroyed). A caller's `res.destroy()` leaves `errored` null. The socket separates them: after a server close `socket.readableEnded` is `true`; after a server reset (`resetAndDestroy`) `socket.errored` is `ECONNRESET`; after a caller's `req.destroy(err)` `socket.errored` is the caller's error; after a caller's plain `req.destroy()`/`res.destroy()`, or a caller timeout that destroys the request, it has neither. | run |
 
+## Memory overhead (measured 2026-11-11, darwin-arm64, Node 26.13.0, P1-13 diagnosis)
+
+`benchmarks/results/throughput.md` showed about +75 MB RSS with `NestrixModule.forRoot()` and export off. Measured with `benchmarks/src/memory.mjs` (fresh process per run, `--expose-gc`, `process.memoryUsage()` and `v8.getHeapSpaceStatistics()` read inside the app right after `gc()`, medians of 3 runs; "loaded" means 1 s after 10 s of autocannon at 64 connections on `/hello` and `/users/42`). The `interceptor` config is the plain app plus a global interceptor that only returns `next.handle()`.
+
+| config | phase | RSS | heap used | heap total | new space | old space | modules | KB allocated per request |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| baseline | idle | 115.9 | 19.1 | 37.5 | 16.0 | 17.3 | 911 | |
+| baseline | loaded | 149.2 | 20.5 | 54.3 | 29.5 | 19.0 | 911 | 14.4 |
+| interceptor | loaded | 158.3 | 20.9 | 58.0 | 32.0 | 20.0 | 911 | 30.7 |
+| noexport | idle | 127.4 | 22.8 | 47.9 | 21.5 | 21.3 | 1176 | |
+| noexport | loaded | 230.5 | 23.0 | 98.4 | 62.0 | 29.0 | 1176 | 43.6 |
+| sink | loaded | 230.5 | 24.0 | 113.7 | 63.5 | 44.0 | 1176 | 48.7 |
+
+All values are in MB unless the column says otherwise.
+
+- **Very little is retained.** Heap in use after a full GC is +3.7 MB idle and +2.5 MB after load. Most of the loaded RSS gap is V8 heap *capacity*: new space grows to its 64 MB ceiling (baseline: 30 MB), and old space takes the objects that survive scavenges.
+- **Driver: per-request allocation that survives a scavenge.** A sampling allocation profile that counts collected objects (`HeapProfiler.startSampling` with `includeObjectsCollectedByMinorGC/MajorGC`) puts the extra +29 KB per request in: rxjs about 11 KB plus `@nestjs/core` +4 KB for the interceptor pipeline Nest builds once any interceptor exists; Nestrix's own code about 5 KB (`intercept`, `iterateHeaders` generator, server `start`/`finish`); `WeakSet`/`Map`/`entries` about 5.5 KB; sdk-trace and core about 2.4 KB. A no-op interceptor alone doubles allocation (+16 KB) but adds only about 9 MB RSS. Nestrix's further +13 KB adds about 70 MB, because spans and request state live across the in-flight request, so more objects survive scavenges and V8 grows new space to its maximum.
+- **V8 hands the heap back, but macOS RSS does not show it.** After 30 s idle new space is back to 1 MB in both apps and heap total is 29.3 against 24.9 MB, yet RSS stays at 206.8 against 150.6 MB. That is probably macOS keeping freed pages counted in RSS (`MADV_FREE`) until there is memory pressure. Not checked on Linux.
+- **Capping young generation does not fix it.** With `--max-semi-space-size=8` new space stays at 16 MB, but old space grows to 46 MB (baseline 20 MB): loaded RSS 185.7 against 136.2 MB.
+- **Module loading is small.** Export off still loads the exporter graph: +265 files (sdk-metrics 51, otlp-transformer 29, otlp-exporter-base 25, the exporter 4, plus api, core, sdk-trace, resources). On top of the SDK packages needed anyway, the exporter graph costs 3.2 MB RSS and 1.26 MB heap (isolated import, 3 runs). `@opentelemetry/semantic-conventions` root loads the deprecated `SemanticAttributes`/`SemanticResourceAttributes` tables (about 0.8 MB heap). Replacing Nestrix's own imports with string literals saves nothing: `@opentelemetry/core` (`sdk-info`), `resources` (`ResourceImpl`, detectors) and `sdk-trace` (`Span`, `SpanProcessorMetrics`) import the root themselves. Incubating is not loaded.
+- **With export on (sink),** old space reaches 44 MB: the batch queue (up to 2048 spans) plus serialization. That is the configured bound, not a leak.
+
 ## 11. Open questions
 
 These are not known. Each is assigned to a spike in [backlog/phase-0.md](backlog/phase-0.md) or a later phase.
