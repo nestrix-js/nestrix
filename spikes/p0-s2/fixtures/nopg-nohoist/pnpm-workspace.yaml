@@ -1,0 +1,6 @@
+# The same Prisma app as fixtures/nopg, with hoisting off: nothing is hoisted into
+# node_modules/.pnpm/node_modules, so a package resolves only what it declares.
+packages:
+  - app
+hoist: false
+strictDepBuilds: false

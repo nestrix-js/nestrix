@@ -1,0 +1,41 @@
+{
+  "name": "spike-p0-s2",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Spike P0-S2: library spans without a preload (fetch/undici, node:http client, mysql2, ioredis, pg, ORMs, Prisma)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b tsconfig.json cjs/tsconfig.json",
+    "test": "vitest run",
+    "db:up": "node scripts/containers.mjs up",
+    "db:down": "node scripts/containers.mjs down",
+    "fixtures:install": "node scripts/install-fixtures.mjs",
+    "node:fetch": "node scripts/fetch-node.mjs"
+  },
+  "dependencies": {
+    "@nestjs/common": "^12.4.2",
+    "@nestjs/core": "^12.4.2",
+    "@nestjs/platform-express": "^12.4.2",
+    "@nestjs/platform-fastify": "^12.4.2",
+    "@nestjs/platform-node": "^12.4.2",
+    "@opentelemetry/api": "~1.10.0",
+    "@opentelemetry/context-async-hooks": "^3.1.1",
+    "@opentelemetry/core": "^3.1.1",
+    "@opentelemetry/instrumentation-undici": "^0.35.0",
+    "@opentelemetry/sdk-trace": "^3.1.1",
+    "ioredis": "^6.0.0",
+    "ioredis5": "npm:ioredis@5.11.1",
+    "mysql2": "^3.24.6",
+    "pg": "^8.23.1",
+    "pg-cursor": "^2.22.1",
+    "pg-query-stream": "^4.17.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "@types/pg-cursor": "^2.7.2"
+  }
+}

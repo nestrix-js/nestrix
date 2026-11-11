@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2023",
+    "rootDir": "generated",
+    "outDir": "generated-js",
+    "skipLibCheck": true,
+    "strict": false,
+    "noEmitOnError": false,
+    "types": []
+  },
+  "include": ["generated/**/*.ts"]
+}

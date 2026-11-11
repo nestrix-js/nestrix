@@ -1,0 +1,29 @@
+{
+  "name": "nestrix-standin",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Stand-in for @nestrix/nestjs with the same peer metadata for pg (optional peer). Packed to a tarball and installed like a registry package.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "lib"
+  ],
+  "dependencies": {
+    "@opentelemetry/api": "~1.10.0",
+    "@opentelemetry/context-async-hooks": "^3.1.1",
+    "@opentelemetry/core": "^3.1.1",
+    "@opentelemetry/sdk-trace": "^3.1.1"
+  },
+  "peerDependencies": {
+    "pg": "^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "pg": {
+      "optional": true
+    }
+  }
+}

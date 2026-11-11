@@ -1,0 +1,4 @@
+# A Prisma app that never lists pg itself; default pnpm hoisting (hoist-pattern "*").
+packages:
+  - app
+strictDepBuilds: false
