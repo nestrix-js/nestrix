@@ -2,13 +2,16 @@ import type {
   Attributes,
   AttributeValue,
   SpanEvent,
+  SpanLink,
   SpanRecord,
 } from "@nestrix/protocol";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { getTrace } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
 import { CopyButton } from "@/views/trace/copy-button";
 
@@ -97,6 +100,44 @@ function EventItem({
         </pre>
       ) : null}
       {rest.length > 0 ? <AttributeList pairs={rest} /> : null}
+    </li>
+  );
+}
+
+/**
+ * One link of a span. The linked trace is fetched (it shares the trace page's cache entry):
+ * a trace in the store is a link that opens it; one that is missing or cannot be read is
+ * shown as text.
+ */
+function LinkItem({ link }: { link: SpanLink }) {
+  const query = useQuery({
+    queryKey: ["trace", link.traceId],
+    queryFn: () => getTrace(link.traceId),
+    staleTime: 30_000,
+  });
+  return (
+    <li
+      data-testid="span-link"
+      data-in-store={query.isSuccess ? "true" : "false"}
+      className="break-all font-mono"
+    >
+      {query.isSuccess ? (
+        <Link
+          to="/traces/$traceId"
+          params={{ traceId: link.traceId }}
+          className="underline"
+        >
+          {link.traceId}
+        </Link>
+      ) : (
+        <span>{link.traceId}</span>
+      )}{" "}
+      / {link.spanId}
+      {query.isError ? (
+        <span className="ml-1 font-sans text-muted-foreground">
+          (not in the store)
+        </span>
+      ) : null}
     </li>
   );
 }
@@ -223,19 +264,7 @@ export function SpanDetail({
         {span.links.length > 0 ? (
           <ul className="space-y-1 text-xs" data-testid="span-links">
             {span.links.map((link) => (
-              <li
-                key={`${link.traceId}/${link.spanId}`}
-                className="break-all font-mono"
-              >
-                <Link
-                  to="/traces/$traceId"
-                  params={{ traceId: link.traceId }}
-                  className="underline"
-                >
-                  {link.traceId}
-                </Link>{" "}
-                / {link.spanId}
-              </li>
+              <LinkItem key={`${link.traceId}/${link.spanId}`} link={link} />
             ))}
           </ul>
         ) : (

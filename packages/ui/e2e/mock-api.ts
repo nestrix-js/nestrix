@@ -75,7 +75,8 @@ export class MockApi {
     this.push(count);
   }
 
-  push(count: number): void {
+  /** `override` is merged into every new item, e.g. `{ type: "job" }`; `undefined` removes a field. */
+  push(count: number, override: Partial<TraceSummary> = {}): void {
     for (let i = 0; i < count; i++) {
       const seq = ++this.seq;
       const route = ROUTES[seq % ROUTES.length] as string;
@@ -97,6 +98,7 @@ export class MockApi {
         release: seq % 2 === 0 ? "1.4.2" : "1.4.1",
         ...(seq % 3 === 0 ? { user: `u-${seq % 10}` } : {}),
         cursor: this.cursor(seq),
+        ...override,
       });
     }
   }

@@ -11,6 +11,7 @@ import {
 import { useMemo, useRef, useState } from "react";
 
 import { formatDuration } from "@/lib/format";
+import { isSlowDbSpan, repeatedQueries } from "@/lib/trace-insights";
 import {
   barLayout,
   buildTree,
@@ -22,6 +23,7 @@ import {
   scaleTicks,
 } from "@/lib/trace-tree";
 import { cn } from "@/lib/utils";
+import { QueriesPanel } from "@/views/trace/queries-panel";
 import { SpanDetail } from "@/views/trace/span-detail";
 
 const ROW_HEIGHT = 28;
@@ -45,8 +47,9 @@ const rowDomId = (spanId: string) => `span-row-${spanId}`;
  * Markup for tests: the container is `role="treegrid"` (`data-testid="waterfall"`); each
  * rendered row is `role="row"` with `data-testid="span-row"`, `aria-level` (1-based depth),
  * `data-depth` (0-based), `data-span-id`, `aria-expanded` (only on spans with children),
- * `aria-selected`, `data-error="true"` on error spans and `data-orphan="true"` on spans whose
- * parent is missing. The span name is `[data-testid="span-name"]`. Only visible rows (plus a
+ * `aria-selected`, `data-error="true"` on error spans, `data-slow="true"` on database spans
+ * over 100 ms, `data-highlighted="true"` on the spans of the statement picked in the Queries
+ * panel, and `data-orphan="true"` on spans whose parent is missing. The span name is `[data-testid="span-name"]`. Only visible rows (plus a
  * small overscan) are in the DOM; `aria-rowcount` is the number of rows after collapsing.
  */
 export function Waterfall({ trace }: { trace: TraceResponse }) {
@@ -60,7 +63,11 @@ export function Waterfall({ trace }: { trace: TraceResponse }) {
   const rows = useMemo(() => flattenRows(tree, collapsed), [tree, collapsed]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [pickedQuery, setPickedQuery] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const queries = useMemo(() => repeatedQueries(trace.spans), [trace.spans]);
+  const picked = queries.find((q) => q.text === pickedQuery);
+  const highlighted = useMemo(() => new Set(picked?.spanIds ?? []), [picked]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -78,6 +85,33 @@ export function Waterfall({ trace }: { trace: TraceResponse }) {
   const select = (id: string) => {
     setSelectedId(id);
     const index = rows.findIndex((r) => r.node.span.spanId === id);
+    if (index >= 0) virtualizer.scrollToIndex(index);
+  };
+
+  /** Highlights the spans of one statement and shows the first of them; again clears it. */
+  const pickQuery = (text: string) => {
+    const query = queries.find((q) => q.text === text);
+    if (!query || pickedQuery === text) {
+      setPickedQuery(null);
+      return;
+    }
+    setPickedQuery(text);
+    const first = query.spanIds[0];
+    if (first === undefined) return;
+    // Open every collapsed ancestor so the span has a row.
+    const open = new Set(collapsed);
+    for (
+      let parent = tree.byId.get(first)?.span.parentSpanId;
+      parent !== undefined;
+      parent = tree.byId.get(parent)?.span.parentSpanId
+    )
+      open.delete(parent);
+    if (open.size !== collapsed.size) setCollapsed(open);
+    setSelectedId(first);
+    setDetailOpen(true);
+    const index = flattenRows(tree, open).findIndex(
+      (r) => r.node.span.spanId === first,
+    );
     if (index >= 0) virtualizer.scrollToIndex(index);
   };
 
@@ -114,87 +148,99 @@ export function Waterfall({ trace }: { trace: TraceResponse }) {
   };
 
   return (
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-      <div className="min-w-0 flex-1 rounded-lg border">
-        <div
-          ref={scrollRef}
-          role="treegrid"
-          data-testid="waterfall"
-          aria-label="Trace waterfall"
-          aria-rowcount={rows.length}
-          aria-activedescendant={selectedId ? rowDomId(selectedId) : undefined}
-          tabIndex={0}
-          onKeyDown={onKeyDown}
-          className="overflow-auto rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-          style={{ height: viewport }}
-        >
-          <div className="min-w-[640px]">
-            <div
-              role="row"
-              data-testid="waterfall-scale"
-              className="sticky top-0 z-10 flex h-7 border-b bg-background text-xs text-muted-foreground"
-            >
-              <div role="columnheader" className="w-72 shrink-0 px-2 py-1.5">
-                Span
+    <div className="space-y-4">
+      {queries.length > 0 ? (
+        <QueriesPanel
+          queries={queries}
+          pickedText={pickedQuery}
+          onPick={pickQuery}
+        />
+      ) : null}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+        <div className="min-w-0 flex-1 rounded-lg border">
+          <div
+            ref={scrollRef}
+            role="treegrid"
+            data-testid="waterfall"
+            aria-label="Trace waterfall"
+            aria-rowcount={rows.length}
+            aria-activedescendant={
+              selectedId ? rowDomId(selectedId) : undefined
+            }
+            tabIndex={0}
+            onKeyDown={onKeyDown}
+            className="overflow-auto rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            style={{ height: viewport }}
+          >
+            <div className="min-w-[640px]">
+              <div
+                role="row"
+                data-testid="waterfall-scale"
+                className="sticky top-0 z-10 flex h-7 border-b bg-background text-xs text-muted-foreground"
+              >
+                <div role="columnheader" className="w-72 shrink-0 px-2 py-1.5">
+                  Span
+                </div>
+                <div role="columnheader" className="relative flex-1">
+                  {ticks.map((tick, i) => (
+                    <span
+                      key={tick.leftPct}
+                      data-testid="scale-tick"
+                      className="absolute top-1.5 whitespace-nowrap tabular-nums"
+                      style={{
+                        left: `${tick.leftPct}%`,
+                        transform:
+                          i === ticks.length - 1
+                            ? "translateX(-100%)"
+                            : undefined,
+                      }}
+                    >
+                      {formatDuration(tick.offsetMs)}
+                    </span>
+                  ))}
+                </div>
               </div>
-              <div role="columnheader" className="relative flex-1">
-                {ticks.map((tick, i) => (
-                  <span
-                    key={tick.leftPct}
-                    data-testid="scale-tick"
-                    className="absolute top-1.5 whitespace-nowrap tabular-nums"
-                    style={{
-                      left: `${tick.leftPct}%`,
-                      transform:
-                        i === ticks.length - 1
-                          ? "translateX(-100%)"
-                          : undefined,
-                    }}
-                  >
-                    {formatDuration(tick.offsetMs)}
-                  </span>
-                ))}
+              <div
+                className="relative"
+                style={{ height: virtualizer.getTotalSize() }}
+              >
+                {virtualizer.getVirtualItems().map((item) => {
+                  const row = rows[item.index] as Row;
+                  return (
+                    <WaterfallRow
+                      key={row.node.span.spanId}
+                      row={row}
+                      index={item.index}
+                      top={item.start}
+                      startMs={tree.startMs}
+                      totalMs={tree.totalMs}
+                      selected={row.node.span.spanId === selectedId}
+                      highlighted={highlighted.has(row.node.span.spanId)}
+                      onSelect={() => {
+                        select(row.node.span.spanId);
+                        setDetailOpen(true);
+                        scrollRef.current?.focus();
+                      }}
+                      onToggle={() => toggle(row.node.span.spanId)}
+                    />
+                  );
+                })}
               </div>
-            </div>
-            <div
-              className="relative"
-              style={{ height: virtualizer.getTotalSize() }}
-            >
-              {virtualizer.getVirtualItems().map((item) => {
-                const row = rows[item.index] as Row;
-                return (
-                  <WaterfallRow
-                    key={row.node.span.spanId}
-                    row={row}
-                    index={item.index}
-                    top={item.start}
-                    startMs={tree.startMs}
-                    totalMs={tree.totalMs}
-                    selected={row.node.span.spanId === selectedId}
-                    onSelect={() => {
-                      select(row.node.span.spanId);
-                      setDetailOpen(true);
-                      scrollRef.current?.focus();
-                    }}
-                    onToggle={() => toggle(row.node.span.spanId)}
-                  />
-                );
-              })}
             </div>
           </div>
         </div>
+        {detailOpen && selected ? (
+          <SpanDetail
+            span={selected.span}
+            traceStartMs={tree.startMs}
+            orphan={selected.orphan}
+            onClose={() => {
+              setDetailOpen(false);
+              scrollRef.current?.focus();
+            }}
+          />
+        ) : null}
       </div>
-      {detailOpen && selected ? (
-        <SpanDetail
-          span={selected.span}
-          traceStartMs={tree.startMs}
-          orphan={selected.orphan}
-          onClose={() => {
-            setDetailOpen(false);
-            scrollRef.current?.focus();
-          }}
-        />
-      ) : null}
     </div>
   );
 }
@@ -206,6 +252,7 @@ function WaterfallRow({
   startMs,
   totalMs,
   selected,
+  highlighted,
   onSelect,
   onToggle,
 }: {
@@ -215,11 +262,13 @@ function WaterfallRow({
   startMs: number;
   totalMs: number;
   selected: boolean;
+  highlighted: boolean;
   onSelect: () => void;
   onToggle: () => void;
 }) {
   const { span } = row.node;
   const error = isErrorSpan(span);
+  const slow = isSlowDbSpan(span);
   const { leftPct, widthPct } = barLayout(span, startMs, totalMs);
   const indent = Math.min(row.depth, MAX_INDENT_LEVELS) * INDENT_PX;
   return (
@@ -231,6 +280,8 @@ function WaterfallRow({
       data-span-id={span.spanId}
       data-depth={row.depth}
       data-error={error ? "true" : undefined}
+      data-slow={slow ? "true" : undefined}
+      data-highlighted={highlighted ? "true" : undefined}
       data-orphan={row.node.orphan ? "true" : undefined}
       aria-level={row.depth + 1}
       aria-rowindex={index + 1}
@@ -240,6 +291,7 @@ function WaterfallRow({
       className={cn(
         "absolute inset-x-0 flex cursor-pointer items-center border-b border-border/40 text-sm hover:bg-muted/60",
         error && "bg-destructive/5",
+        highlighted && "bg-warning/15",
         selected && "bg-muted",
       )}
       style={{ top, height: ROW_HEIGHT }}
@@ -306,7 +358,7 @@ function WaterfallRow({
           data-width-pct={widthPct}
           className={cn(
             "absolute top-1/2 h-3 min-w-[2px] -translate-y-1/2 rounded-sm",
-            error ? "bg-destructive" : "bg-primary/70",
+            error ? "bg-destructive" : slow ? "bg-warning" : "bg-primary/70",
           )}
           style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
         />
