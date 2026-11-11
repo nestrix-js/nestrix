@@ -298,6 +298,62 @@ describe.skipIf(reason !== undefined)("pg against PostgreSQL 18", () => {
     }
   });
 
+  it("two pools sharing one named-statement config object: each query is a child of its own request", async () => {
+    const primary = new pg.Pool(config({ max: 1 }));
+    const replica = new pg.Pool(config({ max: 1 }));
+    const shared = {
+      name: "two-pools-stmt",
+      text: "SELECT $1::int AS v",
+      values: [3],
+    };
+    try {
+      const calls = await Promise.all(
+        [primary, replica, primary, replica, primary, replica].map((pool) =>
+          inParent(() => pool.query(shared)),
+        ),
+      );
+      for (const c of calls) expect(c.result.rows).toEqual([{ v: 3 }]);
+      const found = spans();
+      expect(found).toHaveLength(6);
+      const parents = found.map(parentId);
+      for (const c of calls)
+        expect(
+          parents.filter((p) => p === c.parent.spanContext().spanId),
+        ).toHaveLength(1);
+    } finally {
+      await primary.end();
+      await replica.end();
+    }
+  });
+
+  it("a checked-out client running the config while pool.query with it is queued: both are parented correctly", async () => {
+    const pool = new pg.Pool(config({ max: 1 }));
+    const stmt = {
+      name: "client-and-pool-stmt",
+      text: "SELECT $1::int AS v",
+      values: [5],
+    };
+    try {
+      const held = await pool.connect();
+      const queued = inParent(() => pool.query(stmt));
+      const direct = await inParent(() => held.query(stmt));
+      held.release();
+      const pooled = await queued;
+      expect(direct.result.rows).toEqual([{ v: 5 }]);
+      expect(pooled.result.rows).toEqual([{ v: 5 }]);
+      const found = spans();
+      expect(found).toHaveLength(2);
+      expect(found.map(parentId).sort()).toEqual(
+        [
+          direct.parent.spanContext().spanId,
+          pooled.parent.spanContext().spanId,
+        ].sort(),
+      );
+    } finally {
+      await pool.end();
+    }
+  });
+
   it("a pool that cannot connect: one error span under the caller, the rejection unchanged", async () => {
     const pool = new pg.Pool({ ...config(), port: await closedPort(), max: 1 });
     let caught: unknown;

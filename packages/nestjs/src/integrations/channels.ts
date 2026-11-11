@@ -244,8 +244,21 @@ function mysql2Subscriptions(
 // ioredis
 // ---------------------------------------------------------------------------------------------
 
-/** Commands whose first argument is a secret even if a library version does not sanitise it. */
-const SECRET_FIRST_ARGUMENT: ReadonlySet<string> = new Set(["AUTH", "HELLO"]);
+/**
+ * Commands recorded by name only: the first argument is a secret even if a library version does
+ * not sanitise it (`AUTH`, `HELLO`), or a script body or script reference (`EVAL`, `FCALL`, …).
+ */
+const SECRET_FIRST_ARGUMENT: ReadonlySet<string> = new Set([
+  "AUTH",
+  "HELLO",
+  "EVAL",
+  "EVAL_RO",
+  "EVALSHA",
+  "EVALSHA_RO",
+  "FCALL",
+  "FCALL_RO",
+  "SCRIPT",
+]);
 
 export function redisText(
   command: string | undefined,

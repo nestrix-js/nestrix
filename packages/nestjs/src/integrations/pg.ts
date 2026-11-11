@@ -14,11 +14,13 @@
  *
  * Span timing (D-59): a span covers the query, not pool wait. `pool.query()` does not open a
  * span; it records the caller's context in a token keyed by the config object it hands pg-pool
- * (a string becomes `{ text }`, which pg does itself). pg-pool then calls `client.query()` on a
+ * (see below). pg-pool then calls `client.query()` on a
  * pooled client, possibly from another caller's async context (it serves queued callers from a
- * connection release), and the client wrapper opens the span under the token's context. Tokens
- * are reference-counted per config object, first in first out, so concurrent `pool.query` calls
- * sharing one config object (a named prepared statement) each keep theirs. Only a pooled client
+ * connection release), and the client wrapper opens the span under the token's context. The
+ * object handed to pg-pool is a per-call `Object.create(config)` for a config object (a string
+ * becomes `{ text }`), so its identity is unique to the call: concurrent calls sharing one config
+ * object (a named prepared statement, on one pool or two), or a checked-out client running that
+ * same object, never take each other's token. Only a pooled client
  * (one pg-pool gave a `release` function) consumes a token. A pool call that fails before its
  * query reaches a client (connection refused, pool closed, connection timeout) gets a span from
  * the pool call's start to the failure, with the error, so a database outage is visible.
@@ -101,29 +103,19 @@ interface Token {
   consumed: boolean;
 }
 
-const tokens = new WeakMap<object, Token[]>();
-
-function pushToken(config: object, token: Token): void {
-  const list = tokens.get(config);
-  if (list === undefined) tokens.set(config, [token]);
-  else list.push(token);
-}
+/** Keyed by the exact object handed to pg-pool, which is unique per `pool.query()` call. */
+const tokens = new WeakMap<object, Token>();
 
 function takeToken(config: object): Token | undefined {
-  const list = tokens.get(config);
-  if (list === undefined) return undefined;
-  const token = list.shift();
-  if (list.length === 0) tokens.delete(config);
-  if (token !== undefined) token.consumed = true;
+  const token = tokens.get(config);
+  if (token === undefined) return undefined;
+  tokens.delete(config);
+  token.consumed = true;
   return token;
 }
 
 function dropToken(config: object, token: Token): void {
-  const list = tokens.get(config);
-  if (list === undefined) return;
-  const i = list.indexOf(token);
-  if (i !== -1) list.splice(i, 1);
-  if (list.length === 0) tokens.delete(config);
+  if (tokens.get(config) === token) tokens.delete(config);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -370,14 +362,23 @@ function planPoolQuery(pool: unknown, args: unknown[]): Plan | undefined {
   const [text, values, callback] = args;
   if (text === null || text === undefined || typeof text === "function")
     return undefined; // pg-pool reports these itself
-  const config: unknown = typeof text === "string" ? { text } : text;
-  if (typeof config !== "object" || config === null) return undefined;
+  if (typeof text !== "string" && (typeof text !== "object" || text === null))
+    return undefined;
+  // A string becomes `{ text }`, as pg does. A plain config object is replaced by a per-call
+  // object inheriting from it (pg reads its fields through the prototype), so the token's key is
+  // never an object the caller can reuse; a submittable is single-use and stays as it is.
+  const config: object =
+    typeof text === "string"
+      ? { text }
+      : typeof (text as { submit?: unknown }).submit === "function"
+        ? text
+        : Object.create(text);
   const token: Token = {
     parent: context.active(),
     startedAt: nowMillis(),
     consumed: false,
   };
-  pushToken(config, token);
+  tokens.set(config, token);
   let settled = false;
   const settle = (error: unknown): void => {
     try {
