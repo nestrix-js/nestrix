@@ -23,7 +23,7 @@ import { NestrixModule } from '@nestrix/nestjs';
 export class AppModule {}
 ```
 
-One more line in `main.ts` adds spans for services, guards, pipes and jobs:
+One more line in `main.ts` adds spans for controller methods and jobs (services, guards, pipes, interceptors and filters opt in):
 
 ```ts
 const app = await NestFactory.create(AppModule, { instrument: NestrixInstrument });
@@ -35,7 +35,7 @@ const app = await NestFactory.create(AppModule, { instrument: NestrixInstrument 
 |---|---|
 | NestJS | 12.0 and later |
 | Node.js | 22.15 and later |
-| HTTP adapters | Express 5, Fastify 5, `@nestjs/platform-node` |
+| HTTP adapters | Express 5, Fastify 5, `@nestjs/platform-node` from 12.3.2 |
 | OpenTelemetry JS | SDK 3.x |
 
 ## Documentation

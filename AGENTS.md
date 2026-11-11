@@ -4,7 +4,7 @@ Instructions for AI coding agents working on this repository. This is the one sh
 
 Open-source observability for NestJS 12+: Nest-aware OpenTelemetry tracing, with an optional dashboard served by the host application. Apache-2.0. Pre-release.
 
-**Current state:** phase 0 is complete and stopped at its gate. The repository holds the workspace toolchain, package skeletons (placeholder exports only), example apps, the test harness, CI and release plumbing, and six spike results in `docs/spikes/`. No instrumentation exists yet. Read `docs/phase-0-report.md` first: phase 1 does not start until the owner has answered its decisions.
+**Current state:** phase 0 is complete and its gate is passed. The repository holds the workspace toolchain, package skeletons (placeholder exports only), example apps, the test harness, CI and release plumbing, and six spike results in `docs/spikes/`. No instrumentation exists yet. The owner decided the phase 0 questions (D-40 to D-51 in `docs/decisions.md`); the next work is writing `docs/backlog/phase-1.md` from the roadmap. `docs/phase-0-report.md` has the evidence behind them.
 
 **Remote:** `github.com/nestrix-js/nestrix`, private, already configured (`docs/decisions.md`, "GitHub: what is set up"). There is nothing left to set up on GitHub before implementing.
 

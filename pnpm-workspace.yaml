@@ -4,6 +4,8 @@ packages:
   - examples/*
   - spikes/*
   - benchmarks
+# D-51: fail an install that needs a too-new release instead of pnpm adding minimumReleaseAgeExclude entries itself.
+minimumReleaseAgeStrict: true
 allowBuilds:
   "@parcel/watcher": false
   "@swc/core": false
