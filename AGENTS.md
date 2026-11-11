@@ -68,6 +68,7 @@ TypeScript config: every package has its own `tsconfig.json` that extends `tscon
 ```
 packages/nestjs/      @nestrix/nestjs
 packages/ui/          @nestrix/ui
+packages/testing/     @nestrix/testing, private test harness (bootApp, in-memory spans)
 packages/protocol/    private query-API types
 apps/server/          phase 5
 examples/             fixture apps, one per adapter and module format

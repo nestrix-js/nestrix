@@ -11,6 +11,9 @@
       "path": "packages/ui"
     },
     {
+      "path": "packages/testing"
+    },
+    {
       "path": "examples/express-esm"
     },
     {
