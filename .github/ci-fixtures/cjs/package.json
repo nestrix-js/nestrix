@@ -1,0 +1,5 @@
+{
+  "name": "nestrix-ci-fixture-cjs",
+  "private": true,
+  "type": "commonjs"
+}

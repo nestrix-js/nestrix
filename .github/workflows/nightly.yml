@@ -1,0 +1,33 @@
+name: Nightly
+
+# Catches a breaking @nestjs/* 12.x release before users do. One Node line only: the repository
+# is private and has 2,000 Actions minutes a month. Nothing is committed.
+on:
+  schedule:
+    - cron: "23 3 * * *" # UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  latest-nest:
+    name: verify against latest @nestjs/* 12.x
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          node-version: "26"
+      - name: Update @nestjs/* to the latest 12.x (not committed)
+        run: |
+          pnpm update -r "@nestjs/*@^12"
+          pnpm list -r --depth 0 | grep '@nestjs/' || true
+      - run: pnpm verify
