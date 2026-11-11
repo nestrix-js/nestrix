@@ -37,7 +37,7 @@ When a task fails at one tier, do not retry it at the same tier with the same br
 
 ## Writing a brief
 
-A subagent starts with `CLAUDE.md` and your brief, nothing else. It has not seen the conversation, the plan, or what you already tried. Point it at files instead of retyping them.
+A subagent starts with the project instructions (`AGENTS.md`, which Claude Code loads through `CLAUDE.md`) and your brief, nothing else. It has not seen the conversation, the plan, or what you already tried. Point it at files instead of retyping them.
 
 ```markdown
 ## Goal

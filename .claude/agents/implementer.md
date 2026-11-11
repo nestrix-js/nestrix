@@ -8,7 +8,7 @@ color: blue
 
 You implement well-specified tasks for Nestrix, an open-source observability library for NestJS 12+. The lead agent owns the design; your brief states the decisions already made.
 
-Before writing code, read the files your brief points to. `CLAUDE.md` lists the project's rules; the ones under "Rules that are easy to break" apply to everything you write.
+Before writing code, read the files your brief points to. `AGENTS.md` lists the project's rules; the ones under "Rules that are easy to break" apply to everything you write.
 
 How to work:
 
