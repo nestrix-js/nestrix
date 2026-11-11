@@ -1,5 +1,7 @@
 import type {
   ApiError,
+  AppMapResponse,
+  ClassStatsResponse,
   ErrorListResponse,
   MetaResponse,
   RouteStatsResponse,
@@ -73,3 +75,7 @@ export const getErrors = (params: QueryParams) =>
 export const getRoutes = (params: QueryParams = {}) =>
   getJson<RouteStatsResponse>("routes", params);
 export const getTrace = (id: string) => getJson<TraceResponse>("trace", { id });
+export const getClasses = (params: QueryParams = {}) =>
+  getJson<ClassStatsResponse>("classes", params);
+export const getMap = (params: QueryParams = {}) =>
+  getJson<AppMapResponse>("map", params);

@@ -3,18 +3,23 @@
 // overlapping polls, a new epoch (`reset`), failures and delays. Not the P2-03 store.
 
 import type {
+  AppMapResponse,
+  ClassStatsResponse,
   MetaResponse,
   RouteStatsResponse,
   TraceListResponse,
   TraceResponse,
   TraceSummary,
 } from "@nestrix/protocol";
+import { generatedClasses, generatedMap } from "./mock-classes-map.ts";
 import { ErrorStore } from "./mock-stats.ts";
 
-type Endpoint = "meta" | "traces" | "routes" | "errors";
+type Endpoint = "meta" | "traces" | "routes" | "errors" | "classes" | "map";
 
 const ROUTES = ["/orders", "/orders/:id", "/users", "/health"];
 const METHODS = ["GET", "POST", "GET", "PUT"];
+
+const windowOf = (q: URLSearchParams) => Number(q.get("windowMinutes") ?? 15);
 
 interface Item extends TraceSummary {
   seq: number;
@@ -33,6 +38,9 @@ export class MockApi {
   errors = new ErrorStore(() => this.epoch);
   /** When set, `routes` answers with this for the asked window instead of the stub. */
   routeStats: ((windowMinutes: number) => RouteStatsResponse) | null = null;
+  /** When set, `classes` / `map` answer with this for the asked window instead of the generated data. */
+  classStats: ((windowMinutes: number) => ClassStatsResponse) | null = null;
+  appMap: ((windowMinutes: number) => AppMapResponse) | null = null;
   /** Every request seen, `traces?after=...` and so on, in order. */
   requests: string[] = [];
   private items: Item[] = []; // newest first
@@ -53,6 +61,8 @@ export class MockApi {
     this.overlap = false;
     this.requests = [];
     this.routeStats = null;
+    this.classStats = null;
+    this.appMap = null;
     this.errors.reset(0);
     this.push(count);
   }
@@ -129,6 +139,16 @@ export class MockApi {
         return { status: 200, body: this.meta() };
       case "routes":
         return { status: 200, body: this.routes(query) };
+      case "classes":
+        return {
+          status: 200,
+          body: (this.classStats ?? generatedClasses)(windowOf(query)),
+        };
+      case "map":
+        return {
+          status: 200,
+          body: (this.appMap ?? generatedMap)(windowOf(query)),
+        };
       case "traces":
         return this.traces(query);
       case "trace":
