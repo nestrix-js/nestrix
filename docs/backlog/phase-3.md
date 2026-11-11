@@ -9,7 +9,7 @@ Objective, deliverables and acceptance: [roadmap.md](../roadmap.md#phase-3-provi
 | P3-00 | Backlog, option types, method-call sink, query API v1 additions (classes, map) | lead | — | done | This file; `methods`, `integrations`, `serviceVersion`, `user` in `options.ts` (types only); `src/methods/sink.ts`; protocol `ClassStats*`, `AppMap*`. |
 | P3-01 | Level 3: `pg` (timing check first), `mysql2`, `ioredis`; statement sanitising; container tests | opus | P3-00 | todo | |
 | P3-02 | Level 2: `NestrixInstrument`, `composeInstrument`, own-class rule, entry methods, enhancers, awkward-class corpus | opus | P3-00 | todo | |
-| P3-03 | Releases and users; trace `type`; traces filters `type`, `release`, `user` | opus | P3-00 | review | Merged; Fastify passes the `FastifyRequest` (req.user visible), Express/platform-node the `IncomingMessage`. 1,339 tests. |
+| P3-03 | Releases and users; trace `type`; traces filters `type`, `release`, `user` | opus | P3-00 | done | Merged; Fastify passes the `FastifyRequest` (req.user visible), Express/platform-node the `IncomingMessage`. 1,339 tests. |
 | P3-04 | Class statistics (pre-sampling) and `GET api/v1/classes` | sonnet | P3-00 | done | 3 adapters; `methodsEnabled` stub until P3-02 merges. |
 | P3-05 | App map and `GET api/v1/map` | sonnet | P3-00 | done | 21 tests; nearest-rank percentiles; 200-node cap. |
 | P3-06 | UI: classes view and map view | sonnet | P3-00 | done | 778 KB of 1 MB; 123 e2e pass. |
