@@ -13,6 +13,8 @@
       "!**/coverage",
       "!**/*.generated.*",
       "!benchmarks/results",
+      "!apps/server/src/proto/gen",
+      "!apps/server/test/ingest/fixtures/*.json",
       "!**/*.tsbuildinfo",
       "!**/*.md",
       "!pnpm-lock.yaml"

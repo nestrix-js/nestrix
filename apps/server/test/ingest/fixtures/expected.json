@@ -1,0 +1,95 @@
+{
+  "recordedWith": {
+    "@opentelemetry/exporter-trace-otlp-proto": "0.301.1",
+    "@opentelemetry/exporter-trace-otlp-http": "0.301.1"
+  },
+  "requests": {
+    "traces.pb": {
+      "contentType": "application/x-protobuf"
+    },
+    "traces.pb.gz": {
+      "contentType": "application/x-protobuf",
+      "contentEncoding": "gzip"
+    },
+    "traces.json": {
+      "contentType": "application/json"
+    },
+    "traces.json.gz": {
+      "contentType": "application/json",
+      "contentEncoding": "gzip"
+    }
+  },
+  "resource": {
+    "service.name": "fixture-service",
+    "service.version": "1.2.3"
+  },
+  "spans": [
+    {
+      "traceId": "a66814157b18bf0a96a3c6837b820abf",
+      "spanId": "18ce2722b258e2b4",
+      "name": "other-trace-root",
+      "kind": "internal",
+      "startTimeUnixNano": "1794404589850000000",
+      "endTimeUnixNano": "1794404589855000000",
+      "status": "unset",
+      "events": [],
+      "links": [],
+      "attributes": {}
+    },
+    {
+      "traceId": "d46f26315801e3771e559c2a9bddd5ab",
+      "spanId": "26fcdf4d2467036d",
+      "parentSpanId": "bac2a834b846d4f1",
+      "name": "SELECT orders",
+      "kind": "client",
+      "startTimeUnixNano": "1794404589870000000",
+      "endTimeUnixNano": "1794404589880000000",
+      "status": "error",
+      "events": [
+        "exception"
+      ],
+      "links": [
+        "18ce2722b258e2b4"
+      ],
+      "attributes": {
+        "db.system.name": "postgresql"
+      }
+    },
+    {
+      "traceId": "d46f26315801e3771e559c2a9bddd5ab",
+      "spanId": "029a96096fafdcda",
+      "parentSpanId": "bac2a834b846d4f1",
+      "name": "orders publish",
+      "kind": "producer",
+      "startTimeUnixNano": "1794404589881000000",
+      "endTimeUnixNano": "1794404589882000000",
+      "status": "unset",
+      "events": [],
+      "links": [],
+      "attributes": {}
+    },
+    {
+      "traceId": "d46f26315801e3771e559c2a9bddd5ab",
+      "spanId": "bac2a834b846d4f1",
+      "name": "GET /orders/:id",
+      "kind": "server",
+      "startTimeUnixNano": "1794404589860000000",
+      "endTimeUnixNano": "1794404589890000000",
+      "status": "ok",
+      "events": [],
+      "links": [],
+      "attributes": {
+        "http.request.method": "GET",
+        "http.route": "/orders/:id",
+        "url.path": "/orders/42",
+        "http.response.status_code": 200,
+        "nestrix.ratio": 0.25,
+        "nestrix.flag": true,
+        "nestrix.tags": [
+          "a",
+          "b"
+        ]
+      }
+    }
+  ]
+}

@@ -57,6 +57,9 @@
     },
     {
       "path": "apps/server/test/storage"
+    },
+    {
+      "path": "apps/server/test"
     }
   ]
 }
