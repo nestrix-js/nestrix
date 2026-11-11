@@ -55,7 +55,7 @@ Nestrix runs inside other people's applications, on every request. The bar follo
 - **It adds no runtime dependency** to a published package without a maintainer agreeing first.
 - **Its tests can fail.** A test that passes whatever the code does is not evidence.
 
-The full list, with the reasons, is in [CLAUDE.md](CLAUDE.md) under "Rules that are easy to break". It is written for AI agents working on the repository, and it applies to people too.
+The full list, with the reasons, is in [AGENTS.md](AGENTS.md) under "Rules that are easy to break". It is written for AI agents working on the repository, and it applies to people too.
 
 ## Pull requests
 

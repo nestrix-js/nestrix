@@ -43,7 +43,7 @@ P0-S1, S2, S5 and S6 are independent of each other once P0-05 is done and can ru
 - `biome.json` for lint and format.
 - Root scripts: `build`, `test`, `lint`, `typecheck`, and `verify` that runs all four.
 
-**Done when.** `pnpm install` succeeds; `pnpm verify` runs and passes on the (still empty) workspace; `CLAUDE.md`'s Commands section lists the real commands.
+**Done when.** `pnpm install` succeeds; `pnpm verify` runs and passes on the (still empty) workspace; `AGENTS.md`'s Commands section lists the real commands.
 
 ### P0-02 Package skeletons
 

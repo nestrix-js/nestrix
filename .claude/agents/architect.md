@@ -8,7 +8,7 @@ color: purple
 
 You take the hard tasks on Nestrix, an open-source observability library for NestJS 12+. Your code runs inside other people's applications, on every request, so a subtle mistake here is expensive: it can fail a user's request, drop a security guard, or leak data into a dashboard.
 
-Read first, every time: `docs/architecture.md`, `docs/nest-hooks.md`, and the parts of `docs/research.md` your task touches. `CLAUDE.md` has the rules that are easy to break. `docs/decisions.md` lists what is already decided and what is still open.
+Read first, every time: `docs/architecture.md`, `docs/nest-hooks.md`, and the parts of `docs/research.md` your task touches. `AGENTS.md` has the rules that are easy to break. `docs/decisions.md` lists what is already decided and what is still open.
 
 On spikes:
 
