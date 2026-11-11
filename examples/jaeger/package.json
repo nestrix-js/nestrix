@@ -1,0 +1,26 @@
+{
+  "name": "jaeger-example",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Two NestJS 12 services exporting to Jaeger with Nestrix",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "start:a": "node dist/service-a.js",
+    "start:b": "node dist/service-b.js",
+    "check": "node scripts/check-trace.mjs"
+  },
+  "dependencies": {
+    "@nestjs/common": "^12.4.2",
+    "@nestjs/core": "^12.4.2",
+    "@nestjs/platform-express": "^12.4.2",
+    "@nestrix/nestjs": "workspace:*",
+    "@opentelemetry/api": "~1.10.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6"
+  }
+}

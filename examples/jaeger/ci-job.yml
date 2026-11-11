@@ -1,0 +1,15 @@
+# Snippet for .github/workflows/ci.yml (P1-11 owns that file); paste under `jobs:` (indent two spaces).
+# Needs P1-06 (server spans) and P1-09 (fetch client spans) merged, or the check fails by design.
+# The script starts and stops Jaeger itself via docker compose. Under `act` the job's containers must
+# reach the host's published ports; if localhost does not work there, set JAEGER_QUERY_URL / OTLP_URL.
+jaeger:
+  name: jaeger trace check
+  runs-on: ubuntu-latest
+  timeout-minutes: 10
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: ./.github/actions/setup
+    - run: pnpm build
+    - run: pnpm --filter jaeger-example check
