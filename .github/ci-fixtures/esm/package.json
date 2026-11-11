@@ -1,0 +1,5 @@
+{
+  "name": "nestrix-ci-fixture-esm",
+  "private": true,
+  "type": "module"
+}
