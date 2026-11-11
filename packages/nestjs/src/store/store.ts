@@ -140,7 +140,19 @@ export interface TraceStore {
    * Calls `visit` with the stored spans of each trace held (oldest first). The array is the
    * store's own: read it, do not keep or change it. Never throws; a fault in `visit` stops the scan.
    */
-  scanTraces(visit: (spans: readonly SpanRecord[]) => void): void;
+  scanAllTraces(visit: (spans: readonly SpanRecord[]) => void): void;
+  /**
+   * Calls `visit` for every listed trace (one with a local root) whose root started at or after
+   * `sinceUnixMs`, oldest first. `visit` must not keep or change `spans`. Never throws.
+   */
+  scanTraces(
+    sinceUnixMs: number,
+    visit: (
+      root: SpanRecord,
+      spans: readonly SpanRecord[],
+      resource: Attributes,
+    ) => void,
+  ): void;
   stats(): StoreStats;
 }
 
@@ -788,6 +800,25 @@ class Store implements TraceStore {
     }
   }
 
+  scanTraces(
+    sinceUnixMs: number,
+    visit: (
+      root: SpanRecord,
+      spans: readonly SpanRecord[],
+      resource: Attributes,
+    ) => void,
+  ): void {
+    try {
+      for (const entry of this.listed) {
+        if (entry.dead || entry.root === undefined) continue;
+        if (!(entry.root.startTimeUnixMs >= sinceUnixMs)) continue;
+        visit(entry.root, entry.spans, entry.resource);
+      }
+    } catch {
+      // A failed query answers with what it had; it never reaches the caller.
+    }
+  }
+
   getTrace(traceId: string): TraceResponse | undefined {
     try {
       if (typeof traceId !== "string") return undefined;
@@ -877,7 +908,7 @@ class Store implements TraceStore {
     }
   }
 
-  scanTraces(visit: (spans: readonly SpanRecord[]) => void): void {
+  scanAllTraces(visit: (spans: readonly SpanRecord[]) => void): void {
     try {
       for (const entry of this.traces.values()) visit(entry.spans);
     } catch (error) {

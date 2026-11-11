@@ -253,7 +253,7 @@ describe("ownAverages from stored spans", () => {
       );
       store.drainNow();
 
-      const own = ownAverages((v) => store.scanTraces(v), base - 1000);
+      const own = ownAverages((v) => store.scanAllTraces(v), base - 1000);
       // place: (100 - 50 = 50) and (40 - 70 -> 0): average 25.
       expect(own.get("OrderService")?.get("place")).toBe(25);
       expect(own.get("OrderService")?.get("leaf")).toBe(8);

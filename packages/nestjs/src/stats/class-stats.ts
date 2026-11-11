@@ -258,7 +258,7 @@ export class ClassStatistics implements MethodCallSink {
  * Average own time per (class, method) from stored spans: for each span carrying `nestrix.class`
  * and `nestrix.method` that started at or after `fromUnixMs`, its duration minus the summed
  * durations of its direct children in the same trace, clipped at 0. `scan` visits the stored
- * traces (`TraceStore.scanTraces`). Never throws.
+ * traces (`TraceStore.scanAllTraces`). Never throws.
  */
 export function ownAverages(
   scan: (visit: (spans: readonly SpanRecord[]) => void) => void,

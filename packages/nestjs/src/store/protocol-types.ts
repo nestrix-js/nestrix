@@ -137,3 +137,35 @@ export interface ClassStatsResponse {
   methodsEnabled: boolean;
   classes: ClassStats[];
 }
+
+export type MapNodeKind =
+  | "app"
+  | "database"
+  | "cache"
+  | "http"
+  | "queue"
+  | "other";
+
+export interface MapNode {
+  id: string;
+  kind: MapNodeKind;
+  name: string;
+  system?: string;
+}
+
+export interface MapEdge {
+  from: string;
+  to: string;
+  calls: number;
+  errors: number;
+  p50Ms: number;
+  p95Ms: number;
+}
+
+export interface AppMapResponse {
+  windowMinutes: number;
+  fromUnixMs: number;
+  toUnixMs: number;
+  nodes: MapNode[];
+  edges: MapEdge[];
+}
