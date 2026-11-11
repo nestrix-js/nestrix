@@ -68,7 +68,7 @@ act push -W .github/workflows/ci.yml -P ubuntu-latest=catthehacker/ubuntu:act-la
 act workflow_dispatch -W .github/workflows/nightly.yml -P ubuntu-latest=catthehacker/ubuntu:act-latest --container-daemon-socket - -s GITHUB_TOKEN="$(gh auth token)"
 ```
 
-TypeScript config: every package has its own `tsconfig.json` that extends `tsconfig.base.json`, sets `composite`, `rootDir` and `outDir`, and is added to `references` in the root `tsconfig.json`. `verbatimModuleSyntax` is on: import types with `import type`, but import classes used as Nest constructor parameters as values (an `import type` there makes `design:paramtypes` silently `Function`).
+TypeScript config: every package has its own `tsconfig.json` that extends `tsconfig.base.json`, sets `composite`, `rootDir` and `outDir`, and is added to `references` in the root `tsconfig.json`. `verbatimModuleSyntax` is on: import types with `import type`, but import classes used as Nest constructor parameters as values (an `import type` there makes `design:paramtypes` silently `Function`). Biome's `useImportType` rule is off for this reason: its autofix makes exactly that change.
 
 ## Layout
 
