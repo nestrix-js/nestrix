@@ -93,6 +93,53 @@ export interface NestrixHttpOptions {
   redactQueryKeys?: string[];
 }
 
+/** Built-in token authentication for the dashboard (architecture §4.7). Compared in constant time. */
+export interface NestrixUiTokenAuth {
+  /** At least 32 characters. Sent as `Authorization: Bearer <token>`, or exchanged once for a cookie at `<path>/auth?token=`. */
+  token: string;
+}
+
+/** Custom dashboard authentication (architecture §4.7). */
+export interface NestrixUiCustomAuth {
+  /**
+   * Called for every dashboard request with the raw, adapter-specific request, before any Nest
+   * guard has run (so `request.user` is not populated). Return `true` to allow. A throw, a
+   * rejection or any other value denies.
+   */
+  authorize: (request: unknown) => boolean | Promise<boolean>;
+}
+
+/** The embedded dashboard (phase 2). Requires `@nestrix/ui` to be installed. */
+export interface NestrixUiOptions {
+  /**
+   * `'auto'` (default): served only when `NODE_ENV` is `development` or unset, to loopback
+   * requests with no forwarding headers that carry the startup token cookie.
+   * `true`: served to any request that passes `auth`, in any environment; `auth` is required, and
+   * without it the dashboard stays off and an error is logged (the app still starts).
+   * `false`: off.
+   */
+  enabled?: boolean | "auto";
+  /** Default `'/_nestrix'`. Sits outside the global prefix and versioning. */
+  path?: string;
+  /** Required when `enabled` is `true`. In `'auto'` mode it is checked in addition to the local-only rules. */
+  auth?: NestrixUiTokenAuth | NestrixUiCustomAuth;
+  /**
+   * `'auto'` mode only. Default `true`: a random token is generated at startup and a link carrying it
+   * is logged; opening the link stores it in an HttpOnly cookie, and requests without it get no
+   * dashboard. `false` drops this check, and a same-host reverse proxy that adds no forwarding headers
+   * then exposes the dashboard (architecture §4.7).
+   */
+  startupToken?: boolean;
+}
+
+/** The dashboard's in-memory store of recent traces. Oldest evicted first; nothing is written to disk. */
+export interface NestrixStoreOptions {
+  /** Traces kept. Default 5,000 (measured in P2-12; see `store/limits.ts`). */
+  maxTraces?: number;
+  /** Approximate bytes kept. Default 32 MiB (measured in P2-12; see `store/limits.ts`). */
+  maxBytes?: number;
+}
+
 export interface NestrixModuleOptions {
   /** Default `true`. `false`, or `NESTRIX_ENABLED=false` in the environment, registers nothing at all. */
   enabled?: boolean;
@@ -110,4 +157,8 @@ export interface NestrixModuleOptions {
   ignore?: NestrixIgnoreOptions;
   http?: NestrixHttpOptions;
   redact?: RedactHook;
+  /** The embedded dashboard. Default `'auto'` (architecture §4.7). `false` turns it off. */
+  ui?: false | "auto" | NestrixUiOptions;
+  /** Limits of the dashboard's store. Ignored while the dashboard is off. */
+  store?: NestrixStoreOptions;
 }
