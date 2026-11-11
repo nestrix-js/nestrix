@@ -5,11 +5,29 @@
 //
 // Configuration comes from the environment: BENCH_CONFIG (baseline | noexport | sink | unreachable |
 // blackhole | upstream), PORT, BENCH_ENDPOINT, BENCH_QUEUE_SIZE. The parent talks to it over IPC:
-// `stats` (CPU, memory, Nestrix span counters), `gcstats` (the same after a forced GC; needs
+// `stats` (CPU, memory, Nestrix span counters, outgoing connection counts), `gcstats` (the same after a forced GC; needs
 // --expose-gc) and `stop` (app.close(), then exit).
+import { subscribe } from "node:diagnostics_channel";
 import "reflect-metadata";
 import { Controller, Get, Module } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+
+// Outgoing TCP connections the app opens (the exporter's; the app makes no other), counted from
+// Node's own `net.client.socket` channel so an unreachable endpoint, which has no server to count
+// at, is covered too. In flight means created and not yet closed, including idle keep-alive sockets.
+const conn = { created: 0, inFlight: 0, maxInFlight: 0 };
+subscribe("net.client.socket", (message) => {
+  try {
+    conn.created++;
+    conn.inFlight++;
+    if (conn.inFlight > conn.maxInFlight) conn.maxInFlight = conn.inFlight;
+    message.socket.once("close", () => {
+      conn.inFlight--;
+    });
+  } catch {
+    // counting must never affect the app
+  }
+});
 
 const config = process.env.BENCH_CONFIG ?? "baseline";
 const port = Number(process.env.PORT ?? 3000);
@@ -92,6 +110,7 @@ function snapshot(withGc) {
     external: mem.external,
     arrayBuffers: mem.arrayBuffers,
     counters,
+    connections: { ...conn },
   };
 }
 

@@ -3,7 +3,7 @@
     "node": "v26.13.0",
     "platform": "darwin-arm64",
     "cpus": "10 logical",
-    "date": "2026-11-11T06:45:28.248Z"
+    "date": "2026-11-11T08:13:00.948Z"
   },
   "settings": {
     "duration": 600,
@@ -11,45 +11,66 @@
     "settle": 60,
     "rate": 3000,
     "connections": 64,
-    "variants": ["unreachable", "blackhole"],
-    "paths": ["/hello", "/users/42", "/spans", "/spans"],
+    "variants": [
+      "unreachable",
+      "blackhole"
+    ],
+    "paths": [
+      "/hello",
+      "/users/42",
+      "/spans",
+      "/spans"
+    ],
     "maxQueueSize": 2048,
     "maxExportBatchSize": 512
   },
   "calibration": {
-    "sizes": [2048, 20480],
+    "sizes": [
+      2048,
+      20480
+    ],
     "heapUsedAfterGcBytes": {
-      "2048": [27009640, 27010352, 27016800],
-      "20480": [42954704, 42978440, 42958832]
+      "2048": [
+        27795152,
+        27792352,
+        27784896
+      ],
+      "20480": [
+        45232936,
+        45235640,
+        45229656
+      ]
     },
     "droppedSpans": {
-      "2048": 169349,
-      "20480": 566303
+      "2048": 112689,
+      "20480": 350017
     },
-    "heapBytesPerSpan": 865.3
+    "heapBytesPerSpan": 946.2
   },
-  "bound": {
-    "formula": "(maxQueueSize + maxExportBatchSize) * heapBytesPerSpan + maxExportBatchSize * wireBytesPerSpan + rssNoiseMb",
+  "allowance": {
+    "formula": "(maxQueueSize + 2 * maxExportBatchSize) * B_span + maxExportBatchSize * B_wire + 5 MB",
     "maxQueueSize": 2048,
     "maxExportBatchSize": 512,
-    "heapBytesPerSpan": 865.3,
-    "wireBytesPerSpan": 354.9,
-    "rssNoiseMb": 20.7,
-    "boundMb": 23
+    "bSpan": 946.2,
+    "bSpanSource": "re-measured in this run",
+    "bWire": 610.7,
+    "measuredWireBytesPerSpanInControl": 610.7,
+    "marginMb": 5,
+    "allowanceMb": 8.07
   },
   "control": {
     "config": "sink",
     "result": {
-      "requests": 1800027,
-      "requestsPerSec": 2997.2,
-      "seconds": 600.57,
+      "requests": 1800002,
+      "requestsPerSec": 2996.7,
+      "seconds": 600.66,
       "latencyMs": {
-        "mean": 2.177,
-        "p50": 1.92,
-        "p90": 3.13,
-        "p99": 6.04,
-        "p999": 13.29,
-        "max": 114.833
+        "mean": 4.239,
+        "p50": 3.78,
+        "p90": 6.13,
+        "p99": 12.93,
+        "p999": 24.41,
+        "max": 209.729
       },
       "errors": 0,
       "timeouts": 0,
@@ -57,987 +78,1133 @@
     },
     "counters": {
       "droppedSpans": 0,
-      "exportedSpans": 2699776,
+      "exportedSpans": 4499968,
       "exportFailedSpans": 0,
       "redactDroppedSpans": 0,
       "redactFailedSpans": 0
     },
+    "clientConnections": {
+      "created": 1,
+      "inFlight": 1,
+      "maxInFlight": 1
+    },
     "sinkReceived": {
       "type": "stats",
-      "posts": 5274,
-      "bytes": 958337892,
-      "spans": 2700018,
-      "open": 0
+      "posts": 8790,
+      "bytes": 2748384360,
+      "spans": 4500067,
+      "open": 0,
+      "connections": 1,
+      "maxOpen": 1
     },
     "rss": {
       "settleSeconds": 60,
-      "atSettleMb": 193.8,
-      "peakAfterSettleMb": 214.5,
-      "finalMb": 194.3,
-      "peakGrowthMb": 20.7,
-      "finalGrowthMb": 0.5,
-      "maxOverallMb": 217.6
+      "atSettleMb": 212,
+      "peakAfterSettleMb": 230.1,
+      "finalMb": 213.1,
+      "peakGrowthMb": 18.1,
+      "finalGrowthMb": 1.1,
+      "maxOverallMb": 230.1
+    },
+    "trend": {
+      "rss": {
+        "slopeMbPerMin": 0.14,
+        "lastThirdMinusFirstThirdMb": 2.2
+      },
+      "heapUsed": {
+        "slopeMbPerMin": 0.03,
+        "lastThirdMinusFirstThirdMb": 0.2
+      },
+      "external": {
+        "slopeMbPerMin": -0.01,
+        "lastThirdMinusFirstThirdMb": -0.1
+      },
+      "heapAfterGc": true
+    },
+    "medians": {
+      "heapAfterGcMb": 23.8,
+      "rssMb": 220.9
     },
     "samples": [
       {
         "t": 0,
-        "rssMb": 123.5,
-        "heapUsedMb": 25.7,
+        "rssMb": 124.7,
+        "heapUsedMb": 22,
+        "externalMb": 4.7,
         "dropped": 0,
         "exportFailed": 0,
         "exported": 0
       },
       {
         "t": 5,
-        "rssMb": 193.7,
-        "heapUsedMb": 54.6,
+        "rssMb": 217.9,
+        "heapUsedMb": 25.9,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 22528
+        "exported": 37376
       },
       {
         "t": 10,
-        "rssMb": 213.2,
-        "heapUsedMb": 52.1,
+        "rssMb": 219.4,
+        "heapUsedMb": 23.3,
+        "externalMb": 5.2,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 45056
+        "exported": 75264
       },
       {
-        "t": 15,
-        "rssMb": 208.8,
-        "heapUsedMb": 66.2,
+        "t": 15.1,
+        "rssMb": 220.4,
+        "heapUsedMb": 23.4,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 67072
+        "exported": 113152
       },
       {
-        "t": 20,
-        "rssMb": 217.6,
-        "heapUsedMb": 42.7,
+        "t": 20.1,
+        "rssMb": 221.1,
+        "heapUsedMb": 24.1,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 89600
+        "exported": 150016
       },
       {
-        "t": 25,
-        "rssMb": 188.9,
-        "heapUsedMb": 29.1,
+        "t": 25.1,
+        "rssMb": 221.4,
+        "heapUsedMb": 23.4,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 112128
+        "exported": 188416
       },
       {
-        "t": 30,
-        "rssMb": 188.9,
-        "heapUsedMb": 50,
+        "t": 30.1,
+        "rssMb": 220.1,
+        "heapUsedMb": 23.4,
+        "externalMb": 5.9,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 134656
+        "exported": 226816
       },
       {
         "t": 35.1,
-        "rssMb": 189,
-        "heapUsedMb": 49.5,
+        "rssMb": 222.7,
+        "heapUsedMb": 24.2,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 157184
+        "exported": 264192
       },
       {
-        "t": 40.1,
-        "rssMb": 192.7,
-        "heapUsedMb": 58,
+        "t": 40.2,
+        "rssMb": 222.9,
+        "heapUsedMb": 24.4,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 179712
+        "exported": 302080
       },
       {
-        "t": 45.1,
-        "rssMb": 203.5,
-        "heapUsedMb": 32.7,
+        "t": 45.2,
+        "rssMb": 223,
+        "heapUsedMb": 24.4,
+        "externalMb": 5,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 202240
+        "exported": 340480
       },
       {
-        "t": 50.1,
-        "rssMb": 187.4,
-        "heapUsedMb": 45.6,
+        "t": 50.2,
+        "rssMb": 226.1,
+        "heapUsedMb": 24.4,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 224768
+        "exported": 379904
       },
       {
-        "t": 55.1,
-        "rssMb": 187.6,
-        "heapUsedMb": 29,
+        "t": 55.2,
+        "rssMb": 225.9,
+        "heapUsedMb": 24.3,
+        "externalMb": 5,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 247296
+        "exported": 416256
       },
       {
-        "t": 60.1,
-        "rssMb": 193.8,
-        "heapUsedMb": 65.7,
+        "t": 60.2,
+        "rssMb": 212,
+        "heapUsedMb": 24.3,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 270336
+        "exported": 453120
       },
       {
-        "t": 65.1,
-        "rssMb": 195.6,
-        "heapUsedMb": 30.8,
+        "t": 65.3,
+        "rssMb": 212.1,
+        "heapUsedMb": 24.4,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 292352
+        "exported": 493568
       },
       {
-        "t": 70.1,
-        "rssMb": 197.3,
-        "heapUsedMb": 62.9,
+        "t": 70.3,
+        "rssMb": 216.7,
+        "heapUsedMb": 24.5,
+        "externalMb": 5.8,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 314880
+        "exported": 529408
       },
       {
-        "t": 75.1,
-        "rssMb": 201.8,
-        "heapUsedMb": 81.5,
+        "t": 75.3,
+        "rssMb": 216.8,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.5,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 337408
+        "exported": 569856
       },
       {
-        "t": 80.1,
-        "rssMb": 203.3,
-        "heapUsedMb": 33.3,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 359936
-      },
-      {
-        "t": 85.1,
-        "rssMb": 189.9,
-        "heapUsedMb": 51.1,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 382464
-      },
-      {
-        "t": 90.1,
-        "rssMb": 192.8,
-        "heapUsedMb": 51.9,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 404992
-      },
-      {
-        "t": 95.1,
-        "rssMb": 192.8,
-        "heapUsedMb": 59.6,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 427008
-      },
-      {
-        "t": 100.1,
-        "rssMb": 180.8,
-        "heapUsedMb": 32.7,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 449536
-      },
-      {
-        "t": 105.1,
-        "rssMb": 191,
-        "heapUsedMb": 52.4,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 472064
-      },
-      {
-        "t": 110.1,
-        "rssMb": 208.5,
-        "heapUsedMb": 37.7,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 495104
-      },
-      {
-        "t": 115.1,
-        "rssMb": 208.8,
-        "heapUsedMb": 54.8,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 517120
-      },
-      {
-        "t": 120.2,
-        "rssMb": 208.8,
-        "heapUsedMb": 36.5,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 539648
-      },
-      {
-        "t": 125.2,
-        "rssMb": 189.3,
-        "heapUsedMb": 33.1,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 562688
-      },
-      {
-        "t": 130.2,
-        "rssMb": 189.4,
-        "heapUsedMb": 33.3,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 585216
-      },
-      {
-        "t": 135.2,
-        "rssMb": 177.2,
-        "heapUsedMb": 53.8,
+        "t": 80.3,
+        "rssMb": 216.9,
+        "heapUsedMb": 23.7,
+        "externalMb": 5,
         "dropped": 0,
         "exportFailed": 0,
         "exported": 607232
       },
       {
-        "t": 140.2,
-        "rssMb": 177.4,
-        "heapUsedMb": 54.2,
+        "t": 85.3,
+        "rssMb": 230,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.5,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 629760
+        "exported": 644608
       },
       {
-        "t": 145.2,
-        "rssMb": 177.1,
-        "heapUsedMb": 50.5,
+        "t": 90.3,
+        "rssMb": 230,
+        "heapUsedMb": 23.8,
+        "externalMb": 5.9,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 652288
+        "exported": 680960
       },
       {
-        "t": 150.2,
-        "rssMb": 191.7,
-        "heapUsedMb": 48.8,
+        "t": 95.3,
+        "rssMb": 230.1,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.9,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 675328
+        "exported": 719872
       },
       {
-        "t": 155.2,
-        "rssMb": 191.7,
-        "heapUsedMb": 53.5,
+        "t": 100.4,
+        "rssMb": 220.4,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 697344
+        "exported": 754176
       },
       {
-        "t": 160.2,
-        "rssMb": 177,
-        "heapUsedMb": 34.4,
+        "t": 105.4,
+        "rssMb": 220.6,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.9,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 720896
+        "exported": 794624
       },
       {
-        "t": 165.2,
-        "rssMb": 177,
-        "heapUsedMb": 52.2,
+        "t": 110.4,
+        "rssMb": 220.6,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.7,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 742400
+        "exported": 832000
       },
       {
-        "t": 170.2,
-        "rssMb": 179.7,
-        "heapUsedMb": 55.9,
+        "t": 115.4,
+        "rssMb": 220.6,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 765440
+        "exported": 869888
       },
       {
-        "t": 175.2,
-        "rssMb": 182.6,
-        "heapUsedMb": 62.1,
+        "t": 120.4,
+        "rssMb": 221.9,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 787456
+        "exported": 907264
       },
       {
-        "t": 180.2,
-        "rssMb": 182.8,
-        "heapUsedMb": 28,
+        "t": 125.4,
+        "rssMb": 222.1,
+        "heapUsedMb": 23.7,
+        "externalMb": 4.9,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 809984
+        "exported": 944640
       },
       {
-        "t": 185.2,
-        "rssMb": 177.8,
-        "heapUsedMb": 47.9,
+        "t": 130.5,
+        "rssMb": 222.3,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 832512
+        "exported": 982016
       },
       {
-        "t": 190.2,
-        "rssMb": 178.1,
-        "heapUsedMb": 35.1,
+        "t": 135.5,
+        "rssMb": 217.4,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 855552
+        "exported": 1019904
       },
       {
-        "t": 195.2,
-        "rssMb": 178.4,
-        "heapUsedMb": 54.7,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 877568
-      },
-      {
-        "t": 200.2,
-        "rssMb": 182.6,
-        "heapUsedMb": 46.2,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 900608
-      },
-      {
-        "t": 205.2,
-        "rssMb": 198.1,
-        "heapUsedMb": 50,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 922624
-      },
-      {
-        "t": 210.2,
-        "rssMb": 198.4,
-        "heapUsedMb": 38,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 945152
-      },
-      {
-        "t": 215.2,
-        "rssMb": 189.2,
-        "heapUsedMb": 48.6,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 967680
-      },
-      {
-        "t": 220.2,
-        "rssMb": 195.1,
-        "heapUsedMb": 52.2,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 990208
-      },
-      {
-        "t": 225.3,
-        "rssMb": 195.1,
-        "heapUsedMb": 54,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1012736
-      },
-      {
-        "t": 230.3,
-        "rssMb": 178,
-        "heapUsedMb": 57.3,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1035264
-      },
-      {
-        "t": 235.3,
-        "rssMb": 178.3,
-        "heapUsedMb": 34.4,
+        "t": 140.5,
+        "rssMb": 211.3,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
         "exported": 1057280
       },
       {
-        "t": 240.3,
-        "rssMb": 185.9,
-        "heapUsedMb": 68.9,
+        "t": 145.5,
+        "rssMb": 211.4,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.5,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1080320
+        "exported": 1094656
       },
       {
-        "t": 245.3,
-        "rssMb": 204.2,
-        "heapUsedMb": 27.6,
+        "t": 150.5,
+        "rssMb": 212.9,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1102848
+        "exported": 1132032
       },
       {
-        "t": 250.3,
-        "rssMb": 203.4,
-        "heapUsedMb": 58.6,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1124864
-      },
-      {
-        "t": 255.3,
-        "rssMb": 184.6,
-        "heapUsedMb": 64.6,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1147392
-      },
-      {
-        "t": 260.3,
-        "rssMb": 199.9,
-        "heapUsedMb": 46.3,
+        "t": 155.5,
+        "rssMb": 212.9,
+        "heapUsedMb": 23.7,
+        "externalMb": 4.9,
         "dropped": 0,
         "exportFailed": 0,
         "exported": 1169920
       },
       {
-        "t": 265.3,
-        "rssMb": 200.1,
-        "heapUsedMb": 38.2,
+        "t": 160.5,
+        "rssMb": 213,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1192448
+        "exported": 1207296
       },
       {
-        "t": 270.3,
-        "rssMb": 190.6,
-        "heapUsedMb": 31.3,
+        "t": 165.5,
+        "rssMb": 212,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1214976
+        "exported": 1244672
       },
       {
-        "t": 275.3,
-        "rssMb": 190.6,
-        "heapUsedMb": 47.5,
+        "t": 170.6,
+        "rssMb": 212.3,
+        "heapUsedMb": 23.8,
+        "externalMb": 5.5,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1236992
+        "exported": 1282048
       },
       {
-        "t": 280.3,
-        "rssMb": 179.7,
-        "heapUsedMb": 44.2,
+        "t": 175.6,
+        "rssMb": 219.2,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.5,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1260032
+        "exported": 1319936
       },
       {
-        "t": 285.3,
-        "rssMb": 195.7,
-        "heapUsedMb": 64.9,
+        "t": 180.6,
+        "rssMb": 229,
+        "heapUsedMb": 23.7,
+        "externalMb": 6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1282560
+        "exported": 1357312
       },
       {
-        "t": 290.3,
-        "rssMb": 207.7,
-        "heapUsedMb": 52,
+        "t": 185.6,
+        "rssMb": 229.1,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1305088
+        "exported": 1394688
       },
       {
-        "t": 295.3,
-        "rssMb": 208,
-        "heapUsedMb": 32.1,
+        "t": 190.6,
+        "rssMb": 229.1,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1327616
+        "exported": 1432064
       },
       {
-        "t": 300.3,
-        "rssMb": 208,
-        "heapUsedMb": 59.9,
+        "t": 195.6,
+        "rssMb": 229.1,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.2,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1350656
+        "exported": 1469952
       },
       {
-        "t": 305.3,
-        "rssMb": 209.4,
-        "heapUsedMb": 80.3,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1373184
-      },
-      {
-        "t": 310.3,
-        "rssMb": 203,
-        "heapUsedMb": 40.7,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1395200
-      },
-      {
-        "t": 315.3,
-        "rssMb": 203,
-        "heapUsedMb": 56.4,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1417216
-      },
-      {
-        "t": 320.3,
-        "rssMb": 177.5,
-        "heapUsedMb": 31.5,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1439744
-      },
-      {
-        "t": 325.3,
-        "rssMb": 184,
-        "heapUsedMb": 43.3,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1462784
-      },
-      {
-        "t": 330.4,
-        "rssMb": 204.1,
-        "heapUsedMb": 81.4,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1485312
-      },
-      {
-        "t": 335.4,
-        "rssMb": 206.5,
-        "heapUsedMb": 56.4,
+        "t": 200.6,
+        "rssMb": 219,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
         "exported": 1507328
       },
       {
-        "t": 340.4,
-        "rssMb": 206.5,
-        "heapUsedMb": 48.2,
+        "t": 205.6,
+        "rssMb": 219.1,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1529856
+        "exported": 1544704
       },
       {
-        "t": 345.4,
-        "rssMb": 189.3,
-        "heapUsedMb": 38,
+        "t": 210.7,
+        "rssMb": 219.1,
+        "heapUsedMb": 23.8,
+        "externalMb": 5,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1552384
+        "exported": 1582080
       },
       {
-        "t": 350.4,
-        "rssMb": 190.2,
-        "heapUsedMb": 42.3,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1575424
-      },
-      {
-        "t": 355.4,
-        "rssMb": 191.3,
-        "heapUsedMb": 52.5,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1597440
-      },
-      {
-        "t": 360.4,
-        "rssMb": 192.2,
-        "heapUsedMb": 35.8,
+        "t": 215.7,
+        "rssMb": 215.3,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.9,
         "dropped": 0,
         "exportFailed": 0,
         "exported": 1619968
       },
       {
-        "t": 365.4,
-        "rssMb": 192.7,
-        "heapUsedMb": 43.6,
+        "t": 220.7,
+        "rssMb": 216.7,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.9,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1643008
+        "exported": 1657344
       },
       {
-        "t": 370.4,
-        "rssMb": 189.3,
-        "heapUsedMb": 52.4,
+        "t": 225.7,
+        "rssMb": 219,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.9,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1665536
+        "exported": 1694720
       },
       {
-        "t": 375.4,
-        "rssMb": 194.9,
-        "heapUsedMb": 64,
+        "t": 230.7,
+        "rssMb": 219.4,
+        "heapUsedMb": 23.8,
+        "externalMb": 5,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1687552
+        "exported": 1732096
       },
       {
-        "t": 380.4,
-        "rssMb": 208.9,
-        "heapUsedMb": 44.8,
+        "t": 235.7,
+        "rssMb": 220,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1710080
+        "exported": 1769984
       },
       {
-        "t": 385.4,
-        "rssMb": 208.9,
-        "heapUsedMb": 50.8,
+        "t": 240.8,
+        "rssMb": 220,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1732608
+        "exported": 1807360
       },
       {
-        "t": 390.4,
-        "rssMb": 176.9,
-        "heapUsedMb": 47.8,
+        "t": 245.8,
+        "rssMb": 220.7,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1755136
+        "exported": 1844736
       },
       {
-        "t": 395.4,
-        "rssMb": 188.9,
-        "heapUsedMb": 39,
+        "t": 250.8,
+        "rssMb": 224.2,
+        "heapUsedMb": 23.8,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1777664
+        "exported": 1882112
       },
       {
-        "t": 400.4,
-        "rssMb": 189.5,
-        "heapUsedMb": 37.3,
+        "t": 255.8,
+        "rssMb": 226.4,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.5,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1799680
+        "exported": 1920000
       },
       {
-        "t": 405.4,
-        "rssMb": 189.5,
-        "heapUsedMb": 34.3,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1822208
-      },
-      {
-        "t": 410.4,
-        "rssMb": 178.2,
-        "heapUsedMb": 41.6,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1845248
-      },
-      {
-        "t": 415.4,
-        "rssMb": 191.9,
-        "heapUsedMb": 51,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1867264
-      },
-      {
-        "t": 420.4,
-        "rssMb": 201,
-        "heapUsedMb": 34.9,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1890304
-      },
-      {
-        "t": 425.4,
-        "rssMb": 201,
-        "heapUsedMb": 47.1,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1912320
-      },
-      {
-        "t": 430.5,
-        "rssMb": 189.2,
-        "heapUsedMb": 29.4,
-        "dropped": 0,
-        "exportFailed": 0,
-        "exported": 1934848
-      },
-      {
-        "t": 435.5,
-        "rssMb": 189.2,
-        "heapUsedMb": 49.4,
+        "t": 260.8,
+        "rssMb": 226.7,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.9,
         "dropped": 0,
         "exportFailed": 0,
         "exported": 1957376
       },
       {
-        "t": 440.5,
-        "rssMb": 182.6,
-        "heapUsedMb": 48.3,
+        "t": 265.9,
+        "rssMb": 226.7,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 1979904
+        "exported": 1994752
       },
       {
-        "t": 445.5,
-        "rssMb": 183.8,
-        "heapUsedMb": 46.6,
+        "t": 270.9,
+        "rssMb": 221.7,
+        "heapUsedMb": 23.8,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2002432
+        "exported": 2032128
       },
       {
-        "t": 450.5,
-        "rssMb": 185.4,
-        "heapUsedMb": 47.6,
+        "t": 275.9,
+        "rssMb": 221.9,
+        "heapUsedMb": 24,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2025472
+        "exported": 2069504
       },
       {
-        "t": 455.5,
-        "rssMb": 180.5,
-        "heapUsedMb": 52.5,
+        "t": 280.9,
+        "rssMb": 222.4,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2047488
+        "exported": 2107392
       },
       {
-        "t": 460.5,
-        "rssMb": 180.5,
-        "heapUsedMb": 34.1,
+        "t": 285.9,
+        "rssMb": 225.4,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2070528
+        "exported": 2144768
       },
       {
-        "t": 465.5,
-        "rssMb": 179.3,
-        "heapUsedMb": 56.4,
+        "t": 290.9,
+        "rssMb": 225.4,
+        "heapUsedMb": 23.8,
+        "externalMb": 4.7,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2093056
+        "exported": 2182144
       },
       {
-        "t": 470.5,
-        "rssMb": 182.5,
-        "heapUsedMb": 54.7,
+        "t": 296,
+        "rssMb": 225.4,
+        "heapUsedMb": 24,
+        "externalMb": 5.5,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2115584
+        "exported": 2219520
       },
       {
-        "t": 475.5,
-        "rssMb": 197.8,
-        "heapUsedMb": 67.8,
+        "t": 301,
+        "rssMb": 222.4,
+        "heapUsedMb": 24,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2137600
+        "exported": 2256896
       },
       {
-        "t": 480.5,
-        "rssMb": 206.3,
-        "heapUsedMb": 39.6,
+        "t": 306,
+        "rssMb": 222.4,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2160128
+        "exported": 2294784
       },
       {
-        "t": 485.5,
-        "rssMb": 206.3,
-        "heapUsedMb": 63.3,
+        "t": 311,
+        "rssMb": 214.3,
+        "heapUsedMb": 23.8,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2183168
+        "exported": 2332160
       },
       {
-        "t": 490.5,
-        "rssMb": 201.8,
-        "heapUsedMb": 26.3,
+        "t": 316,
+        "rssMb": 214.3,
+        "heapUsedMb": 24,
+        "externalMb": 5.7,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2205696
+        "exported": 2369536
       },
       {
-        "t": 495.5,
-        "rssMb": 201.8,
-        "heapUsedMb": 42.9,
+        "t": 321,
+        "rssMb": 212.5,
+        "heapUsedMb": 24,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2227712
+        "exported": 2406912
       },
       {
-        "t": 500.5,
-        "rssMb": 201.8,
-        "heapUsedMb": 61,
+        "t": 326,
+        "rssMb": 210.9,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2250240
+        "exported": 2444800
       },
       {
-        "t": 505.5,
-        "rssMb": 187.3,
-        "heapUsedMb": 32.2,
+        "t": 331,
+        "rssMb": 220.9,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2273280
+        "exported": 2482176
       },
       {
-        "t": 510.5,
-        "rssMb": 181,
-        "heapUsedMb": 34.7,
+        "t": 336,
+        "rssMb": 220.9,
+        "heapUsedMb": 24,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2295808
+        "exported": 2519552
       },
       {
-        "t": 515.5,
-        "rssMb": 200.2,
-        "heapUsedMb": 78.8,
+        "t": 341.1,
+        "rssMb": 219.3,
+        "heapUsedMb": 24,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2318336
+        "exported": 2556928
       },
       {
-        "t": 520.5,
-        "rssMb": 214.5,
-        "heapUsedMb": 42,
+        "t": 346.1,
+        "rssMb": 219.5,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2341376
+        "exported": 2594816
       },
       {
-        "t": 525.5,
-        "rssMb": 214.5,
-        "heapUsedMb": 49.8,
+        "t": 351.1,
+        "rssMb": 220.9,
+        "heapUsedMb": 23.8,
+        "externalMb": 5.9,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2362880
+        "exported": 2632192
       },
       {
-        "t": 530.6,
-        "rssMb": 214.5,
-        "heapUsedMb": 41.9,
+        "t": 356.1,
+        "rssMb": 221,
+        "heapUsedMb": 24,
+        "externalMb": 5,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2385920
+        "exported": 2669568
       },
       {
-        "t": 535.6,
-        "rssMb": 191.6,
-        "heapUsedMb": 53.1,
+        "t": 361.1,
+        "rssMb": 221,
+        "heapUsedMb": 24,
+        "externalMb": 5.2,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2407936
+        "exported": 2706944
       },
       {
-        "t": 540.6,
-        "rssMb": 197.2,
-        "heapUsedMb": 56.1,
+        "t": 366.1,
+        "rssMb": 210,
+        "heapUsedMb": 23.6,
+        "externalMb": 5.9,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2430464
+        "exported": 2744832
       },
       {
-        "t": 545.6,
-        "rssMb": 197.2,
-        "heapUsedMb": 41.9,
+        "t": 371.1,
+        "rssMb": 214.2,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.5,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2452480
+        "exported": 2782208
       },
       {
-        "t": 550.6,
-        "rssMb": 195.8,
-        "heapUsedMb": 61.9,
+        "t": 376.2,
+        "rssMb": 214.2,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2475520
+        "exported": 2819584
       },
       {
-        "t": 555.6,
-        "rssMb": 197.5,
-        "heapUsedMb": 39.4,
+        "t": 381.2,
+        "rssMb": 214.4,
+        "heapUsedMb": 24,
+        "externalMb": 4.9,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2497536
+        "exported": 2856960
       },
       {
-        "t": 560.6,
-        "rssMb": 197.5,
-        "heapUsedMb": 34.8,
+        "t": 386.2,
+        "rssMb": 214.4,
+        "heapUsedMb": 24,
+        "externalMb": 5,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2520576
+        "exported": 2894336
       },
       {
-        "t": 565.6,
-        "rssMb": 197.5,
-        "heapUsedMb": 34.7,
+        "t": 391.2,
+        "rssMb": 212.7,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.8,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2542592
+        "exported": 2932224
       },
       {
-        "t": 570.6,
-        "rssMb": 187.5,
-        "heapUsedMb": 65.7,
+        "t": 396.2,
+        "rssMb": 211.7,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.3,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2565120
+        "exported": 2969600
       },
       {
-        "t": 575.6,
-        "rssMb": 193.3,
-        "heapUsedMb": 59.1,
+        "t": 401.2,
+        "rssMb": 213.2,
+        "heapUsedMb": 24,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2587648
+        "exported": 3006976
       },
       {
-        "t": 580.6,
-        "rssMb": 193.3,
-        "heapUsedMb": 36.6,
+        "t": 406.2,
+        "rssMb": 213.2,
+        "heapUsedMb": 24,
+        "externalMb": 5.6,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2610176
+        "exported": 3044352
       },
       {
-        "t": 585.6,
-        "rssMb": 194.2,
-        "heapUsedMb": 37.8,
+        "t": 411.2,
+        "rssMb": 215.4,
+        "heapUsedMb": 23.7,
+        "externalMb": 6.1,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2632704
+        "exported": 3082240
       },
       {
-        "t": 590.6,
-        "rssMb": 194.3,
-        "heapUsedMb": 54.4,
+        "t": 416.3,
+        "rssMb": 221,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.9,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2654720
+        "exported": 3119616
       },
       {
-        "t": 595.6,
-        "rssMb": 194.3,
-        "heapUsedMb": 44.1,
+        "t": 421.3,
+        "rssMb": 221.3,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.9,
         "dropped": 0,
         "exportFailed": 0,
-        "exported": 2677760
+        "exported": 3156992
+      },
+      {
+        "t": 426.3,
+        "rssMb": 221.6,
+        "heapUsedMb": 24,
+        "externalMb": 5.5,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3194368
+      },
+      {
+        "t": 431.3,
+        "rssMb": 222.7,
+        "heapUsedMb": 23.7,
+        "externalMb": 6.2,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3232256
+      },
+      {
+        "t": 436.3,
+        "rssMb": 222.8,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.3,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3269632
+      },
+      {
+        "t": 441.3,
+        "rssMb": 222.8,
+        "heapUsedMb": 23.9,
+        "externalMb": 5,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3307008
+      },
+      {
+        "t": 446.4,
+        "rssMb": 221.8,
+        "heapUsedMb": 24,
+        "externalMb": 5,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3344384
+      },
+      {
+        "t": 451.4,
+        "rssMb": 221.8,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.9,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3382272
+      },
+      {
+        "t": 456.4,
+        "rssMb": 220.6,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.3,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3419648
+      },
+      {
+        "t": 461.4,
+        "rssMb": 222.3,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.2,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3457024
+      },
+      {
+        "t": 466.4,
+        "rssMb": 222.3,
+        "heapUsedMb": 24,
+        "externalMb": 5.6,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3494400
+      },
+      {
+        "t": 471.4,
+        "rssMb": 220.1,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.6,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3532288
+      },
+      {
+        "t": 476.4,
+        "rssMb": 221.4,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.2,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3569664
+      },
+      {
+        "t": 481.5,
+        "rssMb": 221.4,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.2,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3607040
+      },
+      {
+        "t": 486.5,
+        "rssMb": 223.4,
+        "heapUsedMb": 24,
+        "externalMb": 5.6,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3644416
+      },
+      {
+        "t": 491.5,
+        "rssMb": 223.6,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.3,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3682304
+      },
+      {
+        "t": 496.5,
+        "rssMb": 223.4,
+        "heapUsedMb": 23.8,
+        "externalMb": 5.6,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3719680
+      },
+      {
+        "t": 501.5,
+        "rssMb": 224.9,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.3,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3757056
+      },
+      {
+        "t": 506.5,
+        "rssMb": 225.3,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.3,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3794432
+      },
+      {
+        "t": 511.5,
+        "rssMb": 225.3,
+        "heapUsedMb": 23.7,
+        "externalMb": 5.3,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3832320
+      },
+      {
+        "t": 516.6,
+        "rssMb": 223.3,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.3,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3869696
+      },
+      {
+        "t": 521.6,
+        "rssMb": 224.1,
+        "heapUsedMb": 23.9,
+        "externalMb": 5,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3907072
+      },
+      {
+        "t": 526.6,
+        "rssMb": 224.1,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.3,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3944448
+      },
+      {
+        "t": 531.6,
+        "rssMb": 224.1,
+        "heapUsedMb": 23.7,
+        "externalMb": 4.9,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 3982336
+      },
+      {
+        "t": 536.6,
+        "rssMb": 224.2,
+        "heapUsedMb": 24.4,
+        "externalMb": 5.3,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 4019712
+      },
+      {
+        "t": 541.6,
+        "rssMb": 224.2,
+        "heapUsedMb": 24.5,
+        "externalMb": 6.1,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 4057600
+      },
+      {
+        "t": 546.7,
+        "rssMb": 224.2,
+        "heapUsedMb": 23.8,
+        "externalMb": 5,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 4095488
+      },
+      {
+        "t": 551.7,
+        "rssMb": 215.8,
+        "heapUsedMb": 24,
+        "externalMb": 4.7,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 4133376
+      },
+      {
+        "t": 556.7,
+        "rssMb": 216.3,
+        "heapUsedMb": 24.6,
+        "externalMb": 5.6,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 4171264
+      },
+      {
+        "t": 561.7,
+        "rssMb": 217.1,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.6,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 4209152
+      },
+      {
+        "t": 566.7,
+        "rssMb": 211.3,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.3,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 4247040
+      },
+      {
+        "t": 571.7,
+        "rssMb": 214.9,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.3,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 4284928
+      },
+      {
+        "t": 576.7,
+        "rssMb": 225.6,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.5,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 4322304
+      },
+      {
+        "t": 581.7,
+        "rssMb": 225.5,
+        "heapUsedMb": 24.6,
+        "externalMb": 5.9,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 4359680
+      },
+      {
+        "t": 586.7,
+        "rssMb": 226.3,
+        "heapUsedMb": 23.9,
+        "externalMb": 5.3,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 4397568
+      },
+      {
+        "t": 591.8,
+        "rssMb": 215.1,
+        "heapUsedMb": 24,
+        "externalMb": 5.3,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 4435968
+      },
+      {
+        "t": 596.8,
+        "rssMb": 213.1,
+        "heapUsedMb": 24.5,
+        "externalMb": 5.3,
+        "dropped": 0,
+        "exportFailed": 0,
+        "exported": 4472832
       }
     ]
   },
@@ -1045,2014 +1212,2351 @@
     "unreachable": {
       "config": "unreachable",
       "result": {
-        "requests": 1800000,
-        "requestsPerSec": 2996.9,
-        "seconds": 600.62,
+        "requests": 1800006,
+        "requestsPerSec": 2996.6,
+        "seconds": 600.68,
         "latencyMs": {
-          "mean": 2.087,
-          "p50": 1.83,
-          "p90": 3.04,
-          "p99": 5.75,
-          "p999": 10.64,
-          "max": 93.405
+          "mean": 3.591,
+          "p50": 3.17,
+          "p90": 5.14,
+          "p99": 9.12,
+          "p999": 15.23,
+          "max": 162.948
         },
         "errors": 0,
         "timeouts": 0,
         "non2xx": 0
       },
       "counters": {
-        "droppedSpans": 1262816,
+        "droppedSpans": 4460138,
         "exportedSpans": 0,
-        "exportFailedSpans": 1422336,
+        "exportFailedSpans": 37376,
         "redactDroppedSpans": 0,
         "redactFailedSpans": 0
       },
+      "clientConnections": {
+        "created": 369,
+        "inFlight": 0,
+        "maxInFlight": 2
+      },
       "rss": {
         "settleSeconds": 60,
-        "atSettleMb": 233.8,
-        "peakAfterSettleMb": 299.8,
-        "finalMb": 296.1,
-        "peakGrowthMb": 66,
-        "finalGrowthMb": 62.3,
-        "maxOverallMb": 299.8
+        "atSettleMb": 202.3,
+        "peakAfterSettleMb": 219.4,
+        "finalMb": 210.8,
+        "peakGrowthMb": 17.1,
+        "finalGrowthMb": 8.5,
+        "maxOverallMb": 231.4
+      },
+      "trend": {
+        "rss": {
+          "slopeMbPerMin": 0.67,
+          "lastThirdMinusFirstThirdMb": 3.5
+        },
+        "heapUsed": {
+          "slopeMbPerMin": 0.01,
+          "lastThirdMinusFirstThirdMb": 0.1
+        },
+        "external": {
+          "slopeMbPerMin": 0.01,
+          "lastThirdMinusFirstThirdMb": 0
+        },
+        "heapAfterGc": true
+      },
+      "medians": {
+        "heapAfterGcMb": 26.2,
+        "rssMb": 206.9
       },
       "samples": [
         {
           "t": 0,
-          "rssMb": 122.5,
-          "heapUsedMb": 25.7,
+          "rssMb": 124.9,
+          "heapUsedMb": 22,
+          "externalMb": 4.7,
           "dropped": 0,
           "exportFailed": 0,
           "exported": 0
         },
         {
           "t": 5,
-          "rssMb": 193.2,
-          "heapUsedMb": 60.6,
-          "dropped": 20048,
+          "rssMb": 230.7,
+          "heapUsedMb": 27.6,
+          "externalMb": 5.1,
+          "dropped": 34925,
           "exportFailed": 0,
           "exported": 0
         },
         {
           "t": 10,
-          "rssMb": 194.3,
-          "heapUsedMb": 43.6,
-          "dropped": 41617,
+          "rssMb": 231.4,
+          "heapUsedMb": 27.7,
+          "externalMb": 5.3,
+          "dropped": 72339,
           "exportFailed": 512,
           "exported": 0
         },
         {
-          "t": 15,
-          "rssMb": 190,
-          "heapUsedMb": 53.6,
-          "dropped": 64585,
+          "t": 15.1,
+          "rssMb": 205,
+          "heapUsedMb": 25.8,
+          "externalMb": 5,
+          "dropped": 110211,
           "exportFailed": 512,
           "exported": 0
         },
         {
-          "t": 20,
-          "rssMb": 200.2,
-          "heapUsedMb": 60.7,
-          "dropped": 85444,
+          "t": 20.1,
+          "rssMb": 205.8,
+          "heapUsedMb": 25.9,
+          "externalMb": 5,
+          "dropped": 147640,
+          "exportFailed": 1024,
+          "exported": 0
+        },
+        {
+          "t": 25.1,
+          "rssMb": 202.8,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 185340,
+          "exportFailed": 1024,
+          "exported": 0
+        },
+        {
+          "t": 30.1,
+          "rssMb": 204.5,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 223137,
           "exportFailed": 1536,
           "exported": 0
         },
         {
-          "t": 25,
-          "rssMb": 207.4,
-          "heapUsedMb": 65.4,
-          "dropped": 107764,
-          "exportFailed": 1536,
-          "exported": 0
-        },
-        {
-          "t": 30,
-          "rssMb": 219.6,
-          "heapUsedMb": 75.5,
-          "dropped": 126943,
-          "exportFailed": 3072,
-          "exported": 0
-        },
-        {
-          "t": 35,
-          "rssMb": 231.7,
-          "heapUsedMb": 94.6,
-          "dropped": 146640,
-          "exportFailed": 5120,
+          "t": 35.1,
+          "rssMb": 205.3,
+          "heapUsedMb": 26,
+          "externalMb": 5.3,
+          "dropped": 259527,
+          "exportFailed": 2048,
           "exported": 0
         },
         {
           "t": 40.1,
-          "rssMb": 243.2,
-          "heapUsedMb": 99.9,
-          "dropped": 166688,
-          "exportFailed": 6656,
+          "rssMb": 204.5,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 298407,
+          "exportFailed": 2048,
           "exported": 0
         },
         {
           "t": 45.1,
-          "rssMb": 256.7,
-          "heapUsedMb": 59.5,
-          "dropped": 182395,
-          "exportFailed": 11264,
+          "rssMb": 206.7,
+          "heapUsedMb": 26.1,
+          "externalMb": 5,
+          "dropped": 334830,
+          "exportFailed": 2560,
           "exported": 0
         },
         {
           "t": 50.1,
-          "rssMb": 231.9,
-          "heapUsedMb": 72.5,
-          "dropped": 202304,
+          "rssMb": 205.3,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 372402,
+          "exportFailed": 2560,
+          "exported": 0
+        },
+        {
+          "t": 55.2,
+          "rssMb": 206,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 409401,
+          "exportFailed": 3072,
+          "exported": 0
+        },
+        {
+          "t": 60.2,
+          "rssMb": 202.3,
+          "heapUsedMb": 26.1,
+          "externalMb": 4.9,
+          "dropped": 447712,
+          "exportFailed": 3072,
+          "exported": 0
+        },
+        {
+          "t": 65.2,
+          "rssMb": 203.7,
+          "heapUsedMb": 26.1,
+          "externalMb": 4.9,
+          "dropped": 484608,
+          "exportFailed": 3584,
+          "exported": 0
+        },
+        {
+          "t": 70.2,
+          "rssMb": 205.8,
+          "heapUsedMb": 26.1,
+          "externalMb": 5,
+          "dropped": 522104,
+          "exportFailed": 4096,
+          "exported": 0
+        },
+        {
+          "t": 75.2,
+          "rssMb": 205.5,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 560107,
+          "exportFailed": 4096,
+          "exported": 0
+        },
+        {
+          "t": 80.2,
+          "rssMb": 206,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 597365,
+          "exportFailed": 4608,
+          "exported": 0
+        },
+        {
+          "t": 85.2,
+          "rssMb": 203.5,
+          "heapUsedMb": 26.1,
+          "externalMb": 5.3,
+          "dropped": 634409,
+          "exportFailed": 5120,
+          "exported": 0
+        },
+        {
+          "t": 90.2,
+          "rssMb": 205.2,
+          "heapUsedMb": 26.1,
+          "externalMb": 5,
+          "dropped": 671984,
+          "exportFailed": 5120,
+          "exported": 0
+        },
+        {
+          "t": 95.2,
+          "rssMb": 206.3,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 708969,
+          "exportFailed": 5632,
+          "exported": 0
+        },
+        {
+          "t": 100.2,
+          "rssMb": 205.9,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 746268,
+          "exportFailed": 6144,
+          "exported": 0
+        },
+        {
+          "t": 105.3,
+          "rssMb": 206.2,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 783908,
+          "exportFailed": 6144,
+          "exported": 0
+        },
+        {
+          "t": 110.3,
+          "rssMb": 203.5,
+          "heapUsedMb": 26.1,
+          "externalMb": 5,
+          "dropped": 821233,
+          "exportFailed": 6656,
+          "exported": 0
+        },
+        {
+          "t": 115.3,
+          "rssMb": 204.8,
+          "heapUsedMb": 26.1,
+          "externalMb": 4.9,
+          "dropped": 859069,
+          "exportFailed": 6656,
+          "exported": 0
+        },
+        {
+          "t": 120.3,
+          "rssMb": 204.6,
+          "heapUsedMb": 25.7,
+          "externalMb": 5,
+          "dropped": 896608,
+          "exportFailed": 7168,
+          "exported": 0
+        },
+        {
+          "t": 125.3,
+          "rssMb": 205.5,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 933793,
+          "exportFailed": 7680,
+          "exported": 0
+        },
+        {
+          "t": 130.3,
+          "rssMb": 207.3,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 971683,
+          "exportFailed": 7680,
+          "exported": 0
+        },
+        {
+          "t": 135.3,
+          "rssMb": 204.8,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 1008726,
+          "exportFailed": 8192,
+          "exported": 0
+        },
+        {
+          "t": 140.3,
+          "rssMb": 206.1,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 1045662,
+          "exportFailed": 8704,
+          "exported": 0
+        },
+        {
+          "t": 145.3,
+          "rssMb": 205.7,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 1083462,
+          "exportFailed": 8704,
+          "exported": 0
+        },
+        {
+          "t": 150.3,
+          "rssMb": 207.6,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 1120517,
+          "exportFailed": 9216,
+          "exported": 0
+        },
+        {
+          "t": 155.4,
+          "rssMb": 207.4,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 1158131,
+          "exportFailed": 9216,
+          "exported": 0
+        },
+        {
+          "t": 160.4,
+          "rssMb": 206.1,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 1195105,
+          "exportFailed": 9728,
+          "exported": 0
+        },
+        {
+          "t": 165.4,
+          "rssMb": 206.4,
+          "heapUsedMb": 26.2,
+          "externalMb": 5.3,
+          "dropped": 1232033,
+          "exportFailed": 10240,
+          "exported": 0
+        },
+        {
+          "t": 170.4,
+          "rssMb": 203.4,
+          "heapUsedMb": 26.1,
+          "externalMb": 5,
+          "dropped": 1269593,
+          "exportFailed": 10240,
+          "exported": 0
+        },
+        {
+          "t": 175.4,
+          "rssMb": 206,
+          "heapUsedMb": 26.1,
+          "externalMb": 4.9,
+          "dropped": 1306689,
+          "exportFailed": 10752,
+          "exported": 0
+        },
+        {
+          "t": 180.4,
+          "rssMb": 205.2,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 1344081,
+          "exportFailed": 10752,
+          "exported": 0
+        },
+        {
+          "t": 185.4,
+          "rssMb": 206.8,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 1381009,
+          "exportFailed": 11264,
+          "exported": 0
+        },
+        {
+          "t": 190.4,
+          "rssMb": 207.3,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 1418057,
+          "exportFailed": 11776,
+          "exported": 0
+        },
+        {
+          "t": 195.4,
+          "rssMb": 205.7,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 1455665,
+          "exportFailed": 11776,
+          "exported": 0
+        },
+        {
+          "t": 200.4,
+          "rssMb": 206,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 1492545,
+          "exportFailed": 12288,
+          "exported": 0
+        },
+        {
+          "t": 205.4,
+          "rssMb": 208.8,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 1529985,
+          "exportFailed": 12288,
+          "exported": 0
+        },
+        {
+          "t": 210.4,
+          "rssMb": 209,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 1567033,
+          "exportFailed": 12800,
+          "exported": 0
+        },
+        {
+          "t": 215.5,
+          "rssMb": 208.8,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 1604129,
+          "exportFailed": 13312,
+          "exported": 0
+        },
+        {
+          "t": 220.5,
+          "rssMb": 208.4,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 1641521,
+          "exportFailed": 13312,
+          "exported": 0
+        },
+        {
+          "t": 225.5,
+          "rssMb": 209,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 1677501,
           "exportFailed": 13824,
           "exported": 0
         },
         {
-          "t": 55.1,
-          "rssMb": 232.8,
-          "heapUsedMb": 63.8,
-          "dropped": 217017,
+          "t": 230.5,
+          "rssMb": 206.3,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 1715497,
+          "exportFailed": 14336,
+          "exported": 0
+        },
+        {
+          "t": 235.5,
+          "rssMb": 206.7,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 1753105,
+          "exportFailed": 14336,
+          "exported": 0
+        },
+        {
+          "t": 240.5,
+          "rssMb": 204.4,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 1789985,
+          "exportFailed": 14848,
+          "exported": 0
+        },
+        {
+          "t": 245.5,
+          "rssMb": 204.5,
+          "heapUsedMb": 26.1,
+          "externalMb": 5,
+          "dropped": 1827425,
+          "exportFailed": 14848,
+          "exported": 0
+        },
+        {
+          "t": 250.5,
+          "rssMb": 207.4,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 1864473,
+          "exportFailed": 15360,
+          "exported": 0
+        },
+        {
+          "t": 255.5,
+          "rssMb": 205.9,
+          "heapUsedMb": 26.1,
+          "externalMb": 5,
+          "dropped": 1901569,
+          "exportFailed": 15872,
+          "exported": 0
+        },
+        {
+          "t": 260.5,
+          "rssMb": 206.2,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 1938961,
+          "exportFailed": 15872,
+          "exported": 0
+        },
+        {
+          "t": 265.6,
+          "rssMb": 206,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 1975889,
+          "exportFailed": 16384,
+          "exported": 0
+        },
+        {
+          "t": 270.6,
+          "rssMb": 206.4,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 2012937,
+          "exportFailed": 16896,
+          "exported": 0
+        },
+        {
+          "t": 275.6,
+          "rssMb": 206.4,
+          "heapUsedMb": 26.1,
+          "externalMb": 5,
+          "dropped": 2050545,
+          "exportFailed": 16896,
+          "exported": 0
+        },
+        {
+          "t": 280.6,
+          "rssMb": 206.6,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 2087425,
+          "exportFailed": 17408,
+          "exported": 0
+        },
+        {
+          "t": 285.6,
+          "rssMb": 207,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 2124353,
+          "exportFailed": 17920,
+          "exported": 0
+        },
+        {
+          "t": 290.6,
+          "rssMb": 206.3,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 2161913,
+          "exportFailed": 17920,
+          "exported": 0
+        },
+        {
+          "t": 295.6,
+          "rssMb": 207.2,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 2199009,
           "exportFailed": 18432,
           "exported": 0
         },
         {
-          "t": 60.1,
-          "rssMb": 233.8,
-          "heapUsedMb": 48.9,
-          "dropped": 232624,
+          "t": 300.6,
+          "rssMb": 206.8,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 2236401,
+          "exportFailed": 18432,
+          "exported": 0
+        },
+        {
+          "t": 305.6,
+          "rssMb": 207.4,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 2273329,
+          "exportFailed": 18944,
+          "exported": 0
+        },
+        {
+          "t": 310.6,
+          "rssMb": 207.8,
+          "heapUsedMb": 26.3,
+          "externalMb": 4.9,
+          "dropped": 2310377,
+          "exportFailed": 19456,
+          "exported": 0
+        },
+        {
+          "t": 315.6,
+          "rssMb": 204.5,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 2347985,
+          "exportFailed": 19456,
+          "exported": 0
+        },
+        {
+          "t": 320.7,
+          "rssMb": 205.3,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 2384865,
+          "exportFailed": 19968,
+          "exported": 0
+        },
+        {
+          "t": 325.7,
+          "rssMb": 203.6,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 2422305,
+          "exportFailed": 19968,
+          "exported": 0
+        },
+        {
+          "t": 330.7,
+          "rssMb": 207.7,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 2459353,
+          "exportFailed": 20480,
+          "exported": 0
+        },
+        {
+          "t": 335.7,
+          "rssMb": 207.9,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 2496449,
+          "exportFailed": 20992,
+          "exported": 0
+        },
+        {
+          "t": 340.7,
+          "rssMb": 206.4,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 2533841,
+          "exportFailed": 20992,
+          "exported": 0
+        },
+        {
+          "t": 345.7,
+          "rssMb": 206.8,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 2570769,
+          "exportFailed": 21504,
+          "exported": 0
+        },
+        {
+          "t": 350.7,
+          "rssMb": 206.9,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 2607817,
+          "exportFailed": 22016,
+          "exported": 0
+        },
+        {
+          "t": 355.7,
+          "rssMb": 206.8,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 2645425,
+          "exportFailed": 22016,
+          "exported": 0
+        },
+        {
+          "t": 360.7,
+          "rssMb": 204.3,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 2682305,
+          "exportFailed": 22528,
+          "exported": 0
+        },
+        {
+          "t": 365.7,
+          "rssMb": 207.8,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 2719745,
+          "exportFailed": 22528,
+          "exported": 0
+        },
+        {
+          "t": 370.8,
+          "rssMb": 208.7,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 2756793,
+          "exportFailed": 23040,
+          "exported": 0
+        },
+        {
+          "t": 375.8,
+          "rssMb": 206.5,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 2793889,
+          "exportFailed": 23552,
+          "exported": 0
+        },
+        {
+          "t": 380.8,
+          "rssMb": 207.8,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 2831281,
+          "exportFailed": 23552,
+          "exported": 0
+        },
+        {
+          "t": 385.8,
+          "rssMb": 206.9,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 2868209,
+          "exportFailed": 24064,
+          "exported": 0
+        },
+        {
+          "t": 390.8,
+          "rssMb": 207.3,
+          "heapUsedMb": 26.2,
+          "externalMb": 5.3,
+          "dropped": 2905257,
+          "exportFailed": 24576,
+          "exported": 0
+        },
+        {
+          "t": 395.8,
+          "rssMb": 207.3,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 2942865,
+          "exportFailed": 24576,
+          "exported": 0
+        },
+        {
+          "t": 400.8,
+          "rssMb": 205,
+          "heapUsedMb": 26.2,
+          "externalMb": 5.3,
+          "dropped": 2979745,
+          "exportFailed": 25088,
+          "exported": 0
+        },
+        {
+          "t": 405.9,
+          "rssMb": 209,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 3017185,
+          "exportFailed": 25088,
+          "exported": 0
+        },
+        {
+          "t": 410.9,
+          "rssMb": 211.3,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 3054233,
+          "exportFailed": 25600,
+          "exported": 0
+        },
+        {
+          "t": 415.9,
+          "rssMb": 212.4,
+          "heapUsedMb": 26.3,
+          "externalMb": 5.3,
+          "dropped": 3091329,
+          "exportFailed": 26112,
+          "exported": 0
+        },
+        {
+          "t": 420.9,
+          "rssMb": 208.6,
+          "heapUsedMb": 26.3,
+          "externalMb": 5,
+          "dropped": 3128721,
+          "exportFailed": 26112,
+          "exported": 0
+        },
+        {
+          "t": 425.9,
+          "rssMb": 209,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 3165649,
+          "exportFailed": 26624,
+          "exported": 0
+        },
+        {
+          "t": 431,
+          "rssMb": 209,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 3203209,
+          "exportFailed": 26624,
+          "exported": 0
+        },
+        {
+          "t": 436,
+          "rssMb": 206.5,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 3240305,
+          "exportFailed": 27136,
+          "exported": 0
+        },
+        {
+          "t": 441,
+          "rssMb": 207.1,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 3277185,
           "exportFailed": 27648,
           "exported": 0
         },
         {
-          "t": 65.1,
-          "rssMb": 210.2,
-          "heapUsedMb": 48.6,
-          "dropped": 249896,
+          "t": 446,
+          "rssMb": 208.5,
+          "heapUsedMb": 26.3,
+          "externalMb": 5,
+          "dropped": 3314625,
+          "exportFailed": 27648,
+          "exported": 0
+        },
+        {
+          "t": 451,
+          "rssMb": 209.1,
+          "heapUsedMb": 26.3,
+          "externalMb": 5,
+          "dropped": 3351673,
+          "exportFailed": 28160,
+          "exported": 0
+        },
+        {
+          "t": 456,
+          "rssMb": 209.1,
+          "heapUsedMb": 26.3,
+          "externalMb": 5,
+          "dropped": 3389281,
+          "exportFailed": 28160,
+          "exported": 0
+        },
+        {
+          "t": 461.1,
+          "rssMb": 207.1,
+          "heapUsedMb": 26.3,
+          "externalMb": 4.9,
+          "dropped": 3426161,
+          "exportFailed": 28672,
+          "exported": 0
+        },
+        {
+          "t": 466.1,
+          "rssMb": 207.3,
+          "heapUsedMb": 26.3,
+          "externalMb": 5,
+          "dropped": 3463089,
+          "exportFailed": 29184,
+          "exported": 0
+        },
+        {
+          "t": 471.1,
+          "rssMb": 205.3,
+          "heapUsedMb": 26.3,
+          "externalMb": 5,
+          "dropped": 3500649,
+          "exportFailed": 29184,
+          "exported": 0
+        },
+        {
+          "t": 476.1,
+          "rssMb": 206.1,
+          "heapUsedMb": 26.3,
+          "externalMb": 5.3,
+          "dropped": 3537745,
           "exportFailed": 29696,
           "exported": 0
         },
         {
-          "t": 70.1,
-          "rssMb": 212.8,
-          "heapUsedMb": 67.2,
-          "dropped": 261072,
-          "exportFailed": 39424,
+          "t": 481.1,
+          "rssMb": 204.6,
+          "heapUsedMb": 26.3,
+          "externalMb": 5,
+          "dropped": 3575137,
+          "exportFailed": 29696,
           "exported": 0
         },
         {
-          "t": 75.1,
-          "rssMb": 214.3,
-          "heapUsedMb": 56,
-          "dropped": 275952,
-          "exportFailed": 46592,
+          "t": 486.2,
+          "rssMb": 210.7,
+          "heapUsedMb": 26.3,
+          "externalMb": 5,
+          "dropped": 3612065,
+          "exportFailed": 30208,
           "exported": 0
         },
         {
-          "t": 80.1,
-          "rssMb": 220.6,
-          "heapUsedMb": 81.1,
-          "dropped": 283200,
-          "exportFailed": 62464,
+          "t": 491.2,
+          "rssMb": 213.4,
+          "heapUsedMb": 26.2,
+          "externalMb": 5.3,
+          "dropped": 3649113,
+          "exportFailed": 30720,
           "exported": 0
         },
         {
-          "t": 85.1,
-          "rssMb": 245.5,
-          "heapUsedMb": 96.6,
-          "dropped": 292792,
-          "exportFailed": 74752,
+          "t": 496.2,
+          "rssMb": 214.6,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 3686721,
+          "exportFailed": 30720,
           "exported": 0
         },
         {
-          "t": 90.1,
-          "rssMb": 262.9,
-          "heapUsedMb": 50.2,
-          "dropped": 301920,
-          "exportFailed": 88576,
+          "t": 501.2,
+          "rssMb": 215,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 3723601,
+          "exportFailed": 31232,
           "exported": 0
         },
         {
-          "t": 95.1,
-          "rssMb": 263.6,
-          "heapUsedMb": 68.9,
-          "dropped": 309120,
-          "exportFailed": 102912,
+          "t": 506.2,
+          "rssMb": 206.7,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 3761041,
+          "exportFailed": 31232,
           "exported": 0
         },
         {
-          "t": 100.1,
-          "rssMb": 226.8,
-          "heapUsedMb": 70.4,
-          "dropped": 318416,
-          "exportFailed": 116736,
+          "t": 511.2,
+          "rssMb": 207.3,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 3798089,
+          "exportFailed": 31744,
           "exported": 0
         },
         {
-          "t": 105.1,
-          "rssMb": 232.1,
-          "heapUsedMb": 66.2,
-          "dropped": 327217,
-          "exportFailed": 129536,
+          "t": 516.3,
+          "rssMb": 207.1,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 3835185,
+          "exportFailed": 32256,
           "exported": 0
         },
         {
-          "t": 110.1,
-          "rssMb": 220.1,
-          "heapUsedMb": 55.4,
-          "dropped": 334232,
-          "exportFailed": 146432,
+          "t": 521.3,
+          "rssMb": 207.4,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 3872577,
+          "exportFailed": 32256,
           "exported": 0
         },
         {
-          "t": 115.1,
-          "rssMb": 230.7,
-          "heapUsedMb": 87,
-          "dropped": 342800,
-          "exportFailed": 161280,
+          "t": 526.3,
+          "rssMb": 207.5,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 3909505,
+          "exportFailed": 32768,
           "exported": 0
         },
         {
-          "t": 120.2,
-          "rssMb": 231.1,
-          "heapUsedMb": 60.1,
-          "dropped": 355168,
-          "exportFailed": 170496,
+          "t": 531.3,
+          "rssMb": 207.3,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 3946553,
+          "exportFailed": 33280,
           "exported": 0
         },
         {
-          "t": 125.2,
-          "rssMb": 233.3,
-          "heapUsedMb": 68.2,
-          "dropped": 364760,
-          "exportFailed": 183808,
+          "t": 536.3,
+          "rssMb": 207.7,
+          "heapUsedMb": 26.3,
+          "externalMb": 4.9,
+          "dropped": 3984161,
+          "exportFailed": 33280,
           "exported": 0
         },
         {
-          "t": 130.2,
-          "rssMb": 241.2,
-          "heapUsedMb": 73.2,
-          "dropped": 373032,
-          "exportFailed": 197120,
+          "t": 541.4,
+          "rssMb": 209,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 4021041,
+          "exportFailed": 33792,
           "exported": 0
         },
         {
-          "t": 135.2,
-          "rssMb": 226.3,
-          "heapUsedMb": 47.5,
-          "dropped": 381600,
-          "exportFailed": 211968,
+          "t": 546.4,
+          "rssMb": 209.3,
+          "heapUsedMb": 25.7,
+          "externalMb": 5.3,
+          "dropped": 4058481,
+          "exportFailed": 34304,
           "exported": 0
         },
         {
-          "t": 140.2,
-          "rssMb": 226.6,
-          "heapUsedMb": 51,
-          "dropped": 392432,
-          "exportFailed": 225280,
+          "t": 551.4,
+          "rssMb": 209.3,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 4095529,
+          "exportFailed": 34304,
           "exported": 0
         },
         {
-          "t": 145.2,
-          "rssMb": 225.7,
-          "heapUsedMb": 76.9,
-          "dropped": 403560,
-          "exportFailed": 234496,
+          "t": 556.4,
+          "rssMb": 206.9,
+          "heapUsedMb": 26.2,
+          "externalMb": 5.3,
+          "dropped": 4132625,
+          "exportFailed": 34816,
           "exported": 0
         },
         {
-          "t": 150.2,
-          "rssMb": 230,
-          "heapUsedMb": 57.9,
-          "dropped": 411664,
-          "exportFailed": 249344,
+          "t": 561.4,
+          "rssMb": 206.4,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 4170017,
+          "exportFailed": 34816,
           "exported": 0
         },
         {
-          "t": 155.2,
-          "rssMb": 230,
-          "heapUsedMb": 63.4,
-          "dropped": 418058,
-          "exportFailed": 265216,
+          "t": 566.5,
+          "rssMb": 215.3,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 4206945,
+          "exportFailed": 35328,
           "exported": 0
         },
         {
-          "t": 160.2,
-          "rssMb": 229.5,
-          "heapUsedMb": 67.5,
-          "dropped": 429184,
-          "exportFailed": 278528,
+          "t": 571.5,
+          "rssMb": 219.2,
+          "heapUsedMb": 25.9,
+          "externalMb": 5.2,
+          "dropped": 4244280,
+          "exportFailed": 35840,
           "exported": 0
         },
         {
-          "t": 165.2,
-          "rssMb": 229.5,
-          "heapUsedMb": 77.7,
-          "dropped": 442872,
-          "exportFailed": 284672,
+          "t": 576.5,
+          "rssMb": 219.4,
+          "heapUsedMb": 26.3,
+          "externalMb": 5,
+          "dropped": 4281601,
+          "exportFailed": 35840,
           "exported": 0
         },
         {
-          "t": 170.2,
-          "rssMb": 230,
-          "heapUsedMb": 78.6,
-          "dropped": 451488,
-          "exportFailed": 298496,
+          "t": 581.5,
+          "rssMb": 219.4,
+          "heapUsedMb": 26.3,
+          "externalMb": 4.9,
+          "dropped": 4318481,
+          "exportFailed": 36352,
           "exported": 0
         },
         {
-          "t": 175.2,
-          "rssMb": 240.1,
-          "heapUsedMb": 81.3,
-          "dropped": 460736,
-          "exportFailed": 310784,
+          "t": 586.5,
+          "rssMb": 209.1,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 4355921,
+          "exportFailed": 36352,
           "exported": 0
         },
         {
-          "t": 180.2,
-          "rssMb": 251.3,
-          "heapUsedMb": 82.5,
-          "dropped": 471398,
-          "exportFailed": 325120,
+          "t": 591.6,
+          "rssMb": 209.1,
+          "heapUsedMb": 26.3,
+          "externalMb": 5,
+          "dropped": 4392969,
+          "exportFailed": 36864,
           "exported": 0
         },
         {
-          "t": 185.2,
-          "rssMb": 251.7,
-          "heapUsedMb": 81.6,
-          "dropped": 482696,
-          "exportFailed": 334848,
-          "exported": 0
-        },
-        {
-          "t": 190.2,
-          "rssMb": 249.1,
-          "heapUsedMb": 72.5,
-          "dropped": 493872,
-          "exportFailed": 346112,
-          "exported": 0
-        },
-        {
-          "t": 195.2,
-          "rssMb": 249.1,
-          "heapUsedMb": 88.2,
-          "dropped": 502096,
-          "exportFailed": 361984,
-          "exported": 0
-        },
-        {
-          "t": 200.2,
-          "rssMb": 243.6,
-          "heapUsedMb": 56,
-          "dropped": 514976,
-          "exportFailed": 370176,
-          "exported": 0
-        },
-        {
-          "t": 205.2,
-          "rssMb": 243.6,
-          "heapUsedMb": 57.5,
-          "dropped": 523032,
-          "exportFailed": 385024,
-          "exported": 0
-        },
-        {
-          "t": 210.2,
-          "rssMb": 243.4,
-          "heapUsedMb": 70.1,
-          "dropped": 529600,
-          "exportFailed": 399360,
-          "exported": 0
-        },
-        {
-          "t": 215.2,
-          "rssMb": 236.4,
-          "heapUsedMb": 91.3,
-          "dropped": 545087,
-          "exportFailed": 409088,
-          "exported": 0
-        },
-        {
-          "t": 220.2,
-          "rssMb": 236.5,
-          "heapUsedMb": 52.1,
-          "dropped": 555824,
-          "exportFailed": 418816,
-          "exported": 0
-        },
-        {
-          "t": 225.2,
-          "rssMb": 236.5,
-          "heapUsedMb": 78.4,
-          "dropped": 564904,
-          "exportFailed": 435200,
-          "exported": 0
-        },
-        {
-          "t": 230.3,
-          "rssMb": 233.8,
-          "heapUsedMb": 73.7,
-          "dropped": 578128,
-          "exportFailed": 442880,
-          "exported": 0
-        },
-        {
-          "t": 235.3,
-          "rssMb": 233.9,
-          "heapUsedMb": 76.2,
-          "dropped": 592496,
-          "exportFailed": 452608,
-          "exported": 0
-        },
-        {
-          "t": 240.3,
-          "rssMb": 231.7,
-          "heapUsedMb": 84.1,
-          "dropped": 603439,
-          "exportFailed": 462848,
-          "exported": 0
-        },
-        {
-          "t": 245.3,
-          "rssMb": 231.7,
-          "heapUsedMb": 56.3,
-          "dropped": 615480,
-          "exportFailed": 472576,
-          "exported": 0
-        },
-        {
-          "t": 250.3,
-          "rssMb": 229,
-          "heapUsedMb": 52.6,
-          "dropped": 625632,
-          "exportFailed": 485888,
-          "exported": 0
-        },
-        {
-          "t": 255.3,
-          "rssMb": 229.6,
-          "heapUsedMb": 63.9,
-          "dropped": 631856,
-          "exportFailed": 501760,
-          "exported": 0
-        },
-        {
-          "t": 260.3,
-          "rssMb": 232.2,
-          "heapUsedMb": 91.2,
-          "dropped": 644176,
-          "exportFailed": 512000,
-          "exported": 0
-        },
-        {
-          "t": 265.3,
-          "rssMb": 253.9,
-          "heapUsedMb": 56,
-          "dropped": 651208,
-          "exportFailed": 525824,
-          "exported": 0
-        },
-        {
-          "t": 270.3,
-          "rssMb": 254,
-          "heapUsedMb": 69,
-          "dropped": 659312,
-          "exportFailed": 541696,
-          "exported": 0
-        },
-        {
-          "t": 275.3,
-          "rssMb": 254,
-          "heapUsedMb": 94.7,
-          "dropped": 668560,
-          "exportFailed": 555520,
-          "exported": 0
-        },
-        {
-          "t": 280.3,
-          "rssMb": 251.5,
-          "heapUsedMb": 67.7,
-          "dropped": 679392,
-          "exportFailed": 565760,
-          "exported": 0
-        },
-        {
-          "t": 285.3,
-          "rssMb": 251.5,
-          "heapUsedMb": 82.2,
-          "dropped": 690008,
-          "exportFailed": 577024,
-          "exported": 0
-        },
-        {
-          "t": 290.3,
-          "rssMb": 251.6,
-          "heapUsedMb": 50.6,
-          "dropped": 697600,
-          "exportFailed": 591872,
-          "exported": 0
-        },
-        {
-          "t": 295.3,
-          "rssMb": 251.6,
-          "heapUsedMb": 90.3,
-          "dropped": 706336,
-          "exportFailed": 605696,
-          "exported": 0
-        },
-        {
-          "t": 300.3,
-          "rssMb": 251.6,
-          "heapUsedMb": 59.6,
-          "dropped": 720240,
-          "exportFailed": 615424,
-          "exported": 0
-        },
-        {
-          "t": 305.3,
-          "rssMb": 243.9,
-          "heapUsedMb": 87.4,
-          "dropped": 724712,
-          "exportFailed": 633344,
-          "exported": 0
-        },
-        {
-          "t": 310.3,
-          "rssMb": 253,
-          "heapUsedMb": 92.9,
-          "dropped": 733328,
-          "exportFailed": 647168,
-          "exported": 0
-        },
-        {
-          "t": 315.3,
-          "rssMb": 265.2,
-          "heapUsedMb": 76.3,
-          "dropped": 744112,
-          "exportFailed": 657920,
-          "exported": 0
-        },
-        {
-          "t": 320.4,
-          "rssMb": 265.2,
-          "heapUsedMb": 59.7,
-          "dropped": 752896,
-          "exportFailed": 671744,
-          "exported": 0
-        },
-        {
-          "t": 325.4,
-          "rssMb": 265.2,
-          "heapUsedMb": 89.7,
-          "dropped": 762488,
-          "exportFailed": 684032,
-          "exported": 0
-        },
-        {
-          "t": 330.4,
-          "rssMb": 249.6,
-          "heapUsedMb": 54.6,
-          "dropped": 771784,
-          "exportFailed": 699392,
-          "exported": 0
-        },
-        {
-          "t": 335.4,
-          "rssMb": 249.8,
-          "heapUsedMb": 69.5,
-          "dropped": 781888,
-          "exportFailed": 710144,
-          "exported": 0
-        },
-        {
-          "t": 340.4,
-          "rssMb": 249.8,
-          "heapUsedMb": 76.3,
-          "dropped": 790672,
-          "exportFailed": 723456,
-          "exported": 0
-        },
-        {
-          "t": 345.4,
-          "rssMb": 249.3,
-          "heapUsedMb": 88.4,
-          "dropped": 799240,
-          "exportFailed": 737792,
-          "exported": 0
-        },
-        {
-          "t": 350.4,
-          "rssMb": 265.3,
-          "heapUsedMb": 64.5,
-          "dropped": 804784,
-          "exportFailed": 755200,
-          "exported": 0
-        },
-        {
-          "t": 355.4,
-          "rssMb": 265.7,
-          "heapUsedMb": 74.2,
-          "dropped": 816714,
-          "exportFailed": 764416,
-          "exported": 0
-        },
-        {
-          "t": 360.4,
-          "rssMb": 243.7,
-          "heapUsedMb": 65,
-          "dropped": 824864,
-          "exportFailed": 779264,
-          "exported": 0
-        },
-        {
-          "t": 365.4,
-          "rssMb": 243.8,
-          "heapUsedMb": 92.3,
-          "dropped": 835480,
-          "exportFailed": 792064,
-          "exported": 0
-        },
-        {
-          "t": 370.4,
-          "rssMb": 255.9,
-          "heapUsedMb": 96,
-          "dropped": 844096,
-          "exportFailed": 806912,
-          "exported": 0
-        },
-        {
-          "t": 375.4,
-          "rssMb": 271.2,
-          "heapUsedMb": 71.6,
-          "dropped": 856720,
-          "exportFailed": 816640,
-          "exported": 0
-        },
-        {
-          "t": 380.4,
-          "rssMb": 271.6,
-          "heapUsedMb": 54.6,
-          "dropped": 867760,
-          "exportFailed": 827904,
-          "exported": 0
-        },
-        {
-          "t": 385.4,
-          "rssMb": 271.6,
-          "heapUsedMb": 61.7,
-          "dropped": 876840,
-          "exportFailed": 841728,
-          "exported": 0
-        },
-        {
-          "t": 390.4,
-          "rssMb": 232.1,
-          "heapUsedMb": 70,
-          "dropped": 887504,
-          "exportFailed": 853504,
-          "exported": 0
-        },
-        {
-          "t": 395.4,
-          "rssMb": 241.5,
-          "heapUsedMb": 76.1,
-          "dropped": 894752,
-          "exportFailed": 869376,
-          "exported": 0
-        },
-        {
-          "t": 400.4,
-          "rssMb": 241.9,
-          "heapUsedMb": 64.7,
-          "dropped": 906048,
-          "exportFailed": 880640,
-          "exported": 0
-        },
-        {
-          "t": 405.4,
-          "rssMb": 243.2,
-          "heapUsedMb": 73.8,
-          "dropped": 910426,
-          "exportFailed": 897536,
-          "exported": 0
-        },
-        {
-          "t": 410.4,
-          "rssMb": 244.8,
-          "heapUsedMb": 74.3,
-          "dropped": 920672,
-          "exportFailed": 909312,
-          "exported": 0
-        },
-        {
-          "t": 415.5,
-          "rssMb": 249.7,
-          "heapUsedMb": 54.1,
-          "dropped": 927360,
-          "exportFailed": 925184,
-          "exported": 0
-        },
-        {
-          "t": 420.5,
-          "rssMb": 249.8,
-          "heapUsedMb": 61.3,
-          "dropped": 936656,
-          "exportFailed": 939008,
-          "exported": 0
-        },
-        {
-          "t": 425.5,
-          "rssMb": 243.5,
-          "heapUsedMb": 76,
-          "dropped": 951368,
-          "exportFailed": 947200,
-          "exported": 0
-        },
-        {
-          "t": 430.5,
-          "rssMb": 223.8,
-          "heapUsedMb": 51.3,
-          "dropped": 957936,
-          "exportFailed": 964096,
-          "exported": 0
-        },
-        {
-          "t": 435.5,
-          "rssMb": 232.2,
-          "heapUsedMb": 53.2,
-          "dropped": 969744,
-          "exportFailed": 973312,
-          "exported": 0
-        },
-        {
-          "t": 440.5,
-          "rssMb": 235,
-          "heapUsedMb": 90.5,
-          "dropped": 980781,
-          "exportFailed": 984576,
-          "exported": 0
-        },
-        {
-          "t": 445.5,
-          "rssMb": 255.7,
-          "heapUsedMb": 95.7,
-          "dropped": 987608,
-          "exportFailed": 999424,
-          "exported": 0
-        },
-        {
-          "t": 450.5,
-          "rssMb": 278.9,
-          "heapUsedMb": 109.1,
-          "dropped": 993664,
-          "exportFailed": 1016320,
-          "exported": 0
-        },
-        {
-          "t": 455.5,
-          "rssMb": 298.7,
-          "heapUsedMb": 63.7,
-          "dropped": 1000912,
-          "exportFailed": 1031168,
-          "exported": 0
-        },
-        {
-          "t": 460.5,
-          "rssMb": 299.8,
-          "heapUsedMb": 62.5,
-          "dropped": 1007454,
-          "exportFailed": 1048064,
-          "exported": 0
-        },
-        {
-          "t": 465.5,
-          "rssMb": 263.7,
-          "heapUsedMb": 67.9,
-          "dropped": 1018216,
-          "exportFailed": 1058816,
-          "exported": 0
-        },
-        {
-          "t": 470.5,
-          "rssMb": 263.4,
-          "heapUsedMb": 105,
-          "dropped": 1026320,
-          "exportFailed": 1076224,
-          "exported": 0
-        },
-        {
-          "t": 475.5,
-          "rssMb": 283.3,
-          "heapUsedMb": 113.5,
-          "dropped": 1037104,
-          "exportFailed": 1085952,
-          "exported": 0
-        },
-        {
-          "t": 480.5,
-          "rssMb": 287.1,
-          "heapUsedMb": 57.2,
-          "dropped": 1046400,
-          "exportFailed": 1099264,
-          "exported": 0
-        },
-        {
-          "t": 485.5,
-          "rssMb": 287.1,
-          "heapUsedMb": 82.5,
-          "dropped": 1056910,
-          "exportFailed": 1110016,
-          "exported": 0
-        },
-        {
-          "t": 490.5,
-          "rssMb": 257.8,
-          "heapUsedMb": 69.2,
-          "dropped": 1063072,
-          "exportFailed": 1127936,
-          "exported": 0
-        },
-        {
-          "t": 495.5,
-          "rssMb": 257.9,
-          "heapUsedMb": 78.9,
-          "dropped": 1076416,
-          "exportFailed": 1135616,
-          "exported": 0
-        },
-        {
-          "t": 500.5,
-          "rssMb": 258,
-          "heapUsedMb": 45.3,
-          "dropped": 1082479,
-          "exportFailed": 1153536,
-          "exported": 0
-        },
-        {
-          "t": 505.5,
-          "rssMb": 242.6,
-          "heapUsedMb": 61.2,
-          "dropped": 1091424,
-          "exportFailed": 1167360,
-          "exported": 0
-        },
-        {
-          "t": 510.5,
-          "rssMb": 239.8,
-          "heapUsedMb": 80.2,
-          "dropped": 1098456,
-          "exportFailed": 1181184,
-          "exported": 0
-        },
-        {
-          "t": 515.5,
-          "rssMb": 239.8,
-          "heapUsedMb": 83.6,
-          "dropped": 1101904,
-          "exportFailed": 1201664,
-          "exported": 0
-        },
-        {
-          "t": 520.6,
-          "rssMb": 255.5,
-          "heapUsedMb": 90,
-          "dropped": 1110688,
-          "exportFailed": 1214464,
-          "exported": 0
-        },
-        {
-          "t": 525.6,
-          "rssMb": 265.6,
-          "heapUsedMb": 68.6,
-          "dropped": 1120792,
-          "exportFailed": 1228800,
-          "exported": 0
-        },
-        {
-          "t": 530.6,
-          "rssMb": 266.1,
-          "heapUsedMb": 98.9,
-          "dropped": 1128552,
-          "exportFailed": 1241600,
-          "exported": 0
-        },
-        {
-          "t": 535.6,
-          "rssMb": 259.1,
-          "heapUsedMb": 68.7,
-          "dropped": 1136714,
-          "exportFailed": 1255424,
-          "exported": 0
-        },
-        {
-          "t": 540.6,
-          "rssMb": 259.1,
-          "heapUsedMb": 61.4,
-          "dropped": 1143856,
-          "exportFailed": 1271296,
-          "exported": 0
-        },
-        {
-          "t": 545.6,
-          "rssMb": 245.6,
-          "heapUsedMb": 64.7,
-          "dropped": 1151616,
-          "exportFailed": 1285632,
-          "exported": 0
-        },
-        {
-          "t": 550.6,
-          "rssMb": 242.6,
-          "heapUsedMb": 80,
-          "dropped": 1157456,
-          "exportFailed": 1304576,
-          "exported": 0
-        },
-        {
-          "t": 555.6,
-          "rssMb": 251.4,
-          "heapUsedMb": 48.4,
-          "dropped": 1172336,
-          "exportFailed": 1311232,
-          "exported": 0
-        },
-        {
-          "t": 560.6,
-          "rssMb": 251.4,
-          "heapUsedMb": 51.6,
-          "dropped": 1183680,
-          "exportFailed": 1321472,
-          "exported": 0
-        },
-        {
-          "t": 565.6,
-          "rssMb": 251.5,
-          "heapUsedMb": 55.3,
-          "dropped": 1189176,
-          "exportFailed": 1339392,
-          "exported": 0
-        },
-        {
-          "t": 570.6,
-          "rssMb": 242.3,
-          "heapUsedMb": 94,
-          "dropped": 1199328,
-          "exportFailed": 1350144,
-          "exported": 0
-        },
-        {
-          "t": 575.6,
-          "rssMb": 252.5,
-          "heapUsedMb": 60.9,
-          "dropped": 1212160,
-          "exportFailed": 1360384,
-          "exported": 0
-        },
-        {
-          "t": 580.6,
-          "rssMb": 252.6,
-          "heapUsedMb": 90.7,
-          "dropped": 1219408,
-          "exportFailed": 1375744,
-          "exported": 0
-        },
-        {
-          "t": 585.6,
-          "rssMb": 260,
-          "heapUsedMb": 94.5,
-          "dropped": 1227168,
-          "exportFailed": 1391104,
-          "exported": 0
-        },
-        {
-          "t": 590.6,
-          "rssMb": 278.3,
-          "heapUsedMb": 123.4,
-          "dropped": 1239152,
-          "exportFailed": 1400320,
-          "exported": 0
-        },
-        {
-          "t": 595.6,
-          "rssMb": 296.1,
-          "heapUsedMb": 72.3,
-          "dropped": 1249936,
-          "exportFailed": 1411584,
+          "t": 596.6,
+          "rssMb": 210.8,
+          "heapUsedMb": 26.3,
+          "externalMb": 5.2,
+          "dropped": 4430065,
+          "exportFailed": 37376,
           "exported": 0
         }
       ],
       "criteria": {
-        "rssGrowthWithinBound": false,
-        "p99WithinFivePercent": true,
-        "p99RatioToControl": 0.952,
-        "pass": false
+        "heapPlateau": {
+          "excessMb": 2.4,
+          "allowanceMb": 8.07,
+          "pass": true
+        },
+        "heapSlope": {
+          "mbPerMin": 0.01,
+          "limit": 0.5,
+          "pass": true
+        },
+        "rssSlope": {
+          "mbPerMin": 0.67,
+          "controlMbPerMin": 0.14,
+          "limit": 1.14,
+          "pass": true
+        },
+        "connections": {
+          "maxOpenClientSideBeforeShutdown": 2,
+          "created": 369,
+          "limit": 2,
+          "pass": true
+        },
+        "p99": {
+          "ratioToControl": 0.705,
+          "pass": true
+        },
+        "pass": true
       }
     },
     "blackhole": {
       "config": "blackhole",
       "result": {
-        "requests": 1800000,
-        "requestsPerSec": 2996.9,
-        "seconds": 600.63,
+        "requests": 1800006,
+        "requestsPerSec": 2996.2,
+        "seconds": 600.77,
         "latencyMs": {
-          "mean": 2.059,
-          "p50": 1.84,
-          "p90": 2.95,
-          "p99": 5.19,
-          "p999": 9.45,
-          "max": 99.58
+          "mean": 3.568,
+          "p50": 3.18,
+          "p90": 5.08,
+          "p99": 8.95,
+          "p999": 14.4,
+          "max": 167.326
         },
         "errors": 0,
         "timeouts": 0,
         "non2xx": 0
       },
       "counters": {
-        "droppedSpans": 2471136,
+        "droppedSpans": 4467239,
         "exportedSpans": 0,
-        "exportFailedSpans": 224768,
+        "exportFailedSpans": 30720,
         "redactDroppedSpans": 0,
         "redactFailedSpans": 0
       },
+      "clientConnections": {
+        "created": 61,
+        "inFlight": 1,
+        "maxInFlight": 2
+      },
       "sinkReceived": {
         "type": "stats",
-        "posts": 447,
-        "bytes": 81233064,
+        "posts": 65,
+        "bytes": 19926572,
         "spans": 0,
-        "open": 0
+        "open": 0,
+        "connections": 65,
+        "maxOpen": 5
       },
       "rss": {
         "settleSeconds": 60,
-        "atSettleMb": 194.5,
-        "peakAfterSettleMb": 221,
-        "finalMb": 201.3,
-        "peakGrowthMb": 26.5,
-        "finalGrowthMb": 6.8,
-        "maxOverallMb": 238.9
+        "atSettleMb": 206.3,
+        "peakAfterSettleMb": 215.9,
+        "finalMb": 208.1,
+        "peakGrowthMb": 9.6,
+        "finalGrowthMb": 1.8,
+        "maxOverallMb": 230.7
+      },
+      "trend": {
+        "rss": {
+          "slopeMbPerMin": 0.32,
+          "lastThirdMinusFirstThirdMb": 1.9
+        },
+        "heapUsed": {
+          "slopeMbPerMin": 0.03,
+          "lastThirdMinusFirstThirdMb": 0.2
+        },
+        "external": {
+          "slopeMbPerMin": 0,
+          "lastThirdMinusFirstThirdMb": 0
+        },
+        "heapAfterGc": true
+      },
+      "medians": {
+        "heapAfterGcMb": 26,
+        "rssMb": 207.1
       },
       "samples": [
         {
           "t": 0,
-          "rssMb": 122.3,
-          "heapUsedMb": 25.6,
+          "rssMb": 121.7,
+          "heapUsedMb": 22,
+          "externalMb": 4.7,
           "dropped": 0,
           "exportFailed": 0,
           "exported": 0
         },
         {
           "t": 5,
-          "rssMb": 182.4,
-          "heapUsedMb": 50.5,
-          "dropped": 19949,
+          "rssMb": 229.8,
+          "heapUsedMb": 27.6,
+          "externalMb": 5,
+          "dropped": 35153,
           "exportFailed": 0,
           "exported": 0
         },
         {
-          "t": 10,
-          "rssMb": 203.5,
-          "heapUsedMb": 81.5,
-          "dropped": 42593,
+          "t": 10.1,
+          "rssMb": 230.7,
+          "heapUsedMb": 26.3,
+          "externalMb": 5,
+          "dropped": 73171,
           "exportFailed": 0,
           "exported": 0
         },
         {
-          "t": 15,
-          "rssMb": 212.5,
-          "heapUsedMb": 92.1,
-          "dropped": 64117,
+          "t": 15.1,
+          "rssMb": 204.4,
+          "heapUsedMb": 25.7,
+          "externalMb": 5,
+          "dropped": 110865,
           "exportFailed": 512,
           "exported": 0
         },
         {
-          "t": 20,
-          "rssMb": 220.4,
-          "heapUsedMb": 92.5,
-          "dropped": 86416,
+          "t": 20.1,
+          "rssMb": 204.5,
+          "heapUsedMb": 25.6,
+          "externalMb": 5,
+          "dropped": 148261,
           "exportFailed": 512,
           "exported": 0
         },
         {
-          "t": 25,
-          "rssMb": 230,
-          "heapUsedMb": 97.3,
-          "dropped": 107485,
+          "t": 25.1,
+          "rssMb": 203.8,
+          "heapUsedMb": 25.7,
+          "externalMb": 5,
+          "dropped": 185990,
+          "exportFailed": 1024,
+          "exported": 0
+        },
+        {
+          "t": 30.1,
+          "rssMb": 206.3,
+          "heapUsedMb": 25.3,
+          "externalMb": 5.3,
+          "dropped": 223062,
           "exportFailed": 1536,
           "exported": 0
         },
         {
-          "t": 30,
-          "rssMb": 236.8,
-          "heapUsedMb": 34.7,
-          "dropped": 129991,
+          "t": 35.1,
+          "rssMb": 207,
+          "heapUsedMb": 25.8,
+          "externalMb": 5,
+          "dropped": 260472,
           "exportFailed": 1536,
-          "exported": 0
-        },
-        {
-          "t": 35,
-          "rssMb": 238.9,
-          "heapUsedMb": 39.9,
-          "dropped": 150003,
-          "exportFailed": 3072,
           "exported": 0
         },
         {
           "t": 40.1,
-          "rssMb": 189.5,
-          "heapUsedMb": 38.4,
-          "dropped": 172614,
-          "exportFailed": 3072,
+          "rssMb": 203.6,
+          "heapUsedMb": 25.7,
+          "externalMb": 5.3,
+          "dropped": 297988,
+          "exportFailed": 2048,
           "exported": 0
         },
         {
           "t": 45.1,
-          "rssMb": 191.1,
-          "heapUsedMb": 40.9,
-          "dropped": 192422,
-          "exportFailed": 5632,
+          "rssMb": 207.3,
+          "heapUsedMb": 25.8,
+          "externalMb": 5,
+          "dropped": 335602,
+          "exportFailed": 2048,
           "exported": 0
         },
         {
           "t": 50.1,
-          "rssMb": 188.1,
-          "heapUsedMb": 55.6,
-          "dropped": 214925,
+          "rssMb": 205.6,
+          "heapUsedMb": 25.8,
+          "externalMb": 5.3,
+          "dropped": 372746,
+          "exportFailed": 2560,
+          "exported": 0
+        },
+        {
+          "t": 55.2,
+          "rssMb": 206.2,
+          "heapUsedMb": 25.8,
+          "externalMb": 5,
+          "dropped": 410688,
+          "exportFailed": 2560,
+          "exported": 0
+        },
+        {
+          "t": 60.2,
+          "rssMb": 206.3,
+          "heapUsedMb": 25.9,
+          "externalMb": 5.3,
+          "dropped": 447633,
+          "exportFailed": 3072,
+          "exported": 0
+        },
+        {
+          "t": 65.2,
+          "rssMb": 206.4,
+          "heapUsedMb": 25.8,
+          "externalMb": 4.9,
+          "dropped": 485071,
+          "exportFailed": 3072,
+          "exported": 0
+        },
+        {
+          "t": 70.2,
+          "rssMb": 206.4,
+          "heapUsedMb": 25.9,
+          "externalMb": 5.3,
+          "dropped": 522600,
+          "exportFailed": 3584,
+          "exported": 0
+        },
+        {
+          "t": 75.2,
+          "rssMb": 206.1,
+          "heapUsedMb": 25.9,
+          "externalMb": 5,
+          "dropped": 561322,
+          "exportFailed": 3584,
+          "exported": 0
+        },
+        {
+          "t": 80.2,
+          "rssMb": 205.4,
+          "heapUsedMb": 25.9,
+          "externalMb": 5.3,
+          "dropped": 596695,
+          "exportFailed": 4096,
+          "exported": 0
+        },
+        {
+          "t": 85.2,
+          "rssMb": 205.4,
+          "heapUsedMb": 25.8,
+          "externalMb": 5.1,
+          "dropped": 635391,
+          "exportFailed": 4096,
+          "exported": 0
+        },
+        {
+          "t": 90.2,
+          "rssMb": 207.6,
+          "heapUsedMb": 25.9,
+          "externalMb": 5.3,
+          "dropped": 672887,
+          "exportFailed": 4608,
+          "exported": 0
+        },
+        {
+          "t": 95.2,
+          "rssMb": 207.6,
+          "heapUsedMb": 25.9,
+          "externalMb": 4.9,
+          "dropped": 710683,
+          "exportFailed": 4608,
+          "exported": 0
+        },
+        {
+          "t": 100.2,
+          "rssMb": 207.9,
+          "heapUsedMb": 25.9,
+          "externalMb": 5.2,
+          "dropped": 747509,
+          "exportFailed": 5120,
+          "exported": 0
+        },
+        {
+          "t": 105.3,
+          "rssMb": 206.4,
+          "heapUsedMb": 25.9,
+          "externalMb": 5,
+          "dropped": 785486,
+          "exportFailed": 5120,
+          "exported": 0
+        },
+        {
+          "t": 110.3,
+          "rssMb": 206.6,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 822481,
+          "exportFailed": 5632,
+          "exported": 0
+        },
+        {
+          "t": 115.3,
+          "rssMb": 209.8,
+          "heapUsedMb": 25.9,
+          "externalMb": 5,
+          "dropped": 861482,
+          "exportFailed": 5632,
+          "exported": 0
+        },
+        {
+          "t": 120.3,
+          "rssMb": 209.8,
+          "heapUsedMb": 25.9,
+          "externalMb": 5.3,
+          "dropped": 897733,
           "exportFailed": 6144,
           "exported": 0
         },
         {
-          "t": 55.1,
-          "rssMb": 189.6,
-          "heapUsedMb": 53.2,
-          "dropped": 235342,
+          "t": 125.3,
+          "rssMb": 209.8,
+          "heapUsedMb": 25.9,
+          "externalMb": 4.9,
+          "dropped": 935384,
+          "exportFailed": 6144,
+          "exported": 0
+        },
+        {
+          "t": 130.3,
+          "rssMb": 208.1,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 972995,
+          "exportFailed": 6656,
+          "exported": 0
+        },
+        {
+          "t": 135.3,
+          "rssMb": 208.1,
+          "heapUsedMb": 25.9,
+          "externalMb": 5,
+          "dropped": 1010506,
+          "exportFailed": 6656,
+          "exported": 0
+        },
+        {
+          "t": 140.3,
+          "rssMb": 207,
+          "heapUsedMb": 25.9,
+          "externalMb": 4.9,
+          "dropped": 1047452,
+          "exportFailed": 7168,
+          "exported": 0
+        },
+        {
+          "t": 145.3,
+          "rssMb": 207.5,
+          "heapUsedMb": 26,
+          "externalMb": 4.9,
+          "dropped": 1085105,
+          "exportFailed": 7168,
+          "exported": 0
+        },
+        {
+          "t": 150.3,
+          "rssMb": 207.3,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 1122153,
+          "exportFailed": 7680,
+          "exported": 0
+        },
+        {
+          "t": 155.3,
+          "rssMb": 207.4,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 1159761,
+          "exportFailed": 7680,
+          "exported": 0
+        },
+        {
+          "t": 160.4,
+          "rssMb": 206.7,
+          "heapUsedMb": 25.9,
+          "externalMb": 5,
+          "dropped": 1196641,
           "exportFailed": 8192,
           "exported": 0
         },
         {
-          "t": 60.1,
-          "rssMb": 194.5,
-          "heapUsedMb": 41.1,
-          "dropped": 257332,
+          "t": 165.4,
+          "rssMb": 206.8,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 1234081,
+          "exportFailed": 8192,
+          "exported": 0
+        },
+        {
+          "t": 170.4,
+          "rssMb": 206.5,
+          "heapUsedMb": 25.9,
+          "externalMb": 5.3,
+          "dropped": 1271129,
+          "exportFailed": 8704,
+          "exported": 0
+        },
+        {
+          "t": 175.4,
+          "rssMb": 206.7,
+          "heapUsedMb": 26,
+          "externalMb": 4.9,
+          "dropped": 1308737,
+          "exportFailed": 8704,
+          "exported": 0
+        },
+        {
+          "t": 180.4,
+          "rssMb": 207.7,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 1345617,
+          "exportFailed": 9216,
+          "exported": 0
+        },
+        {
+          "t": 185.4,
+          "rssMb": 207.8,
+          "heapUsedMb": 25.9,
+          "externalMb": 5,
+          "dropped": 1383057,
+          "exportFailed": 9216,
+          "exported": 0
+        },
+        {
+          "t": 190.4,
+          "rssMb": 210.2,
+          "heapUsedMb": 26,
+          "externalMb": 5.3,
+          "dropped": 1420105,
+          "exportFailed": 9728,
+          "exported": 0
+        },
+        {
+          "t": 195.4,
+          "rssMb": 210.2,
+          "heapUsedMb": 25.9,
+          "externalMb": 5,
+          "dropped": 1457713,
+          "exportFailed": 9728,
+          "exported": 0
+        },
+        {
+          "t": 200.4,
+          "rssMb": 206.3,
+          "heapUsedMb": 26,
+          "externalMb": 5.2,
+          "dropped": 1494593,
           "exportFailed": 10240,
           "exported": 0
         },
         {
-          "t": 65.1,
-          "rssMb": 191.3,
-          "heapUsedMb": 36.7,
-          "dropped": 277869,
+          "t": 205.4,
+          "rssMb": 206.3,
+          "heapUsedMb": 25.9,
+          "externalMb": 5,
+          "dropped": 1532033,
+          "exportFailed": 10240,
+          "exported": 0
+        },
+        {
+          "t": 210.4,
+          "rssMb": 206.3,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 1569081,
           "exportFailed": 10752,
           "exported": 0
         },
         {
-          "t": 70.1,
-          "rssMb": 192.2,
-          "heapUsedMb": 50.2,
-          "dropped": 299808,
+          "t": 215.4,
+          "rssMb": 206.6,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 1606689,
+          "exportFailed": 10752,
+          "exported": 0
+        },
+        {
+          "t": 220.5,
+          "rssMb": 206.3,
+          "heapUsedMb": 26,
+          "externalMb": 5.3,
+          "dropped": 1643569,
+          "exportFailed": 11264,
+          "exported": 0
+        },
+        {
+          "t": 225.5,
+          "rssMb": 206.1,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 1681009,
+          "exportFailed": 11264,
+          "exported": 0
+        },
+        {
+          "t": 230.5,
+          "rssMb": 206.7,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 1718057,
+          "exportFailed": 11776,
+          "exported": 0
+        },
+        {
+          "t": 235.5,
+          "rssMb": 206.7,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 1755665,
+          "exportFailed": 11776,
+          "exported": 0
+        },
+        {
+          "t": 240.5,
+          "rssMb": 209,
+          "heapUsedMb": 26,
+          "externalMb": 5.3,
+          "dropped": 1792545,
+          "exportFailed": 12288,
+          "exported": 0
+        },
+        {
+          "t": 245.5,
+          "rssMb": 203.5,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 1829985,
+          "exportFailed": 12288,
+          "exported": 0
+        },
+        {
+          "t": 250.5,
+          "rssMb": 204.4,
+          "heapUsedMb": 25.9,
+          "externalMb": 5.3,
+          "dropped": 1867033,
           "exportFailed": 12800,
           "exported": 0
         },
         {
-          "t": 75.1,
-          "rssMb": 190,
-          "heapUsedMb": 44.2,
-          "dropped": 320132,
+          "t": 255.5,
+          "rssMb": 207.4,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 1904641,
+          "exportFailed": 12800,
+          "exported": 0
+        },
+        {
+          "t": 260.5,
+          "rssMb": 206.9,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 1941521,
           "exportFailed": 13312,
           "exported": 0
         },
         {
-          "t": 80.1,
-          "rssMb": 194.7,
-          "heapUsedMb": 60.5,
-          "dropped": 343079,
+          "t": 265.5,
+          "rssMb": 207.8,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 1978961,
+          "exportFailed": 13312,
+          "exported": 0
+        },
+        {
+          "t": 270.5,
+          "rssMb": 206.2,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 2016009,
+          "exportFailed": 13824,
+          "exported": 0
+        },
+        {
+          "t": 275.5,
+          "rssMb": 206.5,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 2053617,
+          "exportFailed": 13824,
+          "exported": 0
+        },
+        {
+          "t": 280.6,
+          "rssMb": 204.7,
+          "heapUsedMb": 26,
+          "externalMb": 5.3,
+          "dropped": 2090497,
+          "exportFailed": 14336,
+          "exported": 0
+        },
+        {
+          "t": 285.6,
+          "rssMb": 205.7,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 2127937,
+          "exportFailed": 14336,
+          "exported": 0
+        },
+        {
+          "t": 290.6,
+          "rssMb": 206.5,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 2164985,
+          "exportFailed": 14848,
+          "exported": 0
+        },
+        {
+          "t": 295.6,
+          "rssMb": 206.4,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 2202593,
+          "exportFailed": 14848,
+          "exported": 0
+        },
+        {
+          "t": 300.6,
+          "rssMb": 206.9,
+          "heapUsedMb": 26,
+          "externalMb": 4.9,
+          "dropped": 2239473,
           "exportFailed": 15360,
           "exported": 0
         },
         {
-          "t": 85.1,
-          "rssMb": 189.7,
-          "heapUsedMb": 52.6,
-          "dropped": 361952,
+          "t": 305.6,
+          "rssMb": 206.8,
+          "heapUsedMb": 26,
+          "externalMb": 4.9,
+          "dropped": 2276913,
+          "exportFailed": 15360,
+          "exported": 0
+        },
+        {
+          "t": 310.6,
+          "rssMb": 207.1,
+          "heapUsedMb": 26,
+          "externalMb": 5.3,
+          "dropped": 2313961,
           "exportFailed": 15872,
           "exported": 0
         },
         {
-          "t": 90.1,
-          "rssMb": 193.4,
-          "heapUsedMb": 42.8,
-          "dropped": 384068,
+          "t": 315.6,
+          "rssMb": 207.1,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 2351569,
+          "exportFailed": 15872,
+          "exported": 0
+        },
+        {
+          "t": 320.6,
+          "rssMb": 204.6,
+          "heapUsedMb": 26,
+          "externalMb": 5.3,
+          "dropped": 2388449,
+          "exportFailed": 16384,
+          "exported": 0
+        },
+        {
+          "t": 325.6,
+          "rssMb": 204.6,
+          "heapUsedMb": 25.9,
+          "externalMb": 5,
+          "dropped": 2425889,
+          "exportFailed": 16384,
+          "exported": 0
+        },
+        {
+          "t": 330.6,
+          "rssMb": 206.3,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 2462937,
+          "exportFailed": 16896,
+          "exported": 0
+        },
+        {
+          "t": 335.7,
+          "rssMb": 206.8,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 2500545,
+          "exportFailed": 16896,
+          "exported": 0
+        },
+        {
+          "t": 340.7,
+          "rssMb": 206.9,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 2537425,
+          "exportFailed": 17408,
+          "exported": 0
+        },
+        {
+          "t": 345.7,
+          "rssMb": 207.3,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 2574865,
+          "exportFailed": 17408,
+          "exported": 0
+        },
+        {
+          "t": 350.7,
+          "rssMb": 207.8,
+          "heapUsedMb": 26,
+          "externalMb": 5.3,
+          "dropped": 2611913,
+          "exportFailed": 17920,
+          "exported": 0
+        },
+        {
+          "t": 355.7,
+          "rssMb": 206.3,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 2649521,
+          "exportFailed": 17920,
+          "exported": 0
+        },
+        {
+          "t": 360.7,
+          "rssMb": 206.9,
+          "heapUsedMb": 26,
+          "externalMb": 5.3,
+          "dropped": 2686401,
           "exportFailed": 18432,
           "exported": 0
         },
         {
-          "t": 95.1,
-          "rssMb": 193.7,
-          "heapUsedMb": 48.2,
-          "dropped": 404575,
+          "t": 365.7,
+          "rssMb": 206.8,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 2723841,
+          "exportFailed": 18432,
+          "exported": 0
+        },
+        {
+          "t": 370.7,
+          "rssMb": 207.6,
+          "heapUsedMb": 26,
+          "externalMb": 4.9,
+          "dropped": 2760889,
           "exportFailed": 18944,
           "exported": 0
         },
         {
-          "t": 100.1,
-          "rssMb": 191.4,
-          "heapUsedMb": 37,
-          "dropped": 427003,
+          "t": 375.7,
+          "rssMb": 207.6,
+          "heapUsedMb": 26,
+          "externalMb": 4.9,
+          "dropped": 2798497,
+          "exportFailed": 18944,
+          "exported": 0
+        },
+        {
+          "t": 380.8,
+          "rssMb": 209.9,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 2835377,
+          "exportFailed": 19456,
+          "exported": 0
+        },
+        {
+          "t": 385.8,
+          "rssMb": 210.3,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 2872817,
+          "exportFailed": 19456,
+          "exported": 0
+        },
+        {
+          "t": 390.8,
+          "rssMb": 205.7,
+          "heapUsedMb": 26,
+          "externalMb": 5.3,
+          "dropped": 2909865,
+          "exportFailed": 19968,
+          "exported": 0
+        },
+        {
+          "t": 395.8,
+          "rssMb": 205.6,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 2947473,
+          "exportFailed": 19968,
+          "exported": 0
+        },
+        {
+          "t": 400.8,
+          "rssMb": 204,
+          "heapUsedMb": 26,
+          "externalMb": 5.3,
+          "dropped": 2984353,
+          "exportFailed": 20480,
+          "exported": 0
+        },
+        {
+          "t": 405.8,
+          "rssMb": 204.2,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 3021793,
+          "exportFailed": 20480,
+          "exported": 0
+        },
+        {
+          "t": 410.8,
+          "rssMb": 207.5,
+          "heapUsedMb": 26,
+          "externalMb": 5.3,
+          "dropped": 3058841,
           "exportFailed": 20992,
           "exported": 0
         },
         {
-          "t": 105.1,
-          "rssMb": 191.4,
-          "heapUsedMb": 43.9,
-          "dropped": 446347,
+          "t": 415.9,
+          "rssMb": 211.3,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 3096449,
+          "exportFailed": 20992,
+          "exported": 0
+        },
+        {
+          "t": 420.9,
+          "rssMb": 212.6,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 3133329,
           "exportFailed": 21504,
           "exported": 0
         },
         {
-          "t": 110.1,
-          "rssMb": 192.3,
-          "heapUsedMb": 40.7,
-          "dropped": 468226,
+          "t": 425.9,
+          "rssMb": 207.7,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 3170769,
+          "exportFailed": 21504,
+          "exported": 0
+        },
+        {
+          "t": 430.9,
+          "rssMb": 208.3,
+          "heapUsedMb": 26,
+          "externalMb": 5.3,
+          "dropped": 3207817,
+          "exportFailed": 22016,
+          "exported": 0
+        },
+        {
+          "t": 435.9,
+          "rssMb": 207.2,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 3245425,
+          "exportFailed": 22016,
+          "exported": 0
+        },
+        {
+          "t": 440.9,
+          "rssMb": 206.8,
+          "heapUsedMb": 26,
+          "externalMb": 4.9,
+          "dropped": 3282305,
+          "exportFailed": 22528,
+          "exported": 0
+        },
+        {
+          "t": 446,
+          "rssMb": 208.3,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 3319745,
+          "exportFailed": 22528,
+          "exported": 0
+        },
+        {
+          "t": 451,
+          "rssMb": 208.4,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 3356793,
+          "exportFailed": 23040,
+          "exported": 0
+        },
+        {
+          "t": 456,
+          "rssMb": 209.1,
+          "heapUsedMb": 26,
+          "externalMb": 4.9,
+          "dropped": 3394401,
+          "exportFailed": 23040,
+          "exported": 0
+        },
+        {
+          "t": 461,
+          "rssMb": 209.5,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 3431281,
+          "exportFailed": 23552,
+          "exported": 0
+        },
+        {
+          "t": 466,
+          "rssMb": 207,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 3468721,
+          "exportFailed": 23552,
+          "exported": 0
+        },
+        {
+          "t": 471,
+          "rssMb": 207.1,
+          "heapUsedMb": 26,
+          "externalMb": 4.9,
+          "dropped": 3505769,
           "exportFailed": 24064,
           "exported": 0
         },
         {
-          "t": 115.1,
-          "rssMb": 192.5,
-          "heapUsedMb": 46.1,
-          "dropped": 489003,
+          "t": 476.1,
+          "rssMb": 207.2,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 3543377,
+          "exportFailed": 24064,
+          "exported": 0
+        },
+        {
+          "t": 481.1,
+          "rssMb": 204.7,
+          "heapUsedMb": 25.9,
+          "externalMb": 5.3,
+          "dropped": 3580257,
           "exportFailed": 24576,
           "exported": 0
         },
         {
-          "t": 120.1,
-          "rssMb": 192.8,
-          "heapUsedMb": 57.7,
-          "dropped": 511233,
+          "t": 486.1,
+          "rssMb": 210,
+          "heapUsedMb": 26,
+          "externalMb": 4.9,
+          "dropped": 3617697,
+          "exportFailed": 24576,
+          "exported": 0
+        },
+        {
+          "t": 491.1,
+          "rssMb": 211.5,
+          "heapUsedMb": 26,
+          "externalMb": 5.3,
+          "dropped": 3654745,
+          "exportFailed": 25088,
+          "exported": 0
+        },
+        {
+          "t": 496.1,
+          "rssMb": 212.7,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 3692353,
+          "exportFailed": 25088,
+          "exported": 0
+        },
+        {
+          "t": 501.2,
+          "rssMb": 214.1,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 3729233,
+          "exportFailed": 25600,
+          "exported": 0
+        },
+        {
+          "t": 506.2,
+          "rssMb": 214.3,
+          "heapUsedMb": 26,
+          "externalMb": 5,
+          "dropped": 3766673,
+          "exportFailed": 25600,
+          "exported": 0
+        },
+        {
+          "t": 511.2,
+          "rssMb": 214.4,
+          "heapUsedMb": 26.2,
+          "externalMb": 5.2,
+          "dropped": 3803721,
+          "exportFailed": 26112,
+          "exported": 0
+        },
+        {
+          "t": 516.2,
+          "rssMb": 207,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 3841329,
+          "exportFailed": 26112,
+          "exported": 0
+        },
+        {
+          "t": 521.2,
+          "rssMb": 207.3,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 3878209,
           "exportFailed": 26624,
           "exported": 0
         },
         {
-          "t": 125.2,
-          "rssMb": 191.6,
-          "heapUsedMb": 42.8,
-          "dropped": 530676,
+          "t": 526.3,
+          "rssMb": 207,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 3915649,
+          "exportFailed": 26624,
+          "exported": 0
+        },
+        {
+          "t": 531.3,
+          "rssMb": 207.7,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 3952697,
           "exportFailed": 27136,
           "exported": 0
         },
         {
-          "t": 130.2,
-          "rssMb": 192.6,
-          "heapUsedMb": 57.1,
-          "dropped": 552582,
+          "t": 536.3,
+          "rssMb": 207.8,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 3990305,
+          "exportFailed": 27136,
+          "exported": 0
+        },
+        {
+          "t": 541.3,
+          "rssMb": 208,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 4027185,
+          "exportFailed": 27648,
+          "exported": 0
+        },
+        {
+          "t": 546.3,
+          "rssMb": 206.3,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 4064625,
+          "exportFailed": 27648,
+          "exported": 0
+        },
+        {
+          "t": 551.3,
+          "rssMb": 206.5,
+          "heapUsedMb": 26.2,
+          "externalMb": 5.3,
+          "dropped": 4101673,
+          "exportFailed": 28160,
+          "exported": 0
+        },
+        {
+          "t": 556.4,
+          "rssMb": 206.4,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 4139281,
+          "exportFailed": 28160,
+          "exported": 0
+        },
+        {
+          "t": 561.4,
+          "rssMb": 205,
+          "heapUsedMb": 26.1,
+          "externalMb": 5.3,
+          "dropped": 4176161,
+          "exportFailed": 28672,
+          "exported": 0
+        },
+        {
+          "t": 566.4,
+          "rssMb": 211,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 4213601,
+          "exportFailed": 28672,
+          "exported": 0
+        },
+        {
+          "t": 571.4,
+          "rssMb": 214.4,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 4250649,
+          "exportFailed": 29184,
+          "exported": 0
+        },
+        {
+          "t": 576.4,
+          "rssMb": 215.9,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 4288257,
+          "exportFailed": 29184,
+          "exported": 0
+        },
+        {
+          "t": 581.5,
+          "rssMb": 215.8,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 4325137,
           "exportFailed": 29696,
           "exported": 0
         },
         {
-          "t": 135.2,
-          "rssMb": 190.6,
-          "heapUsedMb": 59.3,
-          "dropped": 572508,
+          "t": 586.5,
+          "rssMb": 207.5,
+          "heapUsedMb": 26.2,
+          "externalMb": 5,
+          "dropped": 4362577,
+          "exportFailed": 29696,
+          "exported": 0
+        },
+        {
+          "t": 591.5,
+          "rssMb": 207.5,
+          "heapUsedMb": 26.2,
+          "externalMb": 5.3,
+          "dropped": 4399625,
           "exportFailed": 30208,
           "exported": 0
         },
         {
-          "t": 140.2,
-          "rssMb": 192,
-          "heapUsedMb": 51.4,
-          "dropped": 594672,
-          "exportFailed": 32256,
-          "exported": 0
-        },
-        {
-          "t": 145.2,
-          "rssMb": 192.5,
-          "heapUsedMb": 41.3,
-          "dropped": 614206,
-          "exportFailed": 33280,
-          "exported": 0
-        },
-        {
-          "t": 150.2,
-          "rssMb": 192.3,
-          "heapUsedMb": 50,
-          "dropped": 635920,
-          "exportFailed": 35840,
-          "exported": 0
-        },
-        {
-          "t": 155.2,
-          "rssMb": 192.7,
-          "heapUsedMb": 43.5,
-          "dropped": 655780,
-          "exportFailed": 36864,
-          "exported": 0
-        },
-        {
-          "t": 160.2,
-          "rssMb": 192.6,
-          "heapUsedMb": 58,
-          "dropped": 678016,
-          "exportFailed": 38912,
-          "exported": 0
-        },
-        {
-          "t": 165.2,
-          "rssMb": 193,
-          "heapUsedMb": 44.1,
-          "dropped": 697142,
-          "exportFailed": 39936,
-          "exported": 0
-        },
-        {
-          "t": 170.2,
-          "rssMb": 192.3,
-          "heapUsedMb": 60,
-          "dropped": 719264,
-          "exportFailed": 42496,
-          "exported": 0
-        },
-        {
-          "t": 175.2,
-          "rssMb": 192.9,
-          "heapUsedMb": 50.3,
-          "dropped": 739121,
-          "exportFailed": 43520,
-          "exported": 0
-        },
-        {
-          "t": 180.2,
-          "rssMb": 193.7,
-          "heapUsedMb": 54.2,
-          "dropped": 761360,
-          "exportFailed": 45568,
-          "exported": 0
-        },
-        {
-          "t": 185.2,
-          "rssMb": 190,
-          "heapUsedMb": 43.8,
-          "dropped": 780426,
-          "exportFailed": 46592,
-          "exported": 0
-        },
-        {
-          "t": 190.2,
-          "rssMb": 195.7,
-          "heapUsedMb": 48,
-          "dropped": 802608,
-          "exportFailed": 49152,
-          "exported": 0
-        },
-        {
-          "t": 195.2,
-          "rssMb": 190.3,
-          "heapUsedMb": 41,
-          "dropped": 822510,
-          "exportFailed": 50176,
-          "exported": 0
-        },
-        {
-          "t": 200.2,
-          "rssMb": 191.9,
-          "heapUsedMb": 57.2,
-          "dropped": 844704,
-          "exportFailed": 52224,
-          "exported": 0
-        },
-        {
-          "t": 205.2,
-          "rssMb": 192.3,
-          "heapUsedMb": 50.5,
-          "dropped": 863570,
-          "exportFailed": 53248,
-          "exported": 0
-        },
-        {
-          "t": 210.2,
-          "rssMb": 192.5,
-          "heapUsedMb": 42,
-          "dropped": 885440,
-          "exportFailed": 56320,
-          "exported": 0
-        },
-        {
-          "t": 215.2,
-          "rssMb": 192.9,
-          "heapUsedMb": 42.7,
-          "dropped": 905391,
-          "exportFailed": 57344,
-          "exported": 0
-        },
-        {
-          "t": 220.3,
-          "rssMb": 195.1,
-          "heapUsedMb": 32.2,
-          "dropped": 927024,
-          "exportFailed": 59904,
-          "exported": 0
-        },
-        {
-          "t": 225.3,
-          "rssMb": 195.2,
-          "heapUsedMb": 43.5,
-          "dropped": 946582,
-          "exportFailed": 60928,
-          "exported": 0
-        },
-        {
-          "t": 230.3,
-          "rssMb": 195.2,
-          "heapUsedMb": 52.6,
-          "dropped": 968272,
-          "exportFailed": 62976,
-          "exported": 0
-        },
-        {
-          "t": 235.3,
-          "rssMb": 190.7,
-          "heapUsedMb": 47.1,
-          "dropped": 987126,
-          "exportFailed": 64512,
-          "exported": 0
-        },
-        {
-          "t": 240.3,
-          "rssMb": 195,
-          "heapUsedMb": 40.6,
-          "dropped": 1009344,
-          "exportFailed": 67072,
-          "exported": 0
-        },
-        {
-          "t": 245.3,
-          "rssMb": 190.2,
-          "heapUsedMb": 39.9,
-          "dropped": 1027862,
-          "exportFailed": 68608,
-          "exported": 0
-        },
-        {
-          "t": 250.3,
-          "rssMb": 197.4,
-          "heapUsedMb": 45.3,
-          "dropped": 1050080,
-          "exportFailed": 71168,
-          "exported": 0
-        },
-        {
-          "t": 255.3,
-          "rssMb": 207.4,
-          "heapUsedMb": 56.5,
-          "dropped": 1069279,
-          "exportFailed": 72704,
-          "exported": 0
-        },
-        {
-          "t": 260.3,
-          "rssMb": 217.2,
-          "heapUsedMb": 89.5,
-          "dropped": 1091152,
-          "exportFailed": 74752,
-          "exported": 0
-        },
-        {
-          "t": 265.3,
-          "rssMb": 221,
-          "heapUsedMb": 51,
-          "dropped": 1109425,
-          "exportFailed": 76800,
-          "exported": 0
-        },
-        {
-          "t": 270.3,
-          "rssMb": 200.5,
-          "heapUsedMb": 54.8,
-          "dropped": 1131376,
-          "exportFailed": 79360,
-          "exported": 0
-        },
-        {
-          "t": 275.3,
-          "rssMb": 204.4,
-          "heapUsedMb": 64.5,
-          "dropped": 1150182,
-          "exportFailed": 81408,
-          "exported": 0
-        },
-        {
-          "t": 280.3,
-          "rssMb": 200.6,
-          "heapUsedMb": 68,
-          "dropped": 1172448,
-          "exportFailed": 83968,
-          "exported": 0
-        },
-        {
-          "t": 285.3,
-          "rssMb": 201.5,
-          "heapUsedMb": 52.1,
-          "dropped": 1190730,
-          "exportFailed": 85504,
-          "exported": 0
-        },
-        {
-          "t": 290.3,
-          "rssMb": 201.9,
-          "heapUsedMb": 42.4,
-          "dropped": 1212672,
-          "exportFailed": 87552,
-          "exported": 0
-        },
-        {
-          "t": 295.3,
-          "rssMb": 194,
-          "heapUsedMb": 43,
-          "dropped": 1230628,
-          "exportFailed": 90112,
-          "exported": 0
-        },
-        {
-          "t": 300.3,
-          "rssMb": 198,
-          "heapUsedMb": 45.3,
-          "dropped": 1252720,
-          "exportFailed": 92672,
-          "exported": 0
-        },
-        {
-          "t": 305.3,
-          "rssMb": 191.8,
-          "heapUsedMb": 41.7,
-          "dropped": 1270244,
-          "exportFailed": 95232,
-          "exported": 0
-        },
-        {
-          "t": 310.3,
-          "rssMb": 201.2,
-          "heapUsedMb": 73.8,
-          "dropped": 1292432,
-          "exportFailed": 97280,
-          "exported": 0
-        },
-        {
-          "t": 315.3,
-          "rssMb": 202.2,
-          "heapUsedMb": 54.1,
-          "dropped": 1310744,
-          "exportFailed": 100352,
-          "exported": 0
-        },
-        {
-          "t": 320.3,
-          "rssMb": 194.5,
-          "heapUsedMb": 44.4,
-          "dropped": 1332992,
-          "exportFailed": 102400,
-          "exported": 0
-        },
-        {
-          "t": 325.3,
-          "rssMb": 195.1,
-          "heapUsedMb": 43.5,
-          "dropped": 1350600,
-          "exportFailed": 104960,
-          "exported": 0
-        },
-        {
-          "t": 330.4,
-          "rssMb": 199.7,
-          "heapUsedMb": 53.6,
-          "dropped": 1372704,
-          "exportFailed": 107008,
-          "exported": 0
-        },
-        {
-          "t": 335.4,
-          "rssMb": 204.7,
-          "heapUsedMb": 41.1,
-          "dropped": 1390758,
-          "exportFailed": 110080,
-          "exported": 0
-        },
-        {
-          "t": 340.4,
-          "rssMb": 205.6,
-          "heapUsedMb": 73.1,
-          "dropped": 1413264,
-          "exportFailed": 112128,
-          "exported": 0
-        },
-        {
-          "t": 345.4,
-          "rssMb": 203.7,
-          "heapUsedMb": 58.5,
-          "dropped": 1432052,
-          "exportFailed": 114688,
-          "exported": 0
-        },
-        {
-          "t": 350.4,
-          "rssMb": 204.1,
-          "heapUsedMb": 49,
-          "dropped": 1454000,
-          "exportFailed": 116736,
-          "exported": 0
-        },
-        {
-          "t": 355.4,
-          "rssMb": 192.7,
-          "heapUsedMb": 46.2,
-          "dropped": 1473100,
-          "exportFailed": 118784,
-          "exported": 0
-        },
-        {
-          "t": 360.4,
-          "rssMb": 200.3,
-          "heapUsedMb": 39.1,
-          "dropped": 1495072,
-          "exportFailed": 121344,
-          "exported": 0
-        },
-        {
-          "t": 365.4,
-          "rssMb": 189.2,
-          "heapUsedMb": 46.1,
-          "dropped": 1514025,
-          "exportFailed": 122880,
-          "exported": 0
-        },
-        {
-          "t": 370.4,
-          "rssMb": 195,
-          "heapUsedMb": 57.3,
-          "dropped": 1535808,
-          "exportFailed": 125440,
-          "exported": 0
-        },
-        {
-          "t": 375.4,
-          "rssMb": 195.6,
-          "heapUsedMb": 53.1,
-          "dropped": 1555366,
-          "exportFailed": 126976,
-          "exported": 0
-        },
-        {
-          "t": 380.4,
-          "rssMb": 195.3,
-          "heapUsedMb": 57.8,
-          "dropped": 1577392,
-          "exportFailed": 129536,
-          "exported": 0
-        },
-        {
-          "t": 385.4,
-          "rssMb": 195.9,
-          "heapUsedMb": 51.2,
-          "dropped": 1596773,
-          "exportFailed": 130560,
-          "exported": 0
-        },
-        {
-          "t": 390.4,
-          "rssMb": 193.4,
-          "heapUsedMb": 58.1,
-          "dropped": 1618640,
-          "exportFailed": 133120,
-          "exported": 0
-        },
-        {
-          "t": 395.4,
-          "rssMb": 193.7,
-          "heapUsedMb": 38.9,
-          "dropped": 1637506,
-          "exportFailed": 134144,
-          "exported": 0
-        },
-        {
-          "t": 400.4,
-          "rssMb": 194.6,
-          "heapUsedMb": 41.8,
-          "dropped": 1659712,
-          "exportFailed": 136704,
-          "exported": 0
-        },
-        {
-          "t": 405.5,
-          "rssMb": 192.4,
-          "heapUsedMb": 48.5,
-          "dropped": 1677940,
-          "exportFailed": 138240,
-          "exported": 0
-        },
-        {
-          "t": 410.5,
-          "rssMb": 195.4,
-          "heapUsedMb": 60.4,
-          "dropped": 1699936,
-          "exportFailed": 141312,
-          "exported": 0
-        },
-        {
-          "t": 415.5,
-          "rssMb": 192.4,
-          "heapUsedMb": 57.5,
-          "dropped": 1719746,
-          "exportFailed": 142848,
-          "exported": 0
-        },
-        {
-          "t": 420.5,
-          "rssMb": 195.1,
-          "heapUsedMb": 50.6,
-          "dropped": 1741520,
-          "exportFailed": 144896,
-          "exported": 0
-        },
-        {
-          "t": 425.5,
-          "rssMb": 195.8,
-          "heapUsedMb": 47.3,
-          "dropped": 1760536,
-          "exportFailed": 146432,
-          "exported": 0
-        },
-        {
-          "t": 430.5,
-          "rssMb": 199.9,
-          "heapUsedMb": 37.9,
-          "dropped": 1782256,
-          "exportFailed": 148992,
-          "exported": 0
-        },
-        {
-          "t": 435.5,
-          "rssMb": 199.9,
-          "heapUsedMb": 52.2,
-          "dropped": 1800724,
-          "exportFailed": 150528,
-          "exported": 0
-        },
-        {
-          "t": 440.5,
-          "rssMb": 195.4,
-          "heapUsedMb": 59.9,
-          "dropped": 1822816,
-          "exportFailed": 153088,
-          "exported": 0
-        },
-        {
-          "t": 445.5,
-          "rssMb": 195.5,
-          "heapUsedMb": 56.6,
-          "dropped": 1841149,
-          "exportFailed": 155136,
-          "exported": 0
-        },
-        {
-          "t": 450.5,
-          "rssMb": 194.5,
-          "heapUsedMb": 60.7,
-          "dropped": 1863040,
-          "exportFailed": 157696,
-          "exported": 0
-        },
-        {
-          "t": 455.5,
-          "rssMb": 194.8,
-          "heapUsedMb": 49.1,
-          "dropped": 1881376,
-          "exportFailed": 159744,
-          "exported": 0
-        },
-        {
-          "t": 460.5,
-          "rssMb": 195.2,
-          "heapUsedMb": 53.6,
-          "dropped": 1903600,
-          "exportFailed": 162304,
-          "exported": 0
-        },
-        {
-          "t": 465.5,
-          "rssMb": 193.6,
-          "heapUsedMb": 48.2,
-          "dropped": 1921804,
-          "exportFailed": 164352,
-          "exported": 0
-        },
-        {
-          "t": 470.5,
-          "rssMb": 196.9,
-          "heapUsedMb": 54.7,
-          "dropped": 1943824,
-          "exportFailed": 166400,
-          "exported": 0
-        },
-        {
-          "t": 475.5,
-          "rssMb": 192.1,
-          "heapUsedMb": 48.4,
-          "dropped": 1961788,
-          "exportFailed": 168960,
-          "exported": 0
-        },
-        {
-          "t": 480.5,
-          "rssMb": 201,
-          "heapUsedMb": 54.9,
-          "dropped": 1984384,
-          "exportFailed": 171008,
-          "exported": 0
-        },
-        {
-          "t": 485.5,
-          "rssMb": 213.1,
-          "heapUsedMb": 61.3,
-          "dropped": 2002809,
-          "exportFailed": 173568,
-          "exported": 0
-        },
-        {
-          "t": 490.5,
-          "rssMb": 215.1,
-          "heapUsedMb": 59.8,
-          "dropped": 2025120,
-          "exportFailed": 175616,
-          "exported": 0
-        },
-        {
-          "t": 495.5,
-          "rssMb": 215.3,
-          "heapUsedMb": 49.3,
-          "dropped": 2043075,
-          "exportFailed": 177664,
-          "exported": 0
-        },
-        {
-          "t": 500.5,
-          "rssMb": 195.8,
-          "heapUsedMb": 58.4,
-          "dropped": 2065680,
-          "exportFailed": 180224,
-          "exported": 0
-        },
-        {
-          "t": 505.5,
-          "rssMb": 195.9,
-          "heapUsedMb": 39.7,
-          "dropped": 2084728,
-          "exportFailed": 182272,
-          "exported": 0
-        },
-        {
-          "t": 510.5,
-          "rssMb": 199,
-          "heapUsedMb": 47.7,
-          "dropped": 2106928,
-          "exportFailed": 184320,
-          "exported": 0
-        },
-        {
-          "t": 515.6,
-          "rssMb": 199.9,
-          "heapUsedMb": 36.6,
-          "dropped": 2125710,
-          "exportFailed": 185856,
-          "exported": 0
-        },
-        {
-          "t": 520.6,
-          "rssMb": 199.9,
-          "heapUsedMb": 45.4,
-          "dropped": 2148000,
-          "exportFailed": 187904,
-          "exported": 0
-        },
-        {
-          "t": 525.6,
-          "rssMb": 194.9,
-          "heapUsedMb": 40.9,
-          "dropped": 2165997,
-          "exportFailed": 189952,
-          "exported": 0
-        },
-        {
-          "t": 530.6,
-          "rssMb": 196.4,
-          "heapUsedMb": 45.1,
-          "dropped": 2188224,
-          "exportFailed": 192512,
-          "exported": 0
-        },
-        {
-          "t": 535.6,
-          "rssMb": 196.4,
-          "heapUsedMb": 58.8,
-          "dropped": 2206461,
-          "exportFailed": 194560,
-          "exported": 0
-        },
-        {
-          "t": 540.6,
-          "rssMb": 196.4,
-          "heapUsedMb": 48.4,
-          "dropped": 2228784,
-          "exportFailed": 197120,
-          "exported": 0
-        },
-        {
-          "t": 545.6,
-          "rssMb": 197.2,
-          "heapUsedMb": 43.8,
-          "dropped": 2247084,
-          "exportFailed": 199168,
-          "exported": 0
-        },
-        {
-          "t": 550.6,
-          "rssMb": 197.2,
-          "heapUsedMb": 46,
-          "dropped": 2269008,
-          "exportFailed": 201728,
-          "exported": 0
-        },
-        {
-          "t": 555.6,
-          "rssMb": 196.7,
-          "heapUsedMb": 39.7,
-          "dropped": 2287589,
-          "exportFailed": 203776,
-          "exported": 0
-        },
-        {
-          "t": 560.6,
-          "rssMb": 196.7,
-          "heapUsedMb": 32.6,
-          "dropped": 2310080,
-          "exportFailed": 206336,
-          "exported": 0
-        },
-        {
-          "t": 565.6,
-          "rssMb": 196.2,
-          "heapUsedMb": 45,
-          "dropped": 2329167,
-          "exportFailed": 207872,
-          "exported": 0
-        },
-        {
-          "t": 570.6,
-          "rssMb": 194.6,
-          "heapUsedMb": 35.1,
-          "dropped": 2351328,
-          "exportFailed": 209920,
-          "exported": 0
-        },
-        {
-          "t": 575.6,
-          "rssMb": 194.8,
-          "heapUsedMb": 43.9,
-          "dropped": 2369122,
-          "exportFailed": 211456,
-          "exported": 0
-        },
-        {
-          "t": 580.6,
-          "rssMb": 202.4,
-          "heapUsedMb": 58.1,
-          "dropped": 2391376,
-          "exportFailed": 214528,
-          "exported": 0
-        },
-        {
-          "t": 585.6,
-          "rssMb": 211.3,
-          "heapUsedMb": 42.7,
-          "dropped": 2409197,
-          "exportFailed": 216576,
-          "exported": 0
-        },
-        {
-          "t": 590.6,
-          "rssMb": 211.6,
-          "heapUsedMb": 56.7,
-          "dropped": 2431088,
-          "exportFailed": 219136,
-          "exported": 0
-        },
-        {
-          "t": 595.6,
-          "rssMb": 201.3,
-          "heapUsedMb": 40.3,
-          "dropped": 2448912,
-          "exportFailed": 221696,
+          "t": 596.5,
+          "rssMb": 208.1,
+          "heapUsedMb": 26.2,
+          "externalMb": 4.9,
+          "dropped": 4437233,
+          "exportFailed": 30208,
           "exported": 0
         }
       ],
       "criteria": {
-        "rssGrowthWithinBound": false,
-        "p99WithinFivePercent": true,
-        "p99RatioToControl": 0.859,
-        "pass": false
+        "heapPlateau": {
+          "excessMb": 2.2,
+          "allowanceMb": 8.07,
+          "pass": true
+        },
+        "heapSlope": {
+          "mbPerMin": 0.03,
+          "limit": 0.5,
+          "pass": true
+        },
+        "rssSlope": {
+          "mbPerMin": 0.32,
+          "controlMbPerMin": 0.14,
+          "limit": 1.14,
+          "pass": true
+        },
+        "connections": {
+          "maxOpenClientSideBeforeShutdown": 2,
+          "created": 61,
+          "maxOpenAtSink": 5,
+          "limit": 2,
+          "pass": true
+        },
+        "p99": {
+          "ratioToControl": 0.692,
+          "pass": true
+        },
+        "pass": true
       }
     }
   }

@@ -21,7 +21,7 @@ Update this table as work moves. One line of notes at most; detail goes in the t
 | P1-10 | Conformance suite | sonnet | P1-07, P1-09 | done | Every table row passes on 3 adapters at 12.4.2, Express/Fastify 12.0.0, platform-node 12.3.2, Node 22.15 and 26. Header versioning skipped on Fastify 12.0.0: Nest itself fails to boot it (FST_ERR_DUPLICATED_ROUTE). |
 | P1-11 | CI matrix and nightly | sonnet | P1-10 | done | verify on Node 22.15/24/26 already runs the 12.0/12.3.2/latest conformance projects; Jaeger job added; nightly conformance on latest 12.x; nightly update step fixed to skip pinned workspaces. actionlint passes; jobs pass under act. Needs a GitHub run. |
 | P1-12 | Jaeger example, two services | sonnet | P1-09 | done | `pnpm --filter jaeger-example check` passes: one trace, service-a server → client → service-b server, route names set (jaeger 2.23.0). CI job added in P1-11. |
-| P1-13 | Benchmarks: baseline, exporter outage, install size, startup | sonnet | P1-09 | doing | |
+| P1-13 | Benchmarks: baseline, exporter outage, install size, startup | sonnet | P1-09 | review | Final run on current main (HTTP server spans, outbound spans, single-flight export): outage criterion PASS for `unreachable` and `blackhole`; startup +50 ms; install +19.4 MB. Throughput not re-run (measured before HTTP spans). |
 | P1-14 | CommonJS decorated-class check | haiku | P1-02 | done | Consume fixtures boot `forRoot` and read the injected options in CJS (Node 22.15, 26) and ESM apps. |
 | P1-15 | User documentation | sonnet | P1-07, P1-09, P1-13 | review | Package README (full reference) and root README; samples typechecked and kept identical by a test; doc review: 17 corrections applied. Install size and startup numbers wait for P1-13. |
 | P1-16 | Phase report | lead | all | todo | |
@@ -195,6 +195,18 @@ Server span name: `METHOD /route/template`, or `METHOD` when there is no route. 
   2. No heap trend: the least-squares slope of heap-after-GC is below 0.5 MB/min, which over ten minutes is less than the allowance in 1.
   3. No RSS trend: the least-squares slope of RSS is at most the healthy control's slope plus 1 MB/min. A slope uses every sample, so one allocator step barely moves it, while a real leak of the size seen before this change (+9.6 MB/min) fails it plainly.
   Plus a functional check that needs no memory number: the collector never sees more than 2 open connections before shutdown starts.
+
+**Result (final run, current main, Node v26.13.0, darwin-arm64; `benchmarks/results/outage.md`).** Allowance 8.07 MB, with B_span re-measured at 946 B (it was 865 B before HTTP spans) and B_wire at 611 B (355 B before). Control (healthy sink): median heap after GC 23.8 MB, heap slope 0.03 MB/min, RSS slope 0.14 MB/min.
+
+| criterion | unreachable | blackhole | limit |
+| --- | --- | --- | --- |
+| 1 heap median above control | +2.4 MB | +2.2 MB | 8.07 MB |
+| 2 heap slope | 0.01 MB/min | 0.03 MB/min | < 0.5 |
+| 3 RSS slope | 0.67 MB/min | 0.32 MB/min | <= 1.14 (control 0.14 + 1) |
+| 4 max simultaneous collector connections (counted in the app via `net.client.socket`) | 2 | 2 (the sink saw 5 at once; not investigated, probably sockets the app had already destroyed still closing at the sink) | <= 2 |
+| 5 p99 vs control | 0.705x | 0.692x | <= 1.05x |
+
+All pass. Caveats: p99 of the outage runs is lower than the control's (9 ms against 12.9 ms), which is not an effect of the outage; the control ran first and the machine was shared with another agent's benchmarks, so the p99 comparison is weak evidence, though it cannot hide a regression of the size the criterion looks for. For `blackhole`, the sink's own accepted-connection count (5) is above the app-side count (2): sockets the app destroyed were still closing at the sink. Startup: 268.8 ms uninstrumented against 318.8 ms (+50 ms). Install: +19.4 MB, 88 KiB tarball. Throughput (`results/throughput.md`) was measured before HTTP server spans and is not re-run.
 
 **Done when.** `pnpm --filter benchmarks run` produces a results file; the outage criterion is evaluated and reported with its numbers; install size and startup cost are in the report for P1-15.
 
