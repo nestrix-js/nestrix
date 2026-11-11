@@ -1,0 +1,33 @@
+{
+  "name": "spike-p0-s5",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Spike P0-S5: mounting the dashboard routes inside the host's Nest app (throwaway)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/compress": "^9.3.0",
+    "@fastify/helmet": "^13.2.0",
+    "@nestjs/common": "^12.4.2",
+    "@nestjs/core": "^12.4.2",
+    "@nestjs/platform-express": "^12.4.2",
+    "@nestjs/platform-fastify": "^12.4.2",
+    "@nestjs/platform-node": "^12.4.2",
+    "@nestjs/serve-static": "^12.1.1",
+    "@nestjs/testing": "^12.4.2",
+    "@nestrix/testing": "workspace:*",
+    "@nestrix/ui": "workspace:*",
+    "compression": "^1.8.2",
+    "express": "^5.3.0",
+    "helmet": "^8.3.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/compression": "^1.8.1",
+    "@types/node": "^26.6.6"
+  }
+}
