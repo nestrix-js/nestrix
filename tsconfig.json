@@ -42,6 +42,15 @@
     },
     {
       "path": "spikes/p0-s3"
+    },
+    {
+      "path": "e2e/apps"
+    },
+    {
+      "path": "e2e/apps-cjs"
+    },
+    {
+      "path": "e2e"
     }
   ]
 }

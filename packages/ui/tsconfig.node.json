@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": ".",
+    "types": ["node"],
+    "experimentalDecorators": false,
+    "emitDecoratorMetadata": false,
+    "tsBuildInfoFile": "node_modules/.cache/tsconfig.node.tsbuildinfo",
+    "emitDeclarationOnly": true,
+    "outDir": "node_modules/.cache/tsc-node",
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "vite.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts",
+    "e2e"
+  ]
+}
