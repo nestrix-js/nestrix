@@ -12,6 +12,7 @@ Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app pro
 - [Options](#options)
 - [Environment variables](#environment-variables)
 - [What is traced](#what-is-traced)
+- [Metrics](#metrics)
 - [Custom spans](#custom-spans)
 - [Logs](#logs)
 - [Privacy](#privacy)
@@ -314,7 +315,7 @@ Redaction runs shortly after the span ends, not in the request, so a span waits 
 
 Every option is optional. `NestrixModule.forRoot(options?)` and the object `forRootAsync`'s factory returns take the same shape. Invalid values (for example a `sampleRate` outside 0 to 1, or a non-positive queue size) throw. With `forRoot`, that happens when `forRoot()` is called, which is when your module file loads, and also with `enabled: false`. With `forRootAsync`, it happens when the factory's result is resolved during `NestFactory.create`. `export.otlp.timeoutMillis` is validated only when an endpoint resolves.
 
-The package exports these types: `NestrixModuleOptions`, `NestrixModuleAsyncOptions`, `NestrixExportOptions`, `NestrixOtlpOptions`, `NestrixQueueOptions`, `NestrixIgnoreOptions`, `NestrixHttpOptions`, `RedactHook`, `RedactableSpan`, `UrlMatcher`, `SpanOptions`, `NestrixUiOptions`, `NestrixUiTokenAuth`, `NestrixUiCustomAuth` and `NestrixStoreOptions`. The package also exports the function `nestrixSpanProcessor`.
+The package exports these types: `NestrixModuleOptions`, `NestrixModuleAsyncOptions`, `NestrixExportOptions`, `NestrixOtlpOptions`, `NestrixQueueOptions`, `NestrixIgnoreOptions`, `NestrixHttpOptions`, `RedactHook`, `RedactableSpan`, `UrlMatcher`, `SpanOptions`, `NestrixUiOptions`, `NestrixUiTokenAuth`, `NestrixUiCustomAuth`, `NestrixStoreOptions` and `NestrixMetricsOptions`. The package also exports the function `nestrixSpanProcessor`.
 
 <!-- sample: all-options -->
 
@@ -375,6 +376,7 @@ That sample sets most options to their defaults, except where a default is "unse
 | `store` | see below | Limits of the dashboard's in-memory store. See [`store`](#store). |
 | `logs` | `{ export: false }` | Log export over OTLP. See [Logs](#logs). |
 | `logs.export` | `false` | Send `NestrixLogger` records over OTLP to `/v1/logs`. Needs `@opentelemetry/sdk-logs` and `@opentelemetry/exporter-logs-otlp-http`. See [Logs](#logs). |
+| `metrics` | on | Request-duration and runtime metrics. See [Metrics](#metrics) and [`metrics`](#metrics-option). |
 
 ### `export.otlp`
 
@@ -465,6 +467,13 @@ An invalid `ui` value (wrong type, bad path, short token, both `token` and `auth
 
 Ignored while the dashboard is off. See [Memory and the `store` option](#memory-and-the-store-option).
 
+### `metrics` option
+
+| Option | Default | |
+|---|---|---|
+| `metrics` | an object | `false` records no metrics at all. See [Metrics](#metrics). |
+| `metrics.runtime` | `true` | Event-loop delay, V8 heap, RSS and CPU time. `false` keeps the request histogram only. |
+
 ## Environment variables
 
 | Variable | Effect |
@@ -478,6 +487,9 @@ Ignored while the dashboard is off. See [Memory and the `store` option](#memory-
 | `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | Same, for traces; wins over the generic variable key by key. |
 | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | Full logs URL, used as given. Only read when `logs.export` is on. |
 | `OTEL_EXPORTER_OTLP_LOGS_HEADERS` | Same format, for logs; wins over the generic variable key by key. |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | Full metrics URL, used as given, when `export.otlp.endpoint` is not set. Does not switch export on by itself. |
+| `OTEL_EXPORTER_OTLP_METRICS_HEADERS` | Same as the headers variable, for metrics; wins over the generic one key by key. |
+| `OTEL_METRIC_EXPORT_INTERVAL` | Milliseconds between metric exports. Default `60000`; a value that is not a positive integer is ignored. |
 
 An option always wins over the variable of the same meaning. Nestrix itself reads no other `OTEL_*` variables, but the OTLP exporter it uses reads some on its own:
 
@@ -498,6 +510,41 @@ When your app owns the SDK, the export variables are your SDK's business, not Ne
 Server spans carry no `client.address` (the caller's IP is personal data), `server.address` or `server.port`. Client spans record `server.address` and `server.port` of the host they call.
 
 Known limit: on `@nestjs/platform-node`, the `Content-Type` and `Content-Length` response headers are missing from server spans, because that adapter hands them to Node in a way public API cannot read.
+
+## Metrics
+
+Nestrix records metrics through `@opentelemetry/api`'s metrics API. If your app registers a `MeterProvider` (the OpenTelemetry Node SDK does), it receives them as they are, with your readers and exporters.
+
+- **`http.server.request.duration`**, a histogram in seconds with the bucket boundaries the HTTP semantic conventions advise, for every request, sampled or not: it is right at any `sampleRate` and under your own sampler. Attributes: `http.request.method`, `http.route` (when a handler matched), `http.response.status_code` (when a response was sent) and `error.type` (on the same rule as the span's error status). Requests under `ignore.routes` and the dashboard path are not counted.
+- **Runtime metrics**, read only when a reader collects: `nodejs.eventloop.delay.p50`, `.p99` and `.max` (seconds, since the previous collection), `v8js.memory.heap.used` and `v8js.memory.heap.space.size` (bytes, per `v8js.heap.space.name`), `process.memory.usage` (RSS, bytes) and `process.cpu.time` (seconds, per `cpu.mode`). Names follow `@opentelemetry/semantic-conventions` 1.45.0, where they are still experimental and may be renamed. `v8js.memory.heap.limit` is deprecated there and not reported.
+
+With no `MeterProvider` registered and no export, nothing is recorded and the event-loop monitor does not run.
+
+**Export.** When Nestrix owns the tracer provider and exports traces, it also exports metrics over OTLP/HTTP to `/v1/metrics` of the same endpoint (or `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`), every 60 seconds (`OTEL_METRIC_EXPORT_INTERVAL`), with the same headers and timeout. This needs two optional packages:
+
+```bash
+pnpm add @opentelemetry/sdk-metrics@^3.1.1 @opentelemetry/exporter-metrics-otlp-http@^0.301.1
+```
+
+Without them Nestrix logs one line with that command and carries on; metrics stay API-only. Nestrix registers its own `MeterProvider` only when none is registered, never replaces yours, and flushes it on `app.close()` within the same 5-second bound as spans.
+
+<!-- sample: metrics -->
+
+```ts
+import { Module } from "@nestjs/common";
+import { NestrixModule } from "@nestrix/nestjs";
+
+@Module({
+  imports: [
+    NestrixModule.forRoot({
+      export: { otlp: { endpoint: "http://otel-collector:4318" } },
+      // The default: the request histogram and runtime metrics. `false` records none.
+      metrics: { runtime: true },
+    }),
+  ],
+})
+export class AppModule {}
+```
 
 ## Custom spans
 

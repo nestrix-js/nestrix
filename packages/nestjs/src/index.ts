@@ -18,6 +18,7 @@ export type {
   NestrixIntegrationOptions,
   NestrixLogsOptions,
   NestrixMethodOptions,
+  NestrixMetricsOptions,
   NestrixModuleOptions,
   NestrixOtlpOptions,
   NestrixQueueOptions,

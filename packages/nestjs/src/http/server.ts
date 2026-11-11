@@ -40,6 +40,7 @@ import {
   ATTR_USER_AGENT_ORIGINAL,
 } from "@opentelemetry/semantic-conventions";
 import type { Diagnostics } from "../diagnostics.js";
+import type { HttpRequestMetrics } from "../metrics/http.js";
 import type { UrlMatcher } from "../options.js";
 import { describeForeignRouteHook } from "../otel/detect.js";
 import {
@@ -301,6 +302,8 @@ export class HttpServerInstrumentation {
     options: ResolvedOptions,
     private readonly diagnostics: Diagnostics,
     private readonly dashboard?: DashboardHookConfig,
+    /** P6-02: records `http.server.request.duration` at `close`. Absent with `metrics: false`. */
+    private readonly metrics?: HttpRequestMetrics,
   ) {
     this.ignore = options.ignore.routes;
     this.requestHeaders = buildHeaderAllowlist(
@@ -438,7 +441,10 @@ export class HttpServerInstrumentation {
       reached: false,
       exception: undefined,
       ended: false,
-      startedAt: dashboard !== undefined ? performance.now() : 0,
+      startedAt:
+        dashboard !== undefined || this.metrics !== undefined
+          ? performance.now()
+          : 0,
     };
     setStateForRequest(rawReq, state);
     // The listener holds the state itself: on a client abort it runs outside the request's
@@ -633,6 +639,8 @@ export class HttpServerInstrumentation {
 
       const stats = this.dashboard?.stats;
       if (stats !== undefined) this.recordStats(stats, state, status, route);
+      // P6-02: its own guard inside `record` (never throws), sampled or not, like the statistics.
+      this.metrics?.record(state, status, route);
 
       if (status !== undefined) {
         span.setAttribute(ATTR_HTTP_RESPONSE_STATUS_CODE, status);
@@ -711,6 +719,7 @@ export function installHttpInstrumentation(
   options: ResolvedOptions,
   diagnostics: Diagnostics,
   dashboard?: DashboardHookConfig,
+  metrics?: HttpRequestMetrics,
 ): () => void {
   const noop = () => undefined;
   try {
@@ -719,6 +728,7 @@ export function installHttpInstrumentation(
       options,
       diagnostics,
       dashboard,
+      metrics,
     );
     let installed = false;
     const install = (adapter: unknown): void => {

@@ -34,8 +34,9 @@ export interface RequestState {
   /** Set once the span has ended, so a second `close` path cannot end it twice. */
   ended: boolean;
   /**
-   * `performance.now()` when the request hook ran, for route statistics (P2-04). Set only when
-   * statistics are on (the dashboard is on); `0` otherwise, with no clock read.
+   * `performance.now()` when the request hook ran, for route statistics (P2-04) and the request
+   * duration metric (P6-02). Set only when either is on (the dashboard is on, or `metrics` is
+   * not `false`); `0` otherwise, with no clock read.
    */
   startedAt?: number;
 }

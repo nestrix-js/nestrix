@@ -19,6 +19,7 @@ import { NestrixInterceptor } from "./http/interceptor.js";
 import { installHttpInstrumentation } from "./http/server.js";
 import { type LogExportHandle, setupLogExport } from "./logs/export.js";
 import { configureMethods, markNestrixInternal } from "./methods/registry.js";
+import { type NestrixMetrics, startMetrics } from "./metrics/index.js";
 import { setupTelemetry } from "./otel/setup.js";
 import type { TelemetryHandle } from "./otel/types.js";
 import { installOutbound } from "./outbound/index.js";
@@ -39,6 +40,8 @@ import { NESTRIX_OPTIONS } from "./tokens.js";
 export class NestrixCore implements OnModuleInit, OnApplicationShutdown {
   /** Undefined when disabled or when setup failed. */
   readonly telemetry: TelemetryHandle | undefined;
+  /** P6-02. Undefined with `metrics: false`, when disabled, or when setup failed. */
+  readonly metrics: NestrixMetrics | undefined;
   private readonly disposers: Array<() => void> = [];
   /** Set when the dashboard's mode is on and `@nestrix/ui` was located (P2-06). */
   private readonly dashboard: Dashboard | undefined;
@@ -62,6 +65,7 @@ export class NestrixCore implements OnModuleInit, OnApplicationShutdown {
     let logExport: LogExportHandle | undefined;
     let dashboard: Dashboard | undefined;
     let unavailable: DashboardUnavailable | undefined;
+    let metrics: NestrixMetrics | undefined;
     try {
       if (options.enabled) {
         // The mode is resolved already (module factory). Wired now, because an SDK 3 provider
@@ -79,6 +83,8 @@ export class NestrixCore implements OnModuleInit, OnApplicationShutdown {
           diagnostics,
         );
         logExport = setupLogExport(options, diagnostics);
+        // P6-02: after the telemetry setup, which decides whether Nestrix may export metrics.
+        metrics = startMetrics(options, telemetry, diagnostics);
         // Outbound subscribers work with or without an HTTP adapter, and with a host-owned SDK.
         this.disposers.push(installOutbound(options, diagnostics));
         // HTTP hooks now, or from `init$` under @nestjs/testing; nothing without an adapter.
@@ -88,6 +94,7 @@ export class NestrixCore implements OnModuleInit, OnApplicationShutdown {
             options,
             diagnostics,
             dashboard?.hookConfig,
+            metrics?.http,
           ),
           installProcessErrorMonitor(),
         );
@@ -108,6 +115,7 @@ export class NestrixCore implements OnModuleInit, OnApplicationShutdown {
     }
     this.telemetry = telemetry;
     this.logExport = logExport;
+    this.metrics = metrics;
     this.dashboard = dashboard;
     this.dashboardUnavailable = unavailable;
   }
@@ -158,7 +166,8 @@ export class NestrixCore implements OnModuleInit, OnApplicationShutdown {
       diagnostics.countFailure("core.shutdown", error);
     }
     try {
-      await this.telemetry?.shutdown();
+      // P6-02: alongside the trace flush; each is bounded and never rejects.
+      await Promise.all([this.metrics?.shutdown(), this.telemetry?.shutdown()]);
     } catch (error) {
       diagnostics.countFailure("core.shutdown", error);
     }
