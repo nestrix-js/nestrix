@@ -7,7 +7,7 @@ import {
   type Meter,
   type MeterProvider,
 } from "@opentelemetry/api";
-import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import { type ExportResult, ExportResultCode } from "@opentelemetry/core";
 import {
   BatchSpanProcessor,
   type SpanExporter,
@@ -20,6 +20,20 @@ import {
   settle,
 } from "./redacting-exporter.js";
 import type { TelemetryConfig, TelemetryDiagnostics } from "./types.js";
+
+/**
+ * The provider's processors: the export chain when export is on, the dashboard store's
+ * processor when the dashboard is on. Either, both or neither.
+ */
+export function spanProcessors(
+  pipeline: Pipeline | undefined,
+  storeProcessor: SpanProcessor | undefined,
+): SpanProcessor[] {
+  const processors: SpanProcessor[] = [];
+  if (pipeline) processors.push(pipeline.processor);
+  if (storeProcessor) processors.push(storeProcessor);
+  return processors;
+}
 
 export interface PipelineCounters extends RedactionCounters {
   droppedSpans: number;
@@ -133,6 +147,66 @@ export interface Pipeline {
   abort(): void;
 }
 
+type OtlpExporterConfig = ConstructorParameters<
+  typeof import("@opentelemetry/exporter-trace-otlp-http").OTLPTraceExporter
+>[0];
+
+/**
+ * A `SpanExporter` that imports `@opentelemetry/exporter-trace-otlp-http` (and with it
+ * sdk-metrics, about 110 files) on first need instead of at module load, so an app with
+ * export off never pays for it. The import starts when the pipeline is built, from sync
+ * code, so nothing blocks and there is no top-level `await`. Batches handed over before
+ * it resolves wait here, inside the batch processor's single in-flight export, while
+ * the processor's own queue keeps buffering (and counting drops) as usual; none is lost.
+ * `flush` and `shutdown` wait for the load, which is local disk and bounded by the
+ * caller's shutdown bound. After `abort()` nothing more is sent. A failed import fails
+ * the batches (counted) and never throws.
+ */
+function createLazyOtlpExporter(
+  config: OtlpExporterConfig,
+  diagnostics: TelemetryDiagnostics,
+): SpanExporter & { abort(): void } {
+  let loaded: SpanExporter | undefined;
+  let aborted = false;
+  const loading: Promise<void> = import(
+    "@opentelemetry/exporter-trace-otlp-http"
+  ).then(
+    ({ OTLPTraceExporter }) => {
+      loaded = new OTLPTraceExporter(config);
+    },
+    (error: unknown) => {
+      diagnostics.countFailure("otel.exporter.load", error);
+    },
+  );
+  const failed = (): ExportResult => ({ code: ExportResultCode.FAILED });
+  return {
+    export(spans, resultCallback) {
+      if (aborted) return resultCallback(failed());
+      if (loaded) return loaded.export(spans, resultCallback);
+      void loading.then(() => {
+        if (aborted || !loaded) return resultCallback(failed());
+        try {
+          loaded.export(spans, resultCallback);
+        } catch (error) {
+          diagnostics.countFailure("otel.exporter.export", error);
+          resultCallback(failed());
+        }
+      });
+    },
+    async forceFlush() {
+      await loading;
+      await loaded?.forceFlush?.();
+    },
+    async shutdown() {
+      await loading;
+      await loaded?.shutdown();
+    },
+    abort() {
+      aborted = true;
+    },
+  };
+}
+
 /** Builds the pipeline, or returns `undefined` when export is off. */
 export function createPipeline(
   config: TelemetryConfig,
@@ -142,12 +216,15 @@ export function createPipeline(
   const otlp = config.export.otlp;
   if (otlp === false) return undefined;
   const agents = createExportAgents();
-  const exporter: SpanExporter = new OTLPTraceExporter({
-    url: otlp.url,
-    headers: { ...otlp.headers },
-    timeoutMillis: otlp.timeoutMillis,
-    httpAgentOptions: (protocol: string) => agents.factory(protocol),
-  });
+  const exporter = createLazyOtlpExporter(
+    {
+      url: otlp.url,
+      headers: { ...otlp.headers },
+      timeoutMillis: otlp.timeoutMillis,
+      httpAgentOptions: (protocol: string) => agents.factory(protocol),
+    },
+    diagnostics,
+  );
   const chain = createProcessorChain(exporter, {
     scrub: config.scrub,
     redact: config.redact,
@@ -159,6 +236,7 @@ export function createPipeline(
   return {
     processor: chain.processor,
     abort() {
+      exporter.abort();
       chain.abort();
       agents.abort();
     },
