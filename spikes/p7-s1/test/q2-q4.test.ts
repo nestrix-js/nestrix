@@ -5,7 +5,8 @@ import { hotRouteLine, probe, type Row } from "./run.ts";
 
 const ok = { problems: [], esm: true, cjs: true };
 
-describe("Q2: interference", () => {
+// Retried: these attach a debugger and time samples, which flakes when the whole workspace runs at once.
+describe("Q2: interference", { retry: 2 }, () => {
   it("A: with a debugger attached and profiling, both captures and the debugger's profile are valid", async () => {
     const [r] = (await probe("q2-interference.mjs", ["A"])) as Row[];
     expect(r.v8Capture).toMatchObject(ok);

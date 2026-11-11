@@ -2,7 +2,7 @@
 
 Each phase is a vertical slice that ends with something a user can run. A phase is done when its acceptance criteria pass in CI, not when the code is written. Under delivery mode (owner, 2026-11-11) phases no longer stop for review; each ends with a phase report.
 
-Current phase: **7, in progress** ([backlog/phase-7.md](backlog/phase-7.md)): alerting and SLOs done, the profiler being built. Phases 3 to 6 are complete under delivery mode (reports [phase-3-report.md](phase-3-report.md), [phase-4-report.md](phase-4-report.md), [phase-5-report.md](phase-5-report.md), [phase-6-report.md](phase-6-report.md)). Phase 2 is complete and approved by the owner on 2026-11-11 (report [phase-2-report.md](phase-2-report.md)); phase 1 likewise ([phase-1-report.md](phase-1-report.md)); phase 0 is complete ([phase-0-report.md](phase-0-report.md)).
+All phases (0 to 7) are complete. Phases 3 to 7 ran under delivery mode (owner, 2026-11-11), each with a report: [phase-3-report.md](phase-3-report.md) to [phase-7-report.md](phase-7-report.md). Phases 1 and 2 were approved by the owner on 2026-11-11; phase 0 is complete ([phase-0-report.md](phase-0-report.md)). Next: the first published pre-release (`RELEASING.md`) and the optimisation pass (deferred benchmarks listed in the reports).
 
 ## Phase 0: foundations and spikes
 
