@@ -1,0 +1,30 @@
+{
+  "name": "spike-p7-s1",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Spike P7-S1: on-demand CPU profiling of a running Nest app (throwaway)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "bench": "node probes/bench.mjs"
+  },
+  "dependencies": {
+    "@nestjs/common": "^12.4.2",
+    "@nestjs/core": "^12.4.2",
+    "@nestjs/platform-express": "^12.4.2",
+    "@nestjs/platform-fastify": "^12.4.2",
+    "@nestjs/platform-node": "^12.4.2",
+    "@nestjs/testing": "^12.4.2",
+    "@nestrix/testing": "workspace:*",
+    "@opentelemetry/api": "~1.10.0",
+    "@opentelemetry/context-async-hooks": "^3.1.1",
+    "@opentelemetry/sdk-trace": "^3.1.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "autocannon": "^9.0.0"
+  }
+}
