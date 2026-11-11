@@ -5,6 +5,10 @@ export default defineConfig({
     include: ["test/**/*.test.ts"],
     exclude: ["test/dist/**", "**/node_modules/**"],
     // Database containers for test/integrations (P3-01); started without waiting for readiness.
-    globalSetup: ["test/integrations/containers.global.ts"],
+    globalSetup: [
+      "test/integrations/containers.global.ts",
+      // Message brokers for test/microservices-e2e (P4-02).
+      "test/microservices-e2e/brokers.global.ts",
+    ],
   },
 });

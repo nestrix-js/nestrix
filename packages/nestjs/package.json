@@ -68,6 +68,7 @@
     }
   },
   "devDependencies": {
+    "@nats-io/transport-node": "^3.4.0",
     "@nestjs/bullmq": "^12.0.1",
     "@nestjs/common": "^12.4.2",
     "@nestjs/config": "^12.1.1",
@@ -86,10 +87,14 @@
     "@opentelemetry/sdk-metrics": "^3.1.1",
     "@types/node": "^26.6.6",
     "@types/pg": "^8.23.1",
+    "amqp-connection-manager": "^5.0.1",
+    "amqplib": "~2.2.0",
     "bullmq": "~6.7.2",
     "bullmq-otel": "^2.0.1",
     "express-esm": "workspace:*",
     "ioredis": "^6.0.0",
+    "kafkajs": "^2.2.4",
+    "mqtt": "^5.16.1",
     "mysql2": "^3.24.6",
     "pg": "^8.23.1",
     "pg-cursor": "^2.22.1",
