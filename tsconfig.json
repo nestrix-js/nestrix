@@ -24,6 +24,9 @@
     },
     {
       "path": "examples/express-cjs"
+    },
+    {
+      "path": "spikes/p0-s5"
     }
   ]
 }
