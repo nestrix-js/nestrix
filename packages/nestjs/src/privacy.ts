@@ -411,3 +411,69 @@ export function splitUrl(
     return { path: "" };
   }
 }
+
+/** The subset of `RedactableSpan` (options.ts) that `scrubSpanAttributes` reads and writes. */
+interface ScrubbableSpan {
+  attributes: Record<string, unknown>;
+}
+
+const USERINFO = /^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/?#]*@/;
+
+/**
+ * Nestrix's own redaction step for every span the Nestrix-owned pipeline exports, including
+ * spans from other instrumentations (architecture §4.8, D-37). Rewrites in place:
+ * - `url.query`: values of listed keys become `REDACTED`;
+ * - `url.full`: the same for its query, the fragment dropped, userinfo replaced by
+ *   `REDACTED:REDACTED` as the semantic conventions ask;
+ * - `http.request.header.*` / `http.response.header.*` for the always-redacted headers: `["REDACTED"]`.
+ * Never throws; an attribute it cannot read safely is deleted.
+ */
+export function scrubSpanAttributes(
+  span: ScrubbableSpan,
+  keys: ReadonlySet<string>,
+): void {
+  const attributes = span.attributes;
+  for (const name of Object.keys(attributes)) {
+    try {
+      const value = attributes[name];
+      if (name === "url.query") {
+        if (typeof value !== "string") delete attributes[name];
+        else attributes[name] = redactQuery(value, keys);
+      } else if (name === "url.full") {
+        if (typeof value !== "string") {
+          delete attributes[name];
+          continue;
+        }
+        let url = value;
+        const hash = url.indexOf("#");
+        if (hash !== -1) url = url.slice(0, hash);
+        url = url.replace(USERINFO, `$1${REDACTED}:${REDACTED}@`);
+        const q = url.indexOf("?");
+        if (q !== -1) {
+          const query = redactQuery(url.slice(q + 1), keys);
+          url =
+            query === "" ? url.slice(0, q) : `${url.slice(0, q + 1)}${query}`;
+        }
+        attributes[name] = url;
+      } else {
+        const header = name.startsWith(REQUEST_HEADER_PREFIX)
+          ? name.slice(REQUEST_HEADER_PREFIX.length)
+          : name.startsWith(RESPONSE_HEADER_PREFIX)
+            ? name.slice(RESPONSE_HEADER_PREFIX.length)
+            : undefined;
+        if (
+          header !== undefined &&
+          ALWAYS_REDACTED_HEADERS.has(header.toLowerCase())
+        ) {
+          attributes[name] = [REDACTED];
+        }
+      }
+    } catch {
+      try {
+        delete attributes[name];
+      } catch {
+        // Nothing more can be done; the exporter wrapper drops spans whose scrub throws.
+      }
+    }
+  }
+}

@@ -5,10 +5,10 @@ require("reflect-metadata");
 const assert = require("node:assert/strict");
 const { Controller, Get, Module } = require("@nestjs/common");
 const { NestFactory } = require("@nestjs/core");
-const { NESTRIX_PACKAGE } = require("@nestrix/nestjs");
+const { NestrixModule } = require("@nestrix/nestjs");
 const { dashboardDirectory } = require("@nestrix/ui");
 
-assert.equal(NESTRIX_PACKAGE, "@nestrix/nestjs");
+assert.equal(typeof NestrixModule.forRoot, "function");
 assert.ok(dashboardDirectory instanceof URL);
 
 class AppController {

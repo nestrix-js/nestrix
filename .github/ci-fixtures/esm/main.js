@@ -4,10 +4,10 @@ import "reflect-metadata";
 import assert from "node:assert/strict";
 import { Controller, Get, Module } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
-import { NESTRIX_PACKAGE } from "@nestrix/nestjs";
+import { NestrixModule } from "@nestrix/nestjs";
 import { dashboardDirectory } from "@nestrix/ui";
 
-assert.equal(NESTRIX_PACKAGE, "@nestrix/nestjs");
+assert.equal(typeof NestrixModule.forRoot, "function");
 assert.ok(dashboardDirectory instanceof URL);
 
 class AppController {
