@@ -4,7 +4,7 @@ Instructions for AI coding agents working on this repository. This is the one sh
 
 Open-source observability for NestJS 12+: Nest-aware OpenTelemetry tracing, with an optional dashboard served by the host application. Apache-2.0. Pre-release.
 
-**Current state:** phase 0 is complete and its gate is passed. The repository holds the workspace toolchain, package skeletons (placeholder exports only), example apps, the test harness, CI and release plumbing, and six spike results in `docs/spikes/`. The owner decided the phase 0 questions (D-40 to D-51 in `docs/decisions.md`; evidence in `docs/phase-0-report.md`). Phase 1 (headless tracing) is complete and waits for the owner's review: `docs/phase-1-report.md`. Phase 2 (embedded dashboard) starts in a fresh session once the owner approves; its first task is writing `docs/backlog/phase-2.md`.
+**Current state:** phase 0 is complete and its gate is passed. The repository holds the workspace toolchain, package skeletons (placeholder exports only), example apps, the test harness, CI and release plumbing, and six spike results in `docs/spikes/`. The owner decided the phase 0 questions (D-40 to D-51 in `docs/decisions.md`; evidence in `docs/phase-0-report.md`). Phase 1 (headless tracing) is complete and the owner approved it on 2026-11-11 (`docs/phase-1-report.md`). Phase 2 (embedded dashboard) is complete and the owner approved it on 2026-11-11 (`docs/phase-2-report.md`; task list and settled public API in `docs/backlog/phase-2.md`). Phase 3 (providers, data and jobs) is next, in a fresh session; its first task is writing `docs/backlog/phase-3.md`.
 
 **Remote:** `github.com/nestrix-js/nestrix`, private, already configured (`docs/decisions.md`, "GitHub: what is set up"). There is nothing left to set up on GitHub before implementing.
 
@@ -17,7 +17,7 @@ Open-source observability for NestJS 12+: Nest-aware OpenTelemetry tracing, with
 | `docs/nest-hooks.md` | The NestJS 12 extension points the design rests on, per adapter. |
 | `docs/research.md` | Facts verified against primary sources, with dates. |
 | `docs/roadmap.md` | Phases and their acceptance criteria. |
-| `docs/backlog/phase-1.md` | The current task list, with a status table and the settled public API. |
+| `docs/backlog/phase-2.md` | The latest task list, with the settled dashboard API. Phase 1's (`phase-1.md`) holds the headless API and its rules for every task. Phase 3's is written when it starts. |
 | `docs/ai/orchestration.md` | For the lead agent: which model does which work, how to brief and check subagents. |
 | `docs/ai/owner-brief.md` | The owner's original brief. Background on intent; the decision log wins where they differ. |
 
