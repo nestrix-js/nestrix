@@ -232,10 +232,13 @@ describe("Q2 spans are produced and nested", () => {
         expect(inner?.parentSpanContext?.spanId).toBe(
           svc?.spanContext().spanId,
         );
-        // The async span covers the 1 ms timer.
+        // The async span covers the awaited 5 ms timer. Checked as the span's own duration with
+        // slack: libuv timers run on a cached, millisecond-granular loop clock and can fire
+        // early on the span clock (CI, Node 24: 0.38 ms for a 1 ms timer). Cross-span
+        // timestamp comparisons are not used: each span anchors its own clock.
         const ms = (s: typeof svc) =>
           s ? s.duration[0] * 1e3 + s.duration[1] / 1e6 : 0;
-        expect(ms(svc)).toBeGreaterThanOrEqual(0.9);
+        expect(ms(svc)).toBeGreaterThanOrEqual(3);
         console.log(
           `${strategy}: spans for GET /users/7/async: ${spans.map((s) => s.name).join(", ")}`,
         );

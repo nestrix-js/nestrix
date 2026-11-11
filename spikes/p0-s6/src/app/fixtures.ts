@@ -279,7 +279,7 @@ export class UsersService {
     };
   }
   async findAsync(id: number) {
-    await new Promise((r) => setTimeout(r, 1));
+    await new Promise((r) => setTimeout(r, 5));
     return this.find(id);
   }
   async dbRoundTrip() {
