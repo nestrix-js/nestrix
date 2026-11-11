@@ -3,7 +3,8 @@ import type { NestExpressApplication } from "@nestjs/platform-express";
 import { Test } from "@nestjs/testing";
 import { AppModule } from "../../src/app.module.js";
 import { configureApp } from "../../src/bootstrap.js";
-import { QUERY_GUARD } from "../../src/query/guard.js";
+import { DenyQueryGuard, QUERY_GUARD } from "../../src/query/guard.js";
+import { ADMIN_PW, SESSION_SECRET, signedCookie } from "../auth/helpers.js";
 import { testConfig } from "../ingest/helpers.js";
 
 export interface QueryServer {
@@ -15,34 +16,42 @@ export interface QueryServer {
 }
 
 /**
- * The whole server (receiver, PostgreSQL storage, query API) against `databaseUrl`. With
- * `open`, the query guard allows every request (what P5-04's session guard does after login);
- * without it the default guard stays and the API is closed.
+ * The whole server (receiver, PostgreSQL storage, admin login, query API) against `databaseUrl`.
+ * `get` and `json` send a signed admin session cookie, unless `signedIn` is false. With `open`
+ * the real session guard guards the query API; without it the default deny guard replaces it
+ * (the API stays closed even for a signed-in admin).
  */
 export async function startQueryServer(
   databaseUrl: string,
   open = true,
+  signedIn = true,
 ): Promise<QueryServer> {
-  const config = testConfig({ DATABASE_URL: databaseUrl });
+  const config = testConfig({
+    DATABASE_URL: databaseUrl,
+    NESTRIX_ADMIN_PASSWORD: ADMIN_PW,
+    NESTRIX_SESSION_SECRET: SESSION_SECRET,
+  });
   let builder = Test.createTestingModule({
     imports: [AppModule.forRoot(config)],
   });
-  if (open) {
+  if (!open) {
     builder = builder
       .overrideProvider(QUERY_GUARD)
-      .useValue({ canActivate: () => true });
+      .useValue(new DenyQueryGuard());
   }
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication<NestExpressApplication>({
     bodyParser: false,
     logger: false,
   });
-  configureApp(app);
+  configureApp(app, config);
   await app.listen(0, "127.0.0.1");
   const { port } = app.getHttpServer().address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${port}`;
   const get = (path: string, headers: Record<string, string> = {}) =>
-    fetch(`${baseUrl}${path}`, { headers });
+    fetch(`${baseUrl}${path}`, {
+      headers: signedIn ? { cookie: signedCookie(), ...headers } : headers,
+    });
   return {
     app,
     baseUrl,
