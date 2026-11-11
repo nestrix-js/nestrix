@@ -77,6 +77,7 @@ Consequence: the clean-room rule in [CONTRIBUTING.md](../CONTRIBUTING.md). Nobod
 | SDK 3.x is current: 3.0.0 / 0.300.0 on 2026-10-20; 3.1.1 / 0.301.1 on 2026-11-09. Engines `node >=22.15.0`. | V (npm) |
 | `@opentelemetry/api` is 1.10.0. SDK 3.x peers `>=1.10.0 <1.11.0`; SDK 2.x peers `<1.10.0`. The two generations cannot share one install. SDK 2.x gets fixes until 2027-09-30. | V |
 | Every OpenTelemetry JS package checked has dual builds (`.cjs` for `require`, `.mjs` for `default`; `require` listed first, no `module-sync`). A CommonJS host and the ESM `@nestrix/nestjs` therefore load two instances of `@opentelemetry/api` and of the SDK. They share the global provider and the context keys (`Symbol.for`), so spans and parents cross the boundary, but `instanceof` across it is `false`. | V (spike P0-S4) |
+| SDK 3's `TracerProvider` defaults to `ParentBased(AlwaysOn)` (`sdk-trace/dist/TracerProvider.mjs:24`, 3.1.1). `Span.isRecording()` is `!this._ended` (`Span.mjs:202`), so it turns false when a sampled span ends. | V (spike P0-S6) |
 | `sdk-trace-base` and `sdk-trace-node` are gone; use `@opentelemetry/sdk-trace`. Every package has an `exports` map; deep imports fail. | V (3.x announcement and changelog) |
 | Traces and metrics are stable. Logs: `sdk-logs` marked stable in 3.0.0, while opentelemetry.io still says "Development". | V (conflicting sources) |
 | `addSpanProcessor` was removed in SDK 2.0. A `TracerProvider` takes `spanProcessors` only in its constructor. There is no public way to add a processor to a provider someone else built. | V |

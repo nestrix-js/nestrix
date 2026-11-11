@@ -104,12 +104,16 @@ Nest's `instanceDecorator` sees every DI-created instance after construction and
 Requirements, each backed by a test:
 - Wrappers copy all reflect-metadata keys, own properties, `name` and `length` from the original function. Without this a method-level `@UseGuards` becomes invisible and the route fails open.
 - The receiver stays the raw instance, so `#private` members and identity checks keep working.
-- Wrappers are cached per class, so request-scoped instances cost no closure allocation per request.
+- Wrappers are installed as non-enumerable own properties of the instance; the prototype is never changed (swapping it reorders Express routes). The decorator returns the instance it was given and is idempotent.
+- Wrappers are cached per class, so request-scoped instances cost no closure allocation per request; installing them still costs about 150–200 ns per wrapped method per instance (P0-S6).
+- A wrapper calls the method the class prototype holds at call time, so patches made after decoration (test spies) apply; it falls back to the copy captured at decoration.
+- Only a plain native promise (`Object.getPrototypeOf(p) === Promise.prototype`) is followed, returned as `p.then(end, endAndRethrow)`. A method returning a memoised promise therefore returns a new object on each call: an accepted behaviour change. Promise subclasses, other thenables and Observables are returned untouched and their span ends when the method returns, so an Observable's span covers none of the stream and misses its errors. Generators and accessors are not wrapped.
 - Functions and non-class values pass through untouched.
 - Only prototype methods are wrapped, never callable own properties.
-- What is wrapped by default is decided by an explicit rule, not by guessing: **(spike)**. Users can always `include` and `exclude` by class or pattern.
+- Entry methods (scheduled jobs, queue processors) start a new root span linked to the span active at call time.
+- What is wrapped by default is open decision O-3 (options and evidence in spike P0-S6). Users can always `include` and `exclude` by class or pattern. Both options leave guards, pipes, interceptors and filters unwrapped, which conflicts with the enhancer spans promised in §2, §4.1 and §4.2; the owner resolves it with O-3.
 
-An unsampled trace produces non-recording spans, so level 2's cost falls with the sample rate.
+Wrappers skip span creation when the parent span context is valid and lacks `TraceFlags.SAMPLED`, so an unsampled request costs about 70 ns per wrapped call over a raw call; without the skip a non-recording span still costs about 0.7 µs (P0-S6). `Span.isRecording()` is not the test: in SDK 3 it turns false as soon as a sampled span ends, which would drop spans for work that outlives the request.
 
 ### 4.4 Level 3 mechanics
 

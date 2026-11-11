@@ -112,9 +112,13 @@ Where it is applied (`core/injector/injector.ts`, `instantiateClass`):
 - Providers, controllers, guards, interceptors, pipes, filters and class middleware all pass through it.
 - Request-scoped and transient instances pass through it on every creation.
 - Factory providers: the awaited return value passes through it, whatever it is.
-- Value providers do not.
+- Value providers do (`addCustomValue`, `module.js:261` in 12.4.2), and so do module class instances (P0-S6).
+- The same instance can arrive more than once (`useExisting`, providers re-exported under another token), so the decorator must be idempotent.
+- Function middleware given to `consumer.apply()` arrives as an instance of a generated class with a random name, whose `use` is an own arrow field. Middleware instances are created during `app.init()`.
 - Plain middleware functions given to `app.use()` and user-constructed global enhancers are passed through it as well.
 - Nest wraps the decorator (`makeSafeInstanceDecorator`): if it throws, Nest logs a warning and uses the undecorated instance.
+
+Under `@nestjs/testing`, `compile()` takes no `instrument` option, so static providers and controllers are **never decorated in tests**. `createNestApplication(adapter, { instrument })` reaches only request-scoped instances, middleware, `useGlobal*()` arguments and `app.use()` functions. Passing `instrument` as `createTestingModule`'s untyped second argument decorates only value providers and transients from `ModuleRef.resolve` and is excluded by the published type (run, P0-S6). Decorating existing instances in place through `ModulesContainer` would have to happen before `registerRouter` (`nest-application.js:128-130`, source-read), so an `onModuleInit` pass is too late for static routes. How Nestrix behaves under testing is an owner decision.
 
 What it does **not** tell you: the hook receives one `unknown` value. No token, no module, no role. "Is this a framework class?" cannot be answered from the hook's arguments alone.
 
@@ -122,13 +126,15 @@ Hazards when wrapping methods, each a requirement on the implementation:
 
 | Hazard | Requirement |
 |---|---|
-| Nest reads route and enhancer metadata (`@UseGuards`, `@HttpCode`, custom `Reflector` keys) off the handler **function object**, and for request-scoped controllers reads the handler from the instance. A wrapper without that metadata makes a method-level guard invisible: it fails open. | Copy every reflect-metadata key, own properties, `name` and `length` from the original to the wrapper. Test: a route with a method-level guard still returns 403 with instrumentation on. |
+| Route paths and methods are read from `Object.getPrototypeOf(instance)[name]`; the handler and its enhancer metadata (`@UseGuards`, `@HttpCode`, custom `Reflector` keys) from `instance[name]`: once at route registration for static controllers, per request for request-scoped ones (P0-S6). A wrapper without that metadata makes a method-level guard invisible: it fails open. | Copy every reflect-metadata key, own properties, `name` and `length` from the original to the wrapper. Test: a route with a method-level guard still returns 403 with instrumentation on. |
 | `Proxy` breaks classes with `#private` members and built-ins with internal slots, and changes `this` identity. | No `Proxy`. Wrap methods so the receiver stays the raw instance. |
 | Request-scoped instances are created per request. | Cache wrappers per class, not per instance. |
 | Functions and non-class values pass through the hook. A variadic wrapper changes `length`, which Express uses to recognise error middleware. | Return functions and non-class values untouched. |
 | Callable objects stored in fields (a Mongoose model, an Axios instance) are not methods. | Wrap prototype methods only, never own properties that happen to be callable. |
+| Nest registers routes in prototype method order; swapping in a derived prototype reorders routes on Express (a guarded route returned 400 instead of 403, P0-S6). | Never change the prototype; install wrappers as non-enumerable own properties of the instance. |
+| `@nestjs/schedule` and `@nestjs/bullmq` read metadata from `instance[name]`; a wrapper without it silently unschedules the job. | Same metadata copy as above; covered by a test with `@Interval` and a BullMQ processor. |
 
-Deciding what to wrap by default is a **spike** (allowlist by Nest's `@Controller` / `@Injectable` markers plus user `include` / `exclude`, against a denylist of framework classes).
+What to wrap by default is open decision O-3; the evidence and two options are in `docs/spikes/P0-S6.md` (Q1, Q7).
 
 ## 5. Microservices
 
