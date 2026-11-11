@@ -4,7 +4,7 @@
  * so it is right at any sample rate and under a host-owned sampler.
  *
  * Attributes: `http.request.method` (`_OTHER` outside the conventions' list, as on the span),
- * `http.route` when a handler matched (the 404 rule of http/server.ts already applied),
+ * `url.scheme`, `http.route` when a handler matched (the 404 rule of http/server.ts already applied),
  * `http.response.status_code` when a response was sent, and `error.type` on the same outcome
  * rule as the span's error status. The attribute object is the only allocation per request, and
  * there is none while no real `MeterProvider` is registered.
@@ -17,6 +17,7 @@ import {
   ATTR_HTTP_REQUEST_METHOD,
   ATTR_HTTP_RESPONSE_STATUS_CODE,
   ATTR_HTTP_ROUTE,
+  ATTR_URL_SCHEME,
 } from "@opentelemetry/semantic-conventions";
 import type { Diagnostics } from "../diagnostics.js";
 import type { RequestState } from "../http/request-state.js";
@@ -47,6 +48,8 @@ export class HttpRequestMetrics {
         [ATTR_HTTP_REQUEST_METHOD]:
           state.baseName === "HTTP" ? "_OTHER" : state.method,
       };
+      if (state.scheme !== undefined)
+        attributes[ATTR_URL_SCHEME] = state.scheme;
       if (route !== undefined) attributes[ATTR_HTTP_ROUTE] = route;
       if (status !== undefined) {
         attributes[ATTR_HTTP_RESPONSE_STATUS_CODE] = status;

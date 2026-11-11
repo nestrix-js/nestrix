@@ -401,10 +401,11 @@ export class HttpServerInstrumentation {
     const known = KNOWN_METHODS.has(received);
     const baseName = known ? received : "HTTP";
 
+    const scheme = rawReq.socket?.encrypted ? "https" : "http";
     const attributes: Attributes = {
       [ATTR_HTTP_REQUEST_METHOD]: known ? received : "_OTHER",
       [ATTR_URL_PATH]: path,
-      [ATTR_URL_SCHEME]: rawReq.socket?.encrypted ? "https" : "http",
+      [ATTR_URL_SCHEME]: scheme,
     };
     if (!known) attributes[ATTR_HTTP_REQUEST_METHOD_ORIGINAL] = received;
     if (query !== undefined) attributes[ATTR_URL_QUERY] = query;
@@ -441,6 +442,7 @@ export class HttpServerInstrumentation {
       reached: false,
       exception: undefined,
       ended: false,
+      scheme,
       startedAt:
         dashboard !== undefined || this.metrics !== undefined
           ? performance.now()

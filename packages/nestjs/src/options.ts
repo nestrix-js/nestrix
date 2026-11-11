@@ -212,6 +212,12 @@ export interface NestrixMetricsOptions {
    * start only once a real `MeterProvider` is registered (your app's or Nestrix's).
    */
   runtime?: boolean;
+  /**
+   * Export over OTLP/HTTP from Nestrix's own `MeterProvider`. Default `true` (when its other
+   * conditions hold). `false` keeps recording through the API only, so a `MeterProvider` your app
+   * registers still receives the metrics.
+   */
+  export?: boolean;
 }
 
 export interface NestrixModuleOptions {

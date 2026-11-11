@@ -289,9 +289,12 @@ export function resolveMetrics(
   const runtime = m?.runtime ?? true;
   if (typeof runtime !== "boolean")
     invalid("metrics.runtime must be a boolean");
+  const exportOn = m?.export ?? true;
+  if (typeof exportOn !== "boolean")
+    invalid("metrics.export must be a boolean");
 
   let exportTo: ResolvedMetricExport | false = false;
-  const traces = resolveOtlp(options, env);
+  const traces = exportOn ? resolveOtlp(options, env) : false;
   if (traces !== false) {
     const otlp = options.export?.otlp || undefined;
     const optionEndpoint = blank(otlp?.endpoint);

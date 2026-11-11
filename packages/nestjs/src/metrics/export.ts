@@ -102,6 +102,8 @@ interface Shared {
 }
 
 let shared: Shared | undefined;
+/** The last owned export's teardown while it runs: `metrics.disable()` has not run until it settles. */
+let pendingTeardown: Promise<void> | undefined;
 
 function isModuleNotFound(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;
@@ -127,6 +129,9 @@ async function bounded(
 
 async function load(state: Shared, config: MetricExportConfig): Promise<void> {
   const { diagnostics } = state;
+  // A previous app's teardown may still be flushing; its `metrics.disable()` must run before the
+  // probe below, or this app would see the old provider and never export.
+  await settle(async () => pendingTeardown);
   let sdk: MetricsSdk;
   try {
     sdk = await metricsSdkLoader.load();
@@ -194,7 +199,6 @@ async function load(state: Shared, config: MetricExportConfig): Promise<void> {
 async function teardown(state: Shared): Promise<void> {
   const { diagnostics } = state;
   state.closed = true;
-  if (shared === state) shared = undefined;
   // The load is local disk; bounded anyway, so a hung import cannot hold the shutdown.
   const loaded = await bounded(() => state.ready, state.timeoutMillis);
   const provider = state.provider;
@@ -211,11 +215,15 @@ async function teardown(state: Shared): Promise<void> {
       `Flushing metrics on shutdown took longer than ${state.timeoutMillis} ms; the last export was dropped.`,
     );
   }
+  disableOwn(state, provider);
+}
+
+function disableOwn(state: Shared, provider: OwnedMeterProvider): void {
   try {
     // Only Nestrix's own registration is removed, never a provider registered since.
     if (metrics.getMeterProvider() === provider) metrics.disable();
   } catch (error) {
-    diagnostics.countFailure("metrics.shutdown", error);
+    state.diagnostics.countFailure("metrics.shutdown", error);
   }
 }
 
@@ -268,7 +276,14 @@ export function startMetricExport(
         state.onRegistered.delete(onRegistered);
         state.refs--;
         if (state.refs > 0) return;
-        await teardown(state);
+        // `pendingTeardown` stays set until `metrics.disable()` has run, so a load that starts in
+        // the meantime waits for it before probing for a registered provider.
+        const running = teardown(state).finally(() => {
+          if (shared === state) shared = undefined;
+          if (pendingTeardown === running) pendingTeardown = undefined;
+        });
+        pendingTeardown = running;
+        await running;
       });
       return shutdownPromise;
     },

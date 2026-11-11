@@ -1,10 +1,11 @@
 /**
- * Metrics wiring (P6-02, D-66), called from `NestrixCore`'s constructor after the telemetry setup.
+ * Metrics wiring (P6-02, D-66), called from `NestrixCore`'s constructor after the telemetry setup;
+ * the owned export starts later, from `NestrixCore.onApplicationBootstrap()`.
  *
  * - Recording always goes through `@opentelemetry/api` (binding.ts), so a host `MeterProvider`
  *   receives the request histogram and runtime instruments with no extra package.
  * - Export (export.ts) starts only when Nestrix owns the tracer provider and `metrics.export`
- *   resolved (trace export on and a metrics URL).
+ *   resolved (not `export: false`, trace export on and a metrics URL).
  *
  * Never throws: a failure is counted and metrics are off.
  */
@@ -18,8 +19,14 @@ import { HttpRequestMetrics } from "./http.js";
 export interface NestrixMetrics {
   /** Passed to the HTTP request hook. */
   readonly http: HttpRequestMetrics;
-  /** The owned export, when it started. */
+  /** The owned export, once `startExport()` started it. */
   readonly export: MetricExportHandle | undefined;
+  /**
+   * Starts the owned export, when Nestrix owns the tracer provider and export resolved. Called at
+   * `onApplicationBootstrap`, after every host `onModuleInit`, so a host that registers its own
+   * `MeterProvider` there wins the silent probe. Idempotent, never throws.
+   */
+  startExport(): void;
   /** Flushes and stops the owned export (bounded), then stops the runtime instruments. Never rejects. */
   shutdown(): Promise<void>;
 }
@@ -37,25 +44,37 @@ export function startMetrics(
     if (resolved === false) return undefined;
     const binding = new MeterBinding(resolved.runtime, diagnostics);
     let exportHandle: MetricExportHandle | undefined;
-    if (telemetry?.ownsProvider === true && resolved.export !== false) {
-      exportHandle = startMetricExport(
-        {
-          export: resolved.export,
-          serviceName: options.serviceName,
-          resourceAttributes: options.resourceAttributes,
-          otelResourceAttributes: options.otelResourceAttributes,
-        },
-        diagnostics,
-        () => binding.refresh(),
-      );
-    }
+    let exportStarted = false;
     // Binds now to whatever provider is registered (a host's), so runtime instruments start
     // without waiting for a first request.
     binding.refresh();
     let shutdownPromise: Promise<void> | undefined;
     return {
       http: new HttpRequestMetrics(binding, diagnostics),
-      export: exportHandle,
+      get export() {
+        return exportHandle;
+      },
+      startExport: () => {
+        if (exportStarted) return;
+        exportStarted = true;
+        try {
+          if (telemetry?.ownsProvider !== true || resolved.export === false) {
+            return;
+          }
+          exportHandle = startMetricExport(
+            {
+              export: resolved.export,
+              serviceName: options.serviceName,
+              resourceAttributes: options.resourceAttributes,
+              otelResourceAttributes: options.otelResourceAttributes,
+            },
+            diagnostics,
+            () => binding.refresh(),
+          );
+        } catch (error) {
+          diagnostics.countFailure("metrics.start", error);
+        }
+      },
       shutdown: () => {
         shutdownPromise ??= (async () => {
           try {
