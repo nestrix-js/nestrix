@@ -6,6 +6,10 @@
  * - `setOnRouteTriggered`: chained with any previous callback; records the route template in
  *   Nestrix's own request state, found through Nestrix's own context key.
  * - The span ends on the raw response's `close`, with the outcome rule below.
+ * - When the dashboard is on (a `DashboardHookConfig` is passed; P2-04): route statistics are
+ *   recorded at the same `close`, for every request that has a state, recording or not (D-35);
+ *   a request under the dashboard path gets no span and no statistics, only a minimal state
+ *   whose `close` check reports shadowing. With no config, nothing of this runs.
  *
  * Imports `@opentelemetry/api` only (AGENTS.md rule 5). Every hook body catches everything
  * (rule 1); a failure is counted and logged once (`diagnostics.countFailure`).
@@ -37,6 +41,7 @@ import { describeForeignRouteHook } from "../otel/detect.js";
 import {
   buildHeaderAllowlist,
   buildRedactedQueryKeys,
+  collectHeaderAttributes,
   DEFAULT_REQUEST_HEADERS,
   DEFAULT_RESPONSE_HEADERS,
   type HeadersInput,
@@ -47,13 +52,78 @@ import {
   splitUrl,
 } from "../privacy.js";
 import type { ResolvedOptions } from "../resolve-options.js";
+import { type RouteStatistics, UNMATCHED_ROUTE } from "../stats/route-stats.js";
 import {
+  type DashboardRequestState,
   getStateFromContext,
   maybeFault,
   REQUEST_STATE_KEY,
   type RequestState,
+  setDashboardStateForRequest,
   setStateForRequest,
 } from "./request-state.js";
+
+/**
+ * What the request hook needs when the dashboard is on (P2-04; P2-06 builds it from the
+ * resolved `ui` mode). Absent, the hook behaves exactly as in phase 1.
+ */
+export interface DashboardHookConfig {
+  /**
+   * The resolved dashboard path: starts with `/`, no trailing slash (P2-05 validates). A request
+   * whose raw path (before `?`) equals it or starts with it plus `/` is a dashboard request. A
+   * value that is not at least two characters starting with `/` matches nothing.
+   */
+  readonly dashboardPath: string;
+  /**
+   * Called at most once per dashboard request, at the raw response's `close`, when a response
+   * was sent (`headersSent`) and no Nestrix dashboard handler marked the request
+   * (`markDashboardHandlerReached`), the method is `GET` or `HEAD` and the status is not 404 (Nest's
+   * own 404 for an unregistered sub-path, and CORS or automatic `OPTIONS` replies, are not
+   * shadowing). Receives the status code sent. A throw, or a rejection of a returned promise, is
+   * caught and counted.
+   */
+  readonly onShadowed: (status: number) => unknown;
+  /** Where route statistics are recorded; P2-06 queries the same instance. */
+  readonly stats: RouteStatistics;
+}
+
+/**
+ * Whether a raw request target is the dashboard path or under it: equal to `path`, or starting
+ * with `path` followed by `/`, `?` or `#`. The prefix is compared ASCII case-insensitively, on the
+ * raw target. Allocation-free in the common (origin-form) case.
+ */
+export function isDashboardTarget(target: string, path: string): boolean {
+  if (path.length < 2 || path.charCodeAt(0) !== 47) return false; // "/"
+  // Absolute-form target (`GET http://host/path`, RFC 9112 §3.2.2): drop `scheme://authority`.
+  // The normal origin-form case starts with "/" and allocates nothing. Case variants of the path
+  // (`/_NESTRIX`) match too: routers that ignore case (Express `caseSensitive: false`, Fastify
+  // `caseSensitive: false`) would serve the dashboard under them, and such a request must not
+  // become a span or a route statistic.
+  if (target.charCodeAt(0) !== 47) target = stripAuthority(target);
+  if (target.length < path.length) return false;
+  for (let i = 0; i < path.length; i++) {
+    let a = target.charCodeAt(i);
+    let b = path.charCodeAt(i);
+    if (a >= 65 && a <= 90) a += 32;
+    if (b >= 65 && b <= 90) b += 32;
+    if (a !== b) return false;
+  }
+  if (target.length === path.length) return true;
+  const next = target.charCodeAt(path.length);
+  return next === 47 || next === 63 || next === 35; // "/", "?", "#"
+}
+
+/** `scheme://authority/rest` to `/rest` (or `/` when nothing follows); anything else unchanged. */
+function stripAuthority(target: string): string {
+  const sep = target.indexOf("://");
+  if (sep <= 0) return target;
+  const rest = target.slice(sep + 3);
+  const slash = rest.search(/[/?#]/);
+  if (slash < 0) return "/";
+  return rest.charCodeAt(slash) === 47
+    ? rest.slice(slash)
+    : `/${rest.slice(slash)}`;
+}
 
 /** Tracer name for Nestrix's own spans. Tracers are obtained at use time (§4.5). */
 export const TRACER_NAME = "@nestrix/nestjs";
@@ -177,6 +247,7 @@ export class HttpServerInstrumentation {
   constructor(
     options: ResolvedOptions,
     private readonly diagnostics: Diagnostics,
+    private readonly dashboard?: DashboardHookConfig,
   ) {
     this.ignore = options.ignore.routes;
     this.requestHeaders = buildHeaderAllowlist(
@@ -257,6 +328,14 @@ export class HttpServerInstrumentation {
     if (!rawRes || typeof rawRes.once !== "function") return undefined;
 
     const target = typeof rawReq.url === "string" ? rawReq.url : "";
+    const dashboard = this.dashboard;
+    if (
+      dashboard !== undefined &&
+      isDashboardTarget(target, dashboard.dashboardPath)
+    ) {
+      this.startDashboardRequest(rawReq, rawRes, dashboard);
+      return undefined; // no span: `done()` runs in the context Nest gave the hook
+    }
     const { path, query } = splitTarget(target, this.queryKeys);
     if (this.isIgnored(path)) return undefined;
 
@@ -280,9 +359,13 @@ export class HttpServerInstrumentation {
       const ua = (headers as Record<string, unknown>)["user-agent"];
       if (typeof ua === "string") attributes[ATTR_USER_AGENT_ORIGINAL] = ua;
     }
-    Object.assign(
+    // Straight into `attributes`: the prefixed keys never exist there yet, so this equals
+    // assigning `headerAttributes(...)` without the intermediate object (P2-15).
+    collectHeaderAttributes(
+      headers,
+      this.requestHeaders,
+      REQUEST_HEADER_PREFIX,
       attributes,
-      headerAttributes(headers, this.requestHeaders, REQUEST_HEADER_PREFIX),
     );
 
     const parent = propagation.extract(
@@ -301,6 +384,7 @@ export class HttpServerInstrumentation {
       reached: false,
       exception: undefined,
       ended: false,
+      startedAt: dashboard !== undefined ? performance.now() : 0,
     };
     setStateForRequest(rawReq, state);
     // The listener holds the state itself: on a client abort it runs outside the request's
@@ -319,6 +403,95 @@ export class HttpServerInstrumentation {
       this.finish(state, rawReq, rawRes, responseHeadersSource);
     }
     return trace.setSpan(parent, span).setValue(REQUEST_STATE_KEY, state);
+  }
+
+  /**
+   * A request under the dashboard path: a minimal state P2-06's handlers mark, and a `close`
+   * check that reports a response no dashboard handler wrote.
+   */
+  private startDashboardRequest(
+    rawReq: RawRequest,
+    rawRes: RawResponse,
+    dashboard: DashboardHookConfig,
+  ): void {
+    const state: DashboardRequestState = {
+      handlerReached: false,
+      closed: false,
+    };
+    setDashboardStateForRequest(rawReq, state);
+    rawRes.once("close", () =>
+      this.finishDashboard(state, rawReq, rawRes, dashboard),
+    );
+    if (rawRes.closed === true)
+      this.finishDashboard(state, rawReq, rawRes, dashboard);
+  }
+
+  /** The shadowing check at `close`. Never throws. */
+  private finishDashboard(
+    state: DashboardRequestState,
+    rawReq: RawRequest,
+    rawRes: RawResponse,
+    dashboard: DashboardHookConfig,
+  ): void {
+    try {
+      maybeFault("dashboard-close");
+      if (state.closed) return;
+      state.closed = true;
+      if (state.handlerReached) return;
+      // Nothing sent (the client went away first) says nothing about shadowing.
+      if (rawRes.headersSent !== true || typeof rawRes.statusCode !== "number")
+        return;
+      // Nest's own 404 (an unregistered sub-path) and CORS or automatic `OPTIONS` replies are
+      // not shadowing: only a `GET` or `HEAD` answered by something else, with a non-404 status.
+      const method = (rawReq.method as unknown) ?? "";
+      if (method !== "GET" && method !== "HEAD") return;
+      if (rawRes.statusCode === 404) return;
+      const result = dashboard.onShadowed(rawRes.statusCode);
+      if (
+        result !== null &&
+        typeof result === "object" &&
+        typeof (result as { then?: unknown }).then === "function"
+      ) {
+        (result as PromiseLike<unknown>).then(undefined, (e: unknown) =>
+          this.diagnostics.countFailure("http.dashboard-close", e),
+        );
+      }
+    } catch (error) {
+      this.diagnostics.countFailure("http.dashboard-close", error);
+    }
+  }
+
+  /**
+   * Counts the request in the route statistics. Two clock reads: `performance.now()` for the
+   * duration, `Date.now()` for the minute bucket. Its own guard, so a failure
+   * here leaves the span untouched, and a span failure cannot skip the count.
+   */
+  private recordStats(
+    stats: RouteStatistics,
+    state: RequestState,
+    status: number | undefined,
+    route: string | undefined,
+  ): void {
+    try {
+      maybeFault("stats-record");
+      const now = performance.now();
+      const wall = Date.now(); // wall clock for the minute bucket: right after a laptop sleeps
+      const exception = state.exception;
+      // Error definition (backlog "Public API"): a 5xx sent, or a handler exception that maps
+      // to 5xx (whatever a filter then sent). A 4xx, thrown or not, is not an error.
+      const error =
+        (status !== undefined && status >= 500) ||
+        (exception !== undefined && exception.status >= 500);
+      stats.record(
+        state.baseName === "HTTP" ? "_OTHER" : state.method,
+        route ?? UNMATCHED_ROUTE,
+        now - (state.startedAt ?? now),
+        error,
+        wall,
+      );
+    } catch (error) {
+      this.diagnostics.countFailure("stats.record", error);
+    }
   }
 
   private isIgnored(path: string): boolean {
@@ -353,6 +526,17 @@ export class HttpServerInstrumentation {
           ? rawRes.statusCode
           : undefined;
 
+      // 404 rule (architecture §4.2): a request that ended in 404 without reaching Nestrix's
+      // interceptor matched no handler, even if the route hook fired for a handler whose version
+      // or host filter then declined.
+      const route =
+        state.route !== undefined && !(status === 404 && !state.reached)
+          ? state.route
+          : undefined;
+
+      const stats = this.dashboard?.stats;
+      if (stats !== undefined) this.recordStats(stats, state, status, route);
+
       if (status !== undefined) {
         span.setAttribute(ATTR_HTTP_RESPONSE_STATUS_CODE, status);
         try {
@@ -362,21 +546,14 @@ export class HttpServerInstrumentation {
             this.responseHeaders,
             RESPONSE_HEADER_PREFIX,
           );
-          for (const [key, value] of Object.entries(attrs)) {
-            span.setAttribute(key, value);
+          for (const key of Object.keys(attrs)) {
+            span.setAttribute(key, attrs[key] as string[]);
           }
         } catch (error) {
           this.diagnostics.countFailure("http.response-headers", error);
         }
       }
 
-      // 404 rule (architecture §4.2): a request that ended in 404 without reaching Nestrix's
-      // interceptor matched no handler, even if the route hook fired for a handler whose version
-      // or host filter then declined.
-      const route =
-        state.route !== undefined && !(status === 404 && !state.reached)
-          ? state.route
-          : undefined;
       if (route !== undefined) {
         span.setAttribute(ATTR_HTTP_ROUTE, route);
         span.updateName(`${state.baseName} ${route}`);
@@ -435,11 +612,16 @@ export function installHttpInstrumentation(
   adapterHost: AdapterHostLike | null | undefined,
   options: ResolvedOptions,
   diagnostics: Diagnostics,
+  dashboard?: DashboardHookConfig,
 ): () => void {
   const noop = () => undefined;
   try {
     if (!adapterHost) return noop;
-    const instrumentation = new HttpServerInstrumentation(options, diagnostics);
+    const instrumentation = new HttpServerInstrumentation(
+      options,
+      diagnostics,
+      dashboard,
+    );
     let installed = false;
     const install = (adapter: unknown): void => {
       if (installed || !isHookable(adapter)) return;
