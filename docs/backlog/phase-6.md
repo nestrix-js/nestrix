@@ -12,7 +12,7 @@ Objective, deliverables and acceptance: [roadmap.md](../roadmap.md#phase-6-logs-
 | P6-03 | Documentation site | sonnet | phases 3–5 | done | VitePress in `docs-site/`, `pnpm docs:build` (options reference checked against `options.ts`). Standalone page to refresh after P5-06. |
 | P6-04 | API review and fixes | opus reviewer + sonnet | phases 3–5 | done | Fixes applied per D-69 (changeset `api-review-1-0`). |
 | P6-05 | Compatibility matrix, upgrade path from 0.x, 1.0 readiness | sonnet + lead | P6-04 | done | `docs/compatibility.md`, `docs/upgrading.md`, "1.0 readiness" below. No version bump or release (owner's). |
-| P6-06 | Phase report | lead | all | todo | |
+| P6-06 | Phase report | lead | all | done | `docs/phase-6-report.md`. |
 
 ## Settled design
 

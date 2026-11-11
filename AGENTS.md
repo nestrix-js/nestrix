@@ -4,7 +4,7 @@ Instructions for AI coding agents working on this repository. This is the one sh
 
 Open-source observability for NestJS 12+: Nest-aware OpenTelemetry tracing, with an optional dashboard served by the host application. Apache-2.0. Pre-release.
 
-**Current state:** phase 0 is complete and its gate is passed. The repository holds the workspace toolchain, package skeletons (placeholder exports only), example apps, the test harness, CI and release plumbing, and six spike results in `docs/spikes/`. The owner decided the phase 0 questions (D-40 to D-51 in `docs/decisions.md`; evidence in `docs/phase-0-report.md`). Phase 1 (headless tracing) is complete and the owner approved it on 2026-11-11 (`docs/phase-1-report.md`). Phase 2 (embedded dashboard) is complete and the owner approved it on 2026-11-11 (`docs/phase-2-report.md`; task list and settled public API in `docs/backlog/phase-2.md`). Phase 3 (providers, data and jobs) is in progress (`docs/backlog/phase-3.md`). Delivery mode: the owner asked (2026-11-11) for every remaining phase to be completed without approval stops.
+**Current state:** phase 0 is complete and its gate is passed. The repository holds the workspace toolchain, package skeletons (placeholder exports only), example apps, the test harness, CI and release plumbing, and six spike results in `docs/spikes/`. The owner decided the phase 0 questions (D-40 to D-51 in `docs/decisions.md`; evidence in `docs/phase-0-report.md`). Phase 1 (headless tracing) is complete and the owner approved it on 2026-11-11 (`docs/phase-1-report.md`). Phase 2 (embedded dashboard) is complete and the owner approved it on 2026-11-11 (`docs/phase-2-report.md`; task list and settled public API in `docs/backlog/phase-2.md`). Phases 3 to 6 are complete under delivery mode (reports `docs/phase-3-report.md` to `phase-6-report.md`); phase 7 (profiler, alerting, SLOs) is in progress (`docs/backlog/phase-7.md`). Nothing is published; publishing and making the repository public stay with the owner.
 
 **Remote:** `github.com/nestrix-js/nestrix`, private, already configured (`docs/decisions.md`, "GitHub: what is set up"). There is nothing left to set up on GitHub before implementing.
 
@@ -17,7 +17,7 @@ Open-source observability for NestJS 12+: Nest-aware OpenTelemetry tracing, with
 | `docs/nest-hooks.md` | The NestJS 12 extension points the design rests on, per adapter. |
 | `docs/research.md` | Facts verified against primary sources, with dates. |
 | `docs/roadmap.md` | Phases and their acceptance criteria. |
-| `docs/backlog/phase-3.md` | The current task list, with the phase 3 public API. Phase 2's holds the dashboard API; phase 1's the headless API and its rules for every task. |
+| `docs/backlog/phase-7.md` | The current task list. Earlier phases' lists (`phase-1.md` to `phase-6.md`) hold their settled APIs and "as built" notes; phase 3's has the rules for every task. |
 | `docs/ai/orchestration.md` | For the lead agent: which model does which work, how to brief and check subagents. |
 | `docs/ai/owner-brief.md` | The owner's original brief. Background on intent; the decision log wins where they differ. |
 
