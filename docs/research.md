@@ -291,6 +291,21 @@ Node 26.13.0, darwin-arm64. NestJS 12.4.2 (`@nestjs/platform-express`), `pg` 8.2
 | ioredis 6.0.0's connection handshake publishes `HELLO`, `CLIENT` (SETINFO) twice and `INFO` on `ioredis:command`, all with no active span. With root spans dropped (D-60) none of them produce a span; with `rootSpans: true` they are root spans. | V (run, `ioredis.test.ts`) |
 | `postgres:18-alpine`, `mysql:8.4` and `redis:8-alpine` exist on Docker Hub (`docker manifest inspect`). | V (run) |
 
+## On-demand CPU profiling (checked 2026-11-11, P7-S1)
+
+Node 26.13.0, darwin-arm64. Evidence and numbers in [spikes/P7-S1.md](spikes/P7-S1.md); code in `spikes/p7-s1/`.
+
+| Fact | Tag |
+|---|---|
+| Three public APIs profile the main thread from inside the process: `v8.startCpuProfile({ sampleInterval, maxBufferSize })` (added 25.0 / 24.12; returns a `SyncCPUProfileHandle` whose `stop()` returns a JSON string; no stability marker on the page), a same-thread `inspector.Session` (`Profiler.enable`, `setSamplingInterval` in µs, `start`, `stop`), and a worker's `Session.connectToMainThread()`. `worker.startCpuProfile()` (24.8) profiles a worker, not the main thread. | V (nodejs.org/docs/latest-v26.x/api/v8.html, inspector.html, worker_threads.html; run) |
+| All three return the same `.cpuprofile` fields, with ESM and CommonJS functions at their file and 0-based line, without `Debugger.enable`. `v8.startCpuProfile` differs in two details: CommonJS `url` is a plain absolute path and `scriptId` is a number. The inspector and `node --cpu-prof` give a `file://` URL and a string. | V (run) |
+| `v8.startCpuProfile` does not refuse a second concurrent capture, and a second `stop()` on a handle returns `undefined` without throwing. Invalid options throw `ERR_OUT_OF_RANGE` / `ERR_INVALID_ARG_TYPE`. Node creates the environment's `CpuProfiler` on the first start and keeps it until teardown (`src/env.cc`). | V (run; source) |
+| CPU profilers on one isolate are independent: an attached debugger's profile, an in-process `Session`'s profile at 10 ms, and `node --cpu-prof` were undisturbed by a 1 ms capture beside them, also when our `Session` called `Profiler.disable`; the other profiler's sample rate did not change. | V (run) |
+| Every start blocks the main thread while V8 logs existing code (`ProfilingScope`: `LogCodeObjects`, `LogCompiledFunctions`): about 10 ms per MB of code plus bytecode (`v8.getHeapCodeStatistics()`), so 9.5 ms at 0.7 MB, 36 to 47 ms in a minimal Nest app, 222 to 249 ms at 22 MB. Not a one-time cost. Stop takes 2 to 5 ms. | V (run; V8 `src/profiler/cpu-profiler.cc`) |
+| A capture does not change optimisation status (`%GetOptimizationStatus` unchanged before, during and after) or responses. It does change attribution in later captures: an inlined function keeps its own frame only when optimised during the capture (10/10 runs). Optimised before a first capture: 6/10. Optimised after any earlier CPU capture: 0/10, with its samples on the inlining caller. A sampling heap profile has no such effect (5/10, the same as none). Mechanism not known. | V (run, 10-run counts) |
+| Effective sampling interval on macOS: 1 ms requested gives about 1.5 ms, and 10 ms gives 11 to 15 ms. The first capture in a process starts with about 100 samples some 20 µs apart. | V (run) |
+| Profile timestamps (`startTime`, `endTime`, µs) are not on `process.hrtime`'s origin. Anchoring `endTime` to the time just before `stop()` places samples on the span timeline to within about 2 ms. | V (run) |
+
 ## 11. Open questions
 
 These are not known. Each is assigned to a spike in [backlog/phase-0.md](backlog/phase-0.md) or a later phase.
