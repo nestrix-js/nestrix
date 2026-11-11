@@ -61,7 +61,11 @@ export interface TelemetryCounters {
   readonly droppedSpans: number;
   /** Spans handed to the exporter whose export succeeded. */
   readonly exportedSpans: number;
-  /** Spans handed to the exporter whose export failed (after the exporter's own retries). */
+  /**
+   * Spans handed to the exporter whose export failed (after the exporter's own retries),
+   * was cut off at the shutdown bound, or was not attempted because an earlier export
+   * was still in flight past the batch processor's export timeout (redacting-exporter.ts).
+   */
   readonly exportFailedSpans: number;
   /** Spans the `redact` hook dropped by returning `false`. */
   readonly redactDroppedSpans: number;

@@ -1,12 +1,31 @@
 /**
  * Wraps the OTLP exporter so that Nestrix's redaction (`scrub`) and the user's `redact`
- * hook run on every span before the exporter sees it.
+ * hook run on every span before the exporter sees it, and so that at most one export
+ * from the batch processor's timer is on the network at a time.
  *
  * Why an exporter wrapper and not a span processor: in `onEnd` the span is a read-only
  * `ReadableSpan`, and SDK 3.1.1's `onEnding` (where the span is still writable) is marked
  * experimental, can only `setAttribute` (no delete, no event edits) and cannot drop a span
  * (`sdk-trace/dist/SpanProcessor.d.mts`, `Span.mjs:188`). Here each span is copied into a
  * plain object the hooks may change freely, and the copy is what gets exported.
+ *
+ * Why the wrapper bounds concurrency (architecture §4.9, "Outage bound"): SDK 3.1.1's
+ * `BatchSpanProcessor` serializes its timer-driven exports with an `_isExporting` flag,
+ * but after an export it saw fail, `.finally()` starts the next export and the chained
+ * `.catch()` then clears the flag (`BatchSpanProcessorBase.mjs:129-140`), so every later
+ * full batch starts another export, up to the OTLP exporter's limit of 30. Two measures:
+ * - The processor is never told that an export failed (except after `abort()`): the
+ *   wrapper counts the failure itself, hands the error to OpenTelemetry's global error
+ *   handler as the processor would have, and answers `SUCCESS`. The processor then keeps
+ *   its flag, holds later spans in its bounded queue during an outage, and drops (and
+ *   counts) what does not fit. It does nothing else with a failure: no retry, no
+ *   re-queue, only a self-observability metric that Nestrix does not read.
+ * - A hard limit, for when the flag is cleared anyway (the processor's own export timeout
+ *   fires before the exporter answers): while an export is in flight, one further batch
+ *   waits here and starts when the first is answered; a batch beyond that is not sent,
+ *   is counted as a failed export and is answered at once. Exports started by the
+ *   processor's `forceFlush` (see `duringFlush`) or after shutdown began are not limited,
+ *   because the processor's final flush hands over every queued batch at once.
  *
  * Runs on the batch processor's timer, never in a request path. Every method catches
  * everything; the result callback is called exactly once per `export`.
@@ -16,7 +35,11 @@ import type {
   AttributeValue,
   SpanStatus,
 } from "@opentelemetry/api";
-import { type ExportResult, ExportResultCode } from "@opentelemetry/core";
+import {
+  type ExportResult,
+  ExportResultCode,
+  globalErrorHandler,
+} from "@opentelemetry/core";
 import type {
   ReadableSpan,
   SpanExporter,
@@ -41,12 +64,36 @@ export interface RedactingExporterOptions {
 
 export interface RedactingExporter extends SpanExporter {
   /**
-   * Fails every export still waiting for the inner exporter, and every later one, at once.
+   * Fails every export still in flight or waiting, and every later one, at once.
    * Called when the shutdown bound expires: the batch processor clears its export timer
    * only when the exporter calls back, and that timer would keep the process alive.
    */
   abort(): void;
+  /**
+   * Runs `fn` (the batch processor's `forceFlush`) with the one-in-flight limit lifted
+   * for the exports it starts synchronously: `BatchSpanProcessor._flushAll` hands every
+   * queued batch to `export` before it returns (sdk-trace 3.1.1,
+   * `BatchSpanProcessorBase.mjs:82-126`). A waiting batch starts at once too. Throws what
+   * `fn` throws.
+   */
+  duringFlush<T>(fn: () => T): T;
+  /**
+   * The batch processor is shutting down: from now on no export is limited. It accepts
+   * no new spans, and its final flush starts a few microtasks later, so it cannot be
+   * marked synchronously as `duringFlush` does. A waiting batch starts at once. Never
+   * throws.
+   */
+  beginShutdown(): void;
 }
+
+/** One `export` call: its spans, and its callback, which runs at most once. */
+interface Job {
+  readonly spans: ReadableSpan[];
+  readonly done: (result: ExportResult) => void;
+  readonly isDone: () => boolean;
+}
+
+const SUCCESS: ExportResult = { code: ExportResultCode.SUCCESS };
 
 /** A duck-typed `SpanExporter`; no SDK class is extended or checked with `instanceof`. */
 export function createRedactingExporter(
@@ -56,18 +103,97 @@ export function createRedactingExporter(
   const { counters, diagnostics } = options;
   const transforms =
     options.scrub !== undefined || options.redact !== undefined;
-  /** Exports handed to the inner exporter and not yet answered, with their span counts. */
+  /** Exports not yet answered (in flight or waiting) with their span counts, for `abort`. */
   const pending = new Map<(result: ExportResult) => void, number>();
+  /** Inner exports started and not yet answered by the inner exporter. */
+  let inFlight = 0;
+  /** At most one batch waiting for the export in flight to be answered. */
+  let waiting: Job | undefined;
+  let flushDepth = 0;
+  let shuttingDown = false;
   let aborted = false;
   const abortResult = (): ExportResult => ({
     code: ExportResultCode.FAILED,
     error: new Error("Nestrix telemetry shut down before this export finished"),
   });
 
+  /** Starts the waiting batch when nothing is in flight, or at once when `force`. */
+  const release = (force: boolean): void => {
+    try {
+      if (waiting === undefined || (inFlight > 0 && !force)) return;
+      const job = waiting;
+      waiting = undefined;
+      if (!job.isDone()) start(job);
+    } catch (error) {
+      diagnostics.countFailure("otel.exporter.export", error);
+    }
+  };
+
+  /** Hands a batch to the inner exporter. Never throws. */
+  const start = (job: Job): void => {
+    if (aborted) {
+      counters.exportFailedSpans += job.spans.length;
+      job.done(abortResult());
+      return;
+    }
+    let answered = false;
+    /** The inner exporter answered or threw: one fewer in flight, exactly once. */
+    const settleInner = (): boolean => {
+      if (answered) return false;
+      answered = true;
+      inFlight--;
+      return true;
+    };
+    inFlight++;
+    let out: ReadableSpan[] = job.spans;
+    try {
+      out = transforms ? applyRedaction(job.spans, options) : job.spans;
+      if (out.length === 0) {
+        settleInner();
+        job.done(SUCCESS);
+        release(false);
+        return;
+      }
+      pending.set(job.done, out.length);
+      inner.export(out, (result) => {
+        if (!settleInner()) return;
+        try {
+          // After abort() the batch was already failed and counted.
+          if (!job.isDone()) {
+            if (result.code === ExportResultCode.SUCCESS) {
+              counters.exportedSpans += out.length;
+            } else {
+              counters.exportFailedSpans += out.length;
+              globalErrorHandler(
+                result.error ?? new Error("Nestrix: span export failed"),
+              );
+            }
+          }
+        } catch {
+          // Counting never stops the callback.
+        }
+        job.done(SUCCESS);
+        release(false);
+      });
+    } catch (error) {
+      diagnostics.countFailure("otel.exporter.export", error);
+      // A throw after the inner exporter already answered changes nothing.
+      if (!settleInner()) return;
+      try {
+        if (!job.isDone()) counters.exportFailedSpans += out.length;
+      } catch {
+        // Counting never stops the callback.
+      }
+      job.done(SUCCESS);
+      release(false);
+    }
+  };
+
   return {
     abort() {
       try {
         aborted = true;
+        waiting = undefined;
         for (const [done, count] of [...pending]) {
           counters.exportFailedSpans += count;
           done(abortResult());
@@ -75,6 +201,19 @@ export function createRedactingExporter(
       } catch (error) {
         diagnostics.countFailure("otel.exporter.abort", error);
       }
+    },
+    duringFlush(fn) {
+      flushDepth++;
+      try {
+        release(true);
+        return fn();
+      } finally {
+        flushDepth--;
+      }
+    },
+    beginShutdown() {
+      shuttingDown = true;
+      release(true);
     },
     export(spans, resultCallback) {
       let called = false;
@@ -88,37 +227,27 @@ export function createRedactingExporter(
           diagnostics.countFailure("otel.exporter.callback", error);
         }
       };
-      if (aborted) {
-        counters.exportFailedSpans += spans.length;
-        done(abortResult());
-        return;
-      }
+      const job: Job = { spans, done, isDone: () => called };
       try {
-        const out = transforms ? applyRedaction(spans, options) : spans;
-        if (out.length === 0) {
-          done({ code: ExportResultCode.SUCCESS });
+        if (aborted || inFlight === 0 || flushDepth > 0 || shuttingDown) {
+          start(job);
           return;
         }
-        pending.set(done, out.length);
-        inner.export(out, (result) => {
-          if (called) return;
-          try {
-            if (result.code === ExportResultCode.SUCCESS) {
-              counters.exportedSpans += out.length;
-            } else {
-              counters.exportFailedSpans += out.length;
-            }
-          } catch {
-            // Counting never stops the callback.
-          }
-          done(result);
-        });
+        if (waiting === undefined) {
+          waiting = job;
+          pending.set(done, spans.length);
+          return;
+        }
+        // A third batch while one is in flight and one waits: not sent.
+        counters.exportFailedSpans += spans.length;
+        diagnostics.logOnce(
+          "otel.export-busy",
+          "An export to the OTLP endpoint was still in flight after the batch processor's export timeout, so a further batch of spans was dropped instead of opening another connection. Such spans are counted as failed exports.",
+        );
+        done(SUCCESS);
       } catch (error) {
         diagnostics.countFailure("otel.exporter.export", error);
-        done({
-          code: ExportResultCode.FAILED,
-          error: error instanceof Error ? error : new Error(String(error)),
-        });
+        done(SUCCESS);
       }
     },
     shutdown() {

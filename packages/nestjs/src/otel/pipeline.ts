@@ -111,9 +111,10 @@ export function guardProcessor(
 
 /**
  * The batch processor's export timeout. It must not fire before the exporter gives up
- * on its own: when it does, the processor starts the next batch while the previous
- * request is still retrying, and in-flight requests pile up to the exporter's
- * concurrency limit (30) instead of staying at one. The exporter's retry loop stops
+ * on its own: when it does, the processor rejects the batch, clears its `_isExporting`
+ * flag and starts the next batch while the previous request is still retrying; the
+ * exporter wrapper then holds that batch, and drops any further one, instead of
+ * opening another connection (redacting-exporter.ts). The exporter's retry loop stops
  * scheduling retries at `timeoutMillis` but a last attempt started near the deadline
  * may run up to another `timeoutMillis` (otlp-exporter-base 0.301.1
  * `retrying-transport.mjs:29-42`, `http-transport-utils.mjs:76`).
@@ -147,28 +148,72 @@ export function createPipeline(
     timeoutMillis: otlp.timeoutMillis,
     httpAgentOptions: (protocol: string) => agents.factory(protocol),
   });
-  const redacting = createRedactingExporter(exporter, {
+  const chain = createProcessorChain(exporter, {
     scrub: config.scrub,
     redact: config.redact,
+    queue: config.export.queue,
+    exportTimeoutMillis: batchExportTimeout(otlp.timeoutMillis),
     counters,
     diagnostics,
   });
-  const queue = config.export.queue;
+  return {
+    processor: chain.processor,
+    abort() {
+      chain.abort();
+      agents.abort();
+    },
+  };
+}
+
+export interface ProcessorChainOptions {
+  scrub: TelemetryConfig["scrub"];
+  redact: TelemetryConfig["redact"];
+  queue: TelemetryConfig["export"]["queue"];
+  /** The batch processor's own export timeout. */
+  exportTimeoutMillis: number;
+  counters: PipelineCounters;
+  diagnostics: TelemetryDiagnostics;
+}
+
+/**
+ * Everything between the provider and the network exporter: guard, batch processor and
+ * redacting, one-in-flight exporter wrapper. Separate from `createPipeline` so tests can
+ * put a scripted exporter where the OTLP exporter goes. `abort` fails what is pending.
+ */
+export function createProcessorChain(
+  exporter: SpanExporter,
+  options: ProcessorChainOptions,
+): Pipeline {
+  const { counters, diagnostics, queue } = options;
+  const redacting = createRedactingExporter(exporter, {
+    scrub: options.scrub,
+    redact: options.redact,
+    counters,
+    diagnostics,
+  });
   const batch = new BatchSpanProcessor({
     exporter: redacting,
     maxQueueSize: queue.maxQueueSize,
     maxExportBatchSize: queue.maxExportBatchSize,
     scheduledDelayMillis: queue.scheduledDelayMillis,
-    exportTimeoutMillis: batchExportTimeout(otlp.timeoutMillis),
+    exportTimeoutMillis: options.exportTimeoutMillis,
     selfObsMeterProvider: createDropCountingMeterProvider((count) => {
       counters.droppedSpans += count;
     }),
   });
-  return {
-    processor: guardProcessor(batch, diagnostics),
-    abort() {
-      redacting.abort();
-      agents.abort();
+  // Tells the exporter wrapper when the processor flushes or shuts down, so those exports
+  // are not held to one in flight (redacting-exporter.ts). Errors reach guardProcessor.
+  const flushAware: SpanProcessor = {
+    onStart: (span, parentContext) => batch.onStart(span, parentContext),
+    onEnd: (span) => batch.onEnd(span),
+    forceFlush: () => redacting.duringFlush(() => batch.forceFlush()),
+    shutdown: () => {
+      redacting.beginShutdown();
+      return batch.shutdown();
     },
+  };
+  return {
+    processor: guardProcessor(flushAware, diagnostics),
+    abort: () => redacting.abort(),
   };
 }
