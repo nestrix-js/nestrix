@@ -6,7 +6,7 @@ import {
   getFailureCounts,
   resetDiagnosticsForTests,
 } from "../../src/diagnostics.js";
-import { NestrixLogger } from "../../src/logs/logger.js";
+import { MAX_BODY_LENGTH, NestrixLogger } from "../../src/logs/logger.js";
 import { setLogSink } from "../../src/logs/sink.js";
 import { getTraceIds } from "../../src/logs/trace-ids.js";
 import { captureOutput, registerHostTracing } from "./helpers.js";
@@ -83,12 +83,16 @@ describe("NestrixLogger, text mode", () => {
   it("prints each of several messages with the suffix", () => {
     const logger = new NestrixLogger({ colors: false });
     trace.getTracer("t").startActiveSpan("s", (span) => {
-      logger.warn("a", "b");
+      logger.warn("a", "b", "Ctx");
       span.end();
     });
     const lines = output.lines();
-    expect(lines.length).toBeGreaterThanOrEqual(1);
-    for (const line of lines) expect(line).toContain("trace_id=");
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      expect(line).toMatch(
+        new RegExp(`trace_id=${HEX}{32} span_id=${HEX}{16}$`),
+      );
+    }
   });
 });
 
@@ -135,5 +139,93 @@ describe("failures never reach the caller", () => {
       trace.getActiveSpan = original;
     }
     expect(output.lines().join("\n")).toContain("still here");
+    expect(output.lines().join("\n")).not.toContain("trace_id");
+  });
+
+  it("a span whose spanContext() throws leaves the line unchanged", () => {
+    const span = {
+      spanContext() {
+        return {
+          get traceId(): string {
+            throw new Error("getter broke");
+          },
+          spanId: "0".repeat(16),
+          traceFlags: 1,
+        };
+      },
+    } as unknown as Parameters<typeof trace.setSpan>[1];
+    const logger = new NestrixLogger({ colors: false });
+    context.with(trace.setSpan(context.active(), span), () => {
+      expect(() => logger.log("still here")).not.toThrow();
+    });
+    const text = output.lines().join("\n");
+    expect(text).toContain("still here");
+    expect(text).not.toContain("trace_id");
+  });
+});
+
+describe("log export from NestrixLogger", () => {
+  function collect(): { body: unknown }[] {
+    const records: { body: unknown }[] = [];
+    setLogSink({
+      emit(record: { body: unknown }) {
+        records.push(record);
+      },
+    } as Parameters<typeof setLogSink>[0]);
+    return records;
+  }
+
+  it("applies the host's redact option to exported bodies, text mode", () => {
+    const records = collect();
+    const logger = new NestrixLogger({ colors: false, redact: ["password"] });
+    logger.log({ user: "ann", password: "hunter2" });
+    const body = String(records[0]?.body);
+    expect(body).toContain("[REDACTED]");
+    expect(body).not.toContain("hunter2");
+    expect(output.lines().join("\n")).not.toContain("hunter2");
+  });
+
+  it("applies the host's redact option to exported bodies, JSON mode", () => {
+    const records = collect();
+    const logger = new NestrixLogger({ json: true, redact: ["password"] });
+    logger.log({ user: "ann", password: "hunter2" });
+    const body = String(records[0]?.body);
+    expect(body).toContain("[REDACTED]");
+    expect(body).not.toContain("hunter2");
+    expect(output.lines().join("\n")).not.toContain("hunter2");
+  });
+
+  it("calls a lazy message function exactly once", () => {
+    const records = collect();
+    let calls = 0;
+    const logger = new NestrixLogger({ colors: false });
+    logger.log(() => {
+      calls++;
+      return "lazy value";
+    });
+    expect(calls).toBe(1);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.body).toBe("lazy value");
+    expect(output.lines().join("\n")).toContain("lazy value");
+  });
+
+  it("still throws a throwing lazy function to the caller", () => {
+    collect();
+    const logger = new NestrixLogger({ colors: false });
+    expect(() =>
+      logger.log(() => {
+        throw new Error("lazy broke");
+      }),
+    ).toThrow("lazy broke");
+  });
+
+  it("caps the exported body at 8192 characters and ends it with an ellipsis", () => {
+    const records = collect();
+    const logger = new NestrixLogger({ colors: false });
+    logger.log("x".repeat(MAX_BODY_LENGTH + 500));
+    const body = String(records[0]?.body);
+    expect(body).toBe(`${"x".repeat(8192)}…`);
+    logger.log("short");
+    expect(records[1]?.body).toBe("short");
   });
 });
