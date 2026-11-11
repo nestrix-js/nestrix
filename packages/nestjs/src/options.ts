@@ -18,12 +18,19 @@ export interface RedactableSpan {
     readonly name: string;
     attributes: Record<string, unknown>;
   }>;
+  /**
+   * Mutable. `code` is `SpanStatusCode` as a number (0 unset, 1 ok, 2 error); `message`
+   * is free text that often repeats an exception message: rewrite it, or delete it.
+   * Links and their attributes are not exposed; to keep them out, drop the span.
+   */
+  status: { code: number; message?: string };
 }
 
 /**
  * Called for every span the Nestrix-owned pipeline exports, after Nestrix's own redaction.
  * Return `false` to drop the span. A hook that throws drops the span (fail closed) and the
- * failure is counted. Not called for spans exported by a host-owned SDK (architecture §4.8).
+ * failure is counted. Must be synchronous: a hook that returns a promise drops the span and
+ * is counted as a failure. Not called for spans exported by a host-owned SDK (architecture §4.8).
  */
 export type RedactHook = (span: RedactableSpan) => undefined | boolean;
 

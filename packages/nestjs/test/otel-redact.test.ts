@@ -48,6 +48,7 @@ function redact(span: RedactableSpan): boolean | undefined {
       span.attributes.nested = { not: "allowed" };
       const event = span.events[0];
       if (event) event.attributes["exception.message"] = "[hidden]";
+      span.status.message = "[hidden]";
       return true;
     }
     case "redact-null-attributes":
@@ -95,6 +96,7 @@ class SpanController {
       },
     });
     span.recordException(new Error("password=hunter2"));
+    span.setStatus({ code: 2, message: "password=hunter2" });
     span.end();
     return "ok";
   }
@@ -157,6 +159,8 @@ describe("redaction in the owned pipeline", () => {
     expect(edited?.events[0]?.name).toBe("exception");
     expect(edited?.events[0]?.attributes["exception.message"]).toBe("[hidden]");
     expect(edited?.events[0]?.attributes["exception.type"]).toBe("Error");
+    expect(edited?.status).toEqual({ code: 2, message: "[hidden]" });
+    expect(plain?.status).toEqual({ code: 2, message: "password=hunter2" });
 
     // The hook ran after scrub (it saw scrub's attribute) and not for scrub-throw.
     expect(hookSaw.plain).toBe(true);
@@ -164,7 +168,7 @@ describe("redaction in the owned pipeline", () => {
 
     expect(core.handle.counters.redactDroppedSpans).toBe(1);
     expect(core.handle.counters.redactFailedSpans).toBe(3);
-    expect(core.handle.counters.exportedSpans).toBe(3);
+    await expect.poll(() => core.handle.counters.exportedSpans).toBe(3);
     expect(diagnostics.failures.map((f) => f.where)).toEqual([
       "otel.redact",
       "otel.redact",

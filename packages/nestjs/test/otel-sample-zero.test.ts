@@ -54,6 +54,6 @@ describe("sampleRate: 0", () => {
     await handle.shutdown();
     expect(receiver.spans.map((s) => s.name)).toEqual(["child-of-sampled"]);
     expect(receiver.spans[0]?.traceId).toBe(traceId);
-    expect(handle.counters.exportedSpans).toBe(1);
+    await expect.poll(() => handle.counters.exportedSpans).toBe(1);
   });
 });

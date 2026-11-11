@@ -14,6 +14,7 @@ export interface ReceivedSpan {
   parentSpanId: string | undefined;
   attributes: Record<string, unknown>;
   events: { name: string; attributes: Record<string, unknown> }[];
+  status: { code?: number; message?: string };
   resource: Record<string, unknown>;
 }
 
@@ -79,6 +80,7 @@ export async function startReceiver(): Promise<Receiver> {
                     attributes: attrs(e.attributes),
                   }),
                 ),
+                status: s.status ?? {},
                 resource,
               });
             }

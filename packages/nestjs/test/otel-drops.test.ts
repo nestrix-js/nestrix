@@ -10,19 +10,21 @@ import {
 } from "./otel-helpers.js";
 
 describe("unreachable endpoint, small queue", () => {
-  it("drops and counts what does not fit, fails the in-flight batch, and shuts down within its bound", async () => {
+  it("drops and counts what does not fit, and shutdown cuts off the retrying export at its bound", async () => {
     const diagnostics = recordingDiagnostics();
     const handle = setupTelemetry(
       config({
         export: {
-          otlp: otlp(await unreachableUrl(), 300),
+          // Exporter deadline far above the shutdown bound: it is still retrying
+          // ECONNREFUSED when shutdown starts.
+          otlp: otlp(await unreachableUrl(), 10_000),
           queue: {
             maxQueueSize: 4,
             maxExportBatchSize: 2,
             scheduledDelayMillis: 10,
           },
         },
-        shutdownTimeoutMillis: 1500,
+        shutdownTimeoutMillis: 600,
       }),
       diagnostics,
     );
@@ -35,25 +37,21 @@ describe("unreachable endpoint, small queue", () => {
     // "exporting" until it settles. The next 4 fill the queue; the other 44 are dropped.
     expect(handle.counters.droppedSpans).toBe(44);
 
-    // ECONNREFUSED is retryable; the exporter retries until its 300 ms deadline, then
-    // reports failure for the batch.
-    const deadline = Date.now() + 5000;
-    while (handle.counters.exportFailedSpans < 2 && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 20));
-    }
-    expect(handle.counters.exportFailedSpans).toBeGreaterThanOrEqual(2);
-    expect(handle.counters.exportedSpans).toBe(0);
-
-    // More spans after the outage starts: still bounded by the queue.
+    // More spans while the first export retries: still bounded by the queue.
+    await new Promise((r) => setTimeout(r, 50));
     for (let i = 0; i < 1000; i++) tracer.startSpan(`late-${i}`).end();
-    expect(handle.counters.droppedSpans).toBeGreaterThanOrEqual(
-      44 + 1000 - 4 - 2,
-    );
+    expect(handle.counters.droppedSpans).toBe(44 + 1000);
+    expect(handle.counters.exportFailedSpans).toBe(0);
 
     const started = Date.now();
     await handle.shutdown();
     const took = Date.now() - started;
-    expect(took).toBeLessThan(1500 + 500);
+    expect(took).toBeGreaterThanOrEqual(550);
+    expect(took).toBeLessThan(600 + 400);
+    // The retrying batch (2) and the queue flushed at shutdown (4) were failed by abort().
+    expect(handle.counters.exportFailedSpans).toBe(6);
+    expect(handle.counters.exportedSpans).toBe(0);
+    expect(diagnostics.logs.has("otel.shutdown-timeout")).toBe(true);
     expect(diagnostics.failures).toEqual([]);
   });
 });

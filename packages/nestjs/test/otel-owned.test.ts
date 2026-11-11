@@ -1,5 +1,11 @@
 // Global state: no host SDK. Nestrix owns the provider, context manager and propagator.
-import { context, propagation, ROOT_CONTEXT, trace } from "@opentelemetry/api";
+import {
+  context,
+  createContextKey,
+  propagation,
+  ROOT_CONTEXT,
+  trace,
+} from "@opentelemetry/api";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hasContextManager, hasPropagator } from "../src/otel/detect.js";
 import { setupTelemetry } from "../src/otel/setup.js";
@@ -84,7 +90,8 @@ describe("Nestrix owns the provider", () => {
       "deployment.environment.name": "test",
       "telemetry.sdk.language": "nodejs",
     });
-    expect(handle.counters.exportedSpans).toBe(2);
+    // The receiver parses the request before the exporter reads the response.
+    await expect.poll(() => handle.counters.exportedSpans).toBe(2);
     expect(receiver.posts).toBeGreaterThanOrEqual(1);
   });
 
@@ -149,18 +156,66 @@ describe("Nestrix owns the provider", () => {
     return again.shutdown();
   });
 
-  it("a second instance while one is open reports through the first and logs which", async () => {
-    const first = setupTelemetry(config(), recordingDiagnostics());
-    const d2 = recordingDiagnostics();
-    const second = setupTelemetry(config(), d2);
-    expect(first.ownsProvider).toBe(true);
-    expect(second.ownsProvider).toBe(false);
-    expect(d2.logs.has("otel.second-instance")).toBe(true);
-    expect(d2.logs.has("otel.host-provider")).toBe(false);
-    await second.shutdown();
-    // The second's shutdown did not touch the first's provider.
-    expect(trace.getTracer("x").startSpan("still").isRecording()).toBe(true);
-    await first.shutdown();
+  it("two apps share the owned provider: closing the first keeps the second working, the last removes the globals", async () => {
+    const tracer = () => trace.getTracer("two-apps");
+    const k = createContextKey("two-apps");
+    const contextWorks = () =>
+      context.with(ROOT_CONTEXT.setValue(k, 1), () =>
+        context.active().getValue(k),
+      ) === 1;
+    for (const closeFirstOwnerFirst of [true, false]) {
+      receiver.spans.length = 0;
+      const d1 = recordingDiagnostics();
+      const d2 = recordingDiagnostics();
+      const a = setupTelemetry(
+        config({
+          export: {
+            otlp: otlp(receiver.url),
+            queue: {
+              maxQueueSize: 100,
+              maxExportBatchSize: 50,
+              scheduledDelayMillis: 60_000,
+            },
+          },
+        }),
+        d1,
+      );
+      const b = setupTelemetry(config(), d2);
+      expect(a.ownsProvider).toBe(true);
+      expect(b.ownsProvider).toBe(true);
+      expect(a.registered).toEqual({
+        tracerProvider: true,
+        contextManager: true,
+        propagator: true,
+      });
+      expect(b.registered).toEqual({
+        tracerProvider: false,
+        contextManager: false,
+        propagator: false,
+      });
+      expect(b.counters).toBe(a.counters);
+      expect(d2.logs.has("otel.second-instance")).toBe(true);
+      expect(d2.logs.has("otel.host-provider")).toBe(false);
+
+      const [early, late] = closeFirstOwnerFirst ? [a, b] : [b, a];
+      tracer().startSpan("before-first-close").end();
+      await early.shutdown();
+      // Flushed, not torn down.
+      expect(receiver.spans.map((s) => s.name)).toEqual(["before-first-close"]);
+      expect(tracer().startSpan("probe").isRecording()).toBe(true);
+      expect(contextWorks()).toBe(true);
+      expect(hasPropagator()).toBe(true);
+      // Idempotent: a second shutdown of the same handle does not count twice.
+      await early.shutdown();
+      expect(tracer().startSpan("probe").isRecording()).toBe(true);
+
+      tracer().startSpan("before-last-close").end();
+      await late.shutdown();
+      expect(receiver.spans.map((s) => s.name)).toContain("before-last-close");
+      expect(tracer().startSpan("probe").isRecording()).toBe(false);
+      expect(contextWorks()).toBe(false);
+      expect(hasPropagator()).toBe(false);
+    }
   });
 
   it("with export off, owns the provider and says once that nothing is exported", async () => {

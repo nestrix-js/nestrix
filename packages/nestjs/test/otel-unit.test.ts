@@ -8,6 +8,7 @@ import type {
   SpanProcessor,
 } from "@opentelemetry/sdk-trace";
 import { describe, expect, it } from "vitest";
+import type { RedactableSpan, RedactHook } from "../src/options.js";
 import { describeForeignRouteHook } from "../src/otel/detect.js";
 import {
   batchExportTimeout,
@@ -44,6 +45,7 @@ const fakeSpan = {
     traceFlags: 1,
   }),
   attributes: { a: "1" },
+  status: { code: 0 },
   events: [],
 } as unknown as ReadableSpan;
 
@@ -226,6 +228,107 @@ describe("createRedactingExporter (fault injection)", () => {
     expect(got[0]?.code).toBe(ExportResultCode.SUCCESS);
     expect(c.redactDroppedSpans).toBe(1);
     return expect(plain.shutdown()).resolves.toBeUndefined();
+  });
+});
+
+describe("createRedactingExporter: async hooks and status", () => {
+  function run(
+    redact: (span: RedactableSpan) => unknown,
+    span: ReadableSpan = fakeSpan,
+  ) {
+    const seen: ReadableSpan[] = [];
+    const c = counters();
+    const d = recordingDiagnostics();
+    const exporter = createRedactingExporter(
+      {
+        export(spans, done) {
+          seen.push(...spans);
+          done({ code: ExportResultCode.SUCCESS });
+        },
+        shutdown: () => Promise.resolve(),
+      },
+      {
+        scrub: undefined,
+        redact: redact as RedactHook,
+        counters: c,
+        diagnostics: d,
+      },
+    );
+    const results: ExportResult[] = [];
+    exporter.export([span], (r) => results.push(r));
+    return { seen, c, d, results };
+  }
+
+  it("a hook returning a promise drops the span (fail closed), counts it and logs once; a rejection stays handled", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const rejecting = run(async (span) => {
+        span.attributes.a = "REDACTED";
+        throw new Error("async hook fault");
+      });
+      expect(rejecting.seen).toEqual([]);
+      expect(rejecting.c.redactFailedSpans).toBe(1);
+      expect(rejecting.results[0]?.code).toBe(ExportResultCode.SUCCESS);
+      expect(rejecting.d.logs.get("otel.redact.async")).toMatch(/synchronous/);
+
+      const resolving = run(async () => true);
+      expect(resolving.seen).toEqual([]);
+      expect(resolving.c.redactFailedSpans).toBe(1);
+
+      // biome-ignore lint/suspicious/noThenProperty: a non-promise thenable is the case under test.
+      const thenable = run(() => ({ then: () => undefined }));
+      expect(thenable.seen).toEqual([]);
+      const throwingThen = run(() => ({
+        // biome-ignore lint/suspicious/noThenProperty: a `then` getter that throws is the case under test.
+        get then() {
+          throw new Error("then getter");
+        },
+      }));
+      expect(throwingThen.seen).toEqual([]);
+      expect(throwingThen.c.redactFailedSpans).toBe(1);
+
+      await new Promise((r) => setTimeout(r, 20));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("exposes status: the hook can rewrite or delete the message; an invalid status drops the span", () => {
+    const failed = {
+      ...fakeSpan,
+      status: { code: 2, message: "password=hunter2" },
+    } as unknown as ReadableSpan;
+    const deleted = run((span) => {
+      expect(span.status).toEqual({ code: 2, message: "password=hunter2" });
+      delete span.status.message;
+      return undefined;
+    }, failed);
+    expect(deleted.seen[0]?.status).toEqual({ code: 2 });
+
+    const rewritten = run((span) => {
+      span.status.message = "[hidden]";
+      return undefined;
+    }, failed);
+    expect(rewritten.seen[0]?.status).toEqual({ code: 2, message: "[hidden]" });
+    // The original span was not touched.
+    expect(failed.status).toEqual({ code: 2, message: "password=hunter2" });
+
+    const badCode = run((span) => {
+      span.status.code = 7;
+      return undefined;
+    }, failed);
+    expect(badCode.seen).toEqual([]);
+    expect(badCode.c.redactFailedSpans).toBe(1);
+
+    const replaced = run((span) => {
+      (span as { status: unknown }).status = "gone";
+      return undefined;
+    }, failed);
+    expect(replaced.seen).toEqual([]);
+    expect(replaced.c.redactFailedSpans).toBe(1);
   });
 });
 
