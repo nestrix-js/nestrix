@@ -58,7 +58,8 @@ pnpm test           # vitest run --passWithNoTests; every workspace dir with a p
 pnpm lint           # biome check . (lint and format; Markdown is not checked)
 pnpm typecheck      # tsc -b --noEmit over the references in the root tsconfig.json
 pnpm check:packages # publint + attw --pack --profile esm-only on each published package (their check:package script)
-pnpm verify         # build, check:packages, test, lint, typecheck in that order, stopping at the first failure
+pnpm check:tla      # scripts/check-no-tla.mjs: require() every published entry and every built file from CommonJS and fail on a top-level await (ERR_REQUIRE_ASYNC_MODULE); needs `pnpm build` first
+pnpm verify         # build, check:packages, check:tla, test, lint, typecheck in that order, stopping at the first failure
 ```
 
 CI runs locally with [`act`](https://nektosact.com) and Docker, without spending GitHub Actions minutes (the repository is private, 2,000 minutes a month). On colima, `--container-daemon-socket -` is required:

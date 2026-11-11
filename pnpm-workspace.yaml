@@ -4,3 +4,6 @@ packages:
   - examples/*
   - spikes/*
   - benchmarks
+allowBuilds:
+  "@parcel/watcher": false
+  "@swc/core": false
