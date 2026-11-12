@@ -70,6 +70,18 @@ export interface NestrixExportOptions {
    */
   otlp?: NestrixOtlpOptions | false;
   queue?: NestrixQueueOptions;
+  /**
+   * Lets the Nestrix standalone server order a CPU capture from this instance (D-76). Default
+   * `false`. When `true`, the instance checks in every 15 s with `POST <endpoint>/v1/nestrix/check-in`
+   * (same `headers`, so the same ingest key), and when an admin starts a capture in the server's
+   * Profiler, runs it with the on-demand profiler (same limits, one capture per process) and
+   * uploads the `.cpuprofile` itself. The server never connects to the instance. Needs a base
+   * endpoint: `export.otlp.endpoint` or `OTEL_EXPORTER_OTLP_ENDPOINT` (a traces URL alone is not
+   * enough), and `export.otlp` not `false`. Works without the embedded dashboard and with a
+   * host-owned SDK. An endpoint that is not a Nestrix server (a Collector, Jaeger) answers 404,
+   * and polling stops with one log line. Starting a capture pauses the main thread briefly.
+   */
+  profiler?: boolean;
 }
 
 export interface NestrixIgnoreOptions {

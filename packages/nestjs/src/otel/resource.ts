@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { hostname } from "node:os";
 import {
   defaultResource,
   type Resource,
@@ -10,7 +11,7 @@ import {
   ATTR_SERVICE_VERSION,
 } from "@opentelemetry/semantic-conventions";
 import { parseResourceAttributesEnv } from "./resource-env.js";
-import type { TelemetryConfig } from "./types.js";
+import type { TelemetryConfig, TelemetryHandle } from "./types.js";
 
 export { parseResourceAttributesEnv };
 
@@ -46,4 +47,68 @@ export function buildResource(
     .merge(resourceFromAttributes({ [ATTR_SERVICE_INSTANCE_ID]: randomUUID() }))
     .merge(resourceFromAttributes(fromEnv ?? {}))
     .merge(resourceFromAttributes(own));
+}
+
+/** Who this instance is, for the remote profiler's check-in (P10-01). Plain values only. */
+export interface InstanceIdentity {
+  readonly service: string;
+  readonly instanceId: string;
+  readonly version: string | undefined;
+  readonly host: string | undefined;
+}
+
+const HOST_NAME = "host.name";
+
+function stringAttribute(value: unknown): string | undefined {
+  if (typeof value === "string") return value.trim() || undefined;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return undefined;
+}
+
+/**
+ * The identity the remote profiler checks in with. With a Nestrix-owned provider, its resource's
+ * values, so `service.instance.id` matches the instance's spans. Otherwise (a host-owned SDK, or a
+ * failed setup) the values Nestrix's own resource would have had: the host's resource cannot be
+ * read through the API, so the instance id is then random and does not match the host's spans.
+ * `host.name` comes from the resource when set there, else from `os.hostname()`. Never throws.
+ */
+export function instanceIdentity(
+  config: Pick<
+    TelemetryConfig,
+    | "serviceName"
+    | "serviceVersion"
+    | "resourceAttributes"
+    | "otelResourceAttributes"
+  >,
+  telemetry: Pick<TelemetryHandle, "resourceAttributes"> | undefined,
+): InstanceIdentity {
+  let attributes: Readonly<Record<string, unknown>> | undefined;
+  try {
+    attributes =
+      telemetry?.resourceAttributes ?? buildResource(config).attributes;
+  } catch {
+    attributes = undefined;
+  }
+  let host = stringAttribute(attributes?.[HOST_NAME]);
+  if (host === undefined) {
+    try {
+      host = stringAttribute(hostname());
+    } catch {
+      host = undefined;
+    }
+  }
+  return Object.freeze({
+    service:
+      stringAttribute(attributes?.[ATTR_SERVICE_NAME]) ??
+      config.serviceName ??
+      "unknown_service",
+    instanceId:
+      stringAttribute(attributes?.[ATTR_SERVICE_INSTANCE_ID]) ?? randomUUID(),
+    version:
+      stringAttribute(attributes?.[ATTR_SERVICE_VERSION]) ??
+      config.serviceVersion,
+    host,
+  });
 }

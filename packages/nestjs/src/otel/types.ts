@@ -101,6 +101,11 @@ export interface TelemetryHandle {
     readonly propagator: boolean;
   };
   readonly counters: TelemetryCounters;
+  /**
+   * The owned provider's resource attributes (`service.name`, `service.instance.id`, ...), as every
+   * exported span carries them. Absent when the host owns the SDK or setup failed.
+   */
+  readonly resourceAttributes?: Readonly<Record<string, unknown>> | undefined;
   /** The process's dashboard store, when `dashboardStore` was set and this app attached to it. */
   readonly store?: TraceStore | undefined;
   /**

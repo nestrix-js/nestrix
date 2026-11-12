@@ -111,7 +111,7 @@ With `forRootAsync`, an `enabled: false` returned from the factory disables Nest
 
 ### A host that already runs an OpenTelemetry SDK
 
-If your app registers its own tracer provider before Nestrix starts (that is, before `NestFactory.create` constructs the module), Nestrix does not create an SDK. Its spans go through your provider and your exporters. In that case `serviceName`, `resourceAttributes`, `OTEL_RESOURCE_ATTRIBUTES`, `sampleRate`, every `export.*` option and, for what your exporters send, `redact` are ignored (the resource, sampler, exporters and redaction are your SDK's; see [Privacy](#privacy)), and Nestrix logs one line saying so. `ignore`, `http`, `ui` and `store` still apply, and so does `redact` for the copy of each span the dashboard keeps. To see your spans in the dashboard, add `nestrixSpanProcessor()` to your provider ([below](#a-host-that-owns-its-sdk)). Your SDK must be OpenTelemetry JS SDK 3.
+If your app registers its own tracer provider before Nestrix starts (that is, before `NestFactory.create` constructs the module), Nestrix does not create an SDK. Its spans go through your provider and your exporters. In that case `serviceName`, `resourceAttributes`, `OTEL_RESOURCE_ATTRIBUTES`, `sampleRate`, every `export.*` option (except [`export.profiler`](#remote-profiling-from-the-standalone-server), which still checks in with `export.otlp`'s endpoint and headers) and, for what your exporters send, `redact` are ignored (the resource, sampler, exporters and redaction are your SDK's; see [Privacy](#privacy)), and Nestrix logs one line saying so. `ignore`, `http`, `ui` and `store` still apply, and so does `redact` for the copy of each span the dashboard keeps. To see your spans in the dashboard, add `nestrixSpanProcessor()` to your provider ([below](#a-host-that-owns-its-sdk)). Your SDK must be OpenTelemetry JS SDK 3.
 
 **One rule for every signal.** Nestrix exports a signal itself only when it owns the trace provider and trace export is on (an endpoint resolves and `export.otlp` is not `false`). That holds for traces, for metrics and for logs. With a host-owned SDK, Nestrix never starts a `MeterProvider` or a `LoggerProvider` of its own: metrics are recorded through `@opentelemetry/api`, so your `MeterProvider` receives them, and with `logs.export: true` Nestrix logs one line saying it registers no `LoggerProvider`. A logs or metrics endpoint variable alone (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`) never turns export on.
 
@@ -316,6 +316,15 @@ What to expect:
 - **Inlined functions can appear under their caller,** more often after the first capture in a process. This is how V8's profiler works.
 - A 30-second capture is about 0.3 MB and a 2-minute one about 1 MB, more in an app with many distinct call stacks.
 
+#### Remote profiling from the standalone server
+
+With `export: { profiler: true, otlp: { endpoint, headers } }` pointing at the [standalone server](../../apps/server/README.md), each instance checks in every 15 seconds (`POST <endpoint>/v1/nestrix/check-in`, with the export headers, so the ingest key) with its `service.name`, `service.instance.id`, `service.version`, host name, pid and Node.js version. An admin picks an instance in the server's Profiler and starts a capture; the instance receives the order at its next check-in, runs it with this same profiler (same limits, one capture per process, the 10-second cool-down) and uploads the `.cpuprofile` itself, gzipped. If it cannot start (another capture is running, the cool-down), it tells the server why. The server never connects to your instances, so this works behind load balancers and NAT. It does not need the embedded dashboard, and it works with your own OpenTelemetry SDK (the instance id is then Nestrix's own, not your resource's). A remote capture also appears in this process's embedded Profiler tab when that is on.
+
+- **Off by default.** Nobody can pause an instance's main thread from outside unless the app turns this on.
+- **First check-in a few seconds after the app starts,** then every 15 seconds with some jitter; the timers do not keep the process alive, and `app.close()` stops polling, aborts a request in flight and discards a running capture.
+- **An endpoint that is not a Nestrix server** (an OpenTelemetry Collector, Jaeger) answers `404`: one log line, and polling stops until the app restarts. A refused key (`401`, `403`) is retried every 5 minutes; network errors and server errors back off from 15 seconds to 5 minutes. Each change of state is logged once, not each attempt. Redirects are not followed, so the headers never go to another URL.
+- **Its requests are not traced.** They run with OpenTelemetry's suppress-tracing flag, as the SDK's own exports do, so they create no spans, carry no `traceparent` and do not appear in the dashboard.
+
 Starting a capture is the dashboard's only request that changes anything, so besides dashboard access it needs a same-origin request from the dashboard page itself: `Sec-Fetch-Site: same-origin`, an `Origin` equal to the server's own origin, a JSON body with `Content-Type: application/json` and a `Content-Length` of at most 1 KB. Browsers send all of this; another site cannot. **Starting a capture needs HTTPS or localhost:** browsers send `Sec-Fetch-Site` only to HTTPS and localhost origins, so over plain HTTP to another host every start is refused with `403` even though the dashboard shows the button (the dashboard then says so). Open the dashboard over HTTPS, or through `localhost` or an SSH tunnel. Behind a reverse proxy, the proxy must pass the original `Host` header (nginx: `proxy_set_header Host $host;`), or the `Origin` check refuses the start. Reading profiles and downloading them follow the same rules as the rest of the dashboard.
 
 ### Letting an AI assistant read the dashboard
@@ -483,6 +492,12 @@ An invalid `methods` or `integrations` value throws, like the other options.
 | `export.queue.scheduledDelayMillis` | `5000` | How often a partial batch is exported. A full batch is exported at once. |
 
 All three must be positive integers.
+
+### `export.profiler`
+
+| Option | Default | |
+|---|---|---|
+| `export.profiler` | `false` | Lets the [standalone server](../../apps/server/README.md) take CPU profiles of this instance ([remote profiling](#remote-profiling-from-the-standalone-server)). Needs a base endpoint: `export.otlp.endpoint` or `OTEL_EXPORTER_OTLP_ENDPOINT` (a full `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` alone is not enough), and `export.otlp` not `false`; otherwise one line says it is off. Sends the same headers as the trace export. A non-boolean throws. |
 
 ### `ignore`
 
