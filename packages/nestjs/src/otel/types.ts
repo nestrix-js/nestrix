@@ -41,6 +41,12 @@ export interface TelemetryConfig {
   readonly otelResourceAttributes?: string | undefined;
   /** Root sampling ratio in [0, 1]; validated by the caller. */
   readonly sampleRate: number;
+  /**
+   * D-78: spans recorded per trace in this process; `false` turns the limit off. Validated by the
+   * caller; `undefined` means the default (10,000). A Nestrix-owned provider applies it to every
+   * span; with a host-owned SDK it applies to Nestrix's own spans only.
+   */
+  readonly maxSpansPerTrace?: number | false | undefined;
   readonly export: {
     readonly otlp: TelemetryOtlpConfig | false;
     readonly queue: TelemetryQueueConfig;

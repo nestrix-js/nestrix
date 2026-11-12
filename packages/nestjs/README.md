@@ -15,6 +15,7 @@ Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app pro
 - [Method spans (level 2)](#method-spans-level-2)
 - [Database and cache spans (level 3)](#database-and-cache-spans-level-3)
 - [Background jobs (BullMQ)](#background-jobs-bullmq)
+- [Large traces: `maxSpansPerTrace`](#large-traces-maxspanspertrace)
 - [Microservices](#microservices)
 - [Releases and users](#releases-and-users)
 - [Metrics](#metrics)
@@ -111,7 +112,7 @@ With `forRootAsync`, an `enabled: false` returned from the factory disables Nest
 
 ### A host that already runs an OpenTelemetry SDK
 
-If your app registers its own tracer provider before Nestrix starts (that is, before `NestFactory.create` constructs the module), Nestrix does not create an SDK. Its spans go through your provider and your exporters. In that case `serviceName`, `resourceAttributes`, `OTEL_RESOURCE_ATTRIBUTES`, `sampleRate`, every `export.*` option (except [`export.profiler`](#remote-profiling-from-the-standalone-server), which still checks in with `export.otlp`'s endpoint and headers) and, for what your exporters send, `redact` are ignored (the resource, sampler, exporters and redaction are your SDK's; see [Privacy](#privacy)), and Nestrix logs one line saying so. `ignore`, `http`, `ui` and `store` still apply, and so does `redact` for the copy of each span the dashboard keeps. To see your spans in the dashboard, add `nestrixSpanProcessor()` to your provider ([below](#a-host-that-owns-its-sdk)). Your SDK must be OpenTelemetry JS SDK 3.
+If your app registers its own tracer provider before Nestrix starts (that is, before `NestFactory.create` constructs the module), Nestrix does not create an SDK. Its spans go through your provider and your exporters. In that case `serviceName`, `resourceAttributes`, `OTEL_RESOURCE_ATTRIBUTES`, `sampleRate`, every `export.*` option (except [`export.profiler`](#remote-profiling-from-the-standalone-server), which still checks in with `export.otlp`'s endpoint and headers) and, for what your exporters send, `redact` are ignored (the resource, sampler, exporters and redaction are your SDK's; see [Privacy](#privacy)), and Nestrix logs one line saying so. `ignore`, `http`, `ui` and `store` still apply, and so does `redact` for the copy of each span the dashboard keeps. `maxSpansPerTrace` applies to Nestrix's own spans only ([Large traces](#large-traces-maxspanspertrace)). To see your spans in the dashboard, add `nestrixSpanProcessor()` to your provider ([below](#a-host-that-owns-its-sdk)). Your SDK must be OpenTelemetry JS SDK 3.
 
 **One rule for every signal.** Nestrix exports a signal itself only when it owns the trace provider and trace export is on (an endpoint resolves and `export.otlp` is not `false`). That holds for traces, for metrics and for logs. With a host-owned SDK, Nestrix never starts a `MeterProvider` or a `LoggerProvider` of its own: metrics are recorded through `@opentelemetry/api`, so your `MeterProvider` receives them, and with `logs.export: true` Nestrix logs one line saying it registers no `LoggerProvider`. A logs or metrics endpoint variable alone (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`) never turns export on.
 
@@ -439,6 +440,7 @@ That sample sets most options to their defaults, except where a default is "unse
 | `serviceName` | `OTEL_SERVICE_NAME`, then the SDK's default | The `service.name` resource attribute. |
 | `resourceAttributes` | none | Extra resource attributes. `OTEL_RESOURCE_ATTRIBUTES` is honoured too; these win. |
 | `sampleRate` | `1` | Head sampling ratio for new root traces, 0 to 1. Implemented as a parent-based ratio sampler, so an incoming sampled `traceparent` is honoured whatever the ratio. Ignored when your app owns the SDK. |
+| `maxSpansPerTrace` | `10000` | Most spans one trace records in this process; at least `100`; `false` turns the limit off. Spans past it are counted, not recorded. When your app owns the SDK, only Nestrix's own spans are limited. See [Large traces](#large-traces-maxspanspertrace). |
 | `serviceVersion` | the chain in [Releases and users](#releases-and-users) | The `service.version` every trace carries. |
 | `user` | none (off) | A synchronous function that returns the user id for a request, recorded as `user.id`. See [Releases and users](#releases-and-users). |
 | `methods` | see below | Method spans for your own classes. Needs `NestrixInstrument`. See [`methods`](#methods). |
@@ -800,6 +802,35 @@ GET /orders                      server
 ```
 
 The consumer span is a **child** of the producer span in the same trace, with no span link, so a request and the jobs it queued show as one trace, however much later the worker ran them. A job added outside a request (no active span) starts a trace of its own. Without `telemetry`, the processor's method span (if `NestrixInstrument` is on) is a root span: nothing connects it to the request that queued the job. In the dashboard's request list, the `jobs` type filter shows traces that a job started.
+
+## Large traces: `maxSpansPerTrace`
+
+A job that touches every row of a table can put thousands, or millions, of spans into one trace: one per query, per Redis command, per method call. Nothing can show a trace like that usefully, and every span costs memory, export bandwidth and storage. So Nestrix records at most `maxSpansPerTrace` spans of one trace in each process (default `10000`; at least `100`; `false` turns the limit off):
+
+<!-- sample: max-spans -->
+
+```ts
+import { Module } from "@nestjs/common";
+import { NestrixModule } from "@nestrix-js/nestjs";
+
+@Module({
+  imports: [
+    NestrixModule.forRoot({
+      // At most 5,000 spans per trace in this process; the rest are counted on the root span.
+      maxSpansPerTrace: 5_000,
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+- **Past the limit** a span is not recorded, and neither are its children. Spans that are already recorded stay; the trace keeps its first `maxSpansPerTrace` spans, root included.
+- **What was left out is counted** by kind (`db`, `http-out`, `redis`, `messaging`, `app` for your own classes, `other`). When the trace's root span in this process ends (the request's server span, or the job's span), the counts are written on it: `nestrix.trace.spans_dropped` (the total) and `nestrix.trace.spans_dropped.<kind>`. A trace under the limit gets no such attribute. The dashboard and the standalone server read them and show how many spans were omitted.
+- **Statistics stay exact.** Route statistics, the Classes view and the request-duration metric count every call before sampling, so a limited trace still counts in full there.
+- **Other services.** A call made from a recorded span carries the usual `traceparent`, so the next service joins the trace as before. A call made from a span that was left out carries the trace id with the sampled flag off (`-00`), so a service that follows its parent's decision (the default `ParentBased` sampler) records nothing for it either. That keeps the rule "children of a left-out span are left out" across services, and it is the only choice an OpenTelemetry sampler has: a span that is not recorded is never marked sampled. Each service applies its own limit.
+- **When your app owns the SDK**, Nestrix limits only the spans it creates itself (HTTP, method, database, outbound and microservice spans, and `@Span`/`withSpan`); your SDK's sampler decides the rest. A left-out Nestrix span is replaced by its parent, so whatever runs inside it (including other instrumentations' spans) is parented on the last recorded span, and calls it makes still go out sampled. The counts go on the first Nestrix span of the trace in this process.
+
+The limit applies per process: a trace that crosses three services can have up to three times as many spans. The standalone server has its own cap per trace (`NESTRIX_MAX_SPANS_PER_TRACE`). For the per-span cost and how the counts are kept, see `docs/architecture.md` §4.5 in the repository.
 
 ## Microservices
 

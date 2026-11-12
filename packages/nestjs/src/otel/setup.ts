@@ -18,6 +18,11 @@ import {
 import { createStoreProcessor } from "../store/processor.js";
 import { getOrCreateStore, type TraceStore } from "../store/store.js";
 import {
+  DEFAULT_MAX_SPANS_PER_TRACE,
+  installTraceSpanCounter,
+  TraceSpanCounter,
+} from "../trace-limit.js";
+import {
   contextSurvivesAwait,
   hasContextManager,
   hasPropagator,
@@ -30,6 +35,10 @@ import {
 } from "./pipeline.js";
 import { settle } from "./redacting-exporter.js";
 import { buildResource } from "./resource.js";
+import {
+  createLimitingSampler,
+  createSpanLimitProcessor,
+} from "./span-limit.js";
 import type {
   TelemetryConfig,
   TelemetryDiagnostics,
@@ -53,6 +62,8 @@ interface Owned {
   diagnostics: TelemetryDiagnostics;
   /** Open handles. Only the last one to shut down tears the provider down. */
   refs: number;
+  /** Removes the `maxSpansPerTrace` counter (D-78); a no-op when the limit is off. */
+  releaseSpanLimit: () => void;
 }
 
 let owned: Owned | undefined;
@@ -79,6 +90,7 @@ function newCounters(): PipelineCounters {
 function inertHandle(
   counters: PipelineCounters,
   attachment: StoreAttachment = NO_STORE,
+  releaseSpanLimit: () => void = () => {},
 ): TelemetryHandle {
   let shutdownPromise: Promise<void> | undefined;
   return {
@@ -93,7 +105,13 @@ function inertHandle(
     detachStore: attachment.detach,
     forceFlush: () => Promise.resolve(),
     shutdown: () => {
-      shutdownPromise ??= settle(attachment.detach);
+      shutdownPromise ??= settle(() => {
+        try {
+          releaseSpanLimit();
+        } finally {
+          attachment.detach();
+        }
+      });
       return shutdownPromise;
     },
   };
@@ -226,12 +244,23 @@ function setup(
       "OTEL_RESOURCE_ATTRIBUTES is malformed and was ignored as a whole (expected key=value pairs separated by commas, with ',' and '=' percent-encoded).",
     ),
   );
+  const parentBased = new ParentBasedSampler({
+    root: new TraceIdRatioBasedSampler(config.sampleRate),
+  });
+  // D-78: past `maxSpansPerTrace` spans of one trace the sampler answers NOT_RECORD, and the
+  // limit processor writes the dropped counts on the local root (span-limit.ts).
+  const limit = spanLimitOf(config);
+  const counter = limit === false ? undefined : new TraceSpanCounter(limit);
+  const processors = spanProcessors(pipeline, storeProcessor);
+  if (counter) {
+    processors.unshift(createSpanLimitProcessor(counter, diagnostics));
+  }
   const provider = new TracerProvider({
     resource,
-    sampler: new ParentBasedSampler({
-      root: new TraceIdRatioBasedSampler(config.sampleRate),
-    }),
-    spanProcessors: spanProcessors(pipeline, storeProcessor),
+    sampler: counter
+      ? createLimitingSampler(parentBased, counter, diagnostics)
+      : parentBased,
+    spanProcessors: processors,
   });
 
   // When a host provider exists this writes one "Attempted duplicate registration of
@@ -289,6 +318,9 @@ function setup(
       config.shutdownTimeoutMillis ?? DEFAULT_SHUTDOWN_TIMEOUT_MILLIS,
     diagnostics,
     refs: 1,
+    releaseSpanLimit: counter
+      ? installTraceSpanCounter(counter, "provider")
+      : () => {},
   };
   return ownedHandle(owned, true, attachStore(config, store, diagnostics));
 }
@@ -327,7 +359,30 @@ function hostHandle(
   } catch (error) {
     diagnostics.countFailure("store.setup", error);
   }
-  return inertHandle(newCounters(), attachStore(config, store, diagnostics));
+  // D-78 with a host-owned SDK: only Nestrix's own spans are limited (trace-limit.ts).
+  let releaseSpanLimit: () => void = () => {};
+  try {
+    const limit = spanLimitOf(config);
+    if (limit !== false) {
+      releaseSpanLimit = installTraceSpanCounter(
+        new TraceSpanCounter(limit),
+        "host",
+      );
+    }
+  } catch (error) {
+    diagnostics.countFailure("trace-limit.setup", error);
+  }
+  return inertHandle(
+    newCounters(),
+    attachStore(config, store, diagnostics),
+    releaseSpanLimit,
+  );
+}
+
+/** `maxSpansPerTrace`, defaulted (the option itself is validated in resolve-options.ts). */
+function spanLimitOf(config: TelemetryConfig): number | false {
+  const limit = config.maxSpansPerTrace;
+  return limit === undefined ? DEFAULT_MAX_SPANS_PER_TRACE : limit;
 }
 
 /**
@@ -383,6 +438,11 @@ function ownedHandle(
 async function teardown(state: Owned): Promise<void> {
   const { diagnostics } = state;
   if (owned === state) owned = undefined;
+  try {
+    state.releaseSpanLimit();
+  } catch (error) {
+    diagnostics.countFailure("otel.shutdown", error);
+  }
   try {
     // New spans become no-ops from here on; spans already queued are still exported.
     trace.disable();

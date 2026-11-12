@@ -6,17 +6,19 @@
 import "reflect-metadata";
 import {
   type Span as ApiSpan,
+  context,
   type Exception,
   type SpanOptions,
   SpanStatusCode,
   trace,
 } from "@opentelemetry/api";
+import { endNestrixSpan, hostGate, hostStarted } from "./trace-limit.js";
 
 const TRACER_NAME = "@nestrix-js/nestjs";
 
 function end(span: ApiSpan): void {
   try {
-    span.end();
+    endNestrixSpan(span);
   } catch {
     // Nestrix's own bookkeeping never fails the host.
   }
@@ -69,12 +71,26 @@ export function withSpan<T>(
   fn: (span: ApiSpan) => T,
   options?: SpanOptions,
 ): T {
+  // Host-owned SDK past maxSpansPerTrace (D-78): no span; `fn` runs once under the parent.
+  let standIn: ApiSpan | undefined;
+  try {
+    standIn = hostGate(
+      context.active(),
+      options?.kind,
+      options?.attributes,
+      options?.root,
+    );
+  } catch {
+    standIn = undefined;
+  }
+  if (standIn !== undefined) return fn(standIn);
   let outcome: Outcome<T> | undefined;
   let started = false;
   try {
     const tracer = trace.getTracer(TRACER_NAME);
     const returned = tracer.startActiveSpan(name, options ?? {}, (span) => {
       started = true;
+      hostStarted(span);
       let result: T;
       try {
         result = fn(span);

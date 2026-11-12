@@ -61,6 +61,7 @@ import type {
   ResolvedOptions,
 } from "../resolve-options.js";
 import { type RouteStatistics, UNMATCHED_ROUTE } from "../stats/route-stats.js";
+import { endNestrixSpan, startNestrixSpan } from "../trace-limit.js";
 import {
   type DashboardRequestState,
   getStateFromContext,
@@ -431,9 +432,12 @@ export class HttpServerInstrumentation {
       headers ?? {},
       defaultTextMapGetter,
     );
-    const span = trace
-      .getTracer(TRACER_NAME)
-      .startSpan(baseName, { kind: SpanKind.SERVER, attributes }, parent);
+    const span = startNestrixSpan(
+      trace.getTracer(TRACER_NAME),
+      baseName,
+      { kind: SpanKind.SERVER, attributes },
+      parent,
+    );
     const state: RequestState = {
       span,
       method: received,
@@ -688,13 +692,13 @@ export class HttpServerInstrumentation {
         span.setStatus({ code: SpanStatusCode.ERROR });
       }
       if (this.user !== undefined) this.recordUser(span, request);
-      span.end();
+      endNestrixSpan(span);
     } catch (error) {
       this.diagnostics.countFailure("http.close-listener", error);
       try {
         // Never leave the span open because an attribute failed.
         state.ended = true;
-        state.span.end();
+        endNestrixSpan(state.span);
       } catch {
         // Counted above.
       }

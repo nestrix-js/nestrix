@@ -35,6 +35,7 @@ import {
 } from "@opentelemetry/semantic-conventions";
 import { Observable, tap } from "rxjs";
 import { diagnostics } from "../diagnostics.js";
+import { endNestrixSpan, startNestrixSpan } from "../trace-limit.js";
 import {
   ATTR_MESSAGING_DESTINATION_NAME,
   ATTR_MESSAGING_OPERATION_TYPE,
@@ -149,13 +150,12 @@ function start(execution: ExecutionContext): Started | undefined {
   if (typeof className === "string" && typeof handlerName === "string") {
     attributes[ATTR_CODE_FUNCTION_NAME] = `${className}.${handlerName}`;
   }
-  const span = trace
-    .getTracer(TRACER_NAME)
-    .startSpan(
-      spanName(transport, pattern),
-      { kind: isEvent ? SpanKind.CONSUMER : SpanKind.SERVER, attributes },
-      parent,
-    );
+  const span = startNestrixSpan(
+    trace.getTracer(TRACER_NAME),
+    spanName(transport, pattern),
+    { kind: isEvent ? SpanKind.CONSUMER : SpanKind.SERVER, attributes },
+    parent,
+  );
   return { span, ctx: trace.setSpan(parent, span) };
 }
 
@@ -204,7 +204,7 @@ export function recordError(span: Span, error: unknown): void {
 
 function endSpan(span: Span): void {
   try {
-    span.end();
+    endNestrixSpan(span);
   } catch (failure) {
     diagnostics.countFailure("microservices.end", failure);
   }

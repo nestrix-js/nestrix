@@ -283,6 +283,15 @@ export interface NestrixModuleOptions {
    * Ignored when the host owns the SDK.
    */
   sampleRate?: number;
+  /**
+   * Most spans one trace records in this process (D-78). Default 10,000; at least 100; `false`
+   * turns the limit off. Spans past the limit are not recorded, and neither are their children;
+   * they are counted by kind and the counts are written on the trace's local root span as
+   * `nestrix.trace.spans_dropped` and `nestrix.trace.spans_dropped.<kind>`. Route and class
+   * statistics still count every call. When the host owns the SDK, only Nestrix's own spans are
+   * limited (the host's sampler decides the rest).
+   */
+  maxSpansPerTrace?: number | false;
   export?: NestrixExportOptions;
   ignore?: NestrixIgnoreOptions;
   http?: NestrixHttpOptions;

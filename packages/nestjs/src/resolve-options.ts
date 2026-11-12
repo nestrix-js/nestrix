@@ -18,6 +18,10 @@ import type {
   UrlMatcher,
 } from "./options.js";
 import { parseResourceAttributesEnv } from "./otel/resource-env.js";
+import {
+  DEFAULT_MAX_SPANS_PER_TRACE,
+  MIN_MAX_SPANS_PER_TRACE,
+} from "./trace-limit.js";
 
 /** An OTLP/HTTP destination: `url` is the full traces URL, `/v1/traces` already applied. */
 export interface ResolvedOtlp {
@@ -42,6 +46,8 @@ export interface ResolvedOptions {
     Record<string, string | number | boolean>
   >;
   readonly sampleRate: number;
+  /** D-78. An integer of at least 100, or `false` (off). Default 10,000. */
+  readonly maxSpansPerTrace: number | false;
   readonly export: {
     /** `false` when export is off: `otlp: false`, or no endpoint by option or environment. */
     readonly otlp: ResolvedOtlp | false;
@@ -689,6 +695,19 @@ export function resolveOptions(
     invalid(`sampleRate must be between 0 and 1, got ${String(sampleRate)}`);
   }
 
+  const maxSpansPerTrace: unknown =
+    o.maxSpansPerTrace ?? DEFAULT_MAX_SPANS_PER_TRACE;
+  if (
+    maxSpansPerTrace !== false &&
+    (typeof maxSpansPerTrace !== "number" ||
+      !Number.isSafeInteger(maxSpansPerTrace) ||
+      maxSpansPerTrace < MIN_MAX_SPANS_PER_TRACE)
+  ) {
+    invalid(
+      `maxSpansPerTrace must be false or an integer of at least ${MIN_MAX_SPANS_PER_TRACE}, got ${String(maxSpansPerTrace)}`,
+    );
+  }
+
   const queue = { ...DEFAULT_QUEUE, ...o.export?.queue };
   checkPositiveInteger("export.queue.maxQueueSize", queue.maxQueueSize);
   checkPositiveInteger(
@@ -721,6 +740,7 @@ export function resolveOptions(
     user: resolveUser(o.user),
     resourceAttributes: Object.freeze({ ...o.resourceAttributes }),
     sampleRate,
+    maxSpansPerTrace: maxSpansPerTrace as number | false,
     export: Object.freeze({
       otlp: resolveOtlp(o, env),
       queue: Object.freeze(queue),

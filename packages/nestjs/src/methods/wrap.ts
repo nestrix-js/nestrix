@@ -21,6 +21,11 @@ import {
   trace,
 } from "@opentelemetry/api";
 import { diagnostics } from "../diagnostics.js";
+import {
+  endNestrixSpan,
+  noteSkippedSpan,
+  startNestrixSpan,
+} from "../trace-limit.js";
 import type { EntryKind } from "./classify.js";
 import type { MethodClassKind } from "./sink.js";
 import { getMethodCallSink, type MethodCallSink } from "./sink.js";
@@ -176,7 +181,7 @@ function isNativePromise(value: unknown): value is Promise<unknown> {
 
 function endSpan(span: Span): void {
   try {
-    span.end();
+    endNestrixSpan(span);
   } catch (error) {
     diagnostics.countFailure("methods.span-end", error);
   }
@@ -320,21 +325,29 @@ export function makeWrapper(
         // A scheduled tick always starts its own trace, linked to whatever was active (D-62): a
         // timer callback can inherit the context of whatever registered it.
         const sc = trace.getSpanContext(active);
-        span = trace.getTracer(TRACER_NAME).startSpan(spanName, {
-          kind: SpanKind.INTERNAL,
-          attributes,
-          root: true,
-          links: sc && isSpanContextValid(sc) ? [{ context: sc }] : undefined,
-        });
-      } else if (
-        !underUnsampledParent(active) &&
-        (entry === "job" || hasValidSpan(active))
-      ) {
+        span = startNestrixSpan(
+          trace.getTracer(TRACER_NAME),
+          spanName,
+          {
+            kind: SpanKind.INTERNAL,
+            attributes,
+            root: true,
+            links: sc && isSpanContextValid(sc) ? [{ context: sc }] : undefined,
+          },
+          active,
+        );
+      } else if (underUnsampledParent(active)) {
+        // No span; if the parent was dropped by maxSpansPerTrace, count this one too (D-78).
+        noteSkippedSpan(active, SpanKind.INTERNAL, attributes);
+      } else if (entry === "job" || hasValidSpan(active)) {
         // Ordinary methods: a child of the active span; with no valid active span they get none
         // (D-67). BullMQ `process` starts a root when there is none (D-62).
-        span = trace
-          .getTracer(TRACER_NAME)
-          .startSpan(spanName, { kind: SpanKind.INTERNAL, attributes }, active);
+        span = startNestrixSpan(
+          trace.getTracer(TRACER_NAME),
+          spanName,
+          { kind: SpanKind.INTERNAL, attributes },
+          active,
+        );
       }
       if (span) ctx = trace.setSpan(active, span);
     } catch (error) {
