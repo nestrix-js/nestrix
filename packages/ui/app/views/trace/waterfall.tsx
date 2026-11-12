@@ -12,6 +12,7 @@ import { useMemo, useRef, useState } from "react";
 
 import { formatDuration } from "@/lib/format";
 import { isSlowDbSpan, repeatedQueries } from "@/lib/trace-insights";
+import { criticalPath, timeBreakdown } from "@/lib/trace-time";
 import {
   barLayout,
   buildTree,
@@ -25,6 +26,7 @@ import {
 import { cn } from "@/lib/utils";
 import { QueriesPanel } from "@/views/trace/queries-panel";
 import { SpanDetail } from "@/views/trace/span-detail";
+import { TimeSummary } from "@/views/trace/time-summary";
 
 const ROW_HEIGHT = 28;
 const MAX_HEIGHT = 560;
@@ -49,7 +51,8 @@ const rowDomId = (spanId: string) => `span-row-${spanId}`;
  * `data-depth` (0-based), `data-span-id`, `aria-expanded` (only on spans with children),
  * `aria-selected`, `data-error="true"` on error spans, `data-slow="true"` on database spans
  * over 100 ms, `data-highlighted="true"` on the spans of the statement picked in the Queries
- * panel, and `data-orphan="true"` on spans whose parent is missing. The span name is `[data-testid="span-name"]`. Only visible rows (plus a
+ * panel, `data-critical="true"` on the critical path while it is switched on, and
+ * `data-orphan="true"` on spans whose parent is missing. The span name is `[data-testid="span-name"]`. Only visible rows (plus a
  * small overscan) are in the DOM; `aria-rowcount` is the number of rows after collapsing.
  */
 export function Waterfall({ trace }: { trace: TraceResponse }) {
@@ -64,6 +67,12 @@ export function Waterfall({ trace }: { trace: TraceResponse }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [pickedQuery, setPickedQuery] = useState<string | null>(null);
+  const [criticalOn, setCriticalOn] = useState(false);
+  const breakdown = useMemo(() => timeBreakdown(tree), [tree]);
+  const critical = useMemo(
+    () => new Set(criticalOn ? criticalPath(tree, trace.rootSpanId) : []),
+    [criticalOn, tree, trace.rootSpanId],
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const queries = useMemo(() => repeatedQueries(trace.spans), [trace.spans]);
   const picked = queries.find((q) => q.text === pickedQuery);
@@ -149,6 +158,11 @@ export function Waterfall({ trace }: { trace: TraceResponse }) {
 
   return (
     <div className="space-y-4">
+      <TimeSummary
+        breakdown={breakdown}
+        criticalPathOn={criticalOn}
+        onToggleCriticalPath={() => setCriticalOn((on) => !on)}
+      />
       {queries.length > 0 ? (
         <QueriesPanel
           queries={queries}
@@ -216,6 +230,7 @@ export function Waterfall({ trace }: { trace: TraceResponse }) {
                       totalMs={tree.totalMs}
                       selected={row.node.span.spanId === selectedId}
                       highlighted={highlighted.has(row.node.span.spanId)}
+                      critical={critical.has(row.node.span.spanId)}
                       onSelect={() => {
                         select(row.node.span.spanId);
                         setDetailOpen(true);
@@ -253,6 +268,7 @@ function WaterfallRow({
   totalMs,
   selected,
   highlighted,
+  critical,
   onSelect,
   onToggle,
 }: {
@@ -263,6 +279,7 @@ function WaterfallRow({
   totalMs: number;
   selected: boolean;
   highlighted: boolean;
+  critical: boolean;
   onSelect: () => void;
   onToggle: () => void;
 }) {
@@ -282,6 +299,7 @@ function WaterfallRow({
       data-error={error ? "true" : undefined}
       data-slow={slow ? "true" : undefined}
       data-highlighted={highlighted ? "true" : undefined}
+      data-critical={critical ? "true" : undefined}
       data-orphan={row.node.orphan ? "true" : undefined}
       aria-level={row.depth + 1}
       aria-rowindex={index + 1}
@@ -292,6 +310,7 @@ function WaterfallRow({
         "absolute inset-x-0 flex cursor-pointer items-center border-b border-border/40 text-sm hover:bg-muted/60",
         error && "bg-destructive/5",
         highlighted && "bg-warning/15",
+        critical && "bg-primary/10 shadow-[inset_3px_0_0_var(--primary)]",
         selected && "bg-muted",
       )}
       style={{ top, height: ROW_HEIGHT }}

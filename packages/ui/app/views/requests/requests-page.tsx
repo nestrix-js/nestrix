@@ -17,6 +17,7 @@ import { useService } from "@/lib/service";
 import { useCursorList } from "@/lib/use-cursor-list";
 import { columnLabels, columnsFor } from "@/views/requests/columns";
 import { DebouncedInput } from "@/views/requests/debounced-input";
+import { SavedFiltersMenu } from "@/views/requests/saved-filters-menu";
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 const TYPES = [
@@ -87,9 +88,14 @@ export function RequestsPage() {
 
   const hasRelease = list.items.some((i) => i.release);
   const hasUser = list.items.some((i) => i.user);
+  // Duration bars are relative to the slowest row on screen.
+  const maxDurationMs = useMemo(
+    () => list.items.reduce((max, i) => Math.max(max, i.durationMs), 0),
+    [list.items],
+  );
   const columns = useMemo(
-    () => columnsFor(hasRelease, hasUser),
-    [hasRelease, hasUser],
+    () => columnsFor(hasRelease, hasUser, maxDurationMs),
+    [hasRelease, hasUser, maxDurationMs],
   );
 
   const table = useTable({
@@ -198,6 +204,7 @@ export function RequestsPage() {
           });
         }}
       />
+      <SavedFiltersMenu filters={filters} onApply={(f) => void setFilters(f)} />
     </DataTableToolbar>
   );
 

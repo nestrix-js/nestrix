@@ -6,7 +6,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import type { DataTableFeatures } from "@/components/data-table/features";
 import { RelativeTimeCard } from "@/components/relative-time-card";
 import { Badge } from "@/components/ui/badge";
-import { formatDuration } from "@/lib/format";
+import { durationPct, formatDuration } from "@/lib/format";
 
 const helper = createColumnHelper<DataTableFeatures, TraceSummary>();
 
@@ -32,146 +32,170 @@ const textOrDash = (value: string | undefined) =>
 
 // Ids `method`, `route` and `status` are the URL parameter names: the table's filter state
 // is keyed by them, and the server does the filtering.
-const allColumns = helper.columns([
-  helper.accessor("startTimeUnixMs", {
-    id: "time",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Time" />
-    ),
-    enableSorting: false,
-    enableColumnFilter: false,
-    enableHiding: false,
-    cell: (info) => <RelativeTimeCard timeUnixMs={info.getValue()} />,
-  }),
-  helper.accessor((row) => row.method, {
-    id: "method",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Method" />
-    ),
-    enableSorting: false,
-    cell: (info) => {
-      const method = info.getValue();
-      return method ? (
-        <Badge variant="outline" className="font-mono">
-          {method}
-        </Badge>
-      ) : (
-        <span className="text-muted-foreground">-</span>
-      );
-    },
-  }),
-  helper.accessor((row) => row.route ?? row.name, {
-    id: "route",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Route" />
-    ),
-    enableSorting: false,
-    enableHiding: false,
-    cell: (info) => (
-      <span className="inline-flex items-center gap-2">
-        <Link
-          to="/traces/$traceId"
-          params={{ traceId: info.row.original.traceId }}
-          className="font-mono underline-offset-4 hover:underline"
-          title={info.row.original.traceId}
-        >
-          {info.getValue()}
-        </Link>
-        {info.row.original.hasJob ? (
-          <Badge
-            variant="secondary"
-            data-testid="job-badge"
-            title="This trace includes job processing"
-          >
-            job
-          </Badge>
-        ) : null}
-      </span>
-    ),
-  }),
-  helper.accessor((row) => row.statusCode, {
-    id: "status",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Status" />
-    ),
-    enableSorting: false,
-    cell: (info) => {
-      const code = info.getValue();
-      if (code === undefined)
-        return <span className="text-muted-foreground">-</span>;
-      return (
-        <Badge
-          variant={
-            code >= 500 ? "destructive" : code >= 400 ? "secondary" : "outline"
-          }
-          className="font-mono"
-        >
-          {code}
-        </Badge>
-      );
-    },
-  }),
-  helper.accessor("durationMs", {
-    id: "duration",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Duration" />
-    ),
-    enableSorting: false,
-    enableColumnFilter: false,
-    cell: (info) => (
-      <span className="font-mono">{formatDuration(info.getValue())}</span>
-    ),
-  }),
-  helper.accessor("spanCount", {
-    id: "spans",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Spans" />
-    ),
-    enableSorting: false,
-    enableColumnFilter: false,
-    cell: (info) => <span className="font-mono">{info.getValue()}</span>,
-  }),
-  helper.accessor("error", {
-    id: "error",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Error" />
-    ),
-    enableSorting: false,
-    enableColumnFilter: false,
-    cell: (info) =>
-      info.getValue() ? (
-        <Badge variant="destructive">error</Badge>
-      ) : (
-        <span className="text-muted-foreground">-</span>
+const buildColumns = (maxDurationMs: number) =>
+  helper.columns([
+    helper.accessor("startTimeUnixMs", {
+      id: "time",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Time" />
       ),
-  }),
-  helper.accessor((row) => row.release, {
-    id: "release",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Release" />
-    ),
-    enableSorting: false,
-    enableColumnFilter: false,
-    cell: (info) => textOrDash(info.getValue()),
-  }),
-  helper.accessor((row) => row.user, {
-    id: "user",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="User" />
-    ),
-    enableSorting: false,
-    enableColumnFilter: false,
-    cell: (info) => textOrDash(info.getValue()),
-  }),
-]);
+      enableSorting: false,
+      enableColumnFilter: false,
+      enableHiding: false,
+      cell: (info) => <RelativeTimeCard timeUnixMs={info.getValue()} />,
+    }),
+    helper.accessor((row) => row.method, {
+      id: "method",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Method" />
+      ),
+      enableSorting: false,
+      cell: (info) => {
+        const method = info.getValue();
+        return method ? (
+          <Badge variant="outline" className="font-mono">
+            {method}
+          </Badge>
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        );
+      },
+    }),
+    helper.accessor((row) => row.route ?? row.name, {
+      id: "route",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Route" />
+      ),
+      enableSorting: false,
+      enableHiding: false,
+      cell: (info) => (
+        <span className="inline-flex items-center gap-2">
+          <Link
+            to="/traces/$traceId"
+            params={{ traceId: info.row.original.traceId }}
+            className="font-mono underline-offset-4 hover:underline"
+            title={info.row.original.traceId}
+          >
+            {info.getValue()}
+          </Link>
+          {info.row.original.hasJob ? (
+            <Badge
+              variant="secondary"
+              data-testid="job-badge"
+              title="This trace includes job processing"
+            >
+              job
+            </Badge>
+          ) : null}
+        </span>
+      ),
+    }),
+    helper.accessor((row) => row.statusCode, {
+      id: "status",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Status" />
+      ),
+      enableSorting: false,
+      cell: (info) => {
+        const code = info.getValue();
+        if (code === undefined)
+          return <span className="text-muted-foreground">-</span>;
+        return (
+          <Badge
+            variant={
+              code >= 500
+                ? "destructive"
+                : code >= 400
+                  ? "secondary"
+                  : "outline"
+            }
+            className="font-mono"
+          >
+            {code}
+          </Badge>
+        );
+      },
+    }),
+    helper.accessor("durationMs", {
+      id: "duration",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Duration" />
+      ),
+      enableSorting: false,
+      enableColumnFilter: false,
+      cell: (info) => {
+        const pct = durationPct(info.getValue(), maxDurationMs);
+        return (
+          <span className="flex items-center gap-2">
+            <span className="w-16 font-mono">
+              {formatDuration(info.getValue())}
+            </span>
+            <span
+              aria-hidden="true"
+              className="h-1.5 w-24 overflow-hidden rounded-full bg-muted"
+            >
+              <span
+                data-testid="duration-bar"
+                data-pct={pct.toFixed(1)}
+                className="block h-full rounded-full bg-primary/70"
+                style={{ width: `${pct}%` }}
+              />
+            </span>
+          </span>
+        );
+      },
+    }),
+    helper.accessor("spanCount", {
+      id: "spans",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Spans" />
+      ),
+      enableSorting: false,
+      enableColumnFilter: false,
+      cell: (info) => <span className="font-mono">{info.getValue()}</span>,
+    }),
+    helper.accessor("error", {
+      id: "error",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Error" />
+      ),
+      enableSorting: false,
+      enableColumnFilter: false,
+      cell: (info) =>
+        info.getValue() ? (
+          <Badge variant="destructive">error</Badge>
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        ),
+    }),
+    helper.accessor((row) => row.release, {
+      id: "release",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Release" />
+      ),
+      enableSorting: false,
+      enableColumnFilter: false,
+      cell: (info) => textOrDash(info.getValue()),
+    }),
+    helper.accessor((row) => row.user, {
+      id: "user",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="User" />
+      ),
+      enableSorting: false,
+      enableColumnFilter: false,
+      cell: (info) => textOrDash(info.getValue()),
+    }),
+  ]);
 
 /** The release and user columns exist only while some listed trace has the value. */
 export function columnsFor(
   hasRelease: boolean,
   hasUser: boolean,
-): (typeof allColumns)[number][] {
-  const out: (typeof allColumns)[number][] = [];
-  for (const column of allColumns) {
+  maxDurationMs = 0,
+): ReturnType<typeof buildColumns>[number][] {
+  const out: ReturnType<typeof buildColumns>[number][] = [];
+  for (const column of buildColumns(maxDurationMs)) {
     if (column.id === "release" && !hasRelease) continue;
     if (column.id === "user" && !hasUser) continue;
     out.push(column);

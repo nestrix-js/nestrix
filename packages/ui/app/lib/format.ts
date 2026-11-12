@@ -7,6 +7,10 @@ export function formatDuration(ms: number): string {
   return `${(ms / 60_000).toFixed(1)} min`;
 }
 
+/** A duration's share of the slowest one listed, in percent; 0 when there is no positive maximum. */
+export const durationPct = (durationMs: number, maxMs: number): number =>
+  maxMs > 0 ? Math.min(Math.max((durationMs / maxMs) * 100, 0), 100) : 0;
+
 const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
 /** "5 seconds ago", "now": coarse relative time for list rows. */
