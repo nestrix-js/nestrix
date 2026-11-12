@@ -1,0 +1,56 @@
+# Phase 10 backlog: remote CPU profiling in the standalone server
+
+Owner, 2026-11-12 (D-76): the standalone dashboard profiles each app instance. Delivery mode applies (AGENTS.md): functional tests, local checks, test runs under about 3 minutes, no full Docker end-to-end unless the task says so. Design sources: our own needs and the existing embedded profiler (P7-02); nothing from `@nestjs/observe` (rule 8, D-18).
+
+The wire contract is fixed in `packages/protocol/src/remote-profiles.ts` (and `MetaProfiler.remote` in `profiles.ts`). Change it only together with every task that uses it, and note the change here.
+
+## Status
+
+| ID | Task | Tier | Depends | Status |
+|---|---|---|---|---|
+| P10-00 | D-76, protocol types, this backlog | lead | — | done |
+| P10-01 | SDK: `export.profiler` option and the check-in poller | opus | P10-00 | todo |
+| P10-02 | Server: check-in, upload, instances, remote-profiles routes and storage | opus | P10-00 | todo |
+| P10-03 | UI: standalone Profiler page (instances, capture, history, detail) | sonnet | P10-00 | todo |
+| P10-04 | End-to-end check, security review, docs, changeset | lead + reviewer | P10-01..03 | todo |
+
+## Settled design
+
+### P10-01 SDK (`packages/nestjs`)
+
+- **Option.** `export.profiler?: boolean`, default `false`. Validated in `resolve-options.ts` like the other export options. It only takes effect when an export endpoint is known (`export.otlp.endpoint` or `OTEL_EXPORTER_OTLP_ENDPOINT`) and `export` is not `false`; the same `headers` are sent (they carry the ingest key). It does not need the embedded dashboard, and it does not depend on who owns the trace provider (a host-owned SDK still works: the service name and instance id come from Nestrix's resource values).
+- **Poller** (`src/profiler/remote.ts`). Started from `NestrixCore` after the app is initialised; stopped in `onApplicationShutdown` (stop the timer, abort any in-flight `fetch`, discard a running capture through the existing path).
+  - `POST <endpoint>/v1/nestrix/check-in` with `CheckInRequest`, using global `fetch` with an `AbortSignal.timeout` (the export timeout, default 10 s). Interval 15 s with ±20% jitter, the next delay taken from `nextCheckInMs` clamped to 5 s – 5 min. Timers `unref()`'ed. The first check-in happens shortly after start (a few seconds, jittered), not inside bootstrap.
+  - **Backoff.** 404 or 405: the endpoint is not a Nestrix server (a Collector, Jaeger): one log line, polling stops for the life of the process. 401/403: one log line, retry every 5 min. Network errors and 5xx/429: exponential backoff from 15 s to 5 min, logged once per state change, not per attempt.
+  - **Order.** On `capture`, start a capture through the existing `getProfiler()` with `durationMs` (same limits, the process-wide slot, cool-down). If the start is refused (busy, cool-down, error), `POST …/profiles/<id>/failed` with the reason. When it finishes, upload the normalised `.cpuprofile` with `content-type: application/json` and `content-encoding: gzip` (`node:zlib`, async). A remote capture also appears in the embedded profiler's list when that is on; that is fine.
+  - **Never change the host's behaviour (rule 1).** Every callback, promise and timer body catches everything; nothing throws into the app or leaves an unhandled rejection. No spans for the poller's own requests: check how the existing OTLP export avoids tracing itself (`ignore.outgoing`, the exporter's own suppression) and do the same; a check-in must not show up as a trace or in route stats.
+  - Imports `@opentelemetry/api` only (rule 5). No new runtime dependency (rule 10). No top-level `await` (rule 4).
+- **Tests** (`packages/nestjs/test/`): a fake server (plain `node:http`) that asserts the check-in body and headers; returns an order; receives a gzip upload that parses as a `.cpuprofile` (`nodes`, `samples`, `timeDeltas`); 404 stops polling; 401 backs off; a refused start sends `failed`; shutdown stops the timer and the process exits; the poller's requests produce no spans; option off sends nothing. Use fake timers or short intervals through a test seam so the suite stays fast.
+
+### P10-02 Server (`apps/server`)
+
+- **Ingest-side routes** (ingest port, ingest-key auth exactly as `/v1/traces`, including rate limiting and the in-flight memory budget):
+  - `POST /v1/nestrix/check-in`: validate (`service` and `instanceId` non-empty, at most 256 characters; other fields cut to 256; unknown fields ignored). Upsert the instance (`service`, `instanceId`, version, host, pid, runtime, sdkVersion, first/last seen, and the ingest-key principal that checked in). Throttle the write if needed. If a `pending` capture exists for this instance, mark it `running` (`startedAt`) and return it as `capture`. Return `nextCheckInMs: 15000` (shorter, e.g. 3000, while a capture is pending for this instance is not needed: pending is only picked up on check-in, so leave 15000).
+  - `POST /v1/nestrix/profiles/<id>`: accept only if the capture is `running` and was ordered to the same `service` + `instanceId`, and the uploading key principal matches the one that received the order. Body limit 20 MiB (as ingest), gzip allowed, parse as JSON, minimally validate the `.cpuprofile` shape (`nodes` array, `samples` array, `timeDeltas` array, numeric `startTime`/`endTime`), compute `samples`, `actualDurationMs`, `bytes`; store the profile gzipped; mark `done`. Anything else: 404 for unknown ids, 409 for wrong state, 400 for a bad body.
+  - `POST /v1/nestrix/profiles/<id>/failed`: same ownership checks; mark `failed` with the message cut to 500 characters.
+- **Query-side routes** (`/api/v1`):
+  - `GET instances`: instances with `lastSeen` in the last 2 minutes, filtered by `service`; each with its pending/running capture. Any reader (session or API token).
+  - `POST remote-profiles`: **admin session only** (not API tokens: D-74 keeps them read-only), with the same request checks the embedded `POST profiles` uses (architecture §4.7 / phase-7 backlog: exactly one `Sec-Fetch-Site: same-origin`, `Origin` equal to the host, JSON body, unknown fields refused). `404` if the instance is unknown or not seen in 2 minutes; `409` if a capture is `pending` or `running` for that instance; `429` with `Retry-After` within 10 s of that instance's previous capture finishing. Creates a `pending` capture with a random 16-hex id.
+  - `GET remote-profiles`, `GET remote-profiles/<id>`, `GET remote-profiles/<id>/download`: any reader. The detail computes `topFunctions` and `flame` from the stored profile with the same code the embedded profiler uses; move that code to a place both can import without adding a runtime dependency to the server (the server already depends on `@nestrix-js/nestjs`? check; otherwise copy into the server with a drift test, or put it in a shared private package).
+  - `meta.profiler` in standalone: `{ available: false, running: false, remote: true }`.
+- **Expiry.** `pending` older than 60 s and `running` older than `durationMs + 60 s` become `expired` (checked on read and on a periodic sweep).
+- **Storage.** New hand-written SQL migration (follow `storage/migrate.ts` and the existing migrations): tables `instances` (primary key `service`, `instance_id`) and `remote_profiles` (`id` text primary key, `service`, `instance_id`, `version`, `state`, `requested_at`, `started_at`, `finished_at`, `duration_ms`, `actual_duration_ms`, `samples`, `bytes`, `error`, `profile` bytea gzip nullable, `requested_by`, `principal`). Retention: keep the newest 20 per service and drop rows older than the span retention; delete instances not seen for 1 day.
+- **Tests.** Route tests with the existing server test harness: check-in upsert and order handoff; upload by the right instance stores and detail returns functions/flame; upload by another instance or key is refused; failed; expiry; `POST remote-profiles` refused for API tokens, cross-site and wrong origin, unknown instance, duplicates, cool-down; `GET instances` window.
+
+### P10-03 UI (`packages/ui`)
+
+- When `meta.mode === "standalone"` and `meta.profiler.remote === true`, show **Profiler** in the nav (after Dependencies, before SLOs) and route `/profiler` to a standalone variant of the page; the embedded page stays as it is.
+- **Instances table**: service (respect the selected service), short instance id (first 8 characters, full on hover/copy), version, host, pid, last seen ("12 s ago"), and a **Capture** button with a duration choice (15 / 30 / 60 / 120 s, default 30). The button is disabled with the reason while a capture is pending or running for that instance; show the state ("Waiting for the instance (checks in every 15 s)", "Capturing… 18 s left", "Uploading"). Poll `instances` and the active capture every 2 s while one is active, otherwise at the app's normal interval.
+- Empty state: no instances → explain how to opt in: `NestrixModule.forRoot({ export: { profiler: true, otlp: { endpoint, headers } } })`, and that the start of a capture pauses the instance's main thread briefly (the same warning the embedded page shows).
+- **History**: `remote-profiles` list (state badge, instance, version, requested, duration, samples, size); a row opens the detail, which reuses the embedded page's top-functions table, flame graph and download link components (refactor to share; do not copy).
+- 409/429/404 answers shown inline (429 with its countdown). A start needs HTTPS or localhost, like the embedded one; reuse its explanation.
+- **Tests**: unit tests for the new formatting/state helpers; a Playwright test on Chromium against `e2e/mock-api.ts` (extend it with standalone `instances` and `remote-profiles` fixtures): nav shows Profiler in standalone with `remote`, capture flow pending → running → done → detail renders, empty state.
+
+### P10-04
+
+End-to-end locally: the standalone server (as in `apps/server` tests or `docker compose` in `examples/`), one example app with `export.profiler: true`, start a capture from the API, get a `done` profile. Independent review (reviewer, Opus) of P10-01 (host process) and P10-02 (new state-changing route, untrusted upload). Docs: architecture (§ profiler, standalone routes), `apps/server/README.md`, `packages/nestjs/README.md` option table, `docs/upgrading.md` if needed. One changeset (minor) for `@nestrix-js/nestjs` and `@nestrix-js/ui`.

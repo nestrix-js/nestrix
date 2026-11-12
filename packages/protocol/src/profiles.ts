@@ -135,4 +135,10 @@ export interface MetaProfiler {
   available: boolean;
   /** A capture is running in this process. */
   running: boolean;
+  /**
+   * Standalone server only (D-76): the remote profiler routes exist (`api/v1/instances`,
+   * `api/v1/remote-profiles`). Captures are run by instances that opted in with
+   * `export.profiler: true`. Absent from the embedded dashboard and from older servers.
+   */
+  remote?: boolean;
 }

@@ -5,6 +5,7 @@ export type * from "./logs.js";
 export * from "./params.js";
 export type * from "./profiles.js";
 export type * from "./queries.js";
+export type * from "./remote-profiles.js";
 export * from "./route-insights.js";
 export type * from "./runtime.js";
 export type * from "./slos.js";
