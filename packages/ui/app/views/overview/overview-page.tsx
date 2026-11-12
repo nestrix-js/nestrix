@@ -148,6 +148,10 @@ function Delta({
   title?: string;
 }) {
   const unknown = text === "—";
+  // The arrow shows which way the number moved; the colour says whether that is good or bad
+  // (Apdex falling is worse and points down).
+  const rising = /^\+/.test(text);
+  const falling = /^[−-]/.test(text);
   return (
     <span
       data-testid="delta"
@@ -158,10 +162,10 @@ function Delta({
         unknown ? "text-muted-foreground" : toneText[tone],
       )}
     >
-      {!unknown && tone === "worse" && (
+      {!unknown && tone !== "neutral" && rising && (
         <ArrowUp className="size-3" aria-hidden />
       )}
-      {!unknown && tone === "better" && (
+      {!unknown && tone !== "neutral" && falling && (
         <ArrowDown className="size-3" aria-hidden />
       )}
       {text}
