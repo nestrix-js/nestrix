@@ -23,6 +23,7 @@ import { NestrixModule } from "../src/nestrix.module.js";
 import type { NestrixModuleOptions } from "../src/options.js";
 import { resetProfilerForTests } from "../src/profiler/profiler.js";
 import { remoteRuntime } from "../src/profiler/remote.js";
+import { ADAPTERS, bootDashboardApp, TOKEN } from "./dashboard-fixture.js";
 import {
   bodyJson,
   CHECK_IN,
@@ -97,6 +98,12 @@ describe("export.profiler through NestrixModule", () => {
       core.telemetry?.resourceAttributes?.["service.instance.id"],
     );
     expect(typeof body.instanceId).toBe("string");
+    // P15-03: process figures on every check-in; no dashboard, so no event-loop p99.
+    const sample = body.runtimeSample as Record<string, number>;
+    expect(sample.rssBytes).toBeGreaterThan(0);
+    expect(sample.heapUsedBytes).toBeGreaterThan(0);
+    expect(sample.cpuPercent).toBeGreaterThanOrEqual(0);
+    expect(sample.eventLoopP99Ms).toBeUndefined();
 
     await app.close();
     const after = server.checkIns().length;
@@ -158,6 +165,48 @@ describe("export.profiler through NestrixModule", () => {
     await sleep(100);
     expect(server.checkIns().length).toBe(after);
   });
+
+  for (const adapter of ADAPTERS) {
+    it(`P15-03 (${adapter}): with the dashboard mounted, the check-in carries its sampler's event-loop p99`, async () => {
+      const booted = await bootDashboardApp({
+        adapter,
+        nestrix: {
+          ui: { enabled: true, auth: { token: TOKEN } },
+          export: { profiler: true, otlp: { endpoint: `${server.url}/` } },
+        },
+      });
+      try {
+        await until(() => server.checkIns().length >= 1, 2000, "a check-in");
+        // The sampler records every 10 s; take one now instead of waiting, once the real
+        // histogram has seen the loop for a while.
+        await sleep(150);
+        const core = booted.app.get(NestrixCore);
+        const board = (
+          core as unknown as {
+            dashboard?: { runtime: { sample(): void } };
+          }
+        ).dashboard;
+        expect(board).toBeDefined();
+        board?.runtime.sample();
+        const seen = server.checkIns().length;
+        await until(
+          () => server.checkIns().length > seen,
+          2000,
+          "a later check-in",
+        );
+        const sample = (
+          bodyJson(server.checkIns().at(-1) as never) as {
+            runtimeSample?: Record<string, number>;
+          }
+        ).runtimeSample;
+        expect(sample?.eventLoopP99Ms).toBeGreaterThanOrEqual(0);
+        expect(sample?.rssBytes).toBeGreaterThan(0);
+      } finally {
+        await booted.close();
+      }
+      expect([...getFailureCounts().keys()]).toEqual([]);
+    });
+  }
 
   it("a 404 endpoint (a Collector) stops polling and the app keeps running", async () => {
     server.respond = () => ({ status: 404 });

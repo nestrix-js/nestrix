@@ -25,6 +25,10 @@
  *   another URL; a 3xx counts as a failure.
  * - `stop()` clears the timer, aborts every in-flight request and discards a capture this poller
  *   started.
+ * - Each check-in carries `runtimeSample` (P15-03, D-80): CPU, heap and RSS read at that moment,
+ *   and the event-loop p99 when the embedded dashboard's sampler has one (`check-in-runtime.ts`).
+ *   No timer or histogram of its own; a failure to read leaves the field out and the check-in goes
+ *   ahead.
  *
  * Rule 1: every timer, callback and promise body catches everything; nothing throws into the
  * application and no promise is left to reject unhandled. Imports `@opentelemetry/api` only
@@ -35,12 +39,17 @@ import { gzip } from "node:zlib";
 import type {
   CaptureFailedRequest,
   CheckInRequest,
+  RuntimeSample,
 } from "@nestrix-js/protocol";
 import { context, ROOT_CONTEXT } from "@opentelemetry/api";
 import type { Diagnostics } from "../diagnostics.js";
 import type { InstanceIdentity } from "../otel/resource.js";
 import { SUPPRESS_TRACING_KEY } from "../outbound/rules.js";
 import type { ResolvedRemoteProfilerTarget } from "../resolve-options.js";
+import {
+  CheckInRuntime,
+  type CheckInRuntimeReader,
+} from "./check-in-runtime.js";
 import {
   type CaptureEnd,
   type CaptureEndListener,
@@ -119,7 +128,13 @@ export interface RemotePollerConfig {
   readonly diagnostics: Diagnostics;
   /** State-change lines (Nest's `Logger`, context `Nestrix`). May throw; the poller guards it. */
   readonly log: (message: string) => void;
+  /**
+   * The embedded dashboard's latest runtime sample while its sampler runs (for the check-in's
+   * event-loop p99); omitted without a dashboard. May throw; the reader guards it.
+   */
+  readonly latestRuntimeSample?: () => RuntimeSample | null;
   /** Test seams. */
+  readonly runtime?: CheckInRuntimeReader;
   readonly profiler?: PollerProfiler;
   readonly timing?: Partial<PollerTiming>;
   /** The transport; defaults to `unrefFetch` (`node:http` with unref'ed sockets). */
@@ -232,6 +247,7 @@ export class RemoteProfilerPoller {
   private readonly random: () => number;
   private readonly lifetime = new AbortController();
   private readonly url: string;
+  private readonly runtime: CheckInRuntimeReader;
   private started = false;
   private stopped = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -251,6 +267,9 @@ export class RemoteProfilerPoller {
     this.fetchFn = config.fetch ?? (unrefFetch as typeof fetch);
     this.random = config.random ?? Math.random;
     this.url = shownUrl(config.target.baseUrl);
+    this.runtime =
+      config.runtime ??
+      new CheckInRuntime(config.diagnostics, config.latestRuntimeSample);
   }
 
   /** Schedules the first check-in a few seconds from now. Idempotent. Never throws. */
@@ -258,6 +277,11 @@ export class RemoteProfilerPoller {
     try {
       if (this.started || this.stopped) return;
       this.started = true;
+      try {
+        this.runtime.start();
+      } catch (error) {
+        this.config.diagnostics.countFailure("profiler.remote.runtime", error);
+      }
       const { firstMinMs, firstMaxMs } = this.timing;
       this.schedule(
         firstMinMs + this.random() * Math.max(0, firstMaxMs - firstMinMs),
@@ -356,6 +380,12 @@ export class RemoteProfilerPoller {
     if (version !== undefined) body.sdkVersion = version;
     if (this.capture !== undefined) {
       body.runningCaptureId = this.capture.orderId;
+    }
+    try {
+      const sample = this.runtime.read();
+      if (sample !== undefined) body.runtimeSample = sample;
+    } catch (error) {
+      this.config.diagnostics.countFailure("profiler.remote.runtime", error);
     }
 
     let response: Response;

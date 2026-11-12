@@ -147,7 +147,11 @@ describe("check-in", () => {
     expect(hit?.headers["content-type"]).toBe("application/json");
     expect(hit?.headers["x-nestrix-key"]).toBe("ingest-key-1");
     expect(hit?.headers.traceparent).toBeUndefined();
-    expect(bodyJson(hit as never)).toEqual({
+    const { runtimeSample, ...identity } = bodyJson(hit as never) as Record<
+      string,
+      unknown
+    >;
+    expect(identity).toEqual({
       service: "orders",
       instanceId: IDENTITY.instanceId,
       version: "1.2.3",
@@ -155,6 +159,13 @@ describe("check-in", () => {
       pid: process.pid,
       runtime: process.version,
       sdkVersion: PKG_VERSION,
+    });
+    // P15-03: the real process figures; no dashboard here, so no event-loop p99.
+    expect(runtimeSample).toEqual({
+      sampledAtUnixMs: expect.any(Number),
+      cpuPercent: expect.any(Number),
+      heapUsedBytes: expect.any(Number),
+      rssBytes: expect.any(Number),
     });
   });
 
@@ -174,6 +185,108 @@ describe("check-in", () => {
     await sleep(150);
     expect(server.hits).toHaveLength(0);
     await until(() => server.checkIns().length === 1, 2000, "a check-in");
+  });
+});
+
+type SampleBody = { runtimeSample?: Record<string, number> };
+const sampleOf = (hit: unknown) =>
+  (bodyJson(hit as never) as SampleBody).runtimeSample;
+
+describe("runtime sample (P15-03)", () => {
+  it("carries real CPU, heap and RSS figures on every check-in", async () => {
+    const before = Date.now();
+    poller().start();
+    await until(() => server.checkIns().length >= 2, 2000, "two check-ins");
+    for (const hit of server.checkIns().slice(0, 2)) {
+      const sample = sampleOf(hit) ?? {};
+      expect(sample.sampledAtUnixMs).toBeGreaterThanOrEqual(before);
+      expect(sample.sampledAtUnixMs).toBeLessThanOrEqual(Date.now());
+      expect(sample.cpuPercent).toBeGreaterThanOrEqual(0);
+      expect(sample.heapUsedBytes).toBeGreaterThan(0);
+      expect(sample.rssBytes).toBeGreaterThan(sample.heapUsedBytes ?? 0);
+      expect(sample.eventLoopP99Ms).toBeUndefined();
+    }
+  });
+
+  it("takes the event-loop p99 from the dashboard sampler when fresh, not when stale", async () => {
+    let age = 1000;
+    poller({
+      latestRuntimeSample: () => ({
+        timeUnixMs: Date.now() - age,
+        eventLoopP50Ms: 1,
+        eventLoopP99Ms: 42.5,
+        eventLoopMaxMs: 80,
+        heapUsedBytes: 1,
+        heapTotalBytes: 2,
+        rssBytes: 3,
+        externalBytes: 4,
+        cpuUserPercent: 5,
+        cpuSystemPercent: 6,
+        activeResources: 7,
+      }),
+    }).start();
+    await until(() => server.checkIns().length >= 1, 2000, "a check-in");
+    const first = sampleOf(server.checkIns()[0]) ?? {};
+    expect(first.eventLoopP99Ms).toBe(42.5);
+    // The dashboard's heap figure is not used: the check-in reads the process now.
+    expect(first.heapUsedBytes).toBeGreaterThan(1);
+    age = 31_000;
+    const seen = server.checkIns().length;
+    await until(
+      () => server.checkIns().length > seen,
+      2000,
+      "a later check-in",
+    );
+    expect(sampleOf(server.checkIns().at(-1))?.eventLoopP99Ms).toBeUndefined();
+  });
+
+  it("a reader with nothing to send leaves the field out", async () => {
+    poller({ runtime: { start() {}, read: () => undefined } }).start();
+    await until(() => server.checkIns().length >= 1, 2000, "a check-in");
+    const body = bodyJson(server.checkIns()[0] as never) as Record<
+      string,
+      unknown
+    >;
+    expect("runtimeSample" in body).toBe(false);
+    expect(body.service).toBe("orders");
+  });
+
+  it("fault injection: a reader that throws in start and read never stops the check-in", async () => {
+    let reads = 0;
+    poller({
+      runtime: {
+        start() {
+          throw new Error("start boom");
+        },
+        read() {
+          reads++;
+          throw new Error("read boom");
+        },
+      },
+    }).start();
+    await until(() => server.checkIns().length >= 2, 2000, "two check-ins");
+    expect(reads).toBeGreaterThanOrEqual(2);
+    expect(sampleOf(server.checkIns()[1])).toBeUndefined();
+    const counted = diagnostics.failures.filter(
+      (f) => f.where === "profiler.remote.runtime",
+    );
+    expect(counted.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("fault injection: a throwing dashboard source still sends CPU and memory", async () => {
+    poller({
+      latestRuntimeSample: () => {
+        throw new Error("dashboard boom");
+      },
+    }).start();
+    await until(() => server.checkIns().length >= 1, 2000, "a check-in");
+    const sample = sampleOf(server.checkIns()[0]) ?? {};
+    expect(sample.rssBytes).toBeGreaterThan(0);
+    expect(sample.cpuPercent).toBeGreaterThanOrEqual(0);
+    expect(sample.eventLoopP99Ms).toBeUndefined();
+    expect(
+      diagnostics.failures.some((f) => f.where === "profiler.remote.runtime"),
+    ).toBe(true);
   });
 });
 

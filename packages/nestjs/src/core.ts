@@ -148,11 +148,17 @@ export class NestrixCore
           );
         } else {
           const logger = this.logger;
+          const board = dashboard;
           remoteProfiler = new RemoteProfilerPoller({
             target: remote.target,
             identity: instanceIdentity(options, telemetry),
             diagnostics,
             log: (message) => logger.log(message),
+            // P15-03: the check-in's event-loop p99 comes from the dashboard's sampler, if any.
+            latestRuntimeSample:
+              board === undefined
+                ? undefined
+                : () => board.latestRuntimeSample(),
           });
         }
       }

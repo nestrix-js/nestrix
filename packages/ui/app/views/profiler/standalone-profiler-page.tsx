@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Flame } from "lucide-react";
 import { useState } from "react";
 
+import { BarCell } from "@/components/kit/bar-cell";
 import { Chip } from "@/components/kit/chip";
 import type { ChipTone } from "@/components/kit/format";
 import { PageHeader } from "@/components/kit/page-header";
@@ -36,7 +37,18 @@ import { useService } from "@/lib/service";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 import {
+  columnMax,
+  formatCpu,
+  formatRuntimeBytes,
+  instanceKey,
+  NO_FIGURE,
+  type Suggestion,
+  suggestInstances,
+  suggestionTitle,
+} from "@/views/profiler/instance-runtime";
+import {
   formatBytes,
+  formatMs,
   startPauseWarning,
 } from "@/views/profiler/profile-format";
 import {
@@ -117,18 +129,52 @@ function RemoteProfileView({ summary }: { summary: RemoteProfileSummary }) {
   );
 }
 
+/** A runtime figure with its bar, or "—" when the latest check-in did not carry it. */
+function FigureCell({
+  value,
+  max,
+  label,
+  color,
+  testId,
+}: {
+  value: number | undefined;
+  max: number;
+  label: (v: number) => string;
+  color?: string;
+  testId: string;
+}) {
+  return (
+    <TableCell data-testid={testId}>
+      {value === undefined ? (
+        <span className="block text-right text-muted-foreground">
+          {NO_FIGURE}
+        </span>
+      ) : (
+        <BarCell value={value} max={max} label={label(value)} color={color} />
+      )}
+    </TableCell>
+  );
+}
+
 function InstanceRow({
   instance,
   now,
   starting,
   onCapture,
+  suggestion,
+  cpuMax,
+  loopMax,
 }: {
   instance: InstanceSummary;
   now: number;
   starting: boolean;
   onCapture: () => void;
+  suggestion: Suggestion | undefined;
+  cpuMax: number;
+  loopMax: number;
 }) {
   const capture = instance.capture;
+  const sample = instance.runtimeSample ?? null;
   const active = capture !== null && isActive(capture);
   const status = active ? captureStatus(capture, now) : null;
   return (
@@ -138,17 +184,65 @@ function InstanceRow({
       className="border-border"
     >
       <TableCell className="font-mono">{instance.service}</TableCell>
-      <TableCell className="font-mono" title={instance.instanceId}>
-        {shortInstanceId(instance.instanceId)}
+      <TableCell>
+        <span className="flex flex-col items-start gap-1">
+          <span className="font-mono" title={instance.instanceId}>
+            {shortInstanceId(instance.instanceId)}
+          </span>
+          {suggestion && (
+            <Chip
+              tone="info"
+              data-testid="suggested-chip"
+              data-reason={suggestion.reason}
+              title={suggestionTitle(suggestion)}
+            >
+              Suggested
+            </Chip>
+          )}
+        </span>
       </TableCell>
       <TableCell className="font-mono text-xs">
         {instance.version ?? ""}
       </TableCell>
       <TableCell className="text-muted-foreground">
-        {instance.host ?? ""}
+        <span className="flex flex-col leading-tight">
+          <span>{instance.host ?? ""}</span>
+          {instance.pid !== null && (
+            <span
+              data-testid="instance-pid"
+              className="font-mono text-xs tabular-nums"
+            >
+              PID {instance.pid}
+            </span>
+          )}
+        </span>
       </TableCell>
+      <FigureCell
+        testId="instance-cpu"
+        value={sample?.cpuPercent}
+        max={cpuMax}
+        label={formatCpu}
+      />
+      <FigureCell
+        testId="instance-loop"
+        value={sample?.eventLoopP99Ms}
+        max={loopMax}
+        label={formatMs}
+        color="--chart-2"
+      />
       <TableCell className="text-right font-mono tabular-nums">
-        {instance.pid ?? ""}
+        <span className="flex flex-col items-end leading-tight">
+          <span data-testid="instance-heap" title="Heap used">
+            {formatRuntimeBytes(sample?.heapUsedBytes)}
+          </span>
+          <span
+            data-testid="instance-rss"
+            title="Resident set size"
+            className="text-xs text-muted-foreground"
+          >
+            {formatRuntimeBytes(sample?.rssBytes)}
+          </span>
+        </span>
       </TableCell>
       <TableCell className="text-muted-foreground">
         {formatRelative(instance.lastSeenUnixMs, now)}
@@ -250,6 +344,16 @@ export function StandaloneProfilerPage() {
   });
 
   const list = instances.data?.instances;
+  const suggestions = list
+    ? suggestInstances(list)
+    : new Map<string, Suggestion>();
+  // CPU bars against one core unless an instance uses more; loop bars against the largest p99.
+  const cpuMax = list
+    ? columnMax(list, (i) => i.runtimeSample?.cpuPercent, 100)
+    : 100;
+  const loopMax = list
+    ? columnMax(list, (i) => i.runtimeSample?.eventLoopP99Ms, 1)
+    : 1;
   const profiles = history.data?.profiles;
   const shown =
     selected ?? profiles?.find((p) => p.state === "done")?.id ?? null;
@@ -334,7 +438,7 @@ export function StandaloneProfilerPage() {
         <Section
           testId="instances-section"
           title="Instances"
-          description="Seen in the last 2 minutes, newest check-in first"
+          description="Seen in the last 2 minutes, newest check-in first. Runtime figures are from each instance's latest check-in; Suggested marks an instance clearly busier than the others of its service"
           source={SOURCE_INSTANCES}
           flush
         >
@@ -344,8 +448,25 @@ export function StandaloneProfilerPage() {
                 <TableHead>Service</TableHead>
                 <TableHead>Instance</TableHead>
                 <TableHead>Version</TableHead>
-                <TableHead>Host</TableHead>
-                <TableHead className="text-right">PID</TableHead>
+                <TableHead>Host / PID</TableHead>
+                <TableHead
+                  className="text-right"
+                  title="CPU time since the previous check-in, % of one core"
+                >
+                  CPU
+                </TableHead>
+                <TableHead
+                  className="text-right"
+                  title="Event loop delay p99; sent only by instances that also run the embedded dashboard"
+                >
+                  Loop p99
+                </TableHead>
+                <TableHead
+                  className="text-right"
+                  title="Heap used, with the resident set size (RSS) below it"
+                >
+                  Heap / RSS
+                </TableHead>
                 <TableHead>Last seen</TableHead>
                 <TableHead className="text-right">Capture</TableHead>
               </TableRow>
@@ -356,6 +477,9 @@ export function StandaloneProfilerPage() {
                   key={`${instance.service}:${instance.instanceId}`}
                   instance={instance}
                   now={now}
+                  suggestion={suggestions.get(instanceKey(instance))}
+                  cpuMax={cpuMax}
+                  loopMax={loopMax}
                   starting={
                     start.isPending &&
                     start.variables?.instanceId === instance.instanceId

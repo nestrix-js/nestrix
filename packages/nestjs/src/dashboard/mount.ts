@@ -22,7 +22,7 @@
  * promise to the adapter.
  */
 import { randomBytes } from "node:crypto";
-import type { MetaResponse } from "@nestrix-js/protocol";
+import type { MetaResponse, RuntimeSample } from "@nestrix-js/protocol";
 import type { Diagnostics } from "../diagnostics.js";
 import { markDashboardHandlerReached } from "../http/request-state.js";
 import type { AdapterHostLike, DashboardHookConfig } from "../http/server.js";
@@ -342,6 +342,19 @@ export class Dashboard {
       this.watchListen(adapterHost, adapter);
     } catch (error) {
       this.diagnostics.countFailure("dashboard.mount", error);
+    }
+  }
+
+  /**
+   * The runtime sampler's newest sample while it runs (mounted, not disposed); `null` otherwise.
+   * For the remote-profiling check-in (P15-03). Never throws.
+   */
+  latestRuntimeSample(): RuntimeSample | null {
+    try {
+      return this.runtime.latest();
+    } catch (error) {
+      this.diagnostics.countFailure("dashboard.runtime.latest", error);
+      return null;
     }
   }
 

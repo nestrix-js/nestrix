@@ -180,6 +180,15 @@ export class RuntimeSampler {
     }
   }
 
+  /**
+   * The newest sample while the sampler runs; `null` before the first or once stopped. Read by the
+   * remote-profiling check-in for its event-loop p99 (P15-03). Never throws.
+   */
+  latest(): RuntimeSample | null {
+    if (this.timer === undefined) return null;
+    return this.samples.at(-1) ?? null;
+  }
+
   snapshot(): RuntimeResponse {
     const samples = [...this.samples];
     return {

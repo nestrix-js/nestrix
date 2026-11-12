@@ -4,20 +4,33 @@
  * - Check-in (from an instance, unknown fields ignored): `service` and `instanceId` non-empty
  *   strings of at most 256 characters without control characters (400 otherwise); `version`,
  *   `host`, `runtime`, `sdkVersion` kept when strings, control characters removed, cut to 256;
- *   `pid` kept when a whole number from 0 to 2^31 - 1.
+ *   `pid` kept when a whole number from 0 to 2^31 - 1. `runtimeSample` (P15-03, D-80): each figure
+ *   kept when a finite number from 0 to its bound (`RUNTIME_BOUNDS`), dropped otherwise; the whole
+ *   sample dropped when it is not an object, `sampledAtUnixMs` is not a positive whole number, or
+ *   no figure is left. A bad sample never fails the check-in.
  * - Failure report (from an instance, unknown fields ignored): `message`, a string, control
  *   characters removed, cut to 500.
  * - Start (from the dashboard, unknown fields refused like the embedded `POST profiles`):
  *   `service`, `instanceId` as in a check-in, `durationSeconds` a whole number from 1 to 120,
  *   default 30.
  */
-import type { CheckIn } from "./store.js";
+import type { CheckIn, CheckInRuntime } from "./store.js";
 
 export const MAX_IDENTITY_LENGTH = 256;
 export const MAX_FIELD_LENGTH = 256;
 export const MAX_FAILURE_MESSAGE_LENGTH = 500;
 export const DEFAULT_DURATION_SECONDS = 30;
 export const MAX_DURATION_SECONDS = 120;
+/** Largest accepted value of each runtime figure; anything above is dropped. */
+export const RUNTIME_BOUNDS = Object.freeze({
+  /** 1,000 cores' worth. */
+  cpuPercent: 100_000,
+  /** One hour. */
+  eventLoopP99Ms: 3_600_000,
+  /** 2^50 bytes (1 PiB). */
+  heapUsedBytes: 2 ** 50,
+  rssBytes: 2 ** 50,
+});
 const START_FIELDS = new Set(["service", "instanceId", "durationSeconds"]);
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the point.
@@ -59,6 +72,31 @@ function identity(
   return { ok: true, value };
 }
 
+function figure(value: unknown, max: number): number | null {
+  return typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= max
+    ? value
+    : null;
+}
+
+/** The check-in's `runtimeSample`, or `null` when absent or unusable. Never throws. */
+export function parseRuntimeSample(value: unknown): CheckInRuntime | null {
+  if (!isObject(value)) return null;
+  const at = value.sampledAtUnixMs;
+  if (typeof at !== "number" || !Number.isSafeInteger(at) || at <= 0) {
+    return null;
+  }
+  const sample: CheckInRuntime = {
+    cpuPercent: figure(value.cpuPercent, RUNTIME_BOUNDS.cpuPercent),
+    eventLoopP99Ms: figure(value.eventLoopP99Ms, RUNTIME_BOUNDS.eventLoopP99Ms),
+    heapUsedBytes: figure(value.heapUsedBytes, RUNTIME_BOUNDS.heapUsedBytes),
+    rssBytes: figure(value.rssBytes, RUNTIME_BOUNDS.rssBytes),
+  };
+  return Object.values(sample).every((v) => v === null) ? null : sample;
+}
+
 export function parseCheckIn(
   value: unknown,
 ): { ok: true; checkIn: CheckIn } | { ok: false; message: string } {
@@ -88,6 +126,7 @@ export function parseCheckIn(
         runtime: optionalText(value.runtime),
         sdkVersion: optionalText(value.sdkVersion),
         runningCaptureId: optionalText(value.runningCaptureId),
+        runtimeSample: parseRuntimeSample(value.runtimeSample),
       },
     };
   } catch {
