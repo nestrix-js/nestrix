@@ -382,6 +382,7 @@ export function metaHandler(
     warnings: warningsFor(sources, store.receivedSpans),
     mode: "embedded",
     profiler: { ...(sources.profiler?.() ?? NO_PROFILER) },
+    runtime: { available: true },
   };
   return ok(body);
 }

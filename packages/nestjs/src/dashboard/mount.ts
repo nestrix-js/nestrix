@@ -80,6 +80,7 @@ import {
   writeFailure,
   writeResponse,
 } from "./respond.js";
+import { RuntimeSampler, runtimeHandler } from "./runtime.js";
 import {
   dashboardLinkLine,
   getProcessStartupToken,
@@ -250,6 +251,8 @@ export class Dashboard {
   private disposed = false;
   /** The profiler routes are registered (P7-02): `ui.profiler` resolved true and `post` exists. */
   private profilerOn = false;
+  /** The runtime view's sampler (P9-06), running from mount to dispose. */
+  private readonly runtime: RuntimeSampler;
 
   constructor(
     readonly ui: ActiveUi,
@@ -258,6 +261,7 @@ export class Dashboard {
     private readonly diagnostics: Diagnostics,
     private readonly logger: DashboardLogger,
   ) {
+    this.runtime = new RuntimeSampler(diagnostics);
     const path = ui.path;
     this.hookConfig = {
       dashboardPath: path,
@@ -327,6 +331,7 @@ export class Dashboard {
       };
       this.register(adapter, bundle);
       this.removeSink = setMethodCallSink(this.classStats);
+      this.runtime.start();
       this.watchListen(adapterHost, adapter);
     } catch (error) {
       this.diagnostics.countFailure("dashboard.mount", error);
@@ -339,6 +344,11 @@ export class Dashboard {
     try {
       // A capture this app started is discarded, not kept (D-70).
       getProfiler().discard(this);
+    } catch (error) {
+      this.diagnostics.countFailure("dashboard.dispose", error);
+    }
+    try {
+      this.runtime.stop();
     } catch (error) {
       this.diagnostics.countFailure("dashboard.dispose", error);
     }
@@ -415,6 +425,8 @@ export class Dashboard {
       [
         `${api}/queries`,
         this.handler("api", (t) => queriesHandler(t, sources())),
+        `${api}/runtime`,
+        this.handler("api", (t) => runtimeHandler(t, this.runtime)),
       ],
     );
     // The profiler (P7-02): registered only where it is offered, so `ui.profiler: false` or an

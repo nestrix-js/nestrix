@@ -13,6 +13,8 @@ import type {
   ProfileSummary,
   QuerySort,
   RouteStatsResponse,
+  RuntimeResponse,
+  RuntimeSample,
   Slo,
   TraceListResponse,
   TraceResponse,
@@ -91,6 +93,9 @@ export class MockApi {
     contentType: string | undefined;
     body: unknown;
   }[] = [];
+  /** `meta.runtime.available` (the embedded runtime view, P9-06) and the samples it answers. */
+  runtimeAvailable = true;
+  runtimeSamples: RuntimeSample[] = [];
   /** Every request seen, `traces?after=...` and so on, in order. */
   requests: string[] = [];
   private items: Item[] = []; // newest first
@@ -121,6 +126,8 @@ export class MockApi {
     this.slos = [];
     this.sloRefusal = null;
     this.sloWrites = [];
+    this.runtimeAvailable = true;
+    this.runtimeSamples = [];
     this.profilerAvailable = true;
     this.profileRunning = null;
     this.profiles = [];
@@ -233,6 +240,13 @@ export class MockApi {
             (query.get("sort") ?? "total") as QuerySort,
           ),
         };
+      case "runtime":
+        return this.runtimeAvailable && this.mode === "embedded"
+          ? { status: 200, body: this.runtime() }
+          : {
+              status: 404,
+              body: { error: { code: "not_found", message: "Not found" } },
+            };
       case "traces":
         return this.traces(query);
       case "trace":
@@ -518,6 +532,17 @@ export class MockApi {
     });
   }
 
+  private runtime(): RuntimeResponse {
+    const samples = this.runtimeSamples;
+    return {
+      intervalMs: 10_000,
+      retentionMinutes: 60,
+      samples,
+      current: samples.at(-1) ?? null,
+      process: { uptimeSeconds: 7380, nodeVersion: "v26.0.0" },
+    };
+  }
+
   private meta(): MetaResponse {
     return {
       protocolVersion: 1,
@@ -538,6 +563,7 @@ export class MockApi {
       warnings: [],
       mode: this.mode,
       ...(this.services ? { services: this.services } : {}),
+      runtime: { available: this.mode === "embedded" && this.runtimeAvailable },
       profiler: {
         available: this.mode === "embedded" && this.profilerAvailable,
         running: this.profileRunning !== null,

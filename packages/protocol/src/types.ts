@@ -1,6 +1,7 @@
 /** Response types of the Nestrix query API, version 1. Types only; no runtime code lives here except the version constant (see index.ts). */
 
 import type { MetaProfiler } from "./profiles.js";
+import type { MetaRuntime } from "./runtime.js";
 
 export type AttributeScalar = string | number | boolean;
 /** An OpenTelemetry attribute value: a scalar or a homogeneous array of scalars. */
@@ -98,6 +99,8 @@ export interface MetaResponse {
   services?: string[];
   /** The on-demand CPU profiler (P7-02): `available: false` in the standalone server. */
   profiler: MetaProfiler;
+  /** The process runtime view (P9-06): `available: false` in the standalone server. Absent from older servers. */
+  runtime?: MetaRuntime;
 }
 
 /** Fields shared by every cursor-paged list response. */

@@ -373,6 +373,8 @@ export class QueryService {
       services,
       // The CPU profiler profiles the process it runs in; it exists only in the embedded dashboard.
       profiler: { available: false, running: false },
+      // Process runtime samples exist only in the embedded dashboard.
+      runtime: { available: false },
     };
   }
 

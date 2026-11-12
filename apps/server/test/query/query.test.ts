@@ -294,6 +294,7 @@ describe.skipIf(noDatabase)(`query API ${skipReason}`, () => {
         statistics: { windowMinutesOptions: [15, 60] },
         warnings: [],
         profiler: { available: false, running: false },
+        runtime: { available: false },
       });
       expect(meta.store.traces).toBe(6);
       expect(meta.store.spans).toBe(12);
