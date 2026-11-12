@@ -18,6 +18,7 @@ const nav = [
   { to: "/classes", label: "Classes" },
   { to: "/map", label: "Map" },
   { to: "/queries", label: "Queries" },
+  { to: "/dependencies", label: "Dependencies" },
 ] as const;
 // Needs the standalone server's stored history.
 const sloNav = { to: "/slos", label: "SLOs" } as const;

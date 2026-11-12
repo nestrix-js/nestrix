@@ -22,6 +22,7 @@ describe("package entry", () => {
         "appMapParams",
         "classStatsParams",
         "errorGroupParams",
+        "dependencyParams",
         "errorListParams",
         "metaParams",
         "profileIdParams",
@@ -30,6 +31,7 @@ describe("package entry", () => {
         "routeStatsParams",
         "traceListParams",
         "traceParams",
+        "traceTimelineParams",
       ].sort(),
     );
   });

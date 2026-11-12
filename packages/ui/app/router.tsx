@@ -9,6 +9,7 @@ import {
 import { AppShell } from "@/components/app-shell";
 import { NuqsHashAdapter } from "@/lib/nuqs-hash-adapter";
 import { ClassesPage } from "@/views/classes/classes-page";
+import { DependenciesPage } from "@/views/dependencies/dependencies-page";
 import { ErrorsPage } from "@/views/errors/errors-page";
 import { MapPage } from "@/views/map/map-page";
 import { ProfilerPage } from "@/views/profiler/profiler-page";
@@ -59,6 +60,11 @@ const queriesRoute = createRoute({
   path: "/queries",
   component: QueriesPage,
 });
+const dependenciesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/dependencies",
+  component: DependenciesPage,
+});
 const profilerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/profiler",
@@ -90,6 +96,7 @@ export const router = createRouter({
     classesRoute,
     mapRoute,
     queriesRoute,
+    dependenciesRoute,
     profilerRoute,
     runtimeRoute,
     slosRoute,

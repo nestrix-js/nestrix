@@ -18,6 +18,7 @@ import type {
   AppMapResponse,
   ClassStatsParamsSpec,
   ClassStatsResponse,
+  DependencyParamsSpec,
   ErrorGroupParamsSpec,
   ErrorGroupsResponse,
   ErrorListParamsSpec,
@@ -33,12 +34,14 @@ import type {
   TraceListResponse,
   TraceParamsSpec,
   TraceResponse,
+  TraceTimelineParamsSpec,
   TraceType,
 } from "@nestrix-js/protocol";
 import { methodsEnabled } from "../methods/registry.js";
 import { type ClassStatistics, ownAverages } from "../stats/class-stats.js";
 import type { RouteStatistics } from "../stats/route-stats.js";
 import { buildAppMap } from "../store/app-map.js";
+import { buildDependencies, buildTimeline } from "../store/dependencies.js";
 import { groupErrors } from "../store/error-groups.js";
 import { buildQueryStats } from "../store/queries.js";
 import type { StoreStats, TraceStore } from "../store/store.js";
@@ -55,6 +58,37 @@ export const traceListSpec: TraceListParamsSpec = {
   method: { kind: "string", maxLength: 16 },
   status: { kind: "enum", values: ["ok", "error", "4xx", "5xx"] },
   minDurationMs: { kind: "number", min: 0, max: 86_400_000 },
+  search: { kind: "string", maxLength: 200 },
+  type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
+  release: { kind: "string", maxLength: 255 },
+  user: { kind: "string", maxLength: 256 },
+  service: { kind: "string", maxLength: 256 },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+};
+
+export const dependencySpec: DependencyParamsSpec = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+  service: { kind: "string", maxLength: 256 },
+};
+
+export const traceTimelineSpec: TraceTimelineParamsSpec = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+  route: { kind: "string", maxLength: 512 },
+  method: { kind: "string", maxLength: 16 },
+  status: { kind: "enum", values: ["ok", "error", "4xx", "5xx"] },
   search: { kind: "string", maxLength: 200 },
   type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
   release: { kind: "string", maxLength: 255 },
@@ -409,6 +443,8 @@ export function tracesHandler(
           type: v.type as TraceType | undefined,
           release: v.release as string | undefined,
           user: v.user as string | undefined,
+          fromUnixMs: v.fromUnixMs as number | undefined,
+          toUnixMs: v.toUnixMs as number | undefined,
         })) ?? EMPTY_PAGE;
   return ok(body);
 }
@@ -547,4 +583,48 @@ export function queriesHandler(
   );
   const body: QueryStatsResponse = result;
   return ok(body);
+}
+
+export function dependenciesHandler(
+  target: unknown,
+  sources: ApiSources,
+  now: number = Date.now(),
+): DashboardResponse {
+  const parsed = parseQuery(target, dependencySpec);
+  if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
+  const result = buildDependencies(
+    sources.store,
+    parsed.values.windowMinutes as number,
+    now,
+  );
+  return ok(
+    otherService(parsed.values, sources)
+      ? { ...result, dependencies: [] }
+      : result,
+  );
+}
+
+export function timelineHandler(
+  target: unknown,
+  sources: ApiSources,
+  now: number = Date.now(),
+): DashboardResponse {
+  const parsed = parseQuery(target, traceTimelineSpec);
+  if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
+  const v = parsed.values;
+  const result = buildTimeline(
+    otherService(v, sources) ? undefined : sources.store,
+    v.windowMinutes as number,
+    now,
+    {
+      route: v.route as string | undefined,
+      method: v.method as string | undefined,
+      status: v.status as "ok" | "error" | "4xx" | "5xx" | undefined,
+      search: v.search as string | undefined,
+      type: v.type as TraceType | undefined,
+      release: v.release as string | undefined,
+      user: v.user as string | undefined,
+    },
+  );
+  return ok(result);
 }

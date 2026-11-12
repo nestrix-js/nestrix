@@ -84,8 +84,44 @@ export const traceListParams = {
   release: { kind: "string", maxLength: 255 },
   user: { kind: "string", maxLength: 256 },
   service: { kind: "string", maxLength: 256 },
+  /** Root started at or after / at or before this Unix time in milliseconds (the timeline's range). */
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
 } as const;
 export type TraceListParamsSpec = typeof traceListParams;
+
+/** `GET <path>/api/v1/dependencies` */
+export const dependencyParams = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+  service: { kind: "string", maxLength: 256 },
+} as const;
+export type DependencyParamsSpec = typeof dependencyParams;
+
+/** `GET <path>/api/v1/traces/timeline`: the window, and the trace list's filters that make sense for counts. */
+export const traceTimelineParams = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+  route: { kind: "string", maxLength: 512 },
+  method: { kind: "string", maxLength: 16 },
+  status: { kind: "enum", values: ["ok", "error", "4xx", "5xx"] },
+  search: { kind: "string", maxLength: 200 },
+  type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
+  release: { kind: "string", maxLength: 255 },
+  user: { kind: "string", maxLength: 256 },
+  service: { kind: "string", maxLength: 256 },
+} as const;
+export type TraceTimelineParamsSpec = typeof traceTimelineParams;
 
 /** `GET <path>/api/v1/errors` */
 export const errorListParams = {

@@ -48,6 +48,7 @@ import {
   type ApiSources,
   apiError,
   classesHandler,
+  dependenciesHandler,
   errorGroupsHandler,
   errorsHandler,
   mapHandler,
@@ -56,6 +57,7 @@ import {
   parseQuery,
   queriesHandler,
   routesHandler,
+  timelineHandler,
   traceHandler,
   tracesHandler,
 } from "./api.js";
@@ -429,6 +431,14 @@ export class Dashboard {
       [
         `${api}/runtime`,
         this.handler("api", (t) => runtimeHandler(t, this.runtime)),
+      ],
+      [
+        `${api}/dependencies`,
+        this.handler("api", (t) => dependenciesHandler(t, sources())),
+      ],
+      [
+        `${api}/traces/timeline`,
+        this.handler("api", (t) => timelineHandler(t, sources())),
       ],
     );
     // The profiler (P7-02): registered only where it is offered, so `ui.profiler: false` or an

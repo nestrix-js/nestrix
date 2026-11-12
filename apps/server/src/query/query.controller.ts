@@ -14,6 +14,7 @@ import { QueryGuardGate } from "./guard.js";
 import {
   appMapSpec,
   classStatsSpec,
+  dependencySpec,
   errorGroupSpec,
   errorListSpec,
   metaSpec,
@@ -23,6 +24,7 @@ import {
   routeStatsSpec,
   traceListSpec,
   traceSpec,
+  traceTimelineSpec,
   type Values,
 } from "./params.js";
 import { NotFoundError, QueryService } from "./query.service.js";
@@ -75,6 +77,12 @@ export class QueryController {
   @Headers()
   traces(@Req() req: RequestLike) {
     return this.query.listTraces(parse(req, traceListSpec));
+  }
+
+  @Get("traces/timeline")
+  @Headers()
+  timeline(@Req() req: RequestLike) {
+    return this.query.timeline(parse(req, traceTimelineSpec));
   }
 
   @Get("trace")
@@ -153,6 +161,16 @@ export class QueryController {
   map(@Req() req: RequestLike) {
     const v = parse(req, appMapSpec);
     return this.query.map(
+      v.windowMinutes as number,
+      v.service as string | undefined,
+    );
+  }
+
+  @Get("dependencies")
+  @Headers()
+  dependencies(@Req() req: RequestLike) {
+    const v = parse(req, dependencySpec);
+    return this.query.dependencies(
       v.windowMinutes as number,
       v.service as string | undefined,
     );

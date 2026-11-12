@@ -17,6 +17,7 @@ import { useService } from "@/lib/service";
 import { useCursorList } from "@/lib/use-cursor-list";
 import { columnLabels, columnsFor } from "@/views/requests/columns";
 import { DebouncedInput } from "@/views/requests/debounced-input";
+import { RequestTimeline } from "@/views/requests/request-timeline";
 import { SavedFiltersMenu } from "@/views/requests/saved-filters-menu";
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -44,6 +45,8 @@ export function filtersToParams(filters: RequestFilters): QueryParams {
     type: filters.type ?? undefined,
     release: filters.release ?? undefined,
     user: filters.user ?? undefined,
+    fromUnixMs: filters.fromUnixMs ?? undefined,
+    toUnixMs: filters.toUnixMs ?? undefined,
   };
 }
 
@@ -56,6 +59,20 @@ export function RequestsPage() {
   const params = useMemo(
     () => ({ ...filtersToParams(filters), service }),
     [filters, service],
+  );
+
+  // The timeline shows the whole window; it takes the list's filters except the time range and the minimum duration.
+  const timelineParams = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(params).filter(
+          ([key]) =>
+            key !== "minDurationMs" &&
+            key !== "fromUnixMs" &&
+            key !== "toUnixMs",
+        ),
+      ),
+    [params],
   );
 
   const list = useCursorList({
@@ -222,6 +239,20 @@ export function RequestsPage() {
           Reload
         </Button>
       </div>
+      <RequestTimeline
+        filters={timelineParams}
+        range={
+          filters.fromUnixMs !== null && filters.toUnixMs !== null
+            ? { fromUnixMs: filters.fromUnixMs, toUnixMs: filters.toUnixMs }
+            : null
+        }
+        onRange={(r) =>
+          void setFilters({
+            fromUnixMs: r?.fromUnixMs ?? null,
+            toUnixMs: r?.toUnixMs ?? null,
+          })
+        }
+      />
       {list.status === "loading" && (
         <>
           {toolbar}

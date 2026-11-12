@@ -86,7 +86,13 @@ export interface TraceListQuery {
   readonly release?: string | undefined;
   /** Exact `user.id` of the root span. */
   readonly user?: string | undefined;
+  /** The root started at or after / at or before this Unix time in milliseconds. */
+  readonly fromUnixMs?: number | undefined;
+  readonly toUnixMs?: number | undefined;
 }
+
+/** The filters of {@link TraceListQuery}, without paging. */
+export type TraceFilter = Omit<TraceListQuery, "limit" | "before" | "after">;
 
 export interface ErrorListQuery {
   readonly limit: number;
@@ -155,6 +161,11 @@ export interface TraceStore {
    * store's own: read it, do not keep or change it. Never throws; a fault in `visit` stops the scan.
    */
   scanAllTraces(visit: (spans: readonly SpanRecord[]) => void): void;
+  /**
+   * Calls `visit` with the root of every listed trace matching `filter` (the trace list's
+   * filters), oldest first. Never throws.
+   */
+  scanMatching(filter: TraceFilter, visit: (root: SpanRecord) => void): void;
   /**
    * Calls `visit` for every listed trace (one with a local root) whose root started at or after
    * `sinceUnixMs`, oldest first. `visit` must not keep or change `spans`. Never throws.
@@ -318,7 +329,7 @@ function hasSpan(entry: TraceEntry, spanId: string): boolean {
   return false;
 }
 
-function statusCodeOf(record: SpanRecord): number | undefined {
+export function statusCodeOf(record: SpanRecord): number | undefined {
   const value = record.attributes[ATTR_STATUS];
   const n =
     typeof value === "number"
@@ -333,7 +344,7 @@ function statusCodeOf(record: SpanRecord): number | undefined {
  * The error definition (backlog "Public API"): the span's status code is `error`. An
  * exception event alone (a thrown 4xx) is not an error.
  */
-function isErrorSpan(record: SpanRecord): boolean {
+export function isErrorSpan(record: SpanRecord): boolean {
   return record.status.code === "error";
 }
 
@@ -792,70 +803,97 @@ class Store implements TraceStore {
     return item;
   }
 
+  /** The listed-trace predicate of `filter`; shared by the list and the timeline. */
+  private matcher(filter: TraceFilter): (entry: TraceEntry) => boolean {
+    const query = filter;
+    const method = query.method?.toUpperCase();
+    const search = query.search?.toLowerCase();
+    return (entry: TraceEntry): boolean => {
+      const root = entry.root as SpanRecord;
+      const route = stringAttr(root, ATTR_ROUTE);
+      if (
+        query.fromUnixMs !== undefined &&
+        !(root.startTimeUnixMs >= query.fromUnixMs)
+      ) {
+        return false;
+      }
+      if (
+        query.toUnixMs !== undefined &&
+        !(root.startTimeUnixMs <= query.toUnixMs)
+      ) {
+        return false;
+      }
+      if (query.route !== undefined && route !== query.route) return false;
+      if (query.type === "job") {
+        if (!entry.hasJob) return false;
+      } else if (query.type !== undefined && traceTypeOf(root) !== query.type) {
+        return false;
+      }
+      if (query.release !== undefined && releaseOf(entry) !== query.release) {
+        return false;
+      }
+      if (
+        query.user !== undefined &&
+        stringAttr(root, ATTR_USER_ID) !== query.user
+      ) {
+        return false;
+      }
+      if (
+        method !== undefined &&
+        stringAttr(root, ATTR_METHOD)?.toUpperCase() !== method
+      ) {
+        return false;
+      }
+      if (
+        query.minDurationMs !== undefined &&
+        !(root.durationMs >= query.minDurationMs)
+      ) {
+        return false;
+      }
+      if (query.status !== undefined) {
+        const code = statusCodeOf(root);
+        const error = isErrorSpan(root);
+        switch (query.status) {
+          case "error":
+            if (!error) return false;
+            break;
+          case "ok":
+            if (error || (code !== undefined && code >= 400)) return false;
+            break;
+          case "4xx":
+            if (code === undefined || code < 400 || code > 499) return false;
+            break;
+          case "5xx":
+            if (code === undefined || code < 500 || code > 599) return false;
+            break;
+        }
+      }
+      if (search !== undefined && search !== "") {
+        if (route?.toLowerCase().includes(search)) return true;
+        for (const span of entry.spans) {
+          if (span.name.toLowerCase().includes(search)) return true;
+        }
+        return false;
+      }
+      return true;
+    };
+  }
+
+  scanMatching(filter: TraceFilter, visit: (root: SpanRecord) => void): void {
+    try {
+      const matches = this.matcher(filter);
+      for (const entry of this.listed) {
+        if (entry.dead || entry.root === undefined) continue;
+        if (matches(entry)) visit(entry.root);
+      }
+    } catch (error) {
+      this.diagnostics.countFailure("store.query", error);
+    }
+  }
+
   listTraces(query: TraceListQuery): TraceListResponse {
     try {
-      const method = query.method?.toUpperCase();
-      const search = query.search?.toLowerCase();
-      const matches = (entry: TraceEntry): boolean => {
-        const root = entry.root as SpanRecord;
-        const route = stringAttr(root, ATTR_ROUTE);
-        if (query.route !== undefined && route !== query.route) return false;
-        if (query.type === "job") {
-          if (!entry.hasJob) return false;
-        } else if (
-          query.type !== undefined &&
-          traceTypeOf(root) !== query.type
-        ) {
-          return false;
-        }
-        if (query.release !== undefined && releaseOf(entry) !== query.release) {
-          return false;
-        }
-        if (
-          query.user !== undefined &&
-          stringAttr(root, ATTR_USER_ID) !== query.user
-        ) {
-          return false;
-        }
-        if (
-          method !== undefined &&
-          stringAttr(root, ATTR_METHOD)?.toUpperCase() !== method
-        ) {
-          return false;
-        }
-        if (
-          query.minDurationMs !== undefined &&
-          !(root.durationMs >= query.minDurationMs)
-        ) {
-          return false;
-        }
-        if (query.status !== undefined) {
-          const code = statusCodeOf(root);
-          const error = isErrorSpan(root);
-          switch (query.status) {
-            case "error":
-              if (!error) return false;
-              break;
-            case "ok":
-              if (error || (code !== undefined && code >= 400)) return false;
-              break;
-            case "4xx":
-              if (code === undefined || code < 400 || code > 499) return false;
-              break;
-            case "5xx":
-              if (code === undefined || code < 500 || code > 599) return false;
-              break;
-          }
-        }
-        if (search !== undefined && search !== "") {
-          if (route?.toLowerCase().includes(search)) return true;
-          for (const span of entry.spans) {
-            if (span.name.toLowerCase().includes(search)) return true;
-          }
-          return false;
-        }
-        return true;
-      };
+      const matches = this.matcher(query);
       const result = page(
         this.listed,
         query,

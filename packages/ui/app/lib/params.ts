@@ -53,6 +53,9 @@ export const requestFilterParsers = {
   type: parseAsStringLiteral(traceListParams.type.values),
   release: stringParser(traceListParams.release),
   user: stringParser(traceListParams.user),
+  // The time range the request timeline sets.
+  fromUnixMs: numberParser({ ...traceListParams.fromUnixMs, integer: true }),
+  toUnixMs: numberParser({ ...traceListParams.toUnixMs, integer: true }),
 };
 export type RequestFilters = inferParserType<typeof requestFilterParsers>;
 

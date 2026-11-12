@@ -25,6 +25,8 @@ export const matching: TraceListParamsSpec = {
   release: { kind: "string", maxLength: 255 },
   user: { kind: "string", maxLength: 256 },
   service: { kind: "string", maxLength: 256 },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
 };
 
 export const matchingErrors: ErrorListParamsSpec = {
