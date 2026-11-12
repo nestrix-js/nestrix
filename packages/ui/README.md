@@ -15,7 +15,7 @@ How the dashboard is opened, secured and limited is documented in the [Dashboard
 - **No runtime dependencies.** Everything the app uses (React, TanStack Router, Query, Table and Virtual, Tailwind, uPlot, a self-hosted Geist Mono font) is bundled at build time. `package.json` has no `dependencies`.
 - **Files only.** `dist/` holds `index.html`, hashed files under `dist/assets/`, `manifest.json` (every file in `dist/`, with its path, size, SHA-256 and content type; only `index.html` and `assets/` are served) and `THIRD_PARTY_NOTICES.txt`. The Node entry (`dist/index.js`) exports two URLs, `dashboardDirectory` and `manifestUrl`, and runs no code beyond that.
 - **No inline script or style.** The app runs under a strict Content-Security-Policy (`default-src 'none'; script-src 'self'; style-src 'self'; ...`) that `@nestrix-js/nestjs` sets on every dashboard response.
-- **Size.** About 918 KB unpacked at `0.1.0` (`npm pack --dry-run`), against a budget of 1 MB that CI enforces with `scripts/check-size.mjs` (decision D-52).
+- **Size.** About 918 KB unpacked at `0.1.0` (`npm pack --dry-run`), against a budget of 1.25 MB that CI enforces with `scripts/check-size.mjs` (decisions D-52, D-79).
 
 ## How `@nestrix-js/nestjs` uses it
 
@@ -37,7 +37,7 @@ Every page is built from the kit in `app/components/kit/` (import from `@/compon
 6. **States**: `SkeletonKpiStrip`, `SkeletonChart`, `SkeletonList` or `DataTableSkeleton` while loading (shaped like the content, no spinners); `EmptyState` says how to get data; `ErrorState` says what failed and offers "Try again".
 7. **Phone width (390 px)**: no horizontal page scroll. The section menu scrolls inside its own box, tables scroll inside their card, KPI strips are two columns on a phone.
 8. **Accessibility**: real buttons and links, a label on every icon button, `role="img"` and an `aria-label` that states the takeaway on every chart, keyboard focus visible (the base layer in `styles.css` outlines anything focusable).
-9. **No new runtime dependency**, and the package stays under its 1 MB budget (`scripts/check-size.mjs`).
+9. **No new runtime dependency**, and the package stays under its 1.25 MB budget (`scripts/check-size.mjs`, D-79).
 10. **Tests**: keep unit and Playwright tests passing; add a screenshot pair per page, `p14-<page>-dark.png` and `p14-<page>-light.png` (and `p14-<page>-phone.png` where phone layout matters), written to `packages/ui/test-results/` by a Playwright test (see `e2e/p14-kit.pw.ts`); run `pnpm build && pnpm --filter e2e test` as well.
 
 ### The components

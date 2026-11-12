@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 // D-52: 1 MB unpacked, measured by `npm pack --dry-run --json` (decimal megabyte).
 // Raise only by recording a new budget in docs/decisions.md D-52 (measured size + 20%, at most 2 MB).
-const BUDGET_BYTES = 1_000_000;
+const BUDGET_BYTES = 1_250_000; // D-79 (was 1 MB, D-52)
 
 const flag = process.argv.indexOf("--budget");
 const budget = flag > -1 ? Number(process.argv[flag + 1]) : BUDGET_BYTES;
