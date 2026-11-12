@@ -22,7 +22,8 @@
  * Per-trace cap (D-78). Inside the transaction, under the traces advisory lock, one query reads the
  * stored `traces.span_count` of the batch's trace ids (the summary row already counts the spans
  * stored, so there is no scan of `spans`). A trace with `span_count + batch spans > maxSpansPerTrace`
- * keeps the room left, earliest-starting spans first; the rest are not inserted, and their count
+ * keeps the room left, earliest-starting spans first (spans with no parent, and spans carrying
+ * `nestrix.trace.spans_dropped*`, are exempt: see `isCapExempt`); the rest are not inserted, and their count
  * is added to `traces.dropped_spans` in the same transaction. `write()` resolves with the number
  * dropped for that batch (the receiver reports it as OTLP partial success). Cost per transaction:
  * one indexed SELECT, plus one UPDATE only when something was dropped.
@@ -169,6 +170,25 @@ function addToRollup(
   if (ms > r.maxMs) r.maxMs = ms;
   const b = bucketIndex(ms);
   r.hist[b] = (r.hist[b] ?? 0) + 1;
+}
+
+/**
+ * Spans the per-trace cap never drops: a span with no parent, and a span carrying the app's own
+ * drop counts (`nestrix.trace.spans_dropped*`, set on a local root, which may have a remote
+ * parent). A local root ends last, so it arrives after the trace is at the cap; dropping it would
+ * lose the trace's root and the counts. Exempt spans count in `span_count` but not against others.
+ */
+function isCapExempt(r: SpanRow): boolean {
+  if (r.parentSpanId === null || r.parentSpanId === "") return true;
+  if (!r.attributesJson.includes("nestrix.trace.spans_dropped")) return false;
+  try {
+    const attributes = JSON.parse(r.attributesJson) as Record<string, unknown>;
+    return Object.keys(attributes).some((k) =>
+      k.startsWith("nestrix.trace.spans_dropped"),
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** What `write` resolves with: nothing, unless the per-trace cap dropped spans of the batch. */
@@ -524,26 +544,23 @@ export class PostgresIngestSink implements IngestSink {
       [[...byTrace.keys()]],
     );
     const have = new Map(stored.map((r) => [r.trace_id, Number(r.span_count)]));
-    const over = new Set<string>();
-    for (const [traceId, list] of byTrace) {
-      if ((have.get(traceId) ?? 0) + list.length > this.maxSpansPerTrace)
-        over.add(traceId);
-    }
-    if (over.size === 0) return { kept: rows, dropped: [], droppedByTrace };
+    // Exempt spans are always stored and never push others out (see `isCapExempt`); the cap
+    // applies to the rest.
     const dropped = new Set<SpanRow>();
-    for (const traceId of over) {
-      const list = (byTrace.get(traceId) as SpanRow[])
-        .slice()
-        .sort((a, b) =>
-          a.startNs < b.startNs ? -1 : a.startNs > b.startNs ? 1 : 0,
-        );
+    for (const [traceId, all] of byTrace) {
+      const list = all.filter((r) => !isCapExempt(r));
       const room = Math.max(
         0,
         this.maxSpansPerTrace - (have.get(traceId) ?? 0),
       );
+      if (list.length <= room) continue;
+      list.sort((a, b) =>
+        a.startNs < b.startNs ? -1 : a.startNs > b.startNs ? 1 : 0,
+      );
       for (const r of list.slice(room)) dropped.add(r);
-      droppedByTrace.set(traceId, list.length - Math.min(room, list.length));
+      droppedByTrace.set(traceId, list.length - room);
     }
+    if (dropped.size === 0) return { kept: rows, dropped: [], droppedByTrace };
     return {
       kept: rows.filter((r) => !dropped.has(r)),
       dropped: [...dropped],

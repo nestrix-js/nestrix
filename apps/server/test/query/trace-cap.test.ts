@@ -23,14 +23,24 @@ const tid = (n: number) => n.toString(16).padStart(32, "0");
 const T0 = Date.now() - 120_000;
 
 /** `count` spans of one trace: span 1 is the root, the others its children, one ms apart. */
-function spansOf(traceId: string, count: number, attributes = {}) {
+function spansOf(
+  traceId: string,
+  count: number,
+  attributes = {},
+  /** The root's parent: by default a remote one, so the root is not exempt from the cap. */
+  rootParent: string | undefined = "00000000000000ff",
+) {
   const out = [];
   for (let i = 1; i <= count; i++) {
     out.push(
       span({
         traceId,
         spanId: i.toString(16).padStart(16, "0"),
-        ...(i > 1 ? { parentSpanId: "0000000000000001" } : {}),
+        ...(i > 1
+          ? { parentSpanId: "0000000000000001" }
+          : rootParent !== undefined
+            ? { parentSpanId: rootParent }
+            : {}),
         name: i === 1 ? "GET /big" : "child",
         kind: i === 1 ? "server" : "internal",
         startMs: T0 + i,
@@ -157,6 +167,71 @@ describe.skipIf(noDatabase)(`per-trace span cap ${skipReason}`, () => {
       expect(result).toEqual({ droppedSpans: 100 });
       expect(await storedCount(big)).toBe(1_000);
       expect(await storedCount(small)).toBe(900);
+    });
+
+    it("always stores the local root that arrives last, and keeps the app's counts on it", async () => {
+      const id = tid(14);
+      const all = spansOf(
+        id,
+        1_201,
+        { "nestrix.trace.spans_dropped": 5_000 },
+        undefined,
+      );
+      const root = all[0] as (typeof all)[number];
+      // 1,200 children first, the root last, as the SDK exports them.
+      const first = await sink.write(batch("shop", all.slice(1, 601)));
+      const second = await sink.write(batch("shop", all.slice(601)));
+      expect(first).toBeUndefined();
+      expect(second).toEqual({ droppedSpans: 200 });
+      const last = await sink.write(batch("shop", [root]));
+      expect(last).toBeUndefined();
+      expect(await storedCount(id)).toBe(1_001);
+      const t = await server.json<TraceResponse>(`/api/v1/trace?id=${id}`);
+      expect(t.rootSpanId).toBe("0000000000000001");
+      expect(t.droppedSpans).toEqual({
+        total: 5_200,
+        byKind: {},
+        byServer: 200,
+      });
+    });
+
+    it("stores a remote-parent span that carries the app's counts past the cap, but not a plain one", async () => {
+      const id = tid(15);
+      await sink.write(batch("shop", spansOf(id, 1_000)));
+      const remote = (spanId: string, attributes: Record<string, number>) =>
+        span({
+          traceId: id,
+          spanId,
+          parentSpanId: "00000000000000aa",
+          name: "q process",
+          kind: "consumer",
+          startMs: T0 + 5_000,
+          durationMs: 1,
+          attributes,
+        });
+      const counted = await sink.write(
+        batch("worker", [
+          remote("00000000000a0001", {
+            "nestrix.trace.spans_dropped": 7,
+            "nestrix.trace.spans_dropped.db": 7,
+          }),
+          remote("00000000000a0002", {}),
+        ]),
+      );
+      expect(counted).toEqual({ droppedSpans: 1 });
+      const ids = (
+        await db.pool.query<{ span_id: string }>(
+          "SELECT span_id FROM spans WHERE trace_id = $1 AND span_id LIKE '00000000000a%'",
+          [id],
+        )
+      ).rows.map((r) => r.span_id);
+      expect(ids).toEqual(["00000000000a0001"]);
+      const t = await server.json<TraceResponse>(`/api/v1/trace?id=${id}`);
+      expect(t.droppedSpans).toEqual({
+        total: 8,
+        byKind: { db: 7 },
+        byServer: 1,
+      });
     });
 
     it("sums the app's attributes by kind over every service and adds the server's count", async () => {
