@@ -6,6 +6,7 @@ import { useQueryStates } from "nuqs";
 import { useMemo } from "react";
 
 import { DataTableSkeleton } from "@/components/data-table/data-table-skeleton";
+import { sparklinePoints } from "@/components/kit/sparkline-points";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -22,7 +23,6 @@ import { routeWindowParser, stringParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
 import { filterByName } from "@/views/dependencies/dependency-filter";
-import { sparklinePoints } from "@/views/dependencies/sparkline";
 
 const WINDOWS = [15, 60] as const;
 const DEFAULT_WINDOW = 15;

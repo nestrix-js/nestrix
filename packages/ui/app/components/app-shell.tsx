@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { LogOut, Pause, Play } from "lucide-react";
+import { Activity, LogOut, Pause, Play } from "lucide-react";
 import type * as React from "react";
+import { useEffect, useRef } from "react";
 
+import { Chip } from "@/components/kit/chip";
 import { Button } from "@/components/ui/button";
 import { getMeta, signOut } from "@/lib/api";
 import { readConfig } from "@/lib/config";
@@ -40,7 +42,14 @@ const connectionLabel: Record<Connection, string> = {
   disconnected: "Disconnected",
 };
 
-/** Header (service, connection, sampling notice, live toggle), navigation, and the page. */
+/** The page column every page shares: header, navigation and content line up on it. */
+export const PAGE_COLUMN = "mx-auto w-full max-w-7xl px-4 sm:px-6";
+
+/**
+ * Header (brand and service, connection, sampling notice, live toggle), the section menu, and
+ * the page. The menu scrolls sideways inside its own box on a narrow screen and keeps the
+ * current section in view.
+ */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [paused, setPaused] = usePaused();
   const meta = useQuery({
@@ -67,45 +76,58 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [selected, setSelected] = useService();
   // Links keep the chosen service: the hash holds it, and a plain link would drop it.
   // The route detail page belongs to Routes: that tab stays marked while it is open.
-  const onRouteDetail = useRouterState({
-    select: (s) => s.location.pathname === "/route",
-  });
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const onRouteDetail = pathname === "/route";
   const keep = selected ? `?service=${encodeURIComponent(selected)}` : "";
+
+  // On a narrow screen the menu scrolls; bring the current section into view when it changes.
+  const navRef = useRef<HTMLElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the path is the trigger; the element is found through the ref
+  useEffect(() => {
+    try {
+      const current = navRef.current?.querySelector('[aria-current="page"]');
+      current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    } catch {
+      // No scrolling: the menu is still usable.
+    }
+  }, [pathname]);
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-border">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-          <h1 className="text-base font-semibold">
-            Nestrix{" "}
-            <span className="font-mono font-normal text-muted-foreground">
-              {serviceName ?? ""}
-            </span>
+      <header className="border-b border-border bg-background">
+        <div
+          className={cn(
+            PAGE_COLUMN,
+            "flex flex-wrap items-center gap-x-4 gap-y-2 py-3",
+          )}
+        >
+          <h1 className="flex min-w-0 items-center gap-2 text-base font-semibold">
+            <Activity className="size-5 shrink-0 text-info" aria-hidden />
+            Nestrix
+            {serviceName && (
+              <span className="truncate rounded-md border border-border px-2 py-0.5 font-mono text-sm font-normal text-muted-foreground">
+                {serviceName}
+              </span>
+            )}
           </h1>
           {standalone && (
-            <span
-              data-testid="mode"
-              className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground"
-            >
+            <Chip data-testid="mode" tone="info">
               standalone server
-            </span>
+            </Chip>
           )}
           {notice && (
-            <span
-              data-testid="sampling-notice"
-              className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground"
-            >
+            <Chip data-testid="sampling-notice" tone="neutral">
               {notice}
-            </span>
+            </Chip>
           )}
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex flex-wrap items-center gap-2 sm:gap-3">
             {services.length > 1 && (
               <select
                 aria-label="Service"
                 data-testid="service-select"
                 value={selected ?? ""}
                 onChange={(e) => void setSelected(e.target.value || undefined)}
-                className="h-8 rounded-lg border border-input bg-background px-2 text-sm"
+                className="h-8 rounded-lg border border-border bg-background px-2 text-sm"
               >
                 <option value="">All services</option>
                 {services.map((name) => (
@@ -118,16 +140,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span
               data-testid="connection"
               data-state={connection}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground"
+              className={cn(
+                "inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium",
+                connection === "live" && "bg-success/10 text-success",
+                connection === "connecting" &&
+                  "bg-warning/15 text-warning-text",
+                connection === "paused" && "bg-secondary text-muted-foreground",
+                connection === "disconnected" &&
+                  "bg-destructive/10 text-destructive",
+              )}
             >
               <span
                 aria-hidden="true"
                 className={cn(
-                  "size-2 rounded-full",
-                  connection === "live" && "bg-green-500",
-                  connection === "connecting" && "bg-amber-500",
-                  connection === "paused" && "bg-muted-foreground",
-                  connection === "disconnected" && "bg-destructive",
+                  "size-1.5 rounded-full bg-current",
+                  connection === "live" && "animate-pulse",
                 )}
               />
               {connectionLabel[connection]}
@@ -154,8 +181,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <nav
+          ref={navRef}
           aria-label="Sections"
-          className="mx-auto flex max-w-6xl gap-1 px-4"
+          data-testid="section-menu"
+          className={cn(
+            PAGE_COLUMN,
+            "flex gap-1 overflow-x-auto overscroll-x-contain pb-px",
+          )}
         >
           {[
             ...nav,
@@ -168,7 +200,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               to={`${item.to}${keep}` as typeof item.to}
               activeOptions={{ exact: item.to === "/" }}
               className={cn(
-                "border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground hover:text-foreground",
+                "shrink-0 border-b-2 border-transparent px-3 py-2.5 text-sm whitespace-nowrap text-muted-foreground hover:text-foreground",
                 item.to === "/routes" &&
                   onRouteDetail &&
                   "border-primary font-medium text-foreground",
@@ -182,7 +214,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
       </header>
-      <main className="mx-auto max-w-6xl space-y-4 p-4">{children}</main>
+      <main className={cn(PAGE_COLUMN, "space-y-6 py-6")}>{children}</main>
     </div>
   );
 }

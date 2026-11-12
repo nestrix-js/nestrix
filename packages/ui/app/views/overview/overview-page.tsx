@@ -17,9 +17,17 @@ import {
 } from "lucide-react";
 import { useQueryStates } from "nuqs";
 import { useMemo } from "react";
-
-import { Card } from "@/components/card";
-import { Delta, toneText } from "@/components/delta";
+import { Delta, toneText } from "@/components/kit/delta";
+import {
+  DONUT_RADIUS,
+  Donut,
+  DonutLegend,
+  Swatch,
+} from "@/components/kit/donut";
+import { ScoreRing } from "@/components/kit/score-ring";
+import { Section } from "@/components/kit/section";
+import { KpiStrip, StatTile } from "@/components/kit/stat-tile";
+import { TrendLine } from "@/components/kit/trend-line";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   getDependencies,
@@ -35,14 +43,7 @@ import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
-import {
-  DONUT_RADIUS,
-  Donut,
-  LatencyChart,
-  ScoreRing,
-  ThroughputBars,
-  TrendLine,
-} from "@/views/overview/overview-charts";
+import { LatencyChart, ThroughputBars } from "@/views/overview/overview-charts";
 import {
   apdexShares,
   buildKpis,
@@ -113,6 +114,7 @@ function HealthCard({ data }: { data: OverviewResponse }) {
     >
       <ScoreRing
         score={health.score}
+        valueTestId="health-score"
         color={level.color}
         label={`Health score ${health.score} of 100, ${level.label}`}
       />
@@ -240,11 +242,11 @@ function InsightsCard({
         ? `${SOURCE_STATS} and ${SOURCE_TRACES}, labelled per row`
         : SOURCE_LABEL[[...sources][0] as Insight["source"]];
   return (
-    <Card
+    <Section
       title={title}
       testId={testId}
       source={source}
-      aside={
+      actions={
         <span
           data-testid="count"
           className="inline-flex h-5 items-center rounded-full bg-secondary px-2 text-xs font-medium"
@@ -273,7 +275,7 @@ function InsightsCard({
         Compared with the previous window. Ranked by impact: requests affected
         times size of change.
       </p>
-    </Card>
+    </Section>
   );
 }
 
@@ -286,33 +288,18 @@ function KpiTile({
   hint: string | null;
 }) {
   return (
-    <div
-      data-testid={`kpi-${kpi.id}`}
-      className="flex flex-col gap-1 rounded-lg border border-border p-4"
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs text-muted-foreground">{kpi.label}</span>
-        <Delta text={kpi.delta} tone={kpi.tone} title={hint ?? undefined} />
-      </div>
-      <div className="flex items-baseline gap-1.5">
-        <span data-testid="kpi-value" className="text-2xl font-semibold">
-          {kpi.value}
-        </span>
-        <span className="text-xs text-muted-foreground">{kpi.unit}</span>
-      </div>
-      <TrendLine
-        values={kpi.series}
-        color={toneColor[kpi.tone]}
-        label={`${kpi.label} over the window`}
-        width={200}
-        height={32}
-        area
-        stretch
-      />
-      <span className="text-xs text-muted-foreground">
-        {kpi.source === "stats" ? SOURCE_STATS : SOURCE_TRACES}
-      </span>
-    </div>
+    <StatTile
+      testId={`kpi-${kpi.id}`}
+      label={kpi.label}
+      value={kpi.value}
+      unit={kpi.unit}
+      delta={kpi.delta}
+      deltaTone={kpi.tone}
+      deltaTitle={hint ?? undefined}
+      series={kpi.series}
+      seriesColor={toneColor[kpi.tone]}
+      source={kpi.source === "stats" ? SOURCE_STATS : SOURCE_TRACES}
+    />
   );
 }
 
@@ -337,44 +324,31 @@ function DependencyTile({ windowMinutes }: { windowMinutes: number }) {
     placeholderData: keepPreviousData,
   });
   const slowest = slowestDependency(deps.data?.dependencies ?? []);
+  const [value, unit] = slowest
+    ? formatDuration(slowest.p95Ms).split(" ")
+    : ["—", ""];
   return (
-    <div
-      data-testid="kpi-dependency"
-      className="flex flex-col gap-1 rounded-lg border border-border p-4"
-    >
-      <span className="text-xs text-muted-foreground">Slowest dependency</span>
-      <div className="flex items-baseline gap-1.5">
-        <span data-testid="kpi-value" className="text-2xl font-semibold">
-          {slowest ? formatDuration(slowest.p95Ms).split(" ")[0] : "—"}
-        </span>
-        <span className="text-xs text-muted-foreground">
-          {slowest ? `${formatDuration(slowest.p95Ms).split(" ")[1]} p95` : ""}
-        </span>
-      </div>
-      <TrendLine
-        values={slowest?.series.map((p) => p.p95Ms) ?? []}
-        color="--chart-4"
-        label={`${slowest?.name ?? "Dependency"} p95 over the window`}
-        width={200}
-        height={32}
-        area
-        stretch
-      />
-      <span className="truncate text-xs text-muted-foreground">
-        {slowest ? slowest.name : "No outgoing calls"} · {SOURCE_TRACES}
-      </span>
-    </div>
+    <StatTile
+      testId="kpi-dependency"
+      label="Slowest dependency"
+      value={value ?? "—"}
+      unit={slowest ? `${unit} p95` : undefined}
+      series={slowest?.series.map((p) => p.p95Ms) ?? []}
+      seriesColor="--chart-4"
+      seriesLabel={`${slowest?.name ?? "Dependency"} p95 over the window`}
+      source={`${slowest ? slowest.name : "No outgoing calls"} · ${SOURCE_TRACES}`}
+    />
   );
 }
 
 function LatencyCard({ data }: { data: OverviewResponse }) {
   return (
-    <Card
+    <Section
       title="Latency percentiles"
       testId="card-latency"
       source={`All routes · route statistics (${SOURCE_STATS})`}
       className="lg:col-span-2"
-      aside={
+      actions={
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           <Legend
             color="--chart-1"
@@ -401,7 +375,7 @@ function LatencyCard({ data }: { data: OverviewResponse }) {
         releases={data.releases}
         current={data.current}
       />
-    </Card>
+    </Section>
   );
 }
 
@@ -428,16 +402,6 @@ function Legend({
   );
 }
 
-function Swatch({ color }: { color: string }) {
-  return (
-    <span
-      aria-hidden
-      className="size-2.5 shrink-0 rounded-sm"
-      style={{ background: `var(${color})` }}
-    />
-  );
-}
-
 function StatusCard({ data }: { data: OverviewResponse }) {
   const total = Object.values(data.status).reduce((a, b) => a + b, 0);
   const slices = donutSlices(
@@ -449,7 +413,7 @@ function StatusCard({ data }: { data: OverviewResponse }) {
     DONUT_RADIUS,
   );
   return (
-    <Card
+    <Section
       title="Responses by status"
       testId="card-status"
       source={`${total.toLocaleString("en")} traced requests · ${SOURCE_TRACES}`}
@@ -465,24 +429,17 @@ function StatusCard({ data }: { data: OverviewResponse }) {
           </span>
           <span className="text-xs text-muted-foreground">success</span>
         </Donut>
-        <ul className="min-w-36 flex-1 space-y-2 text-sm">
-          {STATUS_PARTS.map((p) => (
-            <li
-              key={p.key}
-              data-testid="status-row"
-              data-key={p.key}
-              className="flex items-center gap-2"
-            >
-              <Swatch color={p.color} />
-              <span className="flex-1">{p.label}</span>
-              <span className="font-mono">
-                {total > 0 ? formatShare(data.status[p.key] / total) : "—"}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <DonutLegend
+          rowTestId="status-row"
+          items={STATUS_PARTS.map((p) => ({
+            key: p.key,
+            label: p.label,
+            color: p.color,
+            value: total > 0 ? formatShare(data.status[p.key] / total) : "—",
+          }))}
+        />
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -506,7 +463,7 @@ function TimeCard({
   );
   const biggest = [...parts].sort((a, b) => b.share - a.share)[0];
   return (
-    <Card
+    <Section
       title="Where request time goes"
       testId="card-time"
       source={`Share of time in spans · ${SOURCE_TRACES}`}
@@ -562,13 +519,13 @@ function TimeCard({
           </ul>
         </div>
       )}
-    </Card>
+    </Section>
   );
 }
 
 function ThroughputCard({ data }: { data: OverviewResponse }) {
   return (
-    <Card
+    <Section
       title="Throughput and errors"
       testId="card-throughput"
       source={`Requests per ${Math.round(data.bucketMs / 60_000)} min · ${SOURCE_STATS}`}
@@ -588,7 +545,7 @@ function ThroughputCard({ data }: { data: OverviewResponse }) {
           5xx and exceptions
         </span>
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -622,7 +579,7 @@ function ApdexCard({
     },
   ] as const;
   return (
-    <Card
+    <Section
       title="User experience (Apdex)"
       testId="card-apdex"
       source={`Target ${formatDuration(t)} · satisfied up to ${formatDuration(t)}, tolerating up to ${formatDuration(4 * t)} · ${SOURCE_STATS}`}
@@ -663,7 +620,7 @@ function ApdexCard({
           </div>
         ))}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -704,11 +661,11 @@ function RoutesCard({
   );
   const maxP95 = Math.max(1, ...ranked.map((r) => r.row.after.p95Ms));
   return (
-    <Card
+    <Section
       title="Routes"
       testId="card-routes"
       source={`Sorted by impact: requests times change in p95 · ${SOURCE_STATS}`}
-      aside={
+      actions={
         <Link
           to="/routes"
           className="text-xs underline"
@@ -816,7 +773,7 @@ function RoutesCard({
           </table>
         </div>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -833,11 +790,11 @@ function SlosCard() {
   const r = 38;
   const circumference = 2 * Math.PI * r;
   return (
-    <Card
+    <Section
       title="Error budgets"
       testId="card-slos"
       source={`SLOs of the standalone server · ${SOURCE_TRACES}`}
-      aside={
+      actions={
         <Link to="/slos" className="text-xs underline">
           All SLOs
         </Link>
@@ -903,7 +860,7 @@ function SlosCard() {
           );
         })}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -950,11 +907,11 @@ function RuntimeCard() {
         ]
       : [];
   return (
-    <Card
+    <Section
       title="Runtime"
       testId="card-runtime"
       source={`This process, latest sample · up ${formatUptime(runtime.data.process.uptimeSeconds)}`}
-      aside={
+      actions={
         <Link to="/runtime" className="text-xs underline">
           Runtime
         </Link>
@@ -982,7 +939,7 @@ function RuntimeCard() {
           ))}
         </div>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -1104,7 +1061,7 @@ export function OverviewPage() {
               emptyText="Nothing got noticeably better."
             />
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <KpiStrip columns={5} className="grid-cols-1 sm:grid-cols-2">
             {kpis.map((kpi) => (
               <KpiTile
                 key={kpi.id}
@@ -1113,7 +1070,7 @@ export function OverviewPage() {
               />
             ))}
             <DependencyTile windowMinutes={windowMinutes} />
-          </div>
+          </KpiStrip>
           <div className="grid gap-4 lg:grid-cols-3">
             <LatencyCard data={data} />
             <StatusCard data={data} />

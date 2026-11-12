@@ -1,6 +1,6 @@
 import type { RouteStats } from "@nestrix-js/protocol";
 
-import type { ChartSeries } from "@/components/chart";
+import type { ChartSeries } from "@/components/kit/line-chart";
 import { type SamplingMeta, STANDALONE_STATISTICS_NOTE } from "@/lib/format";
 
 /** What the server calls requests that matched no route, and the overflow bucket past 500 keys. */

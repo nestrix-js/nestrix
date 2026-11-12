@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 interface DataTableProps<TData extends RowData> {
   table: ReactTable<DataTableFeatures, TData>;
@@ -22,6 +23,10 @@ interface DataTableProps<TData extends RowData> {
   toolbar?: React.ReactNode;
   /** Pagination or "load older", below the table. */
   footer?: React.ReactNode;
+  /** Makes the whole row clickable (a mouse convenience: keep a real link inside the row). */
+  onRowClick?: (row: TData) => void;
+  /** Classes of the table's scrolling box; a max height makes the header stick while scrolling. */
+  containerClassName?: string;
 }
 
 export function DataTable<TData extends RowData>({
@@ -30,14 +35,16 @@ export function DataTable<TData extends RowData>({
   empty,
   toolbar,
   footer,
+  onRowClick,
+  containerClassName,
 }: DataTableProps<TData>) {
   const rows = table.getRowModel().rows;
   const columnCount = table.getVisibleLeafColumns().length;
   return (
     <div className="space-y-3">
       {toolbar}
-      <div className="rounded-lg border border-border">
-        <Table data-testid={testId}>
+      <div className="overflow-hidden rounded-lg border border-border">
+        <Table data-testid={testId} containerClassName={containerClassName}>
           <TableHeader>
             {table.getHeaderGroups().map((group) => (
               <TableRow key={group.id} className="hover:bg-transparent">
@@ -54,7 +61,25 @@ export function DataTable<TData extends RowData>({
           <TableBody>
             {rows.length > 0 ? (
               rows.map((row) => (
-                <TableRow key={row.id}>
+                <TableRow
+                  key={row.id}
+                  className={cn(onRowClick && "cursor-pointer")}
+                  onClick={
+                    onRowClick
+                      ? (event) => {
+                          // A click on a link, button or field inside the row belongs to that control.
+                          const target = event.target as Element;
+                          if (
+                            target.closest(
+                              "a, button, input, select, textarea, label",
+                            )
+                          )
+                            return;
+                          onRowClick(row.original);
+                        }
+                      : undefined
+                  }
+                >
                   {row.getAllCells().map((cell) => (
                     <TableCell key={cell.id}>
                       <table.FlexRender cell={cell} />

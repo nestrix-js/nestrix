@@ -26,6 +26,9 @@
   --color-destructive: var(--destructive);
   --color-warning: var(--warning);
   --color-success: var(--success);
+  --color-info: var(--info);
+  --color-destructive-text: var(--destructive-text);
+  --color-warning-text: var(--warning-text);
   --color-border: var(--border);
   --color-ring: var(--ring);
   --color-flame-app: var(--flame-app);
@@ -45,6 +48,13 @@
   --destructive: oklch(0.577 0.245 27.325);
   --warning: oklch(0.7 0.16 70);
   --success: oklch(0.52 0.14 150);
+  /* Text colour for "worse": 4.5:1 on its own tint where --destructive itself is not. */
+  --destructive-text: oklch(0.5 0.21 27);
+  /* Facts (a chip that is neither good nor bad) and the text colour of the caution chip. */
+  --info: oklch(0.5 0.17 260);
+  --warning-text: oklch(0.5 0.12 65);
+  /* Keyboard focus outline. */
+  --focus: oklch(0.55 0.2 260);
   --border: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   /* Chart series colours, read by components/chart.tsx. */
@@ -72,6 +82,10 @@
     --muted-foreground: oklch(0.708 0 0);
     --warning: oklch(0.8 0.15 80);
     --success: oklch(0.78 0.16 150);
+    --destructive-text: oklch(0.7 0.19 25);
+    --info: oklch(0.76 0.12 255);
+    --warning-text: oklch(0.8 0.15 80);
+    --focus: oklch(0.72 0.15 255);
     --border: oklch(1 0 0 / 10%);
     --ring: oklch(0.556 0 0);
     --chart-1: oklch(0.72 0.15 255);
@@ -87,4 +101,12 @@
 
 body {
   @apply bg-background font-sans text-foreground antialiased;
+}
+
+/* Keyboard focus is always visible; components with their own ring (buttons) override this. */
+@layer base {
+  :where(a, button, select, input, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
 }

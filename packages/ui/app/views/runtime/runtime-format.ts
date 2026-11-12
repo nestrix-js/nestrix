@@ -1,6 +1,6 @@
 import type { RuntimeSample } from "@nestrix-js/protocol";
 
-import type { ChartSeries } from "@/components/chart";
+import type { ChartSeries } from "@/components/kit/line-chart";
 
 export interface RuntimeCharts {
   /** Unix seconds. */

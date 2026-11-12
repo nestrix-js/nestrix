@@ -4,9 +4,11 @@ import { createColumnHelper } from "@tanstack/react-table";
 
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import type { DataTableFeatures } from "@/components/data-table/features";
+import { BarCell } from "@/components/kit/bar-cell";
+import { Chip } from "@/components/kit/chip";
 import { RelativeTimeCard } from "@/components/relative-time-card";
-import { Badge } from "@/components/ui/badge";
-import { durationPct, formatDuration } from "@/lib/format";
+import { formatDuration } from "@/lib/format";
+import { statusTone } from "@/views/requests/requests-stats";
 
 const helper = createColumnHelper<DataTableFeatures, TraceSummary>();
 
@@ -53,9 +55,7 @@ const buildColumns = (maxDurationMs: number) =>
       cell: (info) => {
         const method = info.getValue();
         return method ? (
-          <Badge variant="outline" className="font-mono">
-            {method}
-          </Badge>
+          <Chip className="font-mono">{method}</Chip>
         ) : (
           <span className="text-muted-foreground">-</span>
         );
@@ -73,19 +73,19 @@ const buildColumns = (maxDurationMs: number) =>
           <Link
             to="/traces/$traceId"
             params={{ traceId: info.row.original.traceId }}
-            className="font-mono underline-offset-4 hover:underline"
+            className="max-w-[26rem] truncate font-mono font-medium underline-offset-4 hover:underline"
             title={info.row.original.traceId}
           >
             {info.getValue()}
           </Link>
           {info.row.original.hasJob ? (
-            <Badge
-              variant="secondary"
+            <Chip
+              tone="info"
               data-testid="job-badge"
               title="This trace includes job processing"
             >
               job
-            </Badge>
+            </Chip>
           ) : null}
         </span>
       ),
@@ -101,58 +101,44 @@ const buildColumns = (maxDurationMs: number) =>
         if (code === undefined)
           return <span className="text-muted-foreground">-</span>;
         return (
-          <Badge
-            variant={
-              code >= 500
-                ? "destructive"
-                : code >= 400
-                  ? "secondary"
-                  : "outline"
-            }
-            className="font-mono"
-          >
+          <Chip tone={statusTone(code)} className="font-mono">
             {code}
-          </Badge>
+          </Chip>
         );
       },
     }),
     helper.accessor("durationMs", {
       id: "duration",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Duration" />
+        <div className="text-right">
+          <DataTableColumnHeader column={column} title="Duration" />
+        </div>
       ),
       enableSorting: false,
       enableColumnFilter: false,
-      cell: (info) => {
-        const pct = durationPct(info.getValue(), maxDurationMs);
-        return (
-          <span className="flex items-center gap-2">
-            <span className="w-16 font-mono">
-              {formatDuration(info.getValue())}
-            </span>
-            <span
-              aria-hidden="true"
-              className="h-1.5 w-24 overflow-hidden rounded-full bg-muted"
-            >
-              <span
-                data-testid="duration-bar"
-                data-pct={pct.toFixed(1)}
-                className="block h-full rounded-full bg-primary/70"
-                style={{ width: `${pct}%` }}
-              />
-            </span>
-          </span>
-        );
-      },
+      cell: (info) => (
+        <BarCell
+          value={info.getValue()}
+          max={maxDurationMs}
+          label={formatDuration(info.getValue())}
+          testId="duration-bar"
+        />
+      ),
     }),
     helper.accessor("spanCount", {
       id: "spans",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Spans" />
+        <div className="text-right">
+          <DataTableColumnHeader column={column} title="Spans" />
+        </div>
       ),
       enableSorting: false,
       enableColumnFilter: false,
-      cell: (info) => <span className="font-mono">{info.getValue()}</span>,
+      cell: (info) => (
+        <span className="block text-right font-mono tabular-nums">
+          {info.getValue()}
+        </span>
+      ),
     }),
     helper.accessor("error", {
       id: "error",
@@ -163,7 +149,7 @@ const buildColumns = (maxDurationMs: number) =>
       enableColumnFilter: false,
       cell: (info) =>
         info.getValue() ? (
-          <Badge variant="destructive">error</Badge>
+          <Chip tone="worse">error</Chip>
         ) : (
           <span className="text-muted-foreground">-</span>
         ),

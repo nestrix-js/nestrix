@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { sparklinePoints } from "@/views/dependencies/sparkline";
+import { sparklinePoints } from "@/components/kit/sparkline-points";
 
 describe("sparklinePoints", () => {
   it("is empty without values", () => {

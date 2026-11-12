@@ -5,8 +5,8 @@ import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
 import { DataTableSkeleton } from "@/components/data-table/data-table-skeleton";
+import { Sparkline } from "@/components/kit/sparkline";
 import { RelativeTimeCard } from "@/components/relative-time-card";
-import { Sparkline } from "@/components/sparkline";
 import { Button } from "@/components/ui/button";
 import {
   Table,

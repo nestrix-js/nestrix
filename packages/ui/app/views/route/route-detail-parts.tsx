@@ -10,9 +10,8 @@ import type {
 import { Link } from "@tanstack/react-router";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { ReactNode } from "react";
-
-import { Card } from "@/components/card";
-import { Delta } from "@/components/delta";
+import { Delta } from "@/components/kit/delta";
+import { Section } from "@/components/kit/section";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -86,7 +85,7 @@ export function WhatChangedCard({
   tooFew: boolean;
 }) {
   return (
-    <Card
+    <Section
       title="What changed"
       testId="card-what-changed"
       source={SAMPLED_CAP}
@@ -120,7 +119,7 @@ export function WhatChangedCard({
           ))}
         </ol>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -214,7 +213,7 @@ export function KindsCard({
   }));
   const max = Math.max(...bars.map((b) => b.total));
   return (
-    <Card
+    <Section
       title="Where the time goes, per side"
       testId="card-kinds"
       source={`Mean time per request by span kind · ${SAMPLED}`}
@@ -282,7 +281,7 @@ export function KindsCard({
           </ul>
         </div>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -302,7 +301,7 @@ function HeadRow({ cols }: { cols: { label: string; right?: boolean }[] }) {
 
 export function StatementsCard({ rows }: { rows: ExplainStatementRow[] }) {
   return (
-    <Card
+    <Section
       title="Statements"
       testId="card-statements"
       source={`Database statements per request, without bind values · ${SAMPLED}`}
@@ -365,13 +364,13 @@ export function StatementsCard({ rows }: { rows: ExplainStatementRow[] }) {
           </TableBody>
         </Table>
       )}
-    </Card>
+    </Section>
   );
 }
 
 export function MethodsCard({ rows }: { rows: ExplainMethodRow[] }) {
   return (
-    <Card
+    <Section
       title="Methods"
       testId="card-methods"
       source={`Own time per request, children excluded · ${SAMPLED}`}
@@ -412,13 +411,13 @@ export function MethodsCard({ rows }: { rows: ExplainMethodRow[] }) {
           </TableBody>
         </Table>
       )}
-    </Card>
+    </Section>
   );
 }
 
 export function DependenciesCard({ rows }: { rows: ExplainDependencyRow[] }) {
   return (
-    <Card
+    <Section
       title="Dependencies"
       testId="card-dependencies"
       source={`Outgoing calls per request · ${SAMPLED}`}
@@ -476,7 +475,7 @@ export function DependenciesCard({ rows }: { rows: ExplainDependencyRow[] }) {
           </TableBody>
         </Table>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -488,11 +487,11 @@ export function ErrorsCard({
   errorsHref: string;
 }) {
   return (
-    <Card
+    <Section
       title="Errors by type"
       testId="card-errors"
       source={`Traces with the exception type on any span · ${SAMPLED}`}
-      aside={
+      actions={
         <Link
           to={errorsHref as "/"}
           data-testid="errors-link"
@@ -535,7 +534,7 @@ export function ErrorsCard({
           </TableBody>
         </Table>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -550,7 +549,7 @@ export function SlowestCard({
 }) {
   const max = Math.max(1, ...traces.map((t) => t.durationMs));
   return (
-    <Card
+    <Section
       title="Slowest traces"
       testId="card-slowest"
       source={`${afterName}: the slowest sampled traces, each bar shows its time by kind`}
@@ -616,6 +615,6 @@ export function SlowestCard({
           })}
         </ul>
       )}
-    </Card>
+    </Section>
   );
 }
