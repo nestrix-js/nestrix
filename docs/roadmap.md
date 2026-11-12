@@ -2,7 +2,7 @@
 
 Each phase is a vertical slice that ends with something a user can run. A phase is done when its acceptance criteria pass in CI, not when the code is written. Under delivery mode (owner, 2026-11-11) phases no longer stop for review; each ends with a phase report.
 
-All phases (0 to 11) are complete. Phases 3 to 11 ran under delivery mode (owner, 2026-11-11), each with a report: [phase-3-report.md](phase-3-report.md) to [phase-11-report.md](phase-11-report.md). `@nestrix-js/nestjs`, `@nestrix-js/ui` and `@nestrix-js/mcp` are published at `0.1.0` under the `latest` npm tag (D-77) and the server image is on GHCR (`:0.1.0`, `:latest`). Phases 1 and 2 were approved by the owner on 2026-11-11; phase 0 is complete ([phase-0-report.md](phase-0-report.md)). Next: the optimisation pass (deferred benchmarks listed in the reports) and the road to 1.0, an owner decision.
+All phases (0 to 14) are complete; phase 15 is in progress. Phases 3 to 14 ran under delivery mode (owner, 2026-11-11), each with a report: [phase-3-report.md](phase-3-report.md) to [phase-14-report.md](phase-14-report.md). `@nestrix-js/nestjs`, `@nestrix-js/ui` and `@nestrix-js/mcp` are published at `0.2.0` under the `latest` npm tag (`0.1.0` was D-77; 0.3.0 with the redesign is about to be released) and the server image is on GHCR. Phases 1 and 2 were approved by the owner on 2026-11-11; phase 0 is complete ([phase-0-report.md](phase-0-report.md)). Next: phase 15 ([backlog/phase-15.md](backlog/phase-15.md): the data behind the redesigned pages), the optimisation pass (deferred benchmarks listed in the reports) and the road to 1.0, an owner decision.
 
 ## Phase 0: foundations and spikes
 
@@ -192,3 +192,33 @@ Attribute names follow the OpenTelemetry HTTP semantic conventions current at im
 **Depends on.** Phases 9 and 10.
 
 **Acceptance as delivered.** Unit tests for every rule and threshold boundary, one route test per backend, and 150 Chromium end-to-end tests passing. On merge, API tokens were allowed to read `overview` and the KPI arrows were made to follow the sign of the change. Results in [backlog/phase-11.md](backlog/phase-11.md) and [phase-11-report.md](phase-11-report.md).
+
+## Phase 12: route detail and "what changed"
+
+**Objective.** When the Overview says a route got slower or fails more, one click shows why.
+
+**Deliverables.** `GET api/v1/routes/explain` on both backends from one pure computation (`packages/nestjs/src/explain/compute.ts`, copied byte for byte into the server with a drift test): per side (previous window against last window, or release against release) traces, mean and p95, error rate, own time by kind, statements, methods, dependencies, errors and the slowest traces, plus ranked findings (new or N+1 statements, slower statements, dependencies and methods, dependency errors, new and more frequent errors, and what got faster) and a one-sentence summary. A route detail page (`#/route`) reached from the Overview, the Routes page and the trace view; each finding links to the filtered Queries, Dependencies, Classes or Errors page. Shipped in `0.2.0`, together with a fix to the own-time queries (a real 4,700-span trace made the overview take seconds).
+
+**Depends on.** Phases 9 and 11.
+
+**Acceptance as delivered.** Unit tests of every finding (fires, just under each threshold, precedence of `n-plus-one`), one route test per backend, Playwright on Chromium (slower route, release comparison, too few traces, unknown route, navigation), `pnpm verify` with 3,667 tests. Results in [backlog/phase-12.md](backlog/phase-12.md) and [phase-12-report.md](phase-12-report.md).
+
+## Phase 13: span limits per trace
+
+**Objective.** One background job cannot put thousands or millions of spans into one trace and take the app, the exporter or the database with it (D-78).
+
+**Deliverables.** `maxSpansPerTrace` in the SDK (default `10000`, `false` turns it off): past it spans are not recorded but counted by kind and written on the trace's local root span (`nestrix.trace.spans_dropped*`); route and class statistics stay exact. `NESTRIX_MAX_SPANS_PER_TRACE` in the standalone server (default 50,000), with a per-trace dropped count and OTLP partial success. `droppedSpans` in the `trace` answer of both backends, and an omitted-spans banner and row in the trace view. Shipped in `0.2.0`.
+
+**Depends on.** Phases 5 and 9.
+
+**Acceptance as delivered.** A 25,000-span trace with limit 10,000 records exactly 10,000 and counts 15,000 by kind, class statistics still count every call; host-owned SDK, BullMQ-style root, concurrent traces, bounded memory and fault injection; server cap with partial success; Playwright for the banner. The Opus review of the SDK found three problems, fixed, and one documented gap. `pnpm verify` with 3,737 tests. Results in [backlog/phase-13.md](backlog/phase-13.md) and [phase-13-report.md](phase-13-report.md).
+
+## Phase 14: a visual pass across every dashboard page
+
+**Objective.** Every page meets the standard the Overview set, on a shared kit (D-79).
+
+**Deliverables.** A UI kit (page header, KPI strip, area, bar and donut charts, heatmap, bar cells, chips, empty, error and loading states, source labels) with written design rules in `packages/ui/README.md`, and every page rebuilt on it: Requests, Errors, Queries, Routes, Classes, Map, Dependencies, Runtime, Profiler (flame graph by origin, embedded and standalone), the trace view, SLOs, Settings and the standalone login page. UI only, no API changes; gaps where the API has no data are listed in the report and picked up by phase 15. Screenshot pairs (dark, light) per page.
+
+**Depends on.** Phases 11 to 13.
+
+**Acceptance as delivered.** Every existing unit and Playwright test kept passing; a screenshot pair per page; no horizontal scroll at 390 px on the pages' own content; the UI package stays under its 1.25 MB budget. Results in [backlog/phase-14.md](backlog/phase-14.md) and [phase-14-report.md](phase-14-report.md).

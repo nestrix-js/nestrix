@@ -23,6 +23,9 @@ export default defineConfig({
         text: "Using Nestrix",
         items: [
           { text: "Dashboard", link: "/guide/dashboard" },
+          { text: "Dashboard tour", link: "/guide/dashboard-tour" },
+          { text: "Route detail", link: "/guide/route-detail" },
+          { text: "Large traces", link: "/guide/large-traces" },
           { text: "Security model", link: "/guide/security" },
           { text: "Standalone server", link: "/guide/standalone-server" },
           { text: "MCP for AI assistants", link: "/guide/mcp" },
