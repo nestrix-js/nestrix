@@ -33,6 +33,30 @@ function expectOff(
   expect(r.message).toMatch(/^Nestrix dashboard: off/);
 }
 
+describe("ui.logs (P9-07)", () => {
+  const token = { token: "t".repeat(40) };
+  const logsOf = (value: unknown): unknown => {
+    const r = ui(value);
+    return r.mode === "off" ? r.mode : r.logs;
+  };
+
+  it("defaults to on, and false turns it off in every mode", () => {
+    expect(logsOf(undefined)).toBe(true);
+    expect(logsOf({ enabled: true, auth: token })).toBe(true);
+    expect(logsOf({ logs: false })).toBe(false);
+    expect(logsOf({ enabled: true, auth: token, logs: false })).toBe(false);
+  });
+
+  it("a non-boolean is an invalid ui option", () => {
+    const r = ui({ logs: "no" });
+    expect(r.mode).toBe("off");
+    if (r.mode === "off") {
+      expect(r.reason).toBe("invalid");
+      expect(r.message).toContain("ui.logs must be a boolean");
+    }
+  });
+});
+
 describe("ui.profiler (P7-02)", () => {
   const token = { token: "t".repeat(40) };
   const profilerOf = (value: unknown): unknown => {
@@ -76,6 +100,7 @@ describe("mode table (static rows)", () => {
       startupToken: true,
       auth: undefined,
       profiler: true,
+      logs: true,
     });
     expect(ui("auto")).toEqual(ui(undefined));
     expect(ui({})).toEqual(ui(undefined));

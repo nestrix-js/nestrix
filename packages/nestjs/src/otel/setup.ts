@@ -118,7 +118,11 @@ function attachStore(
   try {
     // Limits of a later app: applied while the store is still empty, else logged and ignored.
     getOrCreateStore(config.dashboardStore, diagnostics);
-    const detach = store.attach({ scrub: config.scrub, redact: config.redact });
+    const detach = store.attach({
+      scrub: config.scrub,
+      redact: config.redact,
+      keepLogs: config.dashboardLogs !== false,
+    });
     return { store, detach };
   } catch (error) {
     diagnostics.countFailure("store.attach", error);

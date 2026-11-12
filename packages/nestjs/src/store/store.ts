@@ -77,6 +77,8 @@ export interface StoreRedaction {
   /** Defaults to Nestrix's scrub with the default redacted query keys. */
   readonly scrub?: ((span: RedactableSpan) => void) | undefined;
   readonly redact?: RedactHook | undefined;
+  /** Default true. `false`: this attachment does not make the store the logger's trace slot. */
+  readonly keepLogs?: boolean | undefined;
 }
 
 export interface TraceListQuery {
@@ -240,6 +242,8 @@ interface TraceEntry {
   droppedLogs: number;
   /** `resource` was read from a span (false for an entry a log line created). */
   hasResource: boolean;
+  /** Created by a log line and still without a span: not counted toward `maxTraces`, capped apart. */
+  logOnly: boolean;
 }
 
 interface ErrorEntry {
@@ -561,6 +565,10 @@ class Store implements TraceStore {
   private processors = 0;
   private logCount = 0;
   private droppedLogs = 0;
+  /** Entries created by a log line that have no span yet, oldest first (with a moving head). */
+  private logOnlyQueue: (TraceEntry | undefined)[] = [];
+  private logOnlyHead = 0;
+  private logOnlyCount = 0;
   /** `NestrixLogger`'s trace slot while this store is attached. */
   private readonly logSink: TraceLogSink = {
     add: (record) => this.addLog(record),
@@ -580,10 +588,11 @@ class Store implements TraceStore {
     const token: StoreRedaction = {
       scrub: redaction?.scrub,
       redact: redaction?.redact,
+      keepLogs: redaction?.keepLogs,
     };
     try {
       this.attachments.push(token);
-      setTraceLogSink(this.logSink);
+      if (token.keepLogs !== false) setTraceLogSink(this.logSink);
     } catch (error) {
       this.diagnostics.countFailure("store.attach", error);
     }
@@ -625,10 +634,19 @@ class Store implements TraceStore {
     }
   }
 
+  /** Schedules a drain unless one is pending. */
+  private scheduleDrain(): void {
+    if (!this.scheduled) {
+      this.scheduled = true;
+      schedule(this.onImmediate);
+    }
+  }
+
   private readonly onImmediate = (): void => {
     try {
       this.scheduled = false;
       context.with(SUPPRESSED, () => this.drainChunk(DRAIN_CHUNK));
+      this.enforceLimits();
       if (this.pending.length > 0 && !this.scheduled) {
         this.scheduled = true;
         schedule(this.onImmediate);
@@ -649,6 +667,7 @@ class Store implements TraceStore {
           remaining -= taken;
         }
       });
+      this.enforceLimits();
     } catch (error) {
       this.diagnostics.countFailure("store.drain", error);
     }
@@ -744,6 +763,10 @@ class Store implements TraceStore {
     }
     if (hasSpan(entry, identity.spanId)) return;
     entry.spans.push(record);
+    if (entry.logOnly) {
+      entry.logOnly = false;
+      this.logOnlyCount--;
+    }
     if (
       !entry.hasJob &&
       (record.kind === "consumer" ||
@@ -783,7 +806,7 @@ class Store implements TraceStore {
   }
 
   /** A new, empty entry, last in eviction order. */
-  private newEntry(traceId: string): TraceEntry {
+  private newEntry(traceId: string, logOnly = false): TraceEntry {
     const entry: TraceEntry = {
       traceId,
       spans: [],
@@ -799,8 +822,13 @@ class Store implements TraceStore {
       logs: [],
       droppedLogs: 0,
       hasResource: false,
+      logOnly,
     };
     this.traces.set(traceId, entry);
+    if (logOnly) {
+      this.logOnlyCount++;
+      this.logOnlyQueue.push(entry);
+    }
     this.order.push(entry);
     this.bytes += entry.bytes;
     return entry;
@@ -811,7 +839,7 @@ class Store implements TraceStore {
       if (this.attachments.length === 0) return;
       const { traceId, spanId } = input;
       if (typeof traceId !== "string" || !TRACE_ID.test(traceId)) return;
-      const entry = this.traces.get(traceId) ?? this.newEntry(traceId);
+      const entry = this.traces.get(traceId) ?? this.newEntry(traceId, true);
       if (entry.logs.length >= MAX_LOGS_PER_TRACE) {
         entry.droppedLogs++;
         this.droppedLogs++;
@@ -838,7 +866,8 @@ class Store implements TraceStore {
       entry.bytes += bytes;
       this.bytes += bytes;
       this.logCount++;
-      this.enforceLimits();
+      // Limits are enforced from the drain, not in the logger call.
+      this.scheduleDrain();
     } catch (error) {
       this.diagnostics.countFailure("store.log", error);
     }
@@ -865,13 +894,31 @@ class Store implements TraceStore {
 
   private enforceLimits(): void {
     const { maxTraces, maxBytes } = this.limits;
+    // Entries made only by log lines (no span yet) are capped apart: at most 10% of
+    // `maxTraces`, oldest dropped first, so a log flood cannot push out real traces.
+    const logOnlyCap = Math.max(1, Math.floor(maxTraces / 10));
+    while (this.logOnlyCount > logOnlyCap) {
+      const entry = this.logOnlyQueue[this.logOnlyHead];
+      this.logOnlyQueue[this.logOnlyHead++] = undefined;
+      if (entry === undefined) break;
+      if (entry.logOnly && !entry.dead) this.evict(entry);
+    }
+    if (
+      this.logOnlyHead > 1024 &&
+      this.logOnlyHead * 2 > this.logOnlyQueue.length
+    ) {
+      this.logOnlyQueue = this.logOnlyQueue.slice(this.logOnlyHead);
+      this.logOnlyHead = 0;
+    }
     while (
       this.traces.size > 0 &&
-      (this.traces.size > maxTraces || this.bytes > maxBytes)
+      (this.traces.size - this.logOnlyCount > maxTraces ||
+        this.bytes > maxBytes)
     ) {
       const oldest = this.order[this.orderHead] as TraceEntry;
       this.order[this.orderHead++] = undefined;
-      this.evict(oldest);
+      // Already evicted by the log-only cap.
+      if (!oldest.dead) this.evict(oldest);
     }
     if (this.orderHead > 1024 && this.orderHead * 2 > this.order.length) {
       this.order = this.order.slice(this.orderHead);
@@ -890,6 +937,10 @@ class Store implements TraceStore {
   private evict(entry: TraceEntry): void {
     this.traces.delete(entry.traceId);
     entry.dead = true;
+    if (entry.logOnly) {
+      entry.logOnly = false;
+      this.logOnlyCount--;
+    }
     this.bytes -= entry.bytes;
     this.spanCount -= entry.spans.length;
     this.evictedTraces++;

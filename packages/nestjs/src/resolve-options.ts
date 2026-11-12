@@ -127,7 +127,7 @@ export type UiOffReason =
   | "node-env"
   /** `ui.enabled: true` without `ui.auth`. */
   | "missing-auth"
-  /** A `ui` value of the wrong shape: path, auth, token length, `enabled`, `startupToken`, `profiler`. */
+  /** A `ui` value of the wrong shape: path, auth, token length, `enabled`, `startupToken`, `profiler`, `logs`. */
   | "invalid";
 
 export interface ResolvedUiOff {
@@ -152,6 +152,8 @@ export interface ResolvedUiAuto {
    * authenticated, by the startup token or by `auth`.
    */
   readonly profiler: boolean;
+  /** Whether the store keeps `NestrixLogger` lines next to their trace: `ui.logs` is not `false`. */
+  readonly logs: boolean;
 }
 
 export interface ResolvedUiEnabled {
@@ -161,6 +163,8 @@ export interface ResolvedUiEnabled {
   readonly auth: ResolvedUiAuth;
   /** Whether the CPU profiler is offered (P7-02): `ui.profiler` is not `false`. */
   readonly profiler: boolean;
+  /** Whether the store keeps `NestrixLogger` lines next to their trace: `ui.logs` is not `false`. */
+  readonly logs: boolean;
 }
 
 /** The dashboard mode as far as options and `NODE_ENV` decide it (backlog P2, "Mode resolution"). */
@@ -441,6 +445,7 @@ function resolveUiUnguarded(ui: unknown, env: Environment): ResolvedUi {
     auth?: unknown;
     startupToken?: unknown;
     profiler?: unknown;
+    logs?: unknown;
   };
   if (ui === undefined || ui === "auto") o = {};
   else if (ui !== null && typeof ui === "object") o = ui;
@@ -470,6 +475,10 @@ function resolveUiUnguarded(ui: unknown, env: Environment): ResolvedUi {
   if (typeof profiler !== "boolean") {
     return uiInvalid("ui.profiler must be a boolean");
   }
+  const logs = o.logs === undefined ? true : o.logs;
+  if (typeof logs !== "boolean") {
+    return uiInvalid("ui.logs must be a boolean");
+  }
 
   if (enabled === true) {
     if (!auth.auth) {
@@ -484,6 +493,7 @@ function resolveUiUnguarded(ui: unknown, env: Environment): ResolvedUi {
       path: path.path,
       auth: auth.auth,
       profiler,
+      logs,
     });
   }
 
@@ -504,6 +514,7 @@ function resolveUiUnguarded(ui: unknown, env: Environment): ResolvedUi {
     // Starting a capture changes state, so it needs a positive authentication (P7-02): the
     // startup token or `auth`. `startupToken: false` without `auth` keeps the read-only dashboard.
     profiler: profiler && (startupToken || auth.auth !== undefined),
+    logs,
   });
 }
 

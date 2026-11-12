@@ -63,6 +63,8 @@ export interface TelemetryConfig {
    * dashboard is off.
    */
   readonly dashboardStore?: StoreLimits | undefined;
+  /** `ui.logs`: whether the store keeps `NestrixLogger` lines. Default true. */
+  readonly dashboardLogs?: boolean | undefined;
 }
 
 /** Same shape as `Diagnostics` in diagnostics.ts. Neither method may throw. */

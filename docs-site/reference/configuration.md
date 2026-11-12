@@ -105,6 +105,7 @@ Return `false` to drop the span. It must be synchronous: a promise drops the spa
 | `ui.auth.authorize` | none | `(request) => boolean \| Promise<boolean>`. Called for every dashboard request with the raw request, before any Nest guard. Only `true` allows; a throw, a rejection, any other value or no answer in 10 seconds denies. |
 | `ui.startupToken` | `true` | `'auto'` mode only. `false` drops the startup token check and its log link; a same-host reverse proxy then exposes the dashboard when `NODE_ENV` is unset. |
 | `ui.profiler` | `true` | The on-demand CPU [profiler](/guide/dashboard#profiler). Offered only where the dashboard is authenticated (`enabled: true`, or `'auto'` with the startup token or `auth`). `false` removes it and its routes. A non-boolean is an invalid `ui` value. |
+| `ui.logs` | `true` | Keep `NestrixLogger` lines next to their trace in the dashboard store ([Logs next to the trace](/guide/dashboard)). `false` keeps none; the logger still prints and the correlation ids are unchanged. A non-boolean is an invalid `ui` value. |
 
 ## `store`
 
