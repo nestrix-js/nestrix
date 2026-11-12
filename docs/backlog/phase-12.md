@@ -10,8 +10,8 @@ The wire contract is `packages/protocol/src/route-explain.ts` (`routeExplainPara
 |---|---|---|---|---|
 | P12-00 | Protocol, this backlog | lead | — | done |
 | P12-01 | `GET api/v1/routes/explain` on both backends, one shared computation | sonnet | P12-00 | done (local checks; see "As built (P12-01)") |
-| P12-02 | UI: route detail page | sonnet | P12-00 | done (review pending, P12-03) |
-| P12-03 | Review, docs, changeset | lead | P12-01, P12-02 | todo |
+| P12-02 | UI: route detail page | sonnet | P12-00 | done |
+| P12-03 | Review, docs, changeset | lead | P12-01, P12-02 | done (pnpm verify 3,667 tests, UI Chromium 173, app-level e2e 18; SQL checked for bound parameters; README views table, changeset; fixed on merge: flaky pg test on random ports containing 42) |
 
 ## Settled design
 
