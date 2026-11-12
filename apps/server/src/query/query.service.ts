@@ -190,6 +190,7 @@ interface SummaryRow {
   duration_ns: string;
   span_count: number;
   trace_type: TraceType;
+  has_job: boolean;
   release: string | null;
   user_id: string | null;
 }
@@ -204,6 +205,7 @@ function summaryOf(r: SummaryRow): TraceSummary {
     durationMs: msOf(r.duration_ns),
     spanCount: r.span_count,
     type: r.trace_type,
+    hasJob: r.has_job,
     cursor: traceCursor(r.seq),
   };
   if (r.http_method !== null) item.method = r.http_method;
@@ -375,7 +377,10 @@ export class QueryService {
     const where: string[] = [];
     if (v.route !== undefined)
       where.push(`http_route = ${params.add(v.route)}`);
-    if (v.type !== undefined) where.push(`trace_type = ${params.add(v.type)}`);
+    // `job` means "has job processing" (any root); the other types are root-based.
+    if (v.type === "job") where.push("has_job");
+    else if (v.type !== undefined)
+      where.push(`trace_type = ${params.add(v.type)}`);
     if (v.release !== undefined)
       where.push(`release = ${params.add(v.release)}`);
     if (v.user !== undefined) where.push(`user_id = ${params.add(v.user)}`);
@@ -429,7 +434,7 @@ export class QueryService {
     const conditions = cursorCondition ? [...where, cursorCondition] : where;
     const text = `SELECT trace_id, seq::text AS seq, root_span_id, name, http_method, http_route, http_status,
                          is_error, start_ns::text AS start_ns, duration_ns::text AS duration_ns,
-                         span_count, trace_type, release, user_id
+                         span_count, trace_type, has_job, release, user_id
                     FROM traces
                    ${conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""}
                    ORDER BY seq DESC

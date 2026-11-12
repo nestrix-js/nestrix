@@ -75,7 +75,10 @@ export interface TraceListQuery {
   readonly minDurationMs?: number | undefined;
   /** Case-insensitive substring of any span name in the trace, or of the route. */
   readonly search?: string | undefined;
-  /** Exact `TraceSummary.type`. */
+  /**
+   * `TraceSummary.type`, except `job`, which matches every trace with `hasJob` (any root): a
+   * request that enqueued a job appears under both `http` and `job`.
+   */
   readonly type?: TraceType | undefined;
   /** Exact `service.version` of the trace's resource. */
   readonly release?: string | undefined;
@@ -182,6 +185,8 @@ interface TraceEntry {
    * its inner server span has a remote parent, the client span, that is in the trace).
    */
   candidates: SpanRecord[];
+  /** Any span stored so far is a consumer span or has `nestrix.entry = 'job'`. */
+  hasJob: boolean;
   /** Position in the trace list; 0 until listed. */
   seq: number;
   dead: boolean;
@@ -654,6 +659,7 @@ class Store implements TraceStore {
         bytes: TRACE_BYTES + resource.bytes,
         root: undefined,
         candidates: [],
+        hasJob: false,
         seq: 0,
         dead: false,
         errors: [],
@@ -664,6 +670,13 @@ class Store implements TraceStore {
     }
     if (hasSpan(entry, identity.spanId)) return;
     entry.spans.push(record);
+    if (
+      !entry.hasJob &&
+      (record.kind === "consumer" ||
+        record.attributes[ATTR_NESTRIX_ENTRY] === "job")
+    ) {
+      entry.hasJob = true;
+    }
     if (entry.spanIds !== undefined) {
       entry.spanIds.add(identity.spanId);
     } else if (entry.spans.length > SMALL_TRACE_SPANS) {
@@ -758,6 +771,7 @@ class Store implements TraceStore {
       durationMs: root.durationMs,
       spanCount: entry.spans.length,
       type: traceTypeOf(root),
+      hasJob: entry.hasJob,
       cursor: this.cursor("t", entry.seq),
     };
     const method = stringAttr(root, ATTR_METHOD);
@@ -781,7 +795,12 @@ class Store implements TraceStore {
         const root = entry.root as SpanRecord;
         const route = stringAttr(root, ATTR_ROUTE);
         if (query.route !== undefined && route !== query.route) return false;
-        if (query.type !== undefined && traceTypeOf(root) !== query.type) {
+        if (query.type === "job") {
+          if (!entry.hasJob) return false;
+        } else if (
+          query.type !== undefined &&
+          traceTypeOf(root) !== query.type
+        ) {
           return false;
         }
         if (query.release !== undefined && releaseOf(entry) !== query.release) {

@@ -75,6 +75,11 @@ export const traceListParams = {
   status: { kind: "enum", values: ["ok", "error", "4xx", "5xx"] },
   minDurationMs: { kind: "number", min: 0, max: 86_400_000 },
   search: { kind: "string", maxLength: 200 },
+  /**
+   * `http`, `scheduled` and `other` match the trace's root (`TraceSummary.type`). `job` matches
+   * every trace with `TraceSummary.hasJob`, whatever its root, so a request that enqueued a
+   * job appears under both `http` and `job`.
+   */
   type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
   release: { kind: "string", maxLength: 255 },
   user: { kind: "string", maxLength: 256 },

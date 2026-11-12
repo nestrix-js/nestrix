@@ -68,14 +68,25 @@ const allColumns = helper.columns([
     enableSorting: false,
     enableHiding: false,
     cell: (info) => (
-      <Link
-        to="/traces/$traceId"
-        params={{ traceId: info.row.original.traceId }}
-        className="font-mono underline-offset-4 hover:underline"
-        title={info.row.original.traceId}
-      >
-        {info.getValue()}
-      </Link>
+      <span className="inline-flex items-center gap-2">
+        <Link
+          to="/traces/$traceId"
+          params={{ traceId: info.row.original.traceId }}
+          className="font-mono underline-offset-4 hover:underline"
+          title={info.row.original.traceId}
+        >
+          {info.getValue()}
+        </Link>
+        {info.row.original.hasJob ? (
+          <Badge
+            variant="secondary"
+            data-testid="job-badge"
+            title="This trace includes job processing"
+          >
+            job
+          </Badge>
+        ) : null}
+      </span>
     ),
   }),
   helper.accessor((row) => row.statusCode, {

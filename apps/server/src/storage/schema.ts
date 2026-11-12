@@ -116,6 +116,7 @@ export const traces = pgTable(
     traceType: text("trace_type")
       .$type<"http" | "job" | "scheduled" | "other">()
       .notNull(),
+    hasJob: boolean("has_job").notNull().default(false),
     release: text("release"),
     userId: text("user_id"),
     spanCount: integer("span_count").notNull(),

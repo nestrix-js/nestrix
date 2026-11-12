@@ -154,7 +154,7 @@ Owns `packages/ui/app/views/trace/**` and `views/requests/**` changes.
 
 - Trace view: database spans slower than 100 ms are highlighted in the waterfall; a "Queries" panel lists repeated statements within the trace (same `db.query.text` three or more times) with count and total time, and clicking one selects those spans.
 - Span links: a span's links are listed in its detail panel; a link to a trace in the store opens it.
-- Request list: `type` filter (all / HTTP / jobs / scheduled), release and user columns (hidden when no trace has them), `release` and `user` filters.
+- Request list: `type` filter (all / HTTP / jobs / scheduled), release and user columns (hidden when no trace has them), `release` and `user` filters. Amended: `TraceSummary.hasJob` (any span is a consumer span or has `nestrix.entry = "job"`); `type=job` matches `hasJob` whatever the root, so a request that enqueued a job appears under both HTTP and Jobs and gets a "job" badge. `type` itself stays root-based. Standalone: `traces.has_job` (migration 0005), OR-merged per batch.
 
 ### P3-08 BullMQ and the acceptance end-to-end
 

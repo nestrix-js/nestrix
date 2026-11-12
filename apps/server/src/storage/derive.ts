@@ -187,6 +187,8 @@ export interface SpanRow {
   isRoot: boolean;
   isError: boolean;
   traceType: TraceType;
+  /** A consumer span or `nestrix.entry = 'job'`: marks its trace `has_job`, whatever the root. */
+  isJob: boolean;
   userId: string | null;
   className: string | null;
   methodName: string | null;
@@ -273,6 +275,7 @@ export function deriveSpan(
     isRoot: parentSpanId === null,
     isError,
     traceType: traceTypeOf(span.kind, attributes),
+    isJob: span.kind === "consumer" || attributes["nestrix.entry"] === "job",
     userId: stringAttr(attributes, "user.id"),
     className,
     methodName,

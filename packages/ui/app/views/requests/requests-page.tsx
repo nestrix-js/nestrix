@@ -22,7 +22,7 @@ const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 const TYPES = [
   { label: "All", value: "" },
   { label: "HTTP", value: "http" },
-  { label: "Jobs", value: "job" },
+  { label: "Jobs", value: "job", title: "Traces with job processing" },
   { label: "Scheduled", value: "scheduled" },
 ];
 const STATUSES = [
@@ -163,7 +163,7 @@ export function RequestsPage() {
         }}
       >
         {TYPES.map((t) => (
-          <option key={t.value} value={t.value}>
+          <option key={t.value} value={t.value} title={t.title}>
             {t.value === "" ? "Type: All" : t.label}
           </option>
         ))}

@@ -88,6 +88,30 @@ test("type filter: All, HTTP, Jobs and Scheduled go to the URL and the request",
     .not.toContain("type=");
 });
 
+test("job badge, and the Jobs filter matches traces with job processing (any root)", async ({
+  page,
+}) => {
+  mock.push(2); // plain requests
+  mock.push(1, { hasJob: true }); // a request that enqueued a job: type http, hasJob true
+  mock.push(1, { type: "job", method: undefined, route: undefined });
+  await page.goto(url());
+  await expect(requestRows(page)).toHaveCount(4);
+  await expect(page.getByTestId("job-badge")).toHaveCount(2);
+
+  const select = page.getByTestId("type-filter");
+  await expect(select.locator("option[value=job]")).toHaveAttribute(
+    "title",
+    "Traces with job processing",
+  );
+  await select.selectOption("job");
+  await expect(requestRows(page)).toHaveCount(2);
+  await expect(page.getByTestId("job-badge")).toHaveCount(2);
+  // The request that enqueued the job is also an HTTP request.
+  await select.selectOption("http");
+  await expect(requestRows(page)).toHaveCount(3);
+  await expect(page.getByTestId("job-badge")).toHaveCount(1);
+});
+
 test("release and user filters match exactly and live in the URL", async ({
   page,
 }) => {

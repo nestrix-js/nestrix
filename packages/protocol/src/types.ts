@@ -129,6 +129,12 @@ export interface TraceSummary {
    * `nestrix.entry = 'scheduled'`; otherwise `other`.
    */
   type: TraceType;
+  /**
+   * True when any span of the trace is a consumer span or has `nestrix.entry = 'job'`, whatever
+   * the root: a request that enqueued a job processed in the same trace has `type: "http"` and
+   * `hasJob: true`.
+   */
+  hasJob: boolean;
   /** The release: `service.version` of the trace's resource, when set. */
   release?: string;
   /** `user.id` of the root span, when the app's `user` option recorded one. */
