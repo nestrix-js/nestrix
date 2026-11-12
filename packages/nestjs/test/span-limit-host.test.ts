@@ -195,6 +195,82 @@ describe("host-owned SDK, maxSpansPerTrace: 100", () => {
     }
   });
 
+  it("inside a dropped withSpan the active span is the non-recording stand-in; writes on it do not touch the recorded parent", async () => {
+    const app = await contextInstrumented(appModule(), NestrixInstrument);
+    try {
+      let activeIsStandIn = false;
+      let recordingInside = true;
+      withSpan("first", () => {
+        for (let i = 0; i < 150; i++) {
+          withSpan("inner", (standIn) => {
+            const active = trace.getActiveSpan();
+            if (i === 120) {
+              activeIsStandIn = active === standIn;
+              recordingInside = active?.isRecording() ?? true;
+            }
+            active?.setAttribute("child.only", i);
+            active?.recordException(new Error("child only"));
+            active?.setStatus({ code: 2, message: "child only" });
+          });
+        }
+        // Back in the parent: it is active again.
+        expect(trace.getActiveSpan()?.isRecording()).toBe(true);
+      });
+      const first = spans().find((s) => s.name === "first");
+      expect(activeIsStandIn).toBe(true);
+      expect(recordingInside).toBe(false);
+      // Only the recorded inner spans (the first 98) could have written on their own span.
+      expect(first?.attributes["child.only"]).toBeUndefined();
+      expect(first?.events).toHaveLength(0);
+      expect(first?.status.code).toBe(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("siblings under a host-created parent share one budget: 250 sequential withSpan, limit 100, 100 recorded", async () => {
+    const app = await contextInstrumented(appModule(), NestrixInstrument);
+    try {
+      const root = trace.getTracer("host-root").startSpan("host-root");
+      let calls = 0;
+      await context.with(trace.setSpan(context.active(), root), async () => {
+        for (let i = 0; i < 250; i++) withSpan("sibling", () => calls++);
+      });
+      root.end();
+      expect(calls).toBe(250);
+      expect(spans().filter((s) => s.name === "sibling")).toHaveLength(100);
+      // The counts need a live Nestrix span to be written on; with strictly sequential siblings
+      // there is none once the budget is spent, so no attribute appears (see P13-01 as built).
+      const carried = spans()
+        .map((s) => Number(s.attributes[ATTR_SPANS_DROPPED] ?? 0))
+        .reduce((a, b) => a + b, 0);
+      expect(carried).toBe(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("a host-created parent with an outer Nestrix span: the outer span carries the counts of its later siblings' budget", async () => {
+    const app = await contextInstrumented(appModule(), NestrixInstrument);
+    try {
+      const root = trace.getTracer("host-root").startSpan("host-root");
+      await context.with(trace.setSpan(context.active(), root), async () => {
+        for (let i = 0; i < 60; i++) withSpan("early", () => i);
+        withSpan("late-carrier", () => {
+          for (let i = 0; i < 100; i++) withSpan("inner", () => i);
+        });
+      });
+      root.end();
+      // 60 + 1 carrier + 39 inner fit; 61 inner are dropped, written on the carrier.
+      expect(spans().filter((s) => s.name === "early")).toHaveLength(60);
+      expect(spans().filter((s) => s.name === "inner")).toHaveLength(39);
+      const carrier = spans().find((s) => s.name === "late-carrier");
+      expect(carrier?.attributes[ATTR_SPANS_DROPPED]).toBe(61);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("maxSpansPerTrace: false installs nothing and records every Nestrix span", async () => {
     const app = await contextInstrumented(appModule(false), NestrixInstrument);
     try {

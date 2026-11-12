@@ -34,7 +34,7 @@ One background job that touches every row of a table can produce thousands or mi
 - What was left out is counted by kind and written on the trace's local root span (the request's server span, or the job's span) when it ends: `nestrix.trace.spans_dropped` for the total and `nestrix.trace.spans_dropped.<kind>` per kind. The trace view reads these and says how many spans were omitted.
 - Route statistics, the Classes view and the request-duration metric are counted before sampling and stay exact.
 - A call made from a recorded span carries a sampled `traceparent` as usual. A call made from a span that was left out carries the trace id with the sampled flag off (`-00`), so the next service, following its parent's decision, records nothing for it. An OpenTelemetry sampler cannot mark a span that is not recorded as sampled. Each service applies its own cap.
-- When your app owns the SDK, Nestrix caps only its own spans; a left-out Nestrix span is replaced by its parent, so work inside it is parented on the last recorded span and calls it makes still go out sampled. The counts go on the first Nestrix span of the trace in the process.
+- When your app owns the SDK, Nestrix caps only its own spans; a left-out Nestrix span is replaced by its parent, so work inside it is parented on the last recorded span and calls it makes still go out sampled. The counts go on the first Nestrix span of the trace in the process. When that span's parent is one of your own spans, later Nestrix spans under it keep sharing the same cap, and a later Nestrix span carries the counts; if no Nestrix span is open when the cap is exceeded (strictly sequential siblings), the number left out is not written anywhere.
 
 ## `methods`
 

@@ -53,8 +53,10 @@ interface Entry {
   byKind: Record<string, number> | undefined;
   /** Local roots started and not yet ended (provider mode). */
   liveRoots: number;
-  /** The span the counts go on (host mode). */
+  /** The span the counts go on (host mode); cleared when it ends under `keep`. */
   root: Span | undefined;
+  /** Host mode: the root had a local sampled parent, so the entry outlives it (see `hostEnding`). */
+  keep: boolean;
   /** Clock at creation, then refreshed every 64th touch (see `touch`). */
   lastSeen: number;
   touches: number;
@@ -143,6 +145,7 @@ export class TraceSpanCounter {
       byKind: undefined,
       liveRoots: 0,
       root: undefined,
+      keep: false,
       lastSeen: now,
       touches: 0,
     };
@@ -151,12 +154,14 @@ export class TraceSpanCounter {
   }
 
   /**
-   * Before inserting: look at up to 8 entries at the head of the map. An idle one is forgotten; a
-   * live one moves to the tail, so idle ones behind it are reached on later insertions. When the
-   * map is full and the head is live, the head is forgotten (the least recently moved trace).
-   * Constant work per new trace.
+   * Before inserting: look at up to 8 entries at the head of the map. An idle one is forgotten; any
+   * other moves to the tail, so idle ones behind it are reached on later insertions. When the map
+   * is full, the first scanned entry that is not live (no local root still running, no host root
+   * still open: a leftover whose root never ends) is forgotten instead; a live one is forgotten
+   * only when all 8 scanned are live. Constant work per new trace.
    */
   private sweep(now: number): void {
+    let firstMoved: string | undefined;
     for (let i = 0; i < 8; i++) {
       const head = this.traces.entries().next();
       if (head.done) return;
@@ -165,19 +170,25 @@ export class TraceSpanCounter {
         this.traces.delete(id);
         continue;
       }
-      if (this.traces.size < this.maxTraces) {
+      if (
+        this.traces.size >= this.maxTraces &&
+        entry.liveRoots === 0 &&
+        entry.root === undefined
+      ) {
         this.traces.delete(id);
-        this.traces.set(id, entry);
-        continue;
+        return;
       }
       this.traces.delete(id);
-      this.evicted++;
-      diagnostics.logOnce(
-        "trace-limit.evicted",
-        `More than ${this.maxTraces} traces were live at once; maxSpansPerTrace forgot the oldest one, so its limit starts again and its dropped-span counts may be incomplete.`,
-      );
-      return;
+      this.traces.set(id, entry);
+      firstMoved ??= id;
     }
+    if (this.traces.size < this.maxTraces || firstMoved === undefined) return;
+    this.traces.delete(firstMoved);
+    this.evicted++;
+    diagnostics.logOnce(
+      "trace-limit.evicted",
+      `More than ${this.maxTraces} traces were live at once; maxSpansPerTrace forgot the oldest one, so its limit starts again and its dropped-span counts may be incomplete.`,
+    );
   }
 
   /**
@@ -283,19 +294,36 @@ export class TraceSpanCounter {
     return true;
   }
 
-  /** Host mode: a sampled Nestrix span started; the first one of a trace becomes its root. */
-  hostStarted(traceId: string, span: Span): void {
-    if (this.traces.has(traceId)) return;
+  /**
+   * Host mode: a sampled Nestrix span started. The first one of a trace becomes its root; so does
+   * the first one admitted after a kept root ended. `keep`: its parent is a local sampled span
+   * (the host's own), so the trace goes on after it ends and its siblings share one budget.
+   */
+  hostStarted(traceId: string, span: Span, keep = false): void {
+    const found = this.traces.get(traceId);
+    if (found !== undefined) {
+      if (found.root === undefined) {
+        found.root = span;
+        found.keep = keep;
+      }
+      return;
+    }
     const entry = this.create(traceId, this.now());
     entry.recorded = 1;
     entry.root = span;
+    entry.keep = keep;
   }
 
-  /** Host mode: `span` is ending; when it is its trace's root, the counts go on it and the trace is forgotten. */
+  /**
+   * Host mode: `span` is ending; when it is its trace's root, the counts go on it. The trace is
+   * then forgotten, unless the root had a local sampled parent: its entry stays (no root, same
+   * counts) for the next Nestrix span to carry later counts, until idle expiry or eviction.
+   */
   hostEnding(traceId: string, span: Span): void {
     const entry = this.traces.get(traceId);
     if (entry === undefined || entry.root !== span) return;
-    this.traces.delete(traceId);
+    if (entry.keep) entry.root = undefined;
+    else this.traces.delete(traceId);
     writeCounts(entry, span);
   }
 }
@@ -419,13 +447,22 @@ export function hostGate(
   }
 }
 
-/** Host mode, after a Nestrix span that passed {@link hostGate} started. Never throws. */
-export function hostStarted(span: Span): void {
+/**
+ * Host mode, after a Nestrix span that passed {@link hostGate} started under `parentCtx`. Never
+ * throws.
+ */
+export function hostStarted(span: Span, parentCtx?: Context): void {
   try {
     if (installed === undefined || installed.mode !== "host") return;
     const sc = span.spanContext();
     if (!isSampled(sc)) return;
-    installed.counter.hostStarted(sc.traceId, span);
+    const parent =
+      parentCtx === undefined ? undefined : trace.getSpanContext(parentCtx);
+    installed.counter.hostStarted(
+      sc.traceId,
+      span,
+      isSampled(parent) && parent.isRemote !== true,
+    );
   } catch (error) {
     diagnostics.countFailure("trace-limit.started", error);
   }
@@ -444,7 +481,7 @@ export function startNestrixSpan(
   const standIn = hostGate(ctx, options.kind, options.attributes, options.root);
   if (standIn !== undefined) return standIn;
   const span = tracer.startSpan(name, options, ctx);
-  hostStarted(span);
+  hostStarted(span, ctx);
   return span;
 }
 

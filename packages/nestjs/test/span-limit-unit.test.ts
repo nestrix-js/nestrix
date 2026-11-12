@@ -287,13 +287,55 @@ describe("faults never reach the host", () => {
 });
 
 describe("TraceSpanCounter", () => {
-  it("stays bounded: at most maxTraces live traces, the oldest forgotten first", () => {
+  it("stays bounded: at most maxTraces tracked traces; leftovers (no live root) go first and are not counted as live evictions", () => {
     const counter = new TraceSpanCounter(100, { maxTraces: 50 });
     for (let i = 0; i < 1_000; i++) {
       counter.tryRecord(i.toString(16).padStart(32, "0"), undefined, {});
     }
     expect(counter.size).toBe(50);
-    expect(counter.evicted).toBe(950);
+    expect(counter.evicted).toBe(0);
+  });
+
+  it("a live trace survives a full map of leftovers and keeps its budget and its drop count", () => {
+    const counter = new TraceSpanCounter(100, { maxTraces: 50 });
+    const set: Record<string, unknown> = {};
+    const job = {
+      setAttribute(k: string, v: unknown) {
+        set[k] = v;
+        return job;
+      },
+    } as unknown as Span;
+    const step = (n: number) => {
+      let dropped = 0;
+      for (let i = 0; i < n; i++) {
+        if (!counter.tryRecord("job", SpanKind.INTERNAL, {})) dropped++;
+      }
+      return dropped;
+    };
+    counter.tryRecord("job", SpanKind.INTERNAL, {});
+    counter.rootStarted("job");
+    let dropped = step(150); // 151 spans so far: 100 recorded, 51 dropped
+    // Far more leftovers than the map holds: each ends no local root.
+    for (let i = 0; i < 500; i++) {
+      counter.tryRecord(i.toString(16).padStart(32, "0"), undefined, {});
+    }
+    expect(counter.size).toBe(50);
+    dropped += step(150);
+    expect(dropped).toBe(201); // 301 spans, limit 100
+    counter.rootEnding("job", job);
+    expect(set[ATTR_SPANS_DROPPED]).toBe(201);
+    expect(counter.evicted).toBe(0);
+  });
+
+  it("when every scanned entry is live, a live one is evicted and logged", () => {
+    const counter = new TraceSpanCounter(100, { maxTraces: 10 });
+    for (let i = 0; i < 10; i++) {
+      counter.tryRecord(`live-${i}`, undefined, {});
+      counter.rootStarted(`live-${i}`);
+    }
+    counter.tryRecord("one-more", undefined, {});
+    expect(counter.size).toBe(10);
+    expect(counter.evicted).toBe(1);
   });
 
   it("forgets traces idle for longer than idleMillis", () => {
@@ -359,6 +401,70 @@ describe("TraceSpanCounter", () => {
       [`${ATTR_SPANS_DROPPED}.db`]: 51,
     });
     expect(counter.size).toBe(0);
+  });
+
+  it("host mode, root under a local sampled parent: the entry is kept and the next span carries later counts", () => {
+    const counter = new TraceSpanCounter(100);
+    const fake = () => {
+      const set: Record<string, unknown> = {};
+      const span = {
+        set,
+        setAttribute(k: string, v: unknown) {
+          set[k] = v;
+          return span;
+        },
+      };
+      return span as unknown as Span & { set: Record<string, unknown> };
+    };
+    let recorded = 0;
+    let dropped = 0;
+    const carriers: Array<Span & { set: Record<string, unknown> }> = [];
+    for (let i = 0; i < 250; i++) {
+      if (counter.hostAdmit("t", SpanKind.INTERNAL, {})) {
+        recorded++;
+        const span = fake();
+        counter.hostStarted("t", span, true);
+        counter.hostEnding("t", span);
+        carriers.push(span);
+      } else dropped++;
+    }
+    expect(recorded).toBe(100);
+    expect(dropped).toBe(150);
+    expect(counter.size).toBe(1); // kept, bounded by idle expiry and eviction
+    // A later carrier (a span admitted before the limit) would write the counts; none is admitted now.
+    expect(carriers.every((c) => Object.keys(c.set).length === 0)).toBe(true);
+  });
+
+  it("host mode, kept entry: a span started while the budget has room becomes the carrier and writes the counts dropped meanwhile", () => {
+    const counter = new TraceSpanCounter(100);
+    const fake = () => {
+      const set: Record<string, unknown> = {};
+      const span = {
+        set,
+        setAttribute(k: string, v: unknown) {
+          set[k] = v;
+          return span;
+        },
+      };
+      return span as unknown as Span & { set: Record<string, unknown> };
+    };
+    const first = fake();
+    counter.hostStarted("t", first, true);
+    counter.hostEnding("t", first);
+    expect(counter.size).toBe(1);
+    // A second root-less span is admitted, then drops happen while it is the carrier.
+    expect(counter.hostAdmit("t", SpanKind.INTERNAL, {})).toBe(true);
+    const second = fake();
+    counter.hostStarted("t", second, true);
+    for (let i = 0; i < 98; i++) {
+      counter.hostAdmit("t", SpanKind.INTERNAL, {});
+    }
+    for (let i = 0; i < 5; i++) {
+      expect(counter.hostAdmit("t", SpanKind.INTERNAL, {})).toBe(false);
+    }
+    counter.hostEnding("t", second);
+    expect(second.set[ATTR_SPANS_DROPPED]).toBe(5);
+    expect(first.set).toEqual({});
   });
 });
 
