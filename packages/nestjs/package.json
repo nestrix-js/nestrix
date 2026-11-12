@@ -1,6 +1,6 @@
 {
   "name": "@nestrix-js/nestjs",
-  "version": "0.1.0-alpha.3",
+  "version": "0.1.0",
   "description": "Nest-aware OpenTelemetry tracing for NestJS 12+, with an optional dashboard",
   "license": "Apache-2.0",
   "type": "module",
