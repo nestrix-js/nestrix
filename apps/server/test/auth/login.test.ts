@@ -207,7 +207,7 @@ describe("POST /login", () => {
       );
     };
     for (const origin of [undefined, "null"]) {
-      const h = (fetchSite: string) =>
+      const h = (fetchSite: string): Record<string, string> =>
         origin === undefined
           ? { "sec-fetch-site": fetchSite }
           : { origin, "sec-fetch-site": fetchSite };
