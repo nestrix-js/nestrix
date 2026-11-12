@@ -1,5 +1,11 @@
 # @nestrix-js/ui
 
+## 0.1.0-alpha.1
+
+### Patch Changes
+
+- e2f0a14: Nestrix's own resource now carries a random `service.instance.id` per process, so replicas of one service can be told apart in the standalone server. Set the attribute yourself with `resourceAttributes` or `OTEL_RESOURCE_ATTRIBUTES` to override it.
+
 ## 0.1.0-alpha.0
 
 ### Minor Changes
