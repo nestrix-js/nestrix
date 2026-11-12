@@ -8,7 +8,7 @@ import {
   UseFilters,
   UseGuards,
 } from "@nestjs/common";
-import type { ApiError } from "@nestrix-js/protocol";
+import type { ApiError, QuerySort } from "@nestrix-js/protocol";
 import { QUERY_HEADERS, QueryExceptionFilter } from "./exception.filter.js";
 import { QueryGuardGate } from "./guard.js";
 import {
@@ -18,6 +18,7 @@ import {
   metaSpec,
   type Parsed,
   parseQuery,
+  queryStatsSpec,
   routeStatsSpec,
   traceListSpec,
   traceSpec,
@@ -121,6 +122,18 @@ export class QueryController {
     return this.query.classes(
       v.windowMinutes as number,
       v.service as string | undefined,
+    );
+  }
+
+  @Get("queries")
+  @Headers()
+  queries(@Req() req: RequestLike) {
+    const v = parse(req, queryStatsSpec);
+    return this.query.queries(
+      v.windowMinutes as number,
+      v.service as string | undefined,
+      (v.sort as QuerySort | undefined) ?? "total",
+      v.limit as number,
     );
   }
 

@@ -176,3 +176,29 @@ export interface AppMapResponse {
   nodes: MapNode[];
   edges: MapEdge[];
 }
+
+export interface QueryStatement {
+  statement: string;
+  system: string;
+  kind: "database" | "cache";
+  count: number;
+  totalMs: number;
+  avgMs: number;
+  p95Ms: number;
+  maxMs: number;
+  errors: number;
+  traces: number;
+  repeatedTraces: number;
+  exampleTraceIds: string[];
+}
+
+export type QuerySort = "total" | "count" | "p95" | "max";
+
+export interface QueryStatsResponse {
+  windowMinutes: number;
+  fromUnixMs: number;
+  toUnixMs: number;
+  sampled: true;
+  truncated: boolean;
+  queries: QueryStatement[];
+}

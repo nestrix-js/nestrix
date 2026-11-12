@@ -35,7 +35,13 @@ const same: [
   Equals<Mirror.MapNode, Protocol.MapNode>,
   Equals<Mirror.MapEdge, Protocol.MapEdge>,
   Equals<Mirror.AppMapResponse, Protocol.AppMapResponse>,
+  Equals<Mirror.QueryStatement, Protocol.QueryStatement>,
+  Equals<Mirror.QuerySort, Protocol.QuerySort>,
+  Equals<Mirror.QueryStatsResponse, Protocol.QueryStatsResponse>,
 ] = [
+  true,
+  true,
+  true,
   true,
   true,
   true,

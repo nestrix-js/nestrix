@@ -53,6 +53,7 @@ import {
   metaHandler,
   PROTOCOL_VERSION,
   parseQuery,
+  queriesHandler,
   routesHandler,
   traceHandler,
   tracesHandler,
@@ -406,6 +407,10 @@ export class Dashboard {
         this.handler("api", (t) => classesHandler(t, sources())),
       ],
       [`${api}/map`, this.handler("api", (t) => mapHandler(t, sources()))],
+      [
+        `${api}/queries`,
+        this.handler("api", (t) => queriesHandler(t, sources())),
+      ],
     );
     // The profiler (P7-02): registered only where it is offered, so `ui.profiler: false` or an
     // unauthenticated dashboard has no such route at all.

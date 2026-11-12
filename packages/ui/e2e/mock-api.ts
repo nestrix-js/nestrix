@@ -10,6 +10,7 @@ import type {
   ProfileListResponse,
   ProfileRunning,
   ProfileSummary,
+  QuerySort,
   RouteStatsResponse,
   Slo,
   TraceListResponse,
@@ -17,6 +18,7 @@ import type {
   TraceSummary,
 } from "@nestrix-js/protocol";
 import { generatedClasses, generatedMap } from "./mock-classes-map.ts";
+import { generatedQueries } from "./mock-queries.ts";
 import { ErrorStore } from "./mock-stats.ts";
 
 type Endpoint = "meta" | "traces" | "routes" | "errors" | "classes" | "map";
@@ -211,6 +213,14 @@ export class MockApi {
         return {
           status: 200,
           body: (this.appMap ?? generatedMap)(windowOf(query)),
+        };
+      case "queries":
+        return {
+          status: 200,
+          body: generatedQueries(
+            windowOf(query),
+            (query.get("sort") ?? "total") as QuerySort,
+          ),
         };
       case "traces":
         return this.traces(query);
