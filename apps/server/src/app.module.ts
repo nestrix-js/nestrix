@@ -9,6 +9,7 @@ import { ServerConfigModule } from "./config.module.js";
 import { IngestModule } from "./ingest/ingest.module.js";
 import { MemoryIngestSink } from "./ingest/memory-sink.js";
 import { INGEST_PATH_PATTERN } from "./ingest/tokens.js";
+import { RemoteProfilesModule } from "./profiler/remote-profiles.module.js";
 import { QueryModule } from "./query/query.module.js";
 import { SlosModule } from "./slos/slos.module.js";
 import { PostgresIngestSink, StorageModule } from "./storage/index.js";
@@ -29,6 +30,11 @@ export class AppModule {
     config: ServerConfig,
     options: AppModuleOptions = {},
   ): DynamicModule {
+    // One object for both imports below, so Nest resolves a single IngestModule (one receiver,
+    // one rate limiter, one memory budget) shared with remote profiling.
+    const ingest = IngestModule.forRoot({
+      sink: { useExisting: PostgresIngestSink },
+    });
     return {
       module: AppModule,
       imports: [
@@ -56,9 +62,10 @@ export class AppModule {
                 databaseUrl: config.databaseUrl,
                 retentionDays: config.retentionDays,
               }),
-              IngestModule.forRoot({
-                sink: { useExisting: PostgresIngestSink },
-              }),
+              ingest,
+              // Remote CPU profiling (P10-02, D-76): instance check-in and upload on the ingest
+              // key, the dashboard's instances and remote-profiles routes.
+              RemoteProfilesModule.forRoot({ ingest }),
               // Opened only for requests the admin login's middleware stamped as a session, or as
               // a valid API token on a read route (P8-01).
               QueryModule.forRoot({ guard: { useClass: ReadQueryGuard } }),

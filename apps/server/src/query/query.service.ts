@@ -392,8 +392,9 @@ export class QueryService {
       warnings: [],
       mode: "standalone",
       services,
-      // The CPU profiler profiles the process it runs in; it exists only in the embedded dashboard.
-      profiler: { available: false, running: false },
+      // The embedded profiler profiles the process it runs in, so it is not offered here; instances
+      // that opted in are profiled remotely (P10-02, D-76: `instances`, `remote-profiles`).
+      profiler: { available: false, running: false, remote: true },
       // Process runtime samples exist only in the embedded dashboard.
       runtime: { available: false },
     };

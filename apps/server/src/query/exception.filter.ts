@@ -18,6 +18,11 @@ function codeOf(status: number): ApiErrorCode {
   if (status === 401) return "unauthorized";
   if (status === 403) return "forbidden";
   if (status === 404) return "not_found";
+  if (status === 409) return "conflict";
+  if (status === 411) return "length_required";
+  if (status === 413) return "payload_too_large";
+  if (status === 415) return "unsupported_media_type";
+  if (status === 429) return "too_many_requests";
   if (status === 503) return "unavailable";
   return "internal";
 }

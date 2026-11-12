@@ -196,29 +196,63 @@ export class IngestReceiver implements OnApplicationBootstrap {
     }
   }
 
+  /**
+   * The ingest key (401) and the rate limit (429) of every ingest-key route: `/v1/traces`,
+   * `/v1/logs` and the instance side of remote profiling (P10-02), which share one bucket per
+   * key. `principal` is `key:<n>`, or `ip:<address>` with auth off. Never throws.
+   */
+  admit(req: IncomingMessage):
+    | { ok: true; principal: string }
+    | {
+        ok: false;
+        status: number;
+        message: string;
+        headers: Record<string, string>;
+      } {
+    try {
+      const auth = this.auth.check(
+        req.headers,
+        req.socket?.remoteAddress ?? "unknown",
+      );
+      if (!auth.ok) {
+        return {
+          ok: false,
+          status: 401,
+          message: auth.message,
+          headers: { "WWW-Authenticate": 'Bearer realm="nestrix-ingest"' },
+        };
+      }
+      const rate = this.limiter.take(auth.principal);
+      if (!rate.ok) {
+        return {
+          ok: false,
+          status: 429,
+          message: "too many export requests for this API key",
+          headers: { "Retry-After": String(rate.retryAfterSeconds) },
+        };
+      }
+      return { ok: true, principal: auth.principal };
+    } catch {
+      return {
+        ok: false,
+        status: 500,
+        message: "internal error",
+        headers: {},
+      };
+    }
+  }
+
   private async process<B>(
     req: IncomingMessage,
     format: BodyFormat,
     signal: Signal<B>,
   ): Promise<Outcome | undefined> {
-    const auth = this.auth.check(
-      req.headers,
-      req.socket?.remoteAddress ?? "unknown",
-    );
-    if (!auth.ok) {
+    const admitted = this.admit(req);
+    if (!admitted.ok) {
       return {
-        status: 401,
-        message: auth.message,
-        headers: { "WWW-Authenticate": 'Bearer realm="nestrix-ingest"' },
-      };
-    }
-
-    const rate = this.limiter.take(auth.principal);
-    if (!rate.ok) {
-      return {
-        status: 429,
-        message: "too many export requests for this API key",
-        headers: { "Retry-After": String(rate.retryAfterSeconds) },
+        status: admitted.status,
+        message: admitted.message,
+        headers: admitted.headers,
       };
     }
 

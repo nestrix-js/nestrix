@@ -5,7 +5,8 @@ The standalone Nestrix server. One process, one port (default `4318`), backed by
 | Path | What |
 |---|---|
 | `POST /v1/traces` | OTLP/HTTP receiver (protobuf or JSON, optional gzip) |
-| `GET /api/v1/*` | Query API, the same shapes as the embedded dashboard, plus alert rules |
+| `POST /v1/nestrix/*` | Remote CPU profiling, instance side: check-in and profile upload (ingest key) |
+| `GET /api/v1/*` | Query API, the same shapes as the embedded dashboard, plus alert rules and remote profiles |
 | `/` | The dashboard (the `@nestrix-js/ui` build) |
 | `/login`, `/logout` | Admin sign-in |
 
@@ -88,7 +89,7 @@ Not configurable by environment: the ingest limits and rate limit below, and the
 - **A restart signs everyone out**, even with a fixed `NESTRIX_SESSION_SECRET`, because sign-out revocations are held in memory and a per-process random value is part of the signing key. Changing the admin password also ends every session. Plan on signing in again after an upgrade.
 - The cookie name includes the port (`nestrix_admin_<port>`), because browsers share cookies across ports on one host.
 - Rate limits: 5 login attempts per minute per client address (IPv6 by /64), counted on every attempt, and a global budget of 60 failed logins a minute across all clients; once it is spent every `POST /login` answers 429 until the oldest failure leaves the minute.
-- Every request except `/v1/traces`, `/v1/logs`, `/login` and `/logout` needs a session, including paths added later; the query API's read routes also accept an API token (below). A state-changing request needs a same-origin `Origin` header. The API never emits CORS headers, so a browser page on another origin cannot read it.
+- Every request except the ingest routes (`/v1/traces`, `/v1/logs`, `/v1/nestrix/check-in`, `/v1/nestrix/profiles/…`), `/login` and `/logout` needs a session, including paths added later; the query API's read routes also accept an API token (below). A state-changing request needs a same-origin `Origin` header. The API never emits CORS headers, so a browser page on another origin cannot read it.
 - **Behind a reverse proxy:** pass the `Host` header through (`proxy_set_header Host $host;` in nginx), or the `Origin` check fails and login answers 403. Serve it over HTTPS: on a non-loopback host the cookie is `Secure`, so a browser will not send it over plain HTTP. The limiter keys on the connection's address and never trusts `X-Forwarded-For`, so behind a proxy all visitors share one login limit.
 
 ## API tokens
@@ -98,7 +99,7 @@ Read-only, revocable tokens let tools such as the Nestrix MCP server (`@nestrix-
 - **Create, list and revoke** them on the dashboard's **Settings** page, or with the API from a signed-in session: `POST /api/v1/tokens` with `{"name": "..."}` (answers the token once), `GET /api/v1/tokens` (names, display prefixes, created and last-used times; no secrets), `DELETE /api/v1/tokens/:id` (revoke). A token can never manage tokens. Writes need a same-origin `Origin`, like every write.
 - A token looks like `nxt_` followed by 43 characters. The server stores only its SHA-256 hash and its first 8 characters for display, so a lost token cannot be shown again: revoke it and create another. At most 100 tokens can be active.
 - **Use:** `Authorization: Bearer nxt_...`. Never in a query string or a cookie; those are ignored.
-- **What a token reads:** `GET` and `HEAD` on every read route of the query API: `/api/v1/meta`, `/api/v1/traces` (and `/traces/timeline`), `/api/v1/trace` (and `/trace/logs`), `/api/v1/errors` (and `/errors/groups`), `/api/v1/routes` (and `/routes/histogram`, `/routes/compare`), `/api/v1/classes`, `/api/v1/queries`, `/api/v1/map` and `/api/v1/dependencies`. Nothing else: a request with a token on the dashboard, `/login`, `/logout`, the token routes, alerts or SLOs (reads included: alert rules hold webhook URLs) or any write answers 401, even if it also carries a session cookie. The ingest routes `/v1/traces` and `/v1/logs` take only ingest keys; an API token is not an ingest key and an ingest key is not an API token.
+- **What a token reads:** `GET` and `HEAD` on every read route of the query API: `/api/v1/meta`, `/api/v1/traces` (and `/traces/timeline`), `/api/v1/trace` (and `/trace/logs`), `/api/v1/errors` (and `/errors/groups`), `/api/v1/routes` (and `/routes/histogram`, `/routes/compare`), `/api/v1/classes`, `/api/v1/queries`, `/api/v1/map`, `/api/v1/dependencies`, and the remote-profiling reads `/api/v1/instances`, `/api/v1/remote-profiles` (and `/:id`, `/:id/download`). Nothing else: a request with a token on the dashboard, `/login`, `/logout`, the token routes, alerts or SLOs (reads included: alert rules hold webhook URLs) or any write, starting a remote capture included, answers 401, even if it also carries a session cookie. The ingest routes (`/v1/traces`, `/v1/logs`, `/v1/nestrix/…`) take only ingest keys; an API token is not an ingest key and an ingest key is not an API token.
 - **Revocation is immediate:** every request looks the token up in the database, so the next request after a revoke is refused.
 - **Failures share the login's budget, within a per-client allowance:** a refused token counts toward the global budget of 60 failed logins a minute, but each client (by socket address) may count only 5 refused tokens a minute; beyond that its bad tokens answer 429 with `Retry-After` and are not counted. While the global budget is spent, further bad tokens answer 429 too, as `POST /login` does. A valid token is checked first and is never refused by either limit, so one client guessing tokens cannot lock out the others' tokens.
 - Tokens work only while `NESTRIX_ADMIN_PASSWORD` is set (otherwise the API answers 503). `last_used_at` is updated at most once a minute. Tokens are never logged.
@@ -143,6 +144,27 @@ NestrixModule.forRoot({ logs: { export: true } }) // OTEL_EXPORTER_OTLP_ENDPOINT
 ```
 
 There is no `/v1/metrics`. A request to it is not an ingest request: the admin layer answers it (403 for a `POST` without a same-origin `Origin` header, which OTLP exporters do not send; 503 when no admin password is set). Exporters treat both as failures and may retry. A Nestrix app that exports metrics to the same base endpoint will log these errors; point metrics at a collector (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`) or turn them off.
+
+## Remote CPU profiling
+
+The server can take a CPU profile of one instance of an app, from the dashboard. The server never connects to an instance: an app that opts in checks in with the server every 15 s over its export endpoint, with its ingest key, and picks up a capture order there. Opting in is per app and off by default, because a capture briefly pauses the instance's main thread when it starts (tens of milliseconds, more for apps with much compiled code):
+
+```ts
+NestrixModule.forRoot({
+  export: { profiler: true, otlp: { endpoint: "http://nestrix.internal:4318", headers: { authorization: "Bearer <ingest key>" } } },
+})
+```
+
+What happens:
+
+1. The instance checks in (`POST /v1/nestrix/check-in`). It appears in `GET /api/v1/instances` while its last check-in is less than 2 minutes old. The ingest key of an instance's first check-in owns it: a check-in for the same instance id with another key answers 409.
+2. An admin starts a capture for that instance, 1 to 120 s, default 30 (`POST /api/v1/remote-profiles` with `{"service", "instanceId", "durationSeconds"}`; admin session only, from the dashboard page: it needs `Sec-Fetch-Site: same-origin` and a same-origin `Origin`, so a browser sends it only over HTTPS or to localhost). It is `pending`; 404 if the instance has not checked in for 2 minutes, 409 while one is pending or running for it, 429 with `Retry-After` within 10 s of its previous capture.
+3. The instance's next check-in receives it (`running`), captures with the same limits as the embedded profiler, and uploads the `.cpuprofile` (`POST /v1/nestrix/profiles/:id`, gzip allowed, at most 20 MiB) or reports why it could not (`POST /v1/nestrix/profiles/:id/failed`). Only the key that received the order may do either.
+4. `GET /api/v1/remote-profiles` lists captures (newest 50); `GET /api/v1/remote-profiles/:id` shows one, with its top functions and flame graph once `done`; `/download` returns the `.cpuprofile` for Chrome DevTools or speedscope.
+
+A capture not picked up within 60 s, or not uploaded within its duration plus 60 s, becomes `expired`. The newest 20 finished captures per service are kept, nothing older than `NESTRIX_RETENTION_DAYS`; instances not seen for a day are forgotten. Profiles are stored gzipped in the `remote_profiles` table. Uploads are checked field by field, and only the fields of the `.cpuprofile` format are kept.
+
+With `NESTRIX_INGEST_AUTH=none` there is no key to tell instances apart, so any client that can reach the port can check in as any instance and upload its profile; use keys for anything shared.
 
 ## The measured envelope
 
