@@ -9,10 +9,10 @@ Wire contract: `TraceResponse.droppedSpans` and `DroppedSpans` in `packages/prot
 | ID | Task | Tier | Depends | Status |
 |---|---|---|---|---|
 | P13-00 | D-78, protocol, this backlog | lead | — | done |
-| P13-01 | SDK: `maxSpansPerTrace` and dropped-span counting | opus | P13-00 | done (local checks; see "As built (P13-01)") |
+| P13-01 | SDK: `maxSpansPerTrace` and dropped-span counting | opus | P13-00 | done (reviewed) |
 | P13-02 | Server: per-trace cap at ingest, dropped count stored, `droppedSpans` in `trace`; embedded store reads the attributes | sonnet | P13-00 | done |
 | P13-03 | UI: "omitted N spans" in the trace view | sonnet | P13-00 | done |
-| P13-04 | Review, docs, changeset | lead + reviewer | P13-01..03 | todo |
+| P13-04 | Review, docs, changeset | lead + reviewer | P13-01..03 | done (Opus review of P13-01: 3 findings fixed (live traces evicted by leftovers, dropped withSpan not active, host siblings unlimited), 1 documented gap (host-owned SDK, strictly sequential siblings: drops enforced but not written to a span); server root/count spans exempt from the cap; pnpm verify 3,737 tests, UI 179, app e2e 18; changeset `span-limits-per-trace`) |
 
 ## Settled design
 
