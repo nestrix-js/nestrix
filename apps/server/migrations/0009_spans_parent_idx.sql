@@ -1,0 +1,14 @@
+-- Own time (a span's duration minus its children's) looks children up by (trace_id,
+-- parent_span_id). The primary key (trace_id, span_id, start_time) cannot serve that lookup, so
+-- every such query re-read whole traces: with a trace of thousands of spans (a job fanning out)
+-- the Overview and Classes queries took seconds.
+--
+-- Created on the partitioned parent, so it applies to the existing daily partitions and to every
+-- partition created later (CREATE TABLE ... PARTITION OF inherits the parent's indexes).
+--
+-- A partitioned table's index cannot be built CONCURRENTLY, so ingest waits on each partition
+-- while its index builds. A large install can avoid that by pre-building the indexes before
+-- upgrading (apps/server/README.md, upgrade notes): per partition CREATE INDEX CONCURRENTLY, then
+-- CREATE INDEX spans_parent_idx ON ONLY spans (...), then ALTER INDEX ... ATTACH PARTITION for
+-- each. This statement is IF NOT EXISTS, so it then does nothing.
+CREATE INDEX IF NOT EXISTS spans_parent_idx ON spans (trace_id, parent_span_id);

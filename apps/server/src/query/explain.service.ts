@@ -21,6 +21,8 @@ import { TARGET_KEYS, targetOf } from "./targets.js";
 
 const MINUTE_MS = 60_000;
 const MAX_RELEASES = 20;
+/** Spans loaded per side: traces are taken newest first until their span counts add up to this. */
+const MAX_SPANS_PER_SIDE = 200_000;
 
 const DEPENDENCY_KIND: Record<string, "http" | "db" | "redis" | "messaging"> = {
   http: "http",
@@ -58,6 +60,7 @@ interface TraceSqlRow {
   duration_ms: number | string;
   http_status: number | null;
   is_error: boolean;
+  span_count: number;
 }
 
 interface SpanSqlRow {
@@ -191,13 +194,23 @@ export class ExplainService {
     if (side.toMs !== undefined) {
       where.push(`start_time <= ${p.add(new Date(side.toMs))}`);
     }
-    return this.rows<TraceSqlRow>(
+    const rows = await this.rows<TraceSqlRow>(
       `SELECT trace_id, (extract(epoch FROM start_time) * 1000)::float8 AS start_ms,
-              (duration_ns::float8 / 1e6) AS duration_ms, http_status, is_error
+              (duration_ns::float8 / 1e6) AS duration_ms, http_status, is_error, span_count
          FROM traces WHERE ${where.join(" AND ")}
         ORDER BY start_time DESC LIMIT ${MAX_TRACES_PER_SIDE}`,
       p.values,
     );
+    // Newest first, until the spans to load would pass the cap (a job trace can hold tens of
+    // thousands of spans, and 2,000 of those do not fit in memory).
+    const kept: TraceSqlRow[] = [];
+    let spans = 0;
+    for (const row of rows) {
+      spans += Number(row.span_count);
+      if (spans > MAX_SPANS_PER_SIDE) break;
+      kept.push(row);
+    }
+    return kept;
   }
 
   /** Releases with stored traces of the route, most recent trace first. */

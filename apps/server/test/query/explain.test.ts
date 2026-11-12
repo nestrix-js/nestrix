@@ -204,6 +204,30 @@ describe.skipIf(noDatabase)(`route explain endpoint ${skipReason}`, () => {
     expect(hour.summary).toMatch(/^Mean time went from 20 ms to 40 ms/);
   });
 
+  it("loads at most 200,000 spans per side, newest traces first", async () => {
+    // Pretend the six current traces are job traces of 90,000 spans each: two fit under the cap.
+    await db.pool.query(
+      "UPDATE traces SET span_count = 90000 WHERE service_name = 'shop' AND http_route = '/orders' AND trace_id >= $1 AND trace_id < $2",
+      [tid(200), tid(206)],
+    );
+    try {
+      const r = await server.json<RouteExplainResponse>(
+        "/api/v1/routes/explain?route=/orders&windowMinutes=15&service=shop",
+      );
+      expect(r.after.traces).toBe(2);
+      // The newest two (the ones that started last), not the oldest.
+      expect(r.slowest.map((t) => t.traceId).sort()).toEqual([
+        tid(204),
+        tid(205),
+      ]);
+    } finally {
+      await db.pool.query(
+        "UPDATE traces SET span_count = (SELECT count(*) FROM spans s WHERE s.trace_id = traces.trace_id) WHERE trace_id >= $1 AND trace_id < $2",
+        [tid(200), tid(206)],
+      );
+    }
+  });
+
   it("compares two releases, and honours the service filter", async () => {
     const r = await server.json<RouteExplainResponse>(
       "/api/v1/routes/explain?route=/orders&releaseA=1.0&releaseB=2.0",

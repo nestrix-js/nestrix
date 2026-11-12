@@ -18,6 +18,8 @@ import {
 import { QueryService } from "./query.service.js";
 
 const MINUTE_MS = 60_000;
+/** Clock skew allowed between a span and a child on another host. */
+const SKEW_MS = MINUTE_MS;
 
 /** Placeholders for one statement: `add` returns `$n` for the value. */
 class Params {
@@ -215,20 +217,31 @@ export class OverviewService {
       `s.start_time <= ${p.add(new Date(toMs))}`,
     ];
     if (service !== undefined) where.push(`s.service_name = ${p.add(service)}`);
+    // One pass: the window's spans once, their children summed once per parent. A child may start
+    // a little before its parent (another host's clock), so children are bounded by the window's
+    // start less a minute of skew, which still lets Postgres skip older partitions.
+    const skewFrom = p.add(new Date(fromMs - SKEW_MS));
     const rows = await this.rows<KindSqlRow>(
-      `SELECT s.kind,
+      `WITH win AS (
+         SELECT s.trace_id, s.span_id, s.kind, s.attributes, s.class_name, s.duration_ns
+           FROM spans s
+          WHERE ${where.join(" AND ")}
+       ), kids AS (
+         SELECT c.trace_id, c.parent_span_id, sum(c.duration_ns) AS child_ns
+           FROM spans c
+          WHERE c.trace_id IN (SELECT trace_id FROM win)
+            AND c.parent_span_id IS NOT NULL
+            AND c.start_time >= ${skewFrom}
+          GROUP BY c.trace_id, c.parent_span_id
+       )
+       SELECT s.kind,
               lower(coalesce(s.attributes->>'db.system.name', s.attributes->>'db.system')) AS db_system,
               (s.attributes ? 'messaging.system') AS messaging,
               (s.attributes ?| array['http.request.method', 'http.method', 'url.full']) AS http,
               (s.class_name IS NOT NULL OR s.attributes ? 'nestrix.component') AS nest,
               (sum(greatest(0, s.duration_ns - coalesce(ch.child_ns, 0)))::float8 / 1e6) AS own_ms
-         FROM spans s
-         LEFT JOIN LATERAL (
-           SELECT sum(c.duration_ns) AS child_ns FROM spans c
-            WHERE c.trace_id = s.trace_id AND c.parent_span_id = s.span_id
-              AND c.start_time >= s.start_time
-         ) ch ON true
-        WHERE ${where.join(" AND ")}
+         FROM win s
+         LEFT JOIN kids ch ON ch.trace_id = s.trace_id AND ch.parent_span_id = s.span_id
         GROUP BY 1, 2, 3, 4, 5`,
       p.values,
     );

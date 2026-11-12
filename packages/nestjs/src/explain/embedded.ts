@@ -21,6 +21,20 @@ import {
 } from "./compute.js";
 
 const MAX_RELEASES = 20;
+/** Spans kept per side: the newest traces whose span counts add up to this (job traces are huge). */
+export const MAX_SPANS_PER_SIDE = 200_000;
+
+/** Drops the oldest traces of a side while it holds more than the span cap (keeps at least one). */
+export function trimSpans(side: ExplainSideInput): void {
+  let spans = 0;
+  for (const t of side.traces) spans += t.spans.length;
+  let drop = 0;
+  while (spans > MAX_SPANS_PER_SIDE && drop < side.traces.length - 1) {
+    spans -= (side.traces[drop] as ExplainTraceInput).spans.length;
+    drop++;
+  }
+  if (drop > 0) side.traces = side.traces.slice(drop);
+}
 
 const DEPENDENCY_KIND: Partial<
   Record<MapNodeKind, "http" | "db" | "redis" | "messaging">
@@ -104,6 +118,7 @@ export function buildEmbeddedExplain(
       };
 
   const latest = new Map<string, number>();
+  let spansSinceTrim = 0;
   try {
     if (!none) {
       store?.scanTraces(
@@ -138,12 +153,21 @@ export function buildEmbeddedExplain(
           if (side.traces.length > 2 * MAX_TRACES_PER_SIDE) {
             side.traces = side.traces.slice(-MAX_TRACES_PER_SIDE);
           }
+          // The span cap is checked once the side has grown by half of it again, so the work
+          // stays amortised and memory stays under about 1.5 times the cap.
+          spansSinceTrim += trace.spans.length;
+          if (spansSinceTrim > MAX_SPANS_PER_SIDE / 2) {
+            spansSinceTrim = 0;
+            trimSpans(side);
+          }
         },
       );
     }
   } catch {
     // Answer with what was gathered.
   }
+  trimSpans(before);
+  trimSpans(after);
   if (releaseMode) {
     for (const side of [before, after]) {
       let first = Number.POSITIVE_INFINITY;

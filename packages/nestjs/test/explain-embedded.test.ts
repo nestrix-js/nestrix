@@ -4,6 +4,7 @@ import type { RouteExplainResponse } from "@nestrix-js/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type ApiSources, routeExplainHandler } from "../src/dashboard/api.js";
 import { resetDiagnosticsForTests } from "../src/diagnostics.js";
+import { MAX_SPANS_PER_SIDE, trimSpans } from "../src/explain/embedded.js";
 import { ClassStatistics } from "../src/stats/class-stats.js";
 import { RouteStatistics } from "../src/stats/route-stats.js";
 import { createStoreProcessor } from "../src/store/processor.js";
@@ -258,5 +259,54 @@ describe("route explain endpoint (express)", () => {
     );
     expect((await get(api, BEARER)).status).toBe(400);
     expect((await get(`${api}?route=/h/ok`)).status).not.toBe(200);
+  });
+});
+
+describe("span cap per side", () => {
+  const spanInput = {
+    spanId: "a",
+    durationMs: 1,
+    error: false,
+    key: "app" as const,
+    exceptions: [],
+  };
+  const trace = (n: number, spans: number) => ({
+    traceId: `t${n}`,
+    startUnixMs: n,
+    durationMs: 1,
+    status: 200,
+    error: false,
+    spans: Array.from({ length: spans }, () => spanInput),
+  });
+
+  it("drops the oldest traces until the spans fit, and keeps the newest", () => {
+    const per = MAX_SPANS_PER_SIDE / 2 - 10;
+    const side = {
+      label: "current",
+      fromUnixMs: 0,
+      toUnixMs: 10,
+      traces: [trace(1, per), trace(2, per), trace(3, per), trace(4, per)],
+    };
+    trimSpans(side);
+    expect(side.traces.map((t) => t.traceId)).toEqual(["t3", "t4"]);
+  });
+
+  it("leaves a side under the cap alone, and keeps one trace even when it alone is over", () => {
+    const small = {
+      label: "c",
+      fromUnixMs: 0,
+      toUnixMs: 1,
+      traces: [trace(1, 5), trace(2, 5)],
+    };
+    trimSpans(small);
+    expect(small.traces).toHaveLength(2);
+    const huge = {
+      label: "c",
+      fromUnixMs: 0,
+      toUnixMs: 1,
+      traces: [trace(1, 10), trace(2, MAX_SPANS_PER_SIDE + 1)],
+    };
+    trimSpans(huge);
+    expect(huge.traces.map((t) => t.traceId)).toEqual(["t2"]);
   });
 });
