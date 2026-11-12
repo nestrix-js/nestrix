@@ -73,6 +73,36 @@ export function runtimeCharts(samples: RuntimeSample[]): RuntimeCharts {
   };
 }
 
+/** How a figure stands against its thresholds: fine, worth watching, or too high. */
+export type Level = "ok" | "watch" | "high";
+
+export const levelLabel: Record<Level, string> = {
+  ok: "Normal",
+  watch: "Elevated",
+  high: "High",
+};
+
+const level = (value: number, watch: number, high: number): Level =>
+  value >= high ? "high" : value >= watch ? "watch" : "ok";
+
+/** Event loop p99: elevated from 20 ms (users feel it), high from 50 ms. */
+export const loopLevel = (p99Ms: number): Level => level(p99Ms, 20, 50);
+
+/** CPU percent of one core, user plus system: elevated from 60, high from 85. */
+export const cpuLevel = (percent: number): Level => level(percent, 60, 85);
+
+/**
+ * Heap in use against the heap V8 has allocated: elevated from 75%, high from 90%. This is not
+ * the heap limit (the samples do not carry it), so a high share means V8 is about to grow it.
+ */
+export function heapLevel(usedBytes: number, totalBytes: number): Level {
+  return totalBytes > 0 ? level(usedBytes / totalBytes, 0.75, 0.9) : "ok";
+}
+
+/** The values of a column without its gaps, for a tile's trend line. */
+export const present = (values: readonly (number | null)[]): number[] =>
+  values.filter((v): v is number => v !== null);
+
 /** `812 KB`, `54.3 MB`, `1.20 GB`. */
 export function formatMemory(bytes: number): string {
   if (!Number.isFinite(bytes)) return "-";
@@ -80,6 +110,13 @@ export function formatMemory(bytes: number): string {
   if (bytes < 1_000_000) return `${Math.round(bytes / 1000)} KB`;
   if (bytes < 1_000_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
   return `${(bytes / 1_000_000_000).toFixed(2)} GB`;
+}
+
+/** `formatMemory`, but whole MB from 100 MB up so the chart's axis labels keep to their width. */
+export function formatMemoryAxis(bytes: number): string {
+  return Number.isFinite(bytes) && bytes >= 100_000_000 && bytes < 1_000_000_000
+    ? `${Math.round(bytes / 1_000_000)} MB`
+    : formatMemory(bytes);
 }
 
 export function formatPercent(value: number): string {

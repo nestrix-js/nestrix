@@ -2,6 +2,7 @@ import type { FlameNode } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 
 import {
+  cpuByOrigin,
   formatBytes,
   formatMs,
   frameKind,
@@ -45,8 +46,8 @@ describe("frames", () => {
     expect(frameKind("file:///srv/app/node_modules/@nestjs/core/x.js")).toBe(
       "deps",
     );
-    expect(frameKind("node:internal/timers")).toBe("runtime");
-    expect(frameKind("")).toBe("runtime");
+    expect(frameKind("node:internal/timers")).toBe("node");
+    expect(frameKind("")).toBe("v8");
   });
 
   it("prints short locations", () => {
@@ -56,6 +57,63 @@ describe("frames", () => {
     expect(
       frameLabel({ functionName: "hot", url: "file:///a/b/c.js", line: 7 }),
     ).toBe("hot b/c.js:7");
+  });
+});
+
+describe("frame origins", () => {
+  it("tells apart your code, dependencies, Node built-ins and V8", () => {
+    expect(frameKind("file:///srv/app/src/a.ts", "a")).toBe("app");
+    expect(
+      frameKind("file:///srv/app/node_modules/pg/lib/client.js", "q"),
+    ).toBe("deps");
+    expect(frameKind("file:///C:/app/node_modules/pg/x.js", "q")).toBe("deps");
+    expect(frameKind("/srv/app/dist/main.js", "m")).toBe("app");
+    expect(frameKind("C:\\app\\dist\\main.js", "m")).toBe("app");
+    expect(frameKind("C:\\app\\node_modules\\pg\\x.js", "m")).toBe("deps");
+    expect(frameKind("node:internal/process/task_queues", "t")).toBe("node");
+    expect(frameKind("internal/timers", "t")).toBe("node");
+    expect(frameKind("", "(garbage collector)")).toBe("v8");
+    expect(frameKind("", "(program)")).toBe("v8");
+    expect(frameKind("wasm://wasm/abc", "wasm-function[3]")).toBe("node");
+    expect(frameKind("wasm://wasm/abc", "(program)")).toBe("v8");
+  });
+
+  it("sums each node's own samples by origin and reports what the pruning dropped", () => {
+    const root = node(
+      "(root)",
+      100,
+      [
+        node("main", 70, [
+          node("hot", 40),
+          node("lib", 20, [], "file:///app/node_modules/x/index.js"),
+        ]),
+        node("tick", 10, [], "node:internal/timers"),
+        node("(garbage collector)", 15, [], ""),
+      ],
+      "",
+    );
+    // main: 70 total, children 60, so 10 self (app); hot 40 (app); lib 20 (deps); tick 10 (node);
+    // gc 15 (v8); root 100 total, children 95, so 5 self (v8: empty URL).
+    const by = Object.fromEntries(cpuByOrigin(root).map((s) => [s.kind, s]));
+    expect(by.app?.samples).toBe(50);
+    expect(by.deps?.samples).toBe(20);
+    expect(by.node?.samples).toBe(10);
+    expect(by.v8?.samples).toBe(20);
+    expect(by.pruned).toBeUndefined();
+    expect(by.app?.fraction).toBeCloseTo(0.5);
+
+    // A node with samples neither its own nor its children's: the server pruned them.
+    const pruned: FlameNode = {
+      ...node("(root)", 100, [node("a", 30)], ""),
+      selfSamples: 0,
+    };
+    const shares = cpuByOrigin(pruned);
+    expect(shares.find((s) => s.kind === "pruned")?.samples).toBe(70);
+    expect(shares.reduce((sum, s) => sum + s.samples, 0)).toBe(100);
+  });
+
+  it("answers nothing for an empty profile", () => {
+    expect(cpuByOrigin(node("(root)", 0, [], ""))).toEqual([]);
   });
 });
 
@@ -75,7 +133,7 @@ describe("layoutFlame", () => {
     });
     expect(at("lib")).toMatchObject({ depth: 2, x: 0.6, kind: "deps" });
     expect(at("lib")?.width).toBeCloseTo(0.2);
-    expect(at("(program)")?.kind).toBe("runtime");
+    expect(at("(program)")?.kind).toBe("v8");
   });
 
   it("zooms to a node by its path", () => {

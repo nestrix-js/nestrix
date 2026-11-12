@@ -34,6 +34,7 @@
   --color-flame-app: var(--flame-app);
   --color-flame-deps: var(--flame-deps);
   --color-flame-runtime: var(--flame-runtime);
+  --color-flame-v8: var(--flame-v8);
 }
 
 :root {
@@ -68,6 +69,8 @@
   --flame-app: #2a78d6;
   --flame-deps: #eb6834;
   --flame-runtime: #1baf7a;
+  /* V8's own entries ((program), (garbage collector)): a neutral grey, not a fourth hue. */
+  --flame-v8: #8b8b95;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -96,7 +99,16 @@
     --flame-app: #3987e5;
     --flame-deps: #d95926;
     --flame-runtime: #199e70;
+    --flame-v8: #9a9aa4;
   }
+}
+
+/* uPlot's legend at the dashboard's small-print size, not its 14px bold default. */
+.uplot .u-legend {
+  font-size: 12px;
+}
+.uplot .u-legend th {
+  font-weight: 500;
 }
 
 body {

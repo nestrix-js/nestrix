@@ -1,11 +1,18 @@
 import type {
   InstanceSummary,
+  RemoteProfileState,
   RemoteProfileSummary,
 } from "@nestrix-js/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Flame } from "lucide-react";
 import { useState } from "react";
 
+import { Chip } from "@/components/kit/chip";
+import type { ChipTone } from "@/components/kit/format";
+import { PageHeader } from "@/components/kit/page-header";
+import { Section } from "@/components/kit/section";
+import { SkeletonList } from "@/components/kit/skeletons";
+import { EmptyState } from "@/components/kit/states";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -33,7 +40,9 @@ import {
   startPauseWarning,
 } from "@/views/profiler/profile-format";
 import {
+  CaptureProgress,
   DownloadLink,
+  Problem,
   ProfileBody,
   ProfilerCaveats,
 } from "@/views/profiler/profile-parts";
@@ -58,41 +67,52 @@ const OPT_IN_SNIPPET = `NestrixModule.forRoot({
   },
 });`;
 
+const SOURCE_INSTANCES = "from instance check-ins";
+const SOURCE_CAPTURES = "from this server's capture store";
+
+const stateTone: Record<RemoteProfileState, ChipTone> = {
+  pending: "neutral",
+  running: "info",
+  done: "better",
+  failed: "worse",
+  expired: "worse",
+};
+
 /** A refused start, kept with when it arrived so a `429`'s countdown can run. */
-interface Problem {
+interface RefusedStart {
   error: Error;
   instanceId: string;
   atMs: number;
 }
 
 function RemoteProfileView({ summary }: { summary: RemoteProfileSummary }) {
+  const now = useNow();
   const detail = useQuery({
     queryKey: ["remote-profile", summary.id],
     queryFn: () => getRemoteProfile(summary.id),
     staleTime: Number.POSITIVE_INFINITY,
   });
-  if (detail.isError) {
-    return (
-      <p role="alert" className="text-sm text-destructive">
-        {detail.error.message}
-      </p>
-    );
-  }
+  if (detail.isError) return <Problem>{detail.error.message}</Problem>;
   const data = detail.data;
-  if (!data) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (!data) return <SkeletonList rows={5} />;
   if (!data.flame || !data.topFunctions) {
     return (
-      <p className="text-sm text-muted-foreground">
-        This capture has no profile to show.
-      </p>
+      <EmptyState
+        title="This capture has no profile to show"
+        icon={<Flame />}
+      />
     );
   }
+  const samples = data.samples ?? data.flame.totalSamples;
   return (
     <ProfileBody
       id={data.id}
       flame={data.flame}
       topFunctions={data.topFunctions}
-      samples={data.samples ?? data.flame.totalSamples}
+      samples={samples}
+      title={`Capture of ${shortInstanceId(data.instanceId)} from ${formatRelative(data.requestedAtUnixMs, now)}`}
+      subtitle={`${samples.toLocaleString("en")} samples · ${data.bytes === null ? "" : `${formatBytes(data.bytes)} · `}${durationLabel(Math.round(data.durationMs / 1000))} · main thread JavaScript, no source maps`}
+      actions={<DownloadLink href={remoteProfileDownloadUrl(data.id).href} />}
     />
   );
 }
@@ -112,19 +132,47 @@ function InstanceRow({
   const active = capture !== null && isActive(capture);
   const status = active ? captureStatus(capture, now) : null;
   return (
-    <TableRow data-testid="instance-row" data-instance={instance.instanceId}>
+    <TableRow
+      data-testid="instance-row"
+      data-instance={instance.instanceId}
+      className="border-border"
+    >
       <TableCell className="font-mono">{instance.service}</TableCell>
       <TableCell className="font-mono" title={instance.instanceId}>
         {shortInstanceId(instance.instanceId)}
       </TableCell>
-      <TableCell>{instance.version ?? ""}</TableCell>
-      <TableCell>{instance.host ?? ""}</TableCell>
-      <TableCell className="text-right font-mono">
+      <TableCell className="font-mono text-xs">
+        {instance.version ?? ""}
+      </TableCell>
+      <TableCell className="text-muted-foreground">
+        {instance.host ?? ""}
+      </TableCell>
+      <TableCell className="text-right font-mono tabular-nums">
         {instance.pid ?? ""}
       </TableCell>
-      <TableCell>{formatRelative(instance.lastSeenUnixMs, now)}</TableCell>
-      <TableCell className="space-y-1">
-        <div className="flex items-center gap-2">
+      <TableCell className="text-muted-foreground">
+        {formatRelative(instance.lastSeenUnixMs, now)}
+      </TableCell>
+      <TableCell className="min-w-52">
+        <div className="flex items-center justify-end gap-3">
+          {status && (
+            <div className="flex min-w-0 flex-1 flex-col items-end gap-1">
+              <span
+                id={`status-${instance.instanceId}`}
+                data-testid="instance-status"
+                className="text-xs text-muted-foreground"
+              >
+                {status.label}
+              </span>
+              {capture && status.progress != null && (
+                <CaptureProgress
+                  value={status.progress}
+                  max={capture.durationMs}
+                  className="w-full"
+                />
+              )}
+            </div>
+          )}
           <Button
             size="sm"
             disabled={active || starting}
@@ -136,24 +184,7 @@ function InstanceRow({
             <Flame />
             Capture
           </Button>
-          {status && (
-            <span
-              id={`status-${instance.instanceId}`}
-              data-testid="instance-status"
-              className="text-xs text-muted-foreground"
-            >
-              {status.label}
-            </span>
-          )}
         </div>
-        {capture && status?.progress != null && (
-          <progress
-            className="h-1.5 w-full accent-primary"
-            max={capture.durationMs}
-            value={status.progress}
-            aria-label="Capture progress"
-          />
-        )}
       </TableCell>
     </TableRow>
   );
@@ -171,7 +202,7 @@ export function StandaloneProfilerPage() {
   const [service] = useService();
   const [seconds, setSeconds] = useState<number>(REMOTE_DEFAULT_SECONDS);
   const [selected, setSelected] = useState<string | null>(null);
-  const [problem, setProblem] = useState<Problem | null>(null);
+  const [problem, setProblem] = useState<RefusedStart | null>(null);
 
   const instances = useQuery({
     queryKey: ["instances", service ?? null],
@@ -239,13 +270,14 @@ export function StandaloneProfilerPage() {
   }
 
   return (
-    <section className="space-y-4" aria-label="Profiler">
-      <h2 className="text-lg font-semibold">Profiler</h2>
-
-      <div className="space-y-3 rounded-lg border border-border p-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="space-y-1 text-sm">
-            <label htmlFor="remote-duration" className="block font-medium">
+    <section className="space-y-6" aria-label="Profiler">
+      <PageHeader
+        title="CPU profiler"
+        description="Instances that opted in with export.profiler check in every 15 s; pick one and capture where its main thread spends its time"
+        source="captured on demand, per instance"
+        controls={
+          <div className="flex items-center gap-2 text-sm">
+            <label htmlFor="remote-duration" className="font-medium">
               Duration
             </label>
             <select
@@ -261,180 +293,181 @@ export function StandaloneProfilerPage() {
               ))}
             </select>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Each instance picks the capture up on its next check-in, every 15 s.
-          </p>
-        </div>
-        <p
-          data-testid="start-pause-warning"
-          className="text-sm text-muted-foreground"
-        >
-          {startPauseWarning(null)}
+        }
+      />
+      <div className="space-y-2 rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+        <p data-testid="start-pause-warning">{startPauseWarning(null)}</p>
+        <p>
+          Each instance picks the capture up on its next check-in, every 15 s.
         </p>
-        {problemText && (
-          <p role="alert" className="text-sm text-destructive">
-            {problemText}
-          </p>
-        )}
       </div>
+      {problemText && <Problem>{problemText}</Problem>}
 
+      {instances.isPending && <SkeletonList rows={3} />}
       {instances.isError && !list && (
-        <p role="alert" className="text-sm text-destructive">
-          Could not load instances: {instances.error.message}
-        </p>
+        <Problem>Could not load instances: {instances.error.message}</Problem>
       )}
 
       {list && list.length === 0 && (
-        <div
-          data-testid="instances-empty"
-          className="space-y-2 rounded-lg border border-border p-6 text-sm text-muted-foreground"
+        <EmptyState
+          testId="instances-empty"
+          icon={<Flame />}
+          title="No instance has checked in during the last 2 minutes"
+          action={
+            <>
+              <pre className="max-w-full overflow-x-auto rounded-lg bg-muted p-3 text-left font-mono text-xs">
+                <code>{OPT_IN_SNIPPET}</code>
+              </pre>
+              <p className="max-w-md text-sm text-muted-foreground">
+                The application starts each capture by pausing its main thread
+                briefly, as the note above says.
+              </p>
+            </>
+          }
         >
-          <p>
-            No instance has checked in during the last 2 minutes. An application
-            appears here once it opts in to remote profiling and sends its
-            traces to this server:
-          </p>
-          <pre className="overflow-x-auto rounded-lg bg-muted p-3 font-mono text-xs text-foreground">
-            <code>{OPT_IN_SNIPPET}</code>
-          </pre>
-          <p>
-            The application starts each capture by pausing its main thread
-            briefly, as the note above says.
-          </p>
-        </div>
+          An application appears here once it opts in to remote profiling and
+          sends its traces to this server:
+        </EmptyState>
       )}
 
       {list && list.length > 0 && (
-        <Table data-testid="instances">
-          <TableHeader>
-            <TableRow>
-              <TableHead>Service</TableHead>
-              <TableHead>Instance</TableHead>
-              <TableHead>Version</TableHead>
-              <TableHead>Host</TableHead>
-              <TableHead className="text-right">PID</TableHead>
-              <TableHead>Last seen</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {list.map((instance) => (
-              <InstanceRow
-                key={`${instance.service}:${instance.instanceId}`}
-                instance={instance}
-                now={now}
-                starting={
-                  start.isPending &&
-                  start.variables?.instanceId === instance.instanceId
-                }
-                onCapture={() => {
-                  setProblem(null);
-                  start.mutate(instance);
-                }}
-              />
-            ))}
-          </TableBody>
-        </Table>
+        <Section
+          testId="instances-section"
+          title="Instances"
+          description="Seen in the last 2 minutes, newest check-in first"
+          source={SOURCE_INSTANCES}
+          flush
+        >
+          <Table data-testid="instances">
+            <TableHeader>
+              <TableRow className="border-border">
+                <TableHead>Service</TableHead>
+                <TableHead>Instance</TableHead>
+                <TableHead>Version</TableHead>
+                <TableHead>Host</TableHead>
+                <TableHead className="text-right">PID</TableHead>
+                <TableHead>Last seen</TableHead>
+                <TableHead className="text-right">Capture</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {list.map((instance) => (
+                <InstanceRow
+                  key={`${instance.service}:${instance.instanceId}`}
+                  instance={instance}
+                  now={now}
+                  starting={
+                    start.isPending &&
+                    start.variables?.instanceId === instance.instanceId
+                  }
+                  onCapture={() => {
+                    setProblem(null);
+                    start.mutate(instance);
+                  }}
+                />
+              ))}
+            </TableBody>
+          </Table>
+        </Section>
       )}
 
-      <h3 className="font-semibold">Captures</h3>
       {history.isError && !profiles && (
-        <p role="alert" className="text-sm text-destructive">
-          Could not load captures: {history.error.message}
-        </p>
+        <Problem>Could not load captures: {history.error.message}</Problem>
       )}
       {profiles && profiles.length === 0 && (
-        <p
-          data-testid="profiles-empty"
-          className="rounded-lg border border-border p-6 text-center text-sm text-muted-foreground"
+        <EmptyState
+          testId="profiles-empty"
+          icon={<Flame />}
+          title="No captures yet"
         >
-          No captures yet.
-        </p>
+          Capture an instance above; its profile shows up here.
+        </EmptyState>
       )}
       {profiles && profiles.length > 0 && (
-        <Table data-testid="remote-profiles">
-          <TableHeader>
-            <TableRow>
-              <TableHead>State</TableHead>
-              <TableHead>Instance</TableHead>
-              <TableHead>Version</TableHead>
-              <TableHead>Requested</TableHead>
-              <TableHead className="text-right">Duration</TableHead>
-              <TableHead className="text-right">Samples</TableHead>
-              <TableHead className="text-right">Size</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {profiles.map((p) => (
-              <TableRow
-                key={p.id}
-                data-testid="remote-profile-row"
-                data-state={p.state}
-                data-selected={p.id === shown}
-                className={cn(p.id === shown && "bg-muted")}
-              >
-                <TableCell>
-                  <span
-                    data-testid="state-badge"
-                    className={cn(
-                      "rounded-full px-2 py-0.5 text-xs",
-                      p.state === "done"
-                        ? "bg-secondary text-secondary-foreground"
-                        : p.state === "failed" || p.state === "expired"
-                          ? "bg-destructive/10 text-destructive"
-                          : "bg-muted text-muted-foreground",
-                    )}
-                    title={p.error ?? undefined}
-                  >
-                    {stateLabel[p.state]}
-                  </span>
-                  {p.error && (
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      {p.error}
+        <Section
+          testId="captures-section"
+          title="Recent captures"
+          description="Newest first, at most 50"
+          source={SOURCE_CAPTURES}
+          flush
+        >
+          <Table data-testid="remote-profiles">
+            <TableHeader>
+              <TableRow className="border-border">
+                <TableHead>State</TableHead>
+                <TableHead>Instance</TableHead>
+                <TableHead>Version</TableHead>
+                <TableHead>Requested</TableHead>
+                <TableHead className="text-right">Duration</TableHead>
+                <TableHead className="text-right">Samples</TableHead>
+                <TableHead className="text-right">Size</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {profiles.map((p) => (
+                <TableRow
+                  key={p.id}
+                  data-testid="remote-profile-row"
+                  data-state={p.state}
+                  data-selected={p.id === shown}
+                  className={cn("border-border", p.id === shown && "bg-muted")}
+                >
+                  <TableCell>
+                    <span className="flex items-center gap-2">
+                      <Chip
+                        data-testid="state-badge"
+                        tone={stateTone[p.state]}
+                        title={p.error ?? undefined}
+                      >
+                        {stateLabel[p.state]}
+                      </Chip>
+                      {p.error && (
+                        <span className="text-xs text-muted-foreground">
+                          {p.error}
+                        </span>
+                      )}
                     </span>
-                  )}
-                </TableCell>
-                <TableCell className="font-mono" title={p.instanceId}>
-                  {shortInstanceId(p.instanceId)}
-                </TableCell>
-                <TableCell>{p.version ?? ""}</TableCell>
-                <TableCell>
-                  {formatRelative(p.requestedAtUnixMs, now)}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {durationLabel(Math.round(p.durationMs / 1000))}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {p.samples ?? ""}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {p.bytes === null ? "" : formatBytes(p.bytes)}
-                </TableCell>
-                <TableCell className="space-x-2 text-right">
-                  {p.state === "done" && (
-                    <>
+                  </TableCell>
+                  <TableCell className="font-mono" title={p.instanceId}>
+                    {shortInstanceId(p.instanceId)}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {p.version ?? ""}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {formatRelative(p.requestedAtUnixMs, now)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {durationLabel(Math.round(p.durationMs / 1000))}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {p.samples ?? ""}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {p.bytes === null ? "" : formatBytes(p.bytes)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {p.state === "done" && (
                       <Button
                         variant="outline"
                         size="sm"
+                        aria-pressed={p.id === shown}
                         onClick={() => setSelected(p.id)}
                       >
                         View
                       </Button>
-                      <DownloadLink
-                        href={remoteProfileDownloadUrl(p.id).href}
-                      />
-                    </>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Section>
       )}
 
       {shownProfile && shownProfile.state === "done" && (
-        <RemoteProfileView summary={shownProfile} />
+        <RemoteProfileView key={shownProfile.id} summary={shownProfile} />
       )}
 
       <ProfilerCaveats />

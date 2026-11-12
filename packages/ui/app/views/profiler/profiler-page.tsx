@@ -1,7 +1,13 @@
+import type { ProfileSummary } from "@nestrix-js/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Flame } from "lucide-react";
 import { useState } from "react";
 
+import { Chip } from "@/components/kit/chip";
+import { PageHeader } from "@/components/kit/page-header";
+import { Section } from "@/components/kit/section";
+import { SkeletonChart, SkeletonList } from "@/components/kit/skeletons";
+import { EmptyState } from "@/components/kit/states";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -28,34 +34,43 @@ import {
   startPauseWarning,
 } from "@/views/profiler/profile-format";
 import {
+  CaptureProgress,
   DownloadLink,
+  Problem,
   ProfileBody,
   ProfilerCaveats,
 } from "@/views/profiler/profile-parts";
 import { StandaloneProfilerPage } from "@/views/profiler/standalone-profiler-page";
 import { startProblem } from "@/views/profiler/start-problem";
 
-function ProfileView({ id }: { id: string }) {
+const SOURCE_PROCESS = "this process, captured on demand";
+const DESCRIPTION = "Where the main thread spends its time";
+
+function ProfileView({ summary }: { summary: ProfileSummary }) {
+  const now = useNow();
   const detail = useQuery({
-    queryKey: ["profile", id],
-    queryFn: () => getProfile(id),
+    queryKey: ["profile", summary.id],
+    queryFn: () => getProfile(summary.id),
     staleTime: Number.POSITIVE_INFINITY,
   });
-  if (detail.isError) {
+  if (detail.isError) return <Problem>{detail.error.message}</Problem>;
+  if (!detail.data) {
     return (
-      <p role="alert" className="text-sm text-destructive">
-        {detail.error.message}
-      </p>
+      <div className="space-y-4" aria-busy="true">
+        <SkeletonChart heightClass="h-32" />
+        <SkeletonList rows={5} />
+      </div>
     );
   }
-  if (!detail.data)
-    return <p className="text-sm text-muted-foreground">Loading…</p>;
   return (
     <ProfileBody
-      id={id}
+      id={summary.id}
       flame={detail.data.flame}
       topFunctions={detail.data.topFunctions}
       samples={detail.data.samples}
+      title={`Capture from ${formatRelative(summary.startedAtUnixMs, now)}`}
+      subtitle={`${summary.samples.toLocaleString("en")} samples · ${formatMs(summary.actualDurationMs)} · ${formatBytes(summary.bytes)} · main thread JavaScript, no source maps`}
+      actions={<DownloadLink href={profileDownloadUrl(summary.id).href} />}
     />
   );
 }
@@ -88,16 +103,21 @@ function EmbeddedProfilerPage() {
 
   if (meta.data !== undefined && !available) {
     return (
-      <section aria-label="Profiler" className="space-y-2">
-        <h2 className="text-lg font-semibold">Profiler</h2>
-        <p
-          data-testid="profiler-unavailable"
-          className="text-sm text-muted-foreground"
+      <section aria-label="Profiler" className="space-y-6">
+        <PageHeader
+          title="CPU profiler"
+          description={DESCRIPTION}
+          source={SOURCE_PROCESS}
+        />
+        <EmptyState
+          testId="profiler-unavailable"
+          icon={<Flame />}
+          title="The CPU profiler is not available here"
         >
           The CPU profiler is available in an application's embedded dashboard
           when it is authenticated (the startup link, or ui.auth) and
           ui.profiler is not false.
-        </p>
+        </EmptyState>
       </section>
     );
   }
@@ -105,14 +125,24 @@ function EmbeddedProfilerPage() {
   const data = profiles.data;
   const running = data?.running ?? null;
   const shown = selected ?? data?.profiles[0]?.id ?? null;
+  const shownSummary = data?.profiles.find((p) => p.id === shown);
   const elapsed = running
     ? Math.min(running.durationMs, Math.max(0, now - running.startedAtUnixMs))
     : 0;
 
   return (
-    <section className="space-y-4" aria-label="Profiler">
-      <h2 className="text-lg font-semibold">Profiler</h2>
-      <div className="space-y-3 rounded-lg border border-border p-4">
+    <section className="space-y-6" aria-label="Profiler">
+      <PageHeader
+        title="CPU profiler"
+        description={DESCRIPTION}
+        source={SOURCE_PROCESS}
+      />
+      <Section
+        testId="capture-controls"
+        title="Start a capture"
+        description="Samples the main thread's JavaScript for the chosen time"
+        source={SOURCE_PROCESS}
+      >
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1 text-sm">
             <label htmlFor="profile-duration" className="block font-medium">
@@ -151,98 +181,104 @@ function EmbeddedProfilerPage() {
           {startPauseWarning(data?.lastStartPauseMs ?? null)}
         </p>
         {running && (
-          <div className="space-y-1" data-testid="capture-running">
-            <progress
-              className="h-2 w-full accent-primary"
-              max={running.durationMs}
-              value={elapsed}
-              aria-label="Capture progress"
-            />
+          <div className="space-y-1.5" data-testid="capture-running">
+            <CaptureProgress value={elapsed} max={running.durationMs} />
             <p className="text-xs text-muted-foreground">
               {`Capturing: ${formatMs(elapsed)} of ${formatMs(running.durationMs)}. Starting it paused the application for ${formatMs(running.startPauseMs)}.`}
             </p>
           </div>
         )}
-        {problem && (
-          <p role="alert" className="text-sm text-destructive">
-            {problem}
-          </p>
-        )}
+        {problem && <Problem>{problem}</Problem>}
         {data?.lastError && (
-          <p data-testid="last-error" className="text-sm text-destructive">
+          <p
+            data-testid="last-error"
+            className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive-text"
+          >
             A capture failed {formatRelative(data.lastError.atUnixMs, now)}:{" "}
             {data.lastError.message}
           </p>
         )}
-      </div>
+      </Section>
 
       {profiles.isError && !data && (
-        <p role="alert" className="text-sm text-destructive">
-          Could not load captures: {profiles.error.message}
-        </p>
+        <Problem>Could not load captures: {profiles.error.message}</Problem>
       )}
 
       {data && data.profiles.length === 0 && !running && (
-        <p
-          data-testid="profiles-empty"
-          className="rounded-lg border border-border p-6 text-center text-sm text-muted-foreground"
+        <EmptyState
+          testId="profiles-empty"
+          icon={<Flame />}
+          title="No captures yet"
         >
-          No captures yet. The last {data.limits.kept} are kept in memory until
-          the application restarts.
-        </p>
+          {`Start one above. The last ${data.limits.kept} are kept in memory until the application restarts.`}
+        </EmptyState>
       )}
 
       {data && data.profiles.length > 0 && (
-        <Table data-testid="profiles">
-          <TableHeader>
-            <TableRow>
-              <TableHead>Started</TableHead>
-              <TableHead className="text-right">Duration</TableHead>
-              <TableHead className="text-right">Samples</TableHead>
-              <TableHead className="text-right">Start pause</TableHead>
-              <TableHead className="text-right">Size</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.profiles.map((p) => (
-              <TableRow
-                key={p.id}
-                data-testid="profile-row"
-                data-selected={p.id === shown}
-                className={cn(p.id === shown && "bg-muted")}
-              >
-                <TableCell>{formatRelative(p.startedAtUnixMs, now)}</TableCell>
-                <TableCell className="text-right font-mono">
-                  {formatMs(p.actualDurationMs)}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {p.samples}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {formatMs(p.startPauseMs)}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {formatBytes(p.bytes)}
-                </TableCell>
-                <TableCell className="space-x-2 text-right">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setSelected(p.id)}
-                  >
-                    View
-                  </Button>
-                  <DownloadLink href={profileDownloadUrl(p.id).href} />
-                </TableCell>
+        <Section
+          testId="recent-captures"
+          title="Recent captures"
+          description={`The last ${data.limits.kept} are kept in memory until the application restarts`}
+          source={SOURCE_PROCESS}
+          flush
+        >
+          <Table data-testid="profiles">
+            <TableHeader>
+              <TableRow className="border-border">
+                <TableHead>Started</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead className="text-right">Duration</TableHead>
+                <TableHead className="text-right">Samples</TableHead>
+                <TableHead className="text-right">Start pause</TableHead>
+                <TableHead className="text-right">Size</TableHead>
+                <TableHead />
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {data.profiles.map((p) => (
+                <TableRow
+                  key={p.id}
+                  data-testid="profile-row"
+                  data-selected={p.id === shown}
+                  className={cn("border-border", p.id === shown && "bg-muted")}
+                >
+                  <TableCell>
+                    {formatRelative(p.startedAtUnixMs, now)}
+                  </TableCell>
+                  <TableCell>
+                    <Chip tone="better">Done</Chip>
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {formatMs(p.actualDurationMs)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {p.samples}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {formatMs(p.startPauseMs)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {formatBytes(p.bytes)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-pressed={p.id === shown}
+                      onClick={() => setSelected(p.id)}
+                    >
+                      View
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Section>
       )}
 
-      {shown && data?.profiles.some((p) => p.id === shown) && (
-        <ProfileView id={shown} />
+      {shownSummary && (
+        <ProfileView key={shownSummary.id} summary={shownSummary} />
       )}
 
       <ProfilerCaveats />
