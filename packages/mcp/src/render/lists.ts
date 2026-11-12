@@ -7,15 +7,7 @@ import type {
   RouteStatsResponse,
   TraceListResponse,
 } from "@nestrix-js/protocol";
-import {
-  fmtMs,
-  fmtPct,
-  fmtTime,
-  oneLine,
-  plural,
-  table,
-  truncate,
-} from "./format.js";
+import { clean, fmtMs, fmtPct, fmtTime, plural, table } from "./format.js";
 
 /** Rows shown in a statistics table. */
 export const MAX_ROWS = 25;
@@ -35,14 +27,14 @@ export function renderTraceList(
       t.type !== "http" ? t.type : "",
     ].filter(Boolean);
     const extra = [
-      tags.join(","),
-      t.release ? `release ${t.release}` : "",
-      t.user ? `user ${truncate(t.user, 40)}` : "",
+      clean(tags.join(","), 60),
+      t.release ? `release ${clean(t.release, 60)}` : "",
+      t.user ? `user ${clean(t.user, 40)}` : "",
     ].filter(Boolean);
     return [
-      t.traceId,
+      clean(t.traceId, 64),
       fmtTime(t.startTimeUnixMs),
-      truncate(oneLine(what), 80),
+      clean(what, 80),
       t.statusCode === undefined ? "-" : String(t.statusCode),
       fmtMs(t.durationMs),
       `${t.spanCount} spans`,
@@ -73,16 +65,20 @@ export function renderErrors(list: ErrorListResponse, route?: string): string {
     { count: number; latest: number; traceId: string }
   >();
   for (const e of list.items) {
-    const key = `${e.errorType ?? e.spanName}: ${truncate(oneLine(e.message ?? ""), 160)}`;
+    const key = `${clean(e.errorType ?? e.spanName, 100)}: ${clean(e.message ?? "", 160)}`;
     const g = groups.get(key);
     if (g) {
       g.count++;
       if (e.timeUnixMs > g.latest) {
         g.latest = e.timeUnixMs;
-        g.traceId = e.traceId;
+        g.traceId = clean(e.traceId, 64);
       }
     } else {
-      groups.set(key, { count: 1, latest: e.timeUnixMs, traceId: e.traceId });
+      groups.set(key, {
+        count: 1,
+        latest: e.timeUnixMs,
+        traceId: clean(e.traceId, 64),
+      });
     }
   }
   const lines = [
@@ -101,16 +97,14 @@ export function renderErrors(list: ErrorListResponse, route?: string): string {
     ...table(
       list.items.map((e) => [
         fmtTime(e.timeUnixMs),
-        truncate(
-          oneLine(
-            e.method && e.route
-              ? `${e.method} ${e.route}`
-              : (e.route ?? e.spanName),
-          ),
+        clean(
+          e.method && e.route
+            ? `${e.method} ${e.route}`
+            : (e.route ?? e.spanName),
           60,
         ),
         e.statusCode === undefined ? "-" : String(e.statusCode),
-        e.traceId,
+        clean(e.traceId, 64),
       ]),
     ),
   );
@@ -120,7 +114,7 @@ export function renderErrors(list: ErrorListResponse, route?: string): string {
 
 function routeLine(r: RouteStats): string[] {
   return [
-    `${r.method} ${r.route}`,
+    clean(`${r.method} ${r.route}`, 120),
     String(r.count),
     String(r.errors),
     fmtPct(r.errors, r.count),
@@ -176,8 +170,8 @@ export function renderClasses(stats: ClassStatsResponse): string {
     ...table([
       ["class", "kind", "calls", "errors", "avg", "own time"],
       ...shown.map((c) => [
-        c.className,
-        c.kind,
+        clean(c.className, 80),
+        clean(c.kind, 24),
         String(c.calls),
         String(c.errors),
         fmtMs(c.avgMs),
@@ -193,9 +187,9 @@ export function renderClasses(stats: ClassStatsResponse): string {
       .slice(0, 3)
       .map(
         (m) =>
-          `${m.method} ${m.calls} calls avg ${fmtMs(m.avgMs)} max ${fmtMs(m.maxMs)}${m.errors > 0 ? ` ${m.errors} errors` : ""}`,
+          `${clean(m.method, 60)} ${m.calls} calls avg ${fmtMs(m.avgMs)} max ${fmtMs(m.maxMs)}${m.errors > 0 ? ` ${m.errors} errors` : ""}`,
       );
-    lines.push(`- ${c.className}: ${methods.join("; ")}`);
+    lines.push(`- ${clean(c.className, 80)}: ${methods.join("; ")}`);
   }
   if (sorted.length > shown.length) {
     lines.push(`... ${sorted.length - shown.length} more classes not shown.`);
@@ -210,7 +204,7 @@ export function renderMap(map: AppMapResponse): string {
   const names = new Map(map.nodes.map((n) => [n.id, n]));
   const label = (id: string): string => {
     const n = names.get(id);
-    return n ? `${n.name} (${n.kind})` : id;
+    return n ? `${clean(n.name, 80)} (${clean(n.kind, 24)})` : clean(id, 80);
   };
   const edges = [...map.edges].sort(
     (a, b) => b.calls - a.calls || (a.to < b.to ? -1 : 1),
@@ -241,11 +235,14 @@ export function renderOverview(input: OverviewInput): string {
   const lines: string[] = [];
   const service = meta.service;
   lines.push(
-    `Nestrix ${meta.mode === "standalone" ? "server (standalone)" : "dashboard (embedded in one app)"}${service.name ? `: ${service.name}` : ""}${service.version ? ` ${service.version}` : ""}${service.environment ? ` (${service.environment})` : ""}`,
+    `Nestrix ${meta.mode === "standalone" ? "server (standalone)" : "dashboard (embedded in one app)"}${service.name ? `: ${clean(service.name, 80)}` : ""}${service.version ? ` ${clean(service.version, 60)}` : ""}${service.environment ? ` (${clean(service.environment, 40)})` : ""}`,
   );
   if (meta.services && meta.services.length > 0) {
     lines.push(
-      `Services with data: ${meta.services.join(", ")} (filter other tools with service)`,
+      `Services with data: ${meta.services
+        .slice(0, 50)
+        .map((x) => clean(x, 80))
+        .join(", ")} (filter other tools with service)`,
     );
   }
   lines.push(
@@ -257,7 +254,8 @@ export function renderOverview(input: OverviewInput): string {
   lines.push(
     `CPU profiler: ${meta.profiler.available ? (meta.profiler.running ? "available, a capture is running" : "available (start_profile)") : "not available here (embedded dashboards only)"}.`,
   );
-  for (const w of meta.warnings) lines.push(`Warning: ${oneLine(w.message)}`);
+  for (const w of meta.warnings)
+    lines.push(`Warning: ${clean(w.message, 300)}`);
 
   if (routes) {
     const withTraffic = routes.routes.filter((r) => r.count > 0);
@@ -278,7 +276,7 @@ export function renderOverview(input: OverviewInput): string {
       lines.push("Slowest routes (p95):");
       for (const r of slowest) {
         lines.push(
-          `- ${r.method} ${r.route}: p95 ${fmtMs(r.p95Ms)}, p50 ${fmtMs(r.p50Ms)}, ${plural(r.count, "request")}`,
+          `- ${clean(`${r.method} ${r.route}`, 120)}: p95 ${fmtMs(r.p95Ms)}, p50 ${fmtMs(r.p50Ms)}, ${plural(r.count, "request")}`,
         );
       }
     }
@@ -295,7 +293,7 @@ export function renderOverview(input: OverviewInput): string {
       lines.push("Most failing routes:");
       for (const r of failing) {
         lines.push(
-          `- ${r.method} ${r.route}: ${r.errors}/${r.count} failed (${fmtPct(r.errors, r.count)})`,
+          `- ${clean(`${r.method} ${r.route}`, 120)}: ${r.errors}/${r.count} failed (${fmtPct(r.errors, r.count)})`,
         );
       }
     } else if (withTraffic.length > 0) {

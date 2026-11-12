@@ -3,7 +3,7 @@ import type {
   SpanRecord,
   TraceResponse,
 } from "@nestrix-js/protocol";
-import { fmtMs, fmtPct, oneLine, plural, truncate } from "./format.js";
+import { clean, fmtMs, fmtPct, oneLine, plural, truncate } from "./format.js";
 
 /** A span is slow when it lasts longer than this, or longer than `SLOW_SHARE` of the trace. */
 export const SLOW_MS = 100;
@@ -12,6 +12,10 @@ export const SLOW_SHARE = 0.2;
 export const REPEAT_MIN = 3;
 /** Spans drawn in the tree, by default. */
 export const DEFAULT_MAX_SPANS = 400;
+/** Hard cap on one rendered trace, in characters. */
+export const MAX_OUTPUT_CHARS = 200_000;
+/** Deeper than this, indentation is replaced by a `[depth N]` prefix. */
+export const MAX_INDENT_DEPTH = 40;
 
 const STATEMENT_KEYS = ["db.query.text", "db.statement"] as const;
 
@@ -68,6 +72,9 @@ export function buildTree(trace: TraceResponse): TraceTree {
       roots.push(span);
     }
   }
+  // Parent cycles leave no root: start from the earliest span.
+  const first = spans[0];
+  if (roots.length === 0 && first !== undefined) roots.push(first);
   const selfMs = new Map<string, number>();
   for (const span of spans) {
     selfMs.set(span.spanId, selfTime(span, children.get(span.spanId) ?? []));
@@ -138,7 +145,7 @@ export function repeatedStatements(
       span.parentSpanId === undefined
         ? undefined
         : byId.get(span.parentSpanId)?.name;
-    if (parent !== undefined) g.parents.add(parent);
+    if (parent !== undefined) g.parents.add(clean(parent, 60));
   }
   return [...groups.entries()]
     .filter(([, g]) => g.count >= min)
@@ -172,7 +179,7 @@ export function firstFrames(stack: unknown, max = 3): string[] {
     .map((l) => l.trim())
     .filter((l) => l.startsWith("at "))
     .slice(0, max)
-    .map((l) => truncate(l, 160));
+    .map((l) => clean(l, 160));
 }
 
 function str(value: AttributeValue | undefined): string | undefined {
@@ -206,22 +213,24 @@ function keyAttributes(span: SpanRecord, rootService?: string): string[] {
   const statement = statementOf(span);
   if (statement !== undefined) {
     const system = str(a["db.system.name"]) ?? str(a["db.system"]);
-    out.push(`${system ?? "db"}: ${truncate(statement, 120)}`);
+    out.push(`${clean(system ?? "db", 40)}: ${truncate(statement, 120)}`);
   }
   const method = str(a["http.request.method"]);
   const target =
     str(a["url.full"]) ?? str(a["http.route"]) ?? str(a["url.path"]);
   if (method !== undefined && span.kind === "client" && target !== undefined) {
-    out.push(`${method} ${truncate(target, 100)}`);
+    out.push(`${clean(method, 16)} ${clean(target, 100)}`);
   }
   const status = a["http.response.status_code"];
   if (typeof status === "number") out.push(`status ${status}`);
   const destination = str(a["messaging.destination.name"]);
   if (destination !== undefined) {
-    out.push(`${str(a["messaging.system"]) ?? "queue"} ${destination}`);
+    out.push(
+      `${clean(str(a["messaging.system"]) ?? "queue", 40)} ${clean(destination, 100)}`,
+    );
   }
   if (span.service !== undefined && span.service !== rootService) {
-    out.push(`service ${span.service}`);
+    out.push(`service ${clean(span.service, 80)}`);
   }
   return out;
 }
@@ -243,15 +252,20 @@ export function renderTrace(
   const lines: string[] = [];
 
   if (spans.length === 0) {
-    return `Trace ${trace.traceId}: no spans stored.`;
+    return `Trace ${clean(trace.traceId, 64)}: no spans stored.`;
   }
   const root = roots[0] as SpanRecord;
-  const rootService = str(trace.resource["service.name"]) ?? root.service;
-  const release = str(trace.resource["service.version"]);
-  const method = str(root.attributes["http.request.method"]);
-  const route = str(root.attributes["http.route"]);
+  const rootServiceRaw = str(trace.resource["service.name"]) ?? root.service;
+  const rootService =
+    rootServiceRaw === undefined ? undefined : clean(rootServiceRaw, 80);
+  const releaseRaw = str(trace.resource["service.version"]);
+  const release = releaseRaw === undefined ? undefined : clean(releaseRaw, 80);
+  const methodRaw = str(root.attributes["http.request.method"]);
+  const method = methodRaw === undefined ? undefined : clean(methodRaw, 16);
+  const routeRaw = str(root.attributes["http.route"]);
+  const route = routeRaw === undefined ? undefined : clean(routeRaw, 160);
   const statusCode = root.attributes["http.response.status_code"];
-  const title = method && route ? `${method} ${route}` : root.name;
+  const title = method && route ? `${method} ${route}` : clean(root.name, 160);
   const head = [
     `${title}${typeof statusCode === "number" ? ` -> ${statusCode}` : ""}`,
     fmtMs(traceMs),
@@ -259,7 +273,7 @@ export function renderTrace(
   ];
   if (rootService) head.push(`service ${rootService}`);
   if (release) head.push(`release ${release}`);
-  lines.push(`Trace ${trace.traceId}: ${head.join(", ")}`);
+  lines.push(`Trace ${clean(trace.traceId, 64)}: ${head.join(", ")}`);
   if (roots.length > 1) {
     lines.push(
       `(${roots.length} root spans: the trace crosses a boundary or lost a parent)`,
@@ -295,7 +309,7 @@ export function renderTrace(
       const what =
         [e.type, e.message].filter(Boolean).join(": ") ||
         "error status, no message";
-      lines.push(`- ${e.span.name}: ${truncate(what, 240)}`);
+      lines.push(`- ${clean(e.span.name, 120)}: ${clean(what, 240)}`);
       for (const f of e.frames) lines.push(`    ${f}`);
     }
     if (errors.length > 10)
@@ -312,32 +326,44 @@ export function renderTrace(
     );
     for (const s of ranked.slice(0, 8)) {
       lines.push(
-        `- ${s.name}: ${fmtMs(s.durationMs)} (self ${fmtMs(selfMs.get(s.spanId) ?? 0)}, ${fmtPct(s.durationMs, traceMs)} of trace)`,
+        `- ${clean(s.name, 120)}: ${fmtMs(s.durationMs)} (self ${fmtMs(selfMs.get(s.spanId) ?? 0)}, ${fmtPct(s.durationMs, traceMs)} of trace)`,
       );
     }
     if (ranked.length > 8)
       lines.push(`- ... ${ranked.length - 8} more slow spans`);
   }
 
-  // Which spans to draw: all of them, or when there are too many, flagged and longest first,
-  // plus every ancestor so the tree stays connected.
+  // Which spans to draw: all of them, or when there are too many, errors first, then slow spans,
+  // then the longest others, each with as many ancestors as the budget still allows.
   const shown = new Set<string>();
-  const flagged = new Set<string>([
-    ...errors.map((e) => e.span.spanId),
-    ...slow.map((s) => s.spanId),
-  ]);
+  const errorIds = new Set(errors.map((e) => e.span.spanId));
+  const flagged = new Set<string>([...errorIds, ...slow.map((s) => s.spanId)]);
   if (spans.length <= maxSpans) {
     for (const s of spans) shown.add(s.spanId);
   } else {
+    const weight = (s: SpanRecord): number =>
+      errorIds.has(s.spanId) ? 2 : flagged.has(s.spanId) ? 1 : 0;
     const ranked = [...spans].sort(
       (a, b) =>
-        Number(flagged.has(b.spanId)) - Number(flagged.has(a.spanId)) ||
-        b.durationMs - a.durationMs ||
-        byStart(a, b),
+        weight(b) - weight(a) || b.durationMs - a.durationMs || byStart(a, b),
     );
-    for (const s of ranked.slice(0, maxSpans)) {
-      let cursor: SpanRecord | undefined = s;
-      while (cursor && !shown.has(cursor.spanId)) {
+    for (const s of ranked) {
+      if (shown.size >= maxSpans) break;
+      if (shown.has(s.spanId)) continue;
+      shown.add(s.spanId);
+      // Ancestors count against the budget; a chain that does not fit is left detached.
+      const seen = new Set<SpanRecord>([s]);
+      let cursor =
+        s.parentSpanId === undefined
+          ? undefined
+          : tree.byId.get(s.parentSpanId);
+      while (
+        cursor !== undefined &&
+        !seen.has(cursor) &&
+        !shown.has(cursor.spanId) &&
+        shown.size < maxSpans
+      ) {
+        seen.add(cursor);
         shown.add(cursor.spanId);
         cursor =
           cursor.parentSpanId === undefined
@@ -351,38 +377,73 @@ export function renderTrace(
     "",
     "Span tree (duration, self time = duration minus time in child spans):",
   );
-  const errorIds = new Set(errors.map((e) => e.span.spanId));
-  const draw = (span: SpanRecord, depth: number): void => {
-    const flags = [
-      errorIds.has(span.spanId) ? "ERROR" : "",
-      flagged.has(span.spanId) && !errorIds.has(span.spanId) ? "SLOW" : "",
-    ].filter(Boolean);
-    const attrs = keyAttributes(span, rootService);
-    const self = selfMs.get(span.spanId) ?? 0;
-    const selfText =
-      (tree.children.get(span.spanId)?.length ?? 0) > 0
-        ? ` self ${fmtMs(self)}`
-        : "";
-    lines.push(
-      `${"  ".repeat(depth)}${truncate(oneLine(span.name), 120)} [${span.kind}] ${fmtMs(span.durationMs)}${selfText}${flags.length ? ` <${flags.join(",")}>` : ""}${attrs.length ? ` | ${attrs.join(" | ")}` : ""}`,
-    );
-    const kids = tree.children.get(span.spanId) ?? [];
-    const hidden: SpanRecord[] = [];
-    for (const kid of kids) {
-      if (shown.has(kid.spanId)) draw(kid, depth + 1);
-      else hidden.push(kid);
+  const visited = new Set<SpanRecord>();
+  const indent = (depth: number): string =>
+    depth > MAX_INDENT_DEPTH ? `[depth ${depth}] ` : "  ".repeat(depth);
+  type Work =
+    | { kind: "span"; span: SpanRecord; depth: number }
+    | { kind: "hidden"; hidden: SpanRecord[]; depth: number };
+  const draw = (start: SpanRecord, startDepth: number): void => {
+    const stack: Work[] = [{ kind: "span", span: start, depth: startDepth }];
+    while (stack.length > 0) {
+      const item = stack.pop() as Work;
+      if (item.kind === "hidden") {
+        lines.push(`${indent(item.depth)}${hiddenSummary(item.hidden, tree)}`);
+        continue;
+      }
+      const { span, depth } = item;
+      if (visited.has(span)) continue;
+      visited.add(span);
+      const flags = [
+        errorIds.has(span.spanId) ? "ERROR" : "",
+        flagged.has(span.spanId) && !errorIds.has(span.spanId) ? "SLOW" : "",
+      ].filter(Boolean);
+      const attrs = keyAttributes(span, rootService);
+      const kids = tree.children.get(span.spanId) ?? [];
+      const selfText =
+        kids.length > 0 ? ` self ${fmtMs(selfMs.get(span.spanId) ?? 0)}` : "";
+      lines.push(
+        `${indent(depth)}${clean(span.name, 120)} [${clean(String(span.kind), 16)}] ${fmtMs(span.durationMs)}${selfText}${flags.length ? ` <${flags.join(",")}>` : ""}${attrs.length ? ` | ${attrs.join(" | ")}` : ""}`,
+      );
+      const hidden: SpanRecord[] = [];
+      const drawn: SpanRecord[] = [];
+      for (const kid of kids) {
+        if (visited.has(kid)) continue;
+        if (shown.has(kid.spanId)) drawn.push(kid);
+        else hidden.push(kid);
+      }
+      // Popped last: the summary of hidden children follows the drawn ones.
+      if (hidden.length > 0) {
+        stack.push({ kind: "hidden", hidden, depth: depth + 1 });
+      }
+      for (let i = drawn.length - 1; i >= 0; i--) {
+        stack.push({
+          kind: "span",
+          span: drawn[i] as SpanRecord,
+          depth: depth + 1,
+        });
+      }
     }
-    if (hidden.length > 0)
-      lines.push(`${"  ".repeat(depth + 1)}${hiddenSummary(hidden, tree)}`);
   };
   for (const r of roots) draw(r, 0);
+  // Shown spans whose ancestors did not fit in the budget are drawn on their own.
+  const detached = spans.filter((s) => shown.has(s.spanId) && !visited.has(s));
+  if (detached.length > 0) {
+    lines.push(
+      "(spans below were cut loose from their ancestors by the span limit; their depth is not shown)",
+    );
+    for (const s of detached) draw(s, 0);
+  }
   if (spans.length > maxSpans) {
     lines.push(
       "",
       `Output limited to about ${maxSpans} of ${spans.length} spans: errors, slow spans and the longest others are drawn; hidden ones are summarised per parent.`,
     );
   }
-  return lines.join("\n");
+  const out = lines.join("\n");
+  if (out.length <= MAX_OUTPUT_CHARS) return out;
+  const cutAt = out.lastIndexOf("\n", MAX_OUTPUT_CHARS);
+  return `${out.slice(0, cutAt > 0 ? cutAt : MAX_OUTPUT_CHARS)}\n... cut: the rendering reached ${MAX_OUTPUT_CHARS / 1000} KB; use a lower maxSpans.`;
 }
 
 function trimPct(share: number): string {
@@ -393,19 +454,27 @@ function hiddenSummary(hidden: SpanRecord[], tree: TraceTree): string {
   const counts = new Map<string, number>();
   let total = 0;
   let size = 0;
-  const visit = (s: SpanRecord): void => {
-    size++;
-    for (const k of tree.children.get(s.spanId) ?? []) visit(k);
+  const seen = new Set<SpanRecord>();
+  const visit = (root: SpanRecord): void => {
+    const stack = [root];
+    while (stack.length > 0) {
+      const s = stack.pop() as SpanRecord;
+      if (seen.has(s)) continue;
+      seen.add(s);
+      size++;
+      for (const k of tree.children.get(s.spanId) ?? []) stack.push(k);
+    }
   };
   for (const s of hidden) {
-    counts.set(s.name, (counts.get(s.name) ?? 0) + 1);
+    const name = clean(s.name, 60);
+    counts.set(name, (counts.get(name) ?? 0) + 1);
     total += s.durationMs;
     visit(s);
   }
   const names = [...counts.entries()]
     .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
     .slice(0, 3)
-    .map(([name, n]) => `${truncate(oneLine(name), 60)} x${n}`)
+    .map(([name, n]) => `${name} x${n}`)
     .join(", ");
   const more =
     size > hidden.length ? ` (${size} spans with their children)` : "";
