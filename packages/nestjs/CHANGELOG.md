@@ -1,5 +1,19 @@
 # @nestrix-js/nestjs
 
+## 0.2.0
+
+### Minor Changes
+
+- [`125c808`](https://github.com/nestrix-js/nestrix/commit/125c808658db8a5eb4892b7f720f450e40a0c1bf) Thanks [@lamberto15](https://github.com/lamberto15)! - New **route detail** page (`/route?method=&route=`) that explains why a route changed, window against window or release against release: a "What changed" summary with ranked findings (a new statement, an N+1 pattern, a slower statement, dependency or method, new or more errors, and what got faster), time per request by span kind for each side, statements, methods, dependencies, errors and the slowest traces. Served by the new `GET api/v1/routes/explain` on both the embedded dashboard and the standalone server. Reached from the Overview, the Routes page and the trace view. The Queries, Dependencies, Classes and Errors pages accept filters (`q`, `name`, `class`, `type`) so each finding links straight to its rows.
+
+- [`92a27f8`](https://github.com/nestrix-js/nestrix/commit/92a27f82e9c63bde67286e938dc34908f7ead7d6) Thanks [@lamberto15](https://github.com/lamberto15)! - **Span limits per trace.** One trace now records at most `maxSpansPerTrace` spans in the app (default 10,000; `false` turns the limit off). Spans past it are not recorded but counted by kind, and the totals are written on the trace's root span as `nestrix.trace.spans_dropped` and `nestrix.trace.spans_dropped.<kind>`; route and class statistics still count every call. The standalone server stores at most `NESTRIX_MAX_SPANS_PER_TRACE` spans per trace (default 50,000), always keeping root spans and the spans that carry the counts. The trace view shows how many spans were omitted. Background: a single job (for example a BullMQ job that writes one row at a time) can produce thousands or millions of spans in one trace.
+
+### Patch Changes
+
+- [`c0a11a3`](https://github.com/nestrix-js/nestrix/commit/c0a11a3e28aade829123c7ef520f9cefdbbf767e) Thanks [@lamberto15](https://github.com/lamberto15)! - Large job traces (thousands of spans) made the standalone server's Overview and Classes slow; own time is now computed in one pass with a new index, and children on a host with a slightly slow clock are no longer missed. The route explain endpoint also loads at most 200,000 spans per side.
+- Updated dependencies [[`c0a11a3`](https://github.com/nestrix-js/nestrix/commit/c0a11a3e28aade829123c7ef520f9cefdbbf767e), [`125c808`](https://github.com/nestrix-js/nestrix/commit/125c808658db8a5eb4892b7f720f450e40a0c1bf), [`92a27f8`](https://github.com/nestrix-js/nestrix/commit/92a27f82e9c63bde67286e938dc34908f7ead7d6)]:
+  - @nestrix-js/ui@0.2.0
+
 ## 0.1.1
 
 ### Patch Changes
