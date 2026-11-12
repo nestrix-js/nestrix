@@ -1,5 +1,40 @@
 # @nestrix-js/nestjs
 
+## 0.1.0-alpha.3
+
+### Minor Changes
+
+- 3efd802: New package `@nestrix-js/mcp`: a stdio MCP server that lets an AI assistant read Nestrix data (traces, errors, route and class statistics, the app map) from an embedded dashboard or the standalone server, with `get_trace` and `explain_slowness` written for models (repeated statements, self times, slow spans) and one write tool, `start_profile`, that starts a CPU capture on an embedded dashboard. It shares one version with `@nestrix-js/nestjs` and `@nestrix-js/ui`.
+
+### Patch Changes
+
+- 33f0311: The Classes page no longer says "Method spans are off" for a service that exports method spans but has been idle longer than the selected window. `GET api/v1/classes` gains `methodsState` (`on`, `off` or `no-data-in-range`); `methodsEnabled` stays and is true unless the state is `off`. The standalone server reports `off` only when the service has never sent a method span within the data kept, and the page shows "No method spans from this service in the selected range" otherwise. The setup hint now also names `NestFactory.createApplicationContext` and `NestFactory.createMicroservice`.
+- bc98802: Dependencies page and request timeline. `GET api/v1/dependencies` lists each outbound target (database, cache, HTTP host, queue) with calls, errors, p50 and p95 and a per-bucket calls and p95 series; the new Dependencies view shows them by total time with sparklines and opens the slowest call's trace. `GET api/v1/traces/timeline` counts sampled requests per bucket as ok, 4xx and 5xx or error; a stacked chart above the request list sets a time range on the list by dragging or clicking a bar, through the new `fromUnixMs` and `toUnixMs` parameters of `GET api/v1/traces`. Both are built from the stored, sampled traces.
+- bbd7b9b: Errors page: a "Grouped" view (the default) groups the errors of the last 15 or 60 minutes by error type, normalised message (numbers, UUIDs, hex ids, quoted strings and emails replaced) and route, with count, first and last seen, a trend sparkline and the recent occurrences linking to traces; "All" is the previous list. New `GET api/v1/errors/groups` (embedded and standalone). Built from the stored, sampled traces.
+- 493bc9e: The request list's "Jobs" filter now means "traces that include job processing": `TraceSummary.hasJob` is true when any span of the trace is a consumer span or has `nestrix.entry = "job"`, and `type=job` matches it whatever the root (a request that enqueued a job appears under both HTTP and Jobs). Such rows get a "job" badge.
+- 0ae7e16: Logs next to the trace: the standalone server keeps identical log lines sent in the same millisecond (a retried export is still stored once) and takes its per-trace locks in lock-key order. In the embedded dashboard, trace entries made only by log lines no longer push real traces out of the store (they are capped at 10% of `store.maxTraces`), limits are enforced from the background drain instead of inside the logger call, and `ui.logs: false` stops keeping log lines.
+- c6c97d6: MCP: never echo the access value in errors; `get_trace` stays bounded on deep or cyclic traces (200 KB cap); telemetry text is kept on one line and results say it is data, not instructions; a refused profiler start explains the reverse-proxy `Host` requirement.
+- c9e4067: New Queries page and `GET api/v1/queries`: database and cache statements (`db.query.text`) aggregated across the stored, sampled traces of a 15 or 60 minute window, with count, total, average, p95, max, errors, traces, the number of traces where a statement ran 3 or more times (N+1 candidates) and up to 3 example traces. Sortable, with an N+1 filter. The numbers come from sampled traces, not from every query.
+- 818d485: Routes view: selecting a route now shows its latency histogram (counted before sampling, with p50, p95 and p99 marked); a click on a bar opens the request list for that latency range. A new Compare tab compares the last window with the previous one, or two releases seen in the stored traces, in a sortable table that highlights regressions. New query API routes `GET api/v1/routes/histogram` and `GET api/v1/routes/compare`, and a `maxDurationMs` filter on `GET api/v1/traces`, in the embedded dashboard and the standalone server.
+- 1df686a: Dashboard: a Runtime view for the embedded dashboard. While the dashboard is on, a small in-process sampler (every 10 s, unref'd, stopped at shutdown, nothing per request, no MeterProvider needed) keeps 60 minutes of event loop delay (p50, p99, max), heap, RSS, external memory, CPU user and system percent and active handles, served by `GET api/v1/runtime`. The UI shows current-value tiles and four charts. `meta.runtime.available` is false in the standalone server, which hides the tab.
+- 3f21a29: The standalone server gains read-only, revocable API tokens for tools such as the MCP server: `Authorization: Bearer nxt_…` reads the query API's read routes (meta, traces, trace, errors, routes, classes, map) and nothing else. The dashboard has a Settings page, shown only by the standalone server, to create a token (shown once, with a copy button), list tokens and revoke them.
+- 2bc2304: Dashboard: the trace view opens with "Where the time went" (own time by database, cache, outbound HTTP, messaging, your code and other, as a stacked bar with percentages, plus the top five classes or spans) and a "Critical path" toggle that highlights the spans that determine the trace's end time. Request rows show a duration bar relative to the slowest listed row. The request toolbar can save the current filters under a name (kept in this browser), apply or delete them, and copy a link to the filtered view.
+- bc19982: Logs next to the trace. With the dashboard on, `NestrixLogger` lines written under a recording span are kept with their trace (after the logger's `redact`, cut to 8 KiB, at most 200 per trace, counted in the store's byte budget and evicted with the trace) and served by `GET api/v1/trace/logs?id=`. The trace view lists them in a Logs panel with level colouring, marks the waterfall rows of the spans that logged, and selects a line's span on click. The standalone server accepts OTLP logs on `/v1/logs` with the same protections as `/v1/traces` and keeps records that carry a trace id. Not a log backend: there is no search across lines.
+- Updated dependencies [33f0311]
+- Updated dependencies [bc98802]
+- Updated dependencies [bbd7b9b]
+- Updated dependencies [493bc9e]
+- Updated dependencies [0ae7e16]
+- Updated dependencies [c6c97d6]
+- Updated dependencies [3efd802]
+- Updated dependencies [c9e4067]
+- Updated dependencies [818d485]
+- Updated dependencies [1df686a]
+- Updated dependencies [3f21a29]
+- Updated dependencies [2bc2304]
+- Updated dependencies [bc19982]
+  - @nestrix-js/ui@0.1.0-alpha.3
+
 ## 0.1.0-alpha.2
 
 ### Patch Changes
