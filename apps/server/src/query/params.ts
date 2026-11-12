@@ -12,6 +12,7 @@ import type {
   ErrorListParamsSpec,
   MetaParamsSpec,
   ParamSpec,
+  QueryStatsParamsSpec,
   RouteStatsParamsSpec,
   TraceListParamsSpec,
   TraceParamsSpec,
@@ -71,6 +72,19 @@ export const appMapSpec: AppMapParamsSpec = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+};
+
+export const queryStatsSpec: QueryStatsParamsSpec = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+  service: { kind: "string", maxLength: 256 },
+  sort: { kind: "enum", values: ["total", "count", "p95", "max"] },
+  limit: { kind: "int", min: 1, max: 200, default: 50 },
 };
 
 export const traceSpec: TraceParamsSpec = {

@@ -31,6 +31,8 @@ import type {
   MapNode,
   MetaResponse,
   MethodStats,
+  QuerySort,
+  QueryStatsResponse,
   RouteSeriesPoint,
   RouteStats,
   RouteStatsResponse,
@@ -55,9 +57,12 @@ import {
 import { STORAGE_POOL } from "../storage/storage.module.js";
 import { QUERY_OPTIONS, type ResolvedQueryOptions } from "./options.js";
 import { routeStatsSpec, type Values } from "./params.js";
+import { queriesSql } from "./queries-sql.js";
 import { TARGET_KEYS, targetOf } from "./targets.js";
 
 export const PROTOCOL_VERSION: MetaResponse["protocolVersion"] = 1;
+
+const CACHE_SYSTEMS = new Set(["redis", "valkey", "memcached"]);
 
 /** Nodes in one map response; targets past it fold into one `other` node (as the embedded map). */
 export const MAX_MAP_NODES = 200;
@@ -880,6 +885,57 @@ export class QueryService {
   }
 
   // ---- map -------------------------------------------------------------------------------------
+
+  /** Statements across the stored, sampled traces of the window (P9-03). */
+  async queries(
+    windowMinutes: number,
+    service: string | undefined,
+    sort: QuerySort,
+    limit: number,
+    now: number = Date.now(),
+  ): Promise<QueryStatsResponse> {
+    const w = windowOf(windowMinutes, now);
+    const { text, values } = queriesSql({
+      from: new Date(w.fromMs),
+      to: new Date(now),
+      service,
+      sort,
+      limit,
+    });
+    const rows = await this.rows<{
+      stmt: string;
+      sys: string;
+      n: number;
+      total_ns: number;
+      max_ns: number;
+      p95_ns: number;
+      errors: number;
+      traces: number;
+      repeated: number;
+      examples: string[];
+    }>(text, values);
+    return {
+      windowMinutes,
+      fromUnixMs: w.fromMs,
+      toUnixMs: now,
+      sampled: true,
+      truncated: false,
+      queries: rows.map((r) => ({
+        statement: r.stmt,
+        system: r.sys,
+        kind: CACHE_SYSTEMS.has(r.sys.toLowerCase()) ? "cache" : "database",
+        count: Number(r.n),
+        totalMs: Number(r.total_ns) / 1e6,
+        avgMs: Number(r.total_ns) / 1e6 / Math.max(1, Number(r.n)),
+        p95Ms: Number(r.p95_ns) / 1e6,
+        maxMs: Number(r.max_ns) / 1e6,
+        errors: Number(r.errors),
+        traces: Number(r.traces),
+        repeatedTraces: Number(r.repeated),
+        exampleTraceIds: r.examples,
+      })),
+    };
+  }
 
   async map(
     windowMinutes: number,

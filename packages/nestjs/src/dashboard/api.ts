@@ -22,6 +22,9 @@ import type {
   ErrorListResponse,
   MetaResponse,
   ParamSpec,
+  QuerySort,
+  QueryStatsParamsSpec,
+  QueryStatsResponse,
   RouteStatsParamsSpec,
   RouteStatsResponse,
   TraceListParamsSpec,
@@ -34,6 +37,7 @@ import { methodsEnabled } from "../methods/registry.js";
 import { type ClassStatistics, ownAverages } from "../stats/class-stats.js";
 import type { RouteStatistics } from "../stats/route-stats.js";
 import { buildAppMap } from "../store/app-map.js";
+import { buildQueryStats } from "../store/queries.js";
 import type { StoreStats, TraceStore } from "../store/store.js";
 import { type DashboardResponse, JSON_TYPE } from "./respond.js";
 
@@ -94,6 +98,19 @@ export const appMapSpec: AppMapParamsSpec = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+};
+
+export const queryStatsSpec: QueryStatsParamsSpec = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+  service: { kind: "string", maxLength: 256 },
+  sort: { kind: "enum", values: ["total", "count", "p95", "max"] },
+  limit: { kind: "int", min: 1, max: 200, default: 50 },
 };
 
 export const traceSpec: TraceParamsSpec = {
@@ -479,5 +496,24 @@ export function mapHandler(
   const body: AppMapResponse = otherService(parsed.values, sources)
     ? { ...result, nodes: [], edges: [] }
     : result;
+  return ok(body);
+}
+
+export function queriesHandler(
+  target: unknown,
+  sources: ApiSources,
+  now: number = Date.now(),
+): DashboardResponse {
+  const parsed = parseQuery(target, queryStatsSpec);
+  if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
+  const v = parsed.values;
+  const result = buildQueryStats(
+    otherService(v, sources) ? undefined : sources.store,
+    v.windowMinutes as number,
+    now,
+    (v.sort as QuerySort | undefined) ?? "total",
+    v.limit as number,
+  );
+  const body: QueryStatsResponse = result;
   return ok(body);
 }

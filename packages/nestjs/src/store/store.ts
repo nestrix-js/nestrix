@@ -161,6 +161,7 @@ export interface TraceStore {
       root: SpanRecord,
       spans: readonly SpanRecord[],
       resource: Attributes,
+      traceId: string,
     ) => void,
   ): void;
   stats(): StoreStats;
@@ -877,13 +878,14 @@ class Store implements TraceStore {
       root: SpanRecord,
       spans: readonly SpanRecord[],
       resource: Attributes,
+      traceId: string,
     ) => void,
   ): void {
     try {
       for (const entry of this.listed) {
         if (entry.dead || entry.root === undefined) continue;
         if (!(entry.root.startTimeUnixMs >= sinceUnixMs)) continue;
-        visit(entry.root, entry.spans, entry.resource);
+        visit(entry.root, entry.spans, entry.resource, entry.traceId);
       }
     } catch {
       // A failed query answers with what it had; it never reaches the caller.

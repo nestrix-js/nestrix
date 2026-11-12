@@ -8,6 +8,7 @@ import type {
   ProfileListResponse,
   ProfileStartRequest,
   ProfileStartResponse,
+  QueryStatsResponse,
   RouteStatsResponse,
   Slo,
   SloCreate,
@@ -152,6 +153,8 @@ export const getClasses = (params: QueryParams = {}) =>
   getJson<ClassStatsResponse>("classes", params);
 export const getMap = (params: QueryParams = {}) =>
   getJson<AppMapResponse>("map", params);
+export const getQueries = (params: QueryParams = {}) =>
+  getJson<QueryStatsResponse>("queries", params);
 
 // CPU profiler: the embedded dashboard only, when `meta.profiler.available` (`/api/v1/profiles`).
 export const getProfiles = () => getJson<ProfileListResponse>("profiles");
