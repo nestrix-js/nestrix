@@ -50,6 +50,7 @@ import {
   classesHandler,
   dependenciesHandler,
   errorGroupsHandler,
+  errorInsightsHandler,
   errorsHandler,
   mapHandler,
   metaHandler,
@@ -423,6 +424,10 @@ export class Dashboard {
       [
         `${api}/errors/groups`,
         this.handler("api", (t) => errorGroupsHandler(t, sources())),
+      ],
+      [
+        `${api}/errors/insights`,
+        this.handler("api", (t) => errorInsightsHandler(t, sources())),
       ],
       [
         `${api}/routes`,

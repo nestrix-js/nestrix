@@ -147,6 +147,13 @@ export const errorGroupParams = {
 } as const;
 export type ErrorGroupParamsSpec = typeof errorGroupParams;
 
+/** `GET <path>/api/v1/errors/insights` */
+export const errorInsightsParams = {
+  route: { kind: "string", maxLength: 512 },
+  service: { kind: "string", maxLength: 256 },
+} as const;
+export type ErrorInsightsParamsSpec = typeof errorInsightsParams;
+
 /** `GET <path>/api/v1/routes` */
 export const routeStatsParams = {
   windowMinutes: {

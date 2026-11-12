@@ -133,7 +133,7 @@ for (const scheme of ["dark", "light"] as const) {
     await expect(page.getByTestId("page-header")).toContainText("Errors");
     await expect(
       page.getByTestId("kpi-strip").getByTestId("kpi-value"),
-    ).toHaveCount(4);
+    ).toHaveCount(5);
     // The API gives no previous window: the change is an honest dash.
     await expect(
       page.getByTestId("kpi-events").getByTestId("delta"),

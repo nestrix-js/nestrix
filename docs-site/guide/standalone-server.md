@@ -44,7 +44,7 @@ The server listens on one port (default `4318`):
 |---|---|
 | `POST /v1/traces` | OTLP/HTTP trace receiver (ingest key) |
 | `POST /v1/logs` | OTLP/HTTP log receiver: records with a trace id are kept next to the trace (ingest key) |
-| `GET /api/v1/*` | Query API, same shapes as the embedded dashboard (`meta`, `traces`, `traces/timeline`, `trace`, `trace/logs`, `errors`, `errors/groups`, `routes`, `routes/histogram`, `routes/compare`, `classes`, `queries`, `map`, `dependencies`, `overview`, `instances`, `remote-profiles`); session or API token |
+| `GET /api/v1/*` | Query API, same shapes as the embedded dashboard (`meta`, `traces`, `traces/timeline`, `trace`, `trace/logs`, `errors`, `errors/groups`, `errors/insights`, `routes`, `routes/histogram`, `routes/compare`, `classes`, `queries`, `map`, `dependencies`, `overview`, `instances`, `remote-profiles`); session or API token |
 | `POST /v1/nestrix/check-in`, `POST /v1/nestrix/profiles/:id` (and `/failed`) | [Remote CPU profiling](#remote-cpu-profiling), instance side (ingest key) |
 | `POST /api/v1/remote-profiles` | Start a remote capture (admin session only) |
 | `/api/v1/tokens` | Create, list and revoke API tokens (session only) |
@@ -93,7 +93,7 @@ For tools that read the server without a browser, such as the Nestrix MCP server
 curl -H "Authorization: Bearer $NESTRIX_TOKEN" https://nestrix.example.com/api/v1/traces?limit=10
 ```
 
-A token reads `GET`/`HEAD` on every route of the query API (`/api/v1/meta`, `traces`, `traces/timeline`, `trace`, `trace/logs`, `errors`, `errors/groups`, `routes`, `routes/histogram`, `routes/compare`, `classes`, `queries`, `map`, `dependencies`, `overview`, and the read routes for instances and remote profiles), and nothing else: not the dashboard, not the token, alert or SLO routes, never a write, and never ingest (ingest keys and API tokens are separate). Revoking a token on the Settings page stops it at the next request. Refused tokens count toward the login's global budget of failed attempts, within an allowance of 5 refused tokens a minute per client, so one client guessing tokens cannot lock the others out; a valid token is never refused by either limit. At most 100 tokens can be active. The [Security model](/guide/security#standalone-server-api-tokens) page has the rules.
+A token reads `GET`/`HEAD` on every route of the query API (`/api/v1/meta`, `traces`, `traces/timeline`, `trace`, `trace/logs`, `errors`, `errors/groups`, `errors/insights`, `routes`, `routes/histogram`, `routes/compare`, `classes`, `queries`, `map`, `dependencies`, `overview`, and the read routes for instances and remote profiles), and nothing else: not the dashboard, not the token, alert or SLO routes, never a write, and never ingest (ingest keys and API tokens are separate). Revoking a token on the Settings page stops it at the next request. Refused tokens count toward the login's global budget of failed attempts, within an allowance of 5 refused tokens a minute per client, so one client guessing tokens cannot lock the others out; a valid token is never refused by either limit. At most 100 tokens can be active. The [Security model](/guide/security#standalone-server-api-tokens) page has the rules.
 
 ## Retention and storage
 

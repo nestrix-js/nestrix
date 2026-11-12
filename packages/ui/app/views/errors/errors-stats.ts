@@ -1,34 +1,131 @@
-import type { ErrorGroup, ErrorGroupsResponse } from "@nestrix-js/protocol";
+import type {
+  ErrorGroup,
+  ErrorGroupState,
+  ErrorGroupsResponse,
+  ErrorReleaseStat,
+} from "@nestrix-js/protocol";
 
-/** What the API can say about a group: it has no release history, so there is no "Regressed". */
-export type GroupState = "new" | "ongoing" | "quiet";
+/** A group's state; the backend computes it (`ErrorGroup.state`), see `ErrorGroupState`. */
+export type GroupState = ErrorGroupState;
 
 export const STATE_LABEL: Record<GroupState, string> = {
   new: "New",
+  regressed: "Regressed",
   ongoing: "Ongoing",
   quiet: "Quiet",
 };
 
 /** Words for the tooltip of each state, so the chip says how it was derived. */
 export const STATE_TITLE: Record<GroupState, string> = {
-  new: "No occurrence in the first half of the window",
-  ongoing: "Occurred in the first half of the window and still occurring",
+  new: "First seen inside this window: nothing stored before it",
+  regressed:
+    "Seen before, absent for at least 24 hours or a whole release, and back in this window",
+  ongoing: "Seen before this window, or early in it, and still occurring",
   quiet: "No occurrence in the last two buckets of the window",
 };
 
+export const STATE_ORDER: readonly GroupState[] = [
+  "new",
+  "regressed",
+  "ongoing",
+  "quiet",
+];
+
 /**
- * A group's state, derived from its series alone. Quiet: nothing in the last two buckets. New:
- * nothing in the first half of the window (as far as the stored traces go). Otherwise ongoing.
+ * A group's state: the one the backend computed from its stored history. An older backend sends
+ * none, so the state then comes from the series alone (Quiet: nothing in the last two buckets;
+ * New: nothing in the window's first half; else Ongoing; never Regressed).
  */
 export function groupState(
-  group: Pick<ErrorGroup, "series" | "lastSeenUnixMs">,
+  group: Pick<ErrorGroup, "series" | "lastSeenUnixMs" | "state">,
   response: Pick<ErrorGroupsResponse, "toUnixMs" | "bucketMs">,
 ): GroupState {
+  if (group.state !== undefined) return group.state;
   if (group.lastSeenUnixMs < response.toUnixMs - 2 * response.bucketMs)
     return "quiet";
   const half = Math.floor(group.series.length / 2);
   if (group.series.slice(0, half).every((n) => n === 0)) return "new";
   return "ongoing";
+}
+
+/**
+ * The release column of a group: the newest release it was seen in, "1.0.0 → 1.2.0" when it first
+ * appeared in an older one; undefined when no occurrence carries a release.
+ */
+export function releaseText(
+  group: Pick<ErrorGroup, "firstSeenRelease" | "lastSeenRelease">,
+): string | undefined {
+  const { firstSeenRelease: first, lastSeenRelease: last } = group;
+  if (last === undefined) return first;
+  return first !== undefined && first !== last ? `${first} → ${last}` : last;
+}
+
+/** Row labels of the weekday x hour grid (Monday first, as the API's rows) and its columns. */
+export const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+export const HOURS = Array.from({ length: 24 }, (_, h) =>
+  String(h).padStart(2, "0"),
+);
+
+/** The busiest weekday and hour of the grid, for the chart's label; undefined when it is empty. */
+export function peakCell(
+  heatmap: readonly (readonly number[])[],
+): { weekday: string; hour: string; count: number } | undefined {
+  let best: { weekday: number; hour: number; count: number } | undefined;
+  heatmap.forEach((row, weekday) => {
+    row.forEach((count, hour) => {
+      if (count > 0 && (best === undefined || count > best.count))
+        best = { weekday, hour, count };
+    });
+  });
+  if (best === undefined) return undefined;
+  return {
+    weekday: WEEKDAYS[best.weekday] ?? "",
+    hour: HOURS[best.hour] ?? "",
+    count: best.count,
+  };
+}
+
+export interface ReleaseBar {
+  release: string;
+  value: number;
+  /** Text next to the bar. */
+  valueLabel: string;
+  title: string;
+}
+
+/**
+ * The bars of "Errors per release": errors per 1,000 requests when every release has requests,
+ * else plain events (`metric` says which, so the card can label it).
+ */
+export function releaseBars(releases: readonly ErrorReleaseStat[]): {
+  metric: "per1000" | "events";
+  bars: ReleaseBar[];
+} {
+  const metric =
+    releases.length > 0 &&
+    releases.every((r) => r.per1000Requests !== undefined)
+      ? "per1000"
+      : "events";
+  return {
+    metric,
+    bars: releases.map((r) => {
+      const rate = r.per1000Requests;
+      const events = `${r.events.toLocaleString("en")} events`;
+      const requests =
+        r.requests === undefined
+          ? ""
+          : ` in ${r.requests.toLocaleString("en")} requests`;
+      const rated = metric === "per1000" && rate !== undefined;
+      return {
+        release: r.release,
+        value: rated ? rate : r.events,
+        valueLabel: rated
+          ? `${rate < 10 ? rate.toFixed(1) : Math.round(rate)}/1k`
+          : events,
+        title: `${r.release}: ${events}${requests}`,
+      };
+    }),
+  };
 }
 
 export function totalEvents(groups: readonly ErrorGroup[]): number {

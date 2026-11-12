@@ -28,6 +28,7 @@ import type {
   DependenciesResponse,
   DependencyStats,
   ErrorGroupsResponse,
+  ErrorInsightsResponse,
   ErrorItem,
   ErrorListResponse,
   MapEdge,
@@ -64,6 +65,12 @@ import {
 import { STORAGE_POOL } from "../storage/storage.module.js";
 import { droppedSpansOf } from "./dropped-spans.js";
 import { type ErrorOccurrence, groupErrors } from "./error-groups.js";
+import {
+  assembleInsights,
+  emptyHeatmap,
+  INSIGHTS_MS,
+  type ReleaseCount,
+} from "./error-insights.js";
 import { QUERY_OPTIONS, type ResolvedQueryOptions } from "./options.js";
 import { routeStatsSpec, type Values } from "./params.js";
 import { queriesSql } from "./queries-sql.js";
@@ -119,6 +126,10 @@ function round(ms: number): number {
 }
 
 /** Bound parameters of one statement; `add` returns the placeholder to put in the text. */
+/** Rows read for the error groups: the window, and the 7 days before it (P15-02). */
+const WINDOW_ROW_CAP = 5000;
+const HISTORY_ROW_CAP = 20_000;
+
 class Params {
   readonly values: unknown[] = [];
   add(value: unknown): string {
@@ -655,18 +666,57 @@ export class QueryService {
 
   // ---- error groups ------------------------------------------------------------------------------
 
-  /** Error spans of the window grouped by (type, normalised message, route); the newest 5,000 are read. */
+  /**
+   * Error spans of the window grouped by (type, normalised message, route); the newest 5,000 are
+   * read. The 7 days before the window (newest 20,000) give the groups their history: first seen
+   * ever, state, releases (P15-02); when that cap is hit, the history starts at the oldest row read.
+   */
   async errorGroups(
     windowMinutes: number,
     service: string | undefined,
     now: number = Date.now(),
   ): Promise<ErrorGroupsResponse> {
     const empty = groupErrors([], windowMinutes, now);
+    const [inWindow, earlier] = await Promise.all([
+      this.errorOccurrences(
+        new Date(empty.fromUnixMs),
+        undefined,
+        service,
+        WINDOW_ROW_CAP,
+      ),
+      this.errorOccurrences(
+        new Date(now - INSIGHTS_MS),
+        new Date(empty.fromUnixMs),
+        service,
+        HISTORY_ROW_CAP,
+      ),
+    ]);
+    // Newest first: a full page means older rows were left out.
+    const oldestRead = earlier[earlier.length - 1]?.timeUnixMs;
+    const historyFrom =
+      earlier.length >= HISTORY_ROW_CAP && oldestRead !== undefined
+        ? oldestRead
+        : now - INSIGHTS_MS;
+    return groupErrors(
+      [...inWindow, ...earlier],
+      windowMinutes,
+      now,
+      historyFrom,
+    );
+  }
+
+  /** Error spans from `from` (and before `before`), newest first, as occurrences with their release. */
+  private async errorOccurrences(
+    from: Date,
+    before: Date | undefined,
+    service: string | undefined,
+    limit: number,
+  ): Promise<ErrorOccurrence[]> {
     const params = new Params();
-    const where = [
-      "s.is_error",
-      `s.start_time >= ${params.add(new Date(empty.fromUnixMs))}`,
-    ];
+    const where = ["s.is_error", `s.start_time >= ${params.add(from)}`];
+    if (before !== undefined) {
+      where.push(`s.start_time < ${params.add(before)}`);
+    }
     if (service !== undefined) {
       where.push(`s.service_name = ${params.add(service)}`);
     }
@@ -676,47 +726,155 @@ export class QueryService {
         root_route: string | null;
         root_method: string | null;
         root_status: number | null;
+        root_release: string | null;
       }
     >(
       `SELECT s.trace_id, s.span_id, s.name, s.kind, s.status_message, s.events,
               s.start_ns::text AS start_ns, s.end_ns::text AS end_ns,
               s.http_route, s.http_method, s.http_status, s.service_name,
-              t.http_route AS root_route, t.http_method AS root_method, t.http_status AS root_status
+              t.http_route AS root_route, t.http_method AS root_method, t.http_status AS root_status,
+              t.release AS root_release
          FROM spans s LEFT JOIN traces t ON t.trace_id = s.trace_id
         WHERE ${where.join(" AND ")}
         ORDER BY s.start_time DESC, s.trace_id DESC, s.span_id DESC
-        LIMIT 5000`,
+        LIMIT ${limit}`,
       params.values,
     );
-    return groupErrors(
-      rows.map((r): ErrorOccurrence => {
-        const hasRoot =
-          r.root_route !== null ||
-          r.root_method !== null ||
-          r.root_status !== null;
-        const item = errorItemOf(
-          r,
-          hasRoot
-            ? {
-                http_route: r.root_route,
-                http_method: r.root_method,
-                http_status: r.root_status,
-              }
-            : undefined,
-        );
-        return {
-          traceId: item.traceId,
-          spanId: item.spanId,
-          timeUnixMs: item.timeUnixMs,
-          errorType: item.errorType,
-          message: item.message,
-          route: item.route,
-          service: r.service_name ?? undefined,
-        };
-      }),
-      windowMinutes,
-      now,
+    return rows.map((r): ErrorOccurrence => {
+      const hasRoot =
+        r.root_route !== null ||
+        r.root_method !== null ||
+        r.root_status !== null;
+      const item = errorItemOf(
+        r,
+        hasRoot
+          ? {
+              http_route: r.root_route,
+              http_method: r.root_method,
+              http_status: r.root_status,
+            }
+          : undefined,
+      );
+      return {
+        traceId: item.traceId,
+        spanId: item.spanId,
+        timeUnixMs: item.timeUnixMs,
+        errorType: item.errorType,
+        message: item.message,
+        route: item.route,
+        service: r.service_name ?? undefined,
+        release: r.root_release ?? undefined,
+      };
+    });
+  }
+
+  /**
+   * Error events by weekday and hour (UTC) and per release over the last 7 days (P15-02). Three
+   * aggregates, no row reads: the grid and the per-release events from `spans` (a `traces` join
+   * only for the route filter and the release), the requests per release from `traces`.
+   */
+  async errorInsights(
+    route: string | undefined,
+    service: string | undefined,
+    now: number = Date.now(),
+  ): Promise<ErrorInsightsResponse> {
+    const from = new Date(now - INSIGHTS_MS);
+    const to = new Date(now);
+    const grid = new Params();
+    const gridWhere = [
+      "s.is_error",
+      `s.start_time >= ${grid.add(from)}`,
+      `s.start_time <= ${grid.add(to)}`,
+    ];
+    if (service !== undefined)
+      gridWhere.push(`s.service_name = ${grid.add(service)}`);
+    if (route !== undefined)
+      gridWhere.push(`t.http_route = ${grid.add(route)}`);
+    const cells = await this.rows<{ dow: number; hour: number; n: number }>(
+      `SELECT (EXTRACT(ISODOW FROM s.start_time AT TIME ZONE 'UTC')::int - 1) AS dow,
+              EXTRACT(HOUR FROM s.start_time AT TIME ZONE 'UTC')::int AS hour,
+              count(*)::int AS n
+         FROM spans s ${route === undefined ? "" : "JOIN traces t ON t.trace_id = s.trace_id"}
+        WHERE ${gridWhere.join(" AND ")}
+        GROUP BY 1, 2`,
+      grid.values,
     );
+    const heatmap = emptyHeatmap();
+    for (const c of cells) {
+      const row = heatmap[c.dow];
+      if (row !== undefined && c.hour >= 0 && c.hour < 24) row[c.hour] = c.n;
+    }
+
+    const perRelease = new Params();
+    const evWhere = [
+      "s.is_error",
+      "t.release IS NOT NULL",
+      `s.start_time >= ${perRelease.add(from)}`,
+      `s.start_time <= ${perRelease.add(to)}`,
+    ];
+    if (service !== undefined)
+      evWhere.push(`s.service_name = ${perRelease.add(service)}`);
+    if (route !== undefined)
+      evWhere.push(`t.http_route = ${perRelease.add(route)}`);
+    const events = await this.rows<{ release: string; n: number }>(
+      `SELECT t.release, count(*)::int AS n
+         FROM spans s JOIN traces t ON t.trace_id = s.trace_id
+        WHERE ${evWhere.join(" AND ")}
+        GROUP BY t.release`,
+      perRelease.values,
+    );
+
+    const req = new Params();
+    const reqWhere = [
+      `t.start_time >= ${req.add(from)}`,
+      `t.start_time <= ${req.add(to)}`,
+    ];
+    if (service !== undefined)
+      reqWhere.push(`t.service_name = ${req.add(service)}`);
+    const routeFilter =
+      route === undefined ? "" : ` AND t.http_route = ${req.add(route)}`;
+    const requests = await this.rows<{
+      release: string | null;
+      n: number;
+      first_ms: string;
+    }>(
+      `SELECT t.release,
+              count(*) FILTER (WHERE t.trace_type = 'http'${routeFilter})::int AS n,
+              (EXTRACT(EPOCH FROM min(t.start_time)) * 1000)::bigint::text AS first_ms
+         FROM traces t
+        WHERE ${reqWhere.join(" AND ")}
+        GROUP BY t.release`,
+      req.values,
+    );
+    let covered = now;
+    const byRelease = new Map<string, ReleaseCount>();
+    for (const r of requests) {
+      const firstMs = Number(r.first_ms);
+      if (firstMs < covered) covered = firstMs;
+      if (r.release === null) continue;
+      byRelease.set(r.release, {
+        release: r.release,
+        events: 0,
+        requests: r.n,
+        firstSeenUnixMs: firstMs,
+      });
+    }
+    for (const e of events) {
+      const entry = byRelease.get(e.release);
+      if (entry !== undefined) entry.events = e.n;
+      else
+        byRelease.set(e.release, {
+          release: e.release,
+          events: e.n,
+          firstSeenUnixMs: now,
+        });
+    }
+    return assembleInsights({
+      now,
+      heatmap,
+      coveredFromUnixMs: covered,
+      releases: [...byRelease.values()],
+    });
   }
 
   // ---- route statistics ------------------------------------------------------------------------

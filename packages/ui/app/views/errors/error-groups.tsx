@@ -1,4 +1,8 @@
-import type { ErrorGroup, ErrorGroupsResponse } from "@nestrix-js/protocol";
+import type {
+  ErrorGroup,
+  ErrorGroupsResponse,
+  ErrorInsightsResponse,
+} from "@nestrix-js/protocol";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
@@ -17,6 +21,7 @@ import {
   Swatch,
 } from "@/components/kit/donut";
 import { donutSlices } from "@/components/kit/format";
+import { Heatmap } from "@/components/kit/heatmap";
 import { PageHeader } from "@/components/kit/page-header";
 import { Section } from "@/components/kit/section";
 import { SegmentedControl } from "@/components/kit/segmented-control";
@@ -34,35 +39,46 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getErrorGroups } from "@/lib/api";
+import { getErrorGroups, getErrorInsights } from "@/lib/api";
 import { pollInterval, usePaused } from "@/lib/live";
 import { useService } from "@/lib/service";
 import {
   bucketTotals,
   type GroupState,
   groupState,
+  HOURS,
   NO_TYPE,
   OTHER_COLOR,
+  peakCell,
   percentOf,
+  releaseBars,
+  releaseText,
   routeBreakdown,
   STATE_LABEL,
+  STATE_ORDER,
   STATE_TITLE,
   totalEvents,
   typeBreakdown,
+  WEEKDAYS,
 } from "@/views/errors/errors-stats";
 
 const WINDOWS = [
   { value: 15, label: "15 min" },
   { value: 60, label: "60 min" },
 ] as const;
-const COLUMNS = 7;
+const COLUMNS = 8;
 const SOURCE = "from sampled traces";
 const NO_PREVIOUS =
   "The error groups API does not compare with a previous window.";
 // The API returns at most 100 groups; a full list may hide the tail.
 const GROUP_CAP = 100;
 
-const STATE_TONE = { new: "worse", ongoing: "info", quiet: "neutral" } as const;
+const STATE_TONE = {
+  new: "worse",
+  regressed: "warn",
+  ongoing: "info",
+  quiet: "neutral",
+} as const;
 
 const countText = (n: number) => n.toLocaleString("en");
 
@@ -82,6 +98,7 @@ function GroupRow({
   const [open, setOpen] = useState(false);
   const detailId = `error-group-${group.exampleTraceId}`;
   const shown = group.pattern || group.latestMessage || "-";
+  const release = releaseText(group);
   return (
     <>
       <TableRow
@@ -158,6 +175,15 @@ function GroupRow({
         </TableCell>
         <TableCell>
           <RelativeTimeCard timeUnixMs={group.lastSeenUnixMs} />
+        </TableCell>
+        <TableCell data-testid="group-release">
+          {release === undefined ? (
+            <span className="text-muted-foreground">-</span>
+          ) : (
+            <span className="font-mono text-xs" title={releasesTitle(group)}>
+              {release}
+            </span>
+          )}
         </TableCell>
       </TableRow>
       {open && (
@@ -306,6 +332,114 @@ function Charts({ data }: { data: ErrorGroupsResponse }) {
   );
 }
 
+const COVERED_DAY = 24 * 3_600_000;
+
+/** The release counts of a group in the window, for a tooltip. */
+function releasesTitle(group: ErrorGroup): string | undefined {
+  if (group.releases === undefined) return undefined;
+  const list = group.releases.map((r) => `${r.release} (${r.count})`);
+  return `In this window: ${list.join(", ")}`;
+}
+
+/** "7 days", "5 hours": how much stored history the insights cover. */
+function coveredText(insights: ErrorInsightsResponse): string {
+  const span = insights.toUnixMs - insights.coveredFromUnixMs;
+  if (span >= COVERED_DAY) return `${Math.round(span / COVERED_DAY)} days`;
+  const hours = Math.max(1, Math.round(span / 3_600_000));
+  return `${hours} hour${hours === 1 ? "" : "s"}`;
+}
+
+/** The weekday x hour grid and errors per release, over the last 7 days or what the backend holds. */
+function Insights({ service }: { service: string | undefined }) {
+  const [paused] = usePaused();
+  const insights = useQuery({
+    queryKey: ["errors", "insights", service],
+    queryFn: () => getErrorInsights({ service }),
+    refetchInterval: pollInterval(paused),
+    refetchIntervalInBackground: false,
+    placeholderData: keepPreviousData,
+  });
+  const data = insights.data;
+  const releases = useMemo(
+    () => releaseBars(data?.releases ?? []),
+    [data?.releases],
+  );
+  // An older backend has no such endpoint: the page simply has no extra cards.
+  if (data === undefined) return null;
+  const peak = peakCell(data.heatmap);
+  const covered = coveredText(data);
+  const maxRelease = Math.max(0, ...releases.bars.map((b) => b.value));
+  return (
+    <div className="grid gap-4 lg:grid-cols-2" data-testid="errors-insights">
+      <Section
+        title="When errors happen"
+        description={`Error events by weekday and hour (UTC), last ${covered}`}
+        source={SOURCE}
+        testId="card-errors-heatmap"
+      >
+        {peak === undefined ? (
+          <p className="text-sm text-muted-foreground">
+            No error events in the last {covered} of stored traces.
+          </p>
+        ) : (
+          <>
+            <Heatmap
+              testId="errors-heatmap"
+              rows={WEEKDAYS}
+              columns={HOURS}
+              values={data.heatmap}
+              color="--destructive"
+              columnLabelEvery={3}
+              format={(n) => `${n} error event${n === 1 ? "" : "s"}`}
+              label={`Error events by weekday and hour in UTC, busiest ${peak.weekday} ${peak.hour}:00 with ${peak.count}`}
+            />
+            <p
+              data-testid="heatmap-note"
+              className="mt-2 text-xs text-muted-foreground"
+            >
+              {countText(data.total)} events in the last {covered} of stored
+              traces, hours in UTC. Busiest: {peak.weekday} {peak.hour}:00 (
+              {peak.count}).
+            </p>
+          </>
+        )}
+      </Section>
+      <Section
+        title="Errors per release"
+        description={
+          releases.metric === "per1000"
+            ? "Error events per 1,000 requests, oldest release first"
+            : "Error events, oldest release first (no request counts to compare against)"
+        }
+        source={SOURCE}
+        testId="card-errors-releases"
+      >
+        {releases.bars.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No release is known: set service.version on the resource to see
+            errors per release.
+          </p>
+        ) : (
+          <BarChart
+            orientation="horizontal"
+            testId="releases-chart"
+            max={maxRelease}
+            label={`Errors per release${releases.metric === "per1000" ? " per 1,000 requests" : ""}, ${releases.bars.length} releases`}
+            labelWidthClass="w-32"
+            items={releases.bars.map((b) => ({
+              key: b.release,
+              label: b.release,
+              segments: [{ value: b.value, color: "--destructive" }],
+              valueLabel: b.valueLabel,
+              title: b.title,
+            }))}
+          />
+        )}
+      </Section>
+    </div>
+  );
+}
+
 /** The errors of the last 15 or 60 minutes grouped by type, normalised message and route. */
 export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
   const [windowMinutes, setWindowMinutes] = useState<number>(WINDOWS[0].value);
@@ -331,6 +465,7 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
       buckets: bucketTotals(data.groups),
       states,
       added: states.filter((s) => s === "new").length,
+      regressed: states.filter((s) => s === "regressed").length,
       quiet: states.filter((s) => s === "quiet").length,
       max: Math.max(1, ...data.groups.map((g) => g.count)),
       colorOf: (g: ErrorGroup) =>
@@ -391,7 +526,7 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
       {data !== undefined && derived !== null && (
         <>
           {data.groups.length > 0 && (
-            <KpiStrip>
+            <KpiStrip columns={5}>
               <StatTile
                 testId="kpi-events"
                 label="Error events"
@@ -423,7 +558,16 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
                 unit="in this window"
                 delta="—"
                 deltaTitle={STATE_TITLE.new}
-                source="not seen in the window's first half"
+                source="nothing stored before the window"
+              />
+              <StatTile
+                testId="kpi-regressed"
+                label="Regressed"
+                value={String(derived.regressed)}
+                unit="back after a day or a release"
+                delta="—"
+                deltaTitle={STATE_TITLE.regressed}
+                source="from the stored history"
               />
               <StatTile
                 testId="kpi-quiet"
@@ -437,6 +581,7 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
             </KpiStrip>
           )}
           {data.groups.length > 0 && <Charts data={data} />}
+          {data.groups.length > 0 && <Insights service={service} />}
           {data.groups.length > 0 ? (
             <Section
               title="Error groups"
@@ -446,7 +591,7 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
               flush
               actions={
                 <span className="flex flex-wrap gap-1.5">
-                  {(["new", "ongoing", "quiet"] as const).map((s) => (
+                  {STATE_ORDER.map((s) => (
                     <Chip key={s} tone={STATE_TONE[s]} title={STATE_TITLE[s]}>
                       {STATE_LABEL[s]}{" "}
                       {derived.states.filter((x) => x === s).length}
@@ -468,6 +613,7 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
                     <TableHead>Route</TableHead>
                     <TableHead>First seen</TableHead>
                     <TableHead>Last seen</TableHead>
+                    <TableHead>Release</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

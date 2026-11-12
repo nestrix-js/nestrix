@@ -19,6 +19,7 @@ import {
   classStatsSpec,
   dependencySpec,
   errorGroupSpec,
+  errorInsightsSpec,
   errorListSpec,
   metaSpec,
   overviewSpec,
@@ -152,6 +153,16 @@ export class QueryController {
     const v = parse(req, errorGroupSpec);
     return this.query.errorGroups(
       v.windowMinutes as number,
+      v.service as string | undefined,
+    );
+  }
+
+  @Get("errors/insights")
+  @Headers()
+  errorInsights(@Req() req: RequestLike) {
+    const v = parse(req, errorInsightsSpec);
+    return this.query.errorInsights(
+      v.route as string | undefined,
       v.service as string | undefined,
     );
   }
