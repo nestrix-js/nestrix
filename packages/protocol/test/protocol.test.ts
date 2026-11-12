@@ -26,6 +26,7 @@ describe("package entry", () => {
         "metaParams",
         "profileIdParams",
         "profileStartBody",
+        "queryStatsParams",
         "routeStatsParams",
         "traceListParams",
         "traceParams",

@@ -80,7 +80,7 @@ test("with several services the selector lists them and its choice is sent as se
 
   // Every view asks with the choice, and the choice survives navigation between views.
   for (const [name, endpoint] of [
-    ["Errors", "errors"],
+    ["Errors", "errors/groups"], // the grouped view is the default (P9-04)
     ["Routes", "routes"],
     ["Classes", "classes"],
     ["Map", "map"],

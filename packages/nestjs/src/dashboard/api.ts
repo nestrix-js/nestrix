@@ -39,8 +39,8 @@ import { methodsEnabled } from "../methods/registry.js";
 import { type ClassStatistics, ownAverages } from "../stats/class-stats.js";
 import type { RouteStatistics } from "../stats/route-stats.js";
 import { buildAppMap } from "../store/app-map.js";
-import { buildQueryStats } from "../store/queries.js";
 import { groupErrors } from "../store/error-groups.js";
+import { buildQueryStats } from "../store/queries.js";
 import type { StoreStats, TraceStore } from "../store/store.js";
 import { type DashboardResponse, JSON_TYPE } from "./respond.js";
 

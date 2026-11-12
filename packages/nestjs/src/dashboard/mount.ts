@@ -425,6 +425,8 @@ export class Dashboard {
       [
         `${api}/queries`,
         this.handler("api", (t) => queriesHandler(t, sources())),
+      ],
+      [
         `${api}/runtime`,
         this.handler("api", (t) => runtimeHandler(t, this.runtime)),
       ],

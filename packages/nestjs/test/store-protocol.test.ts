@@ -67,6 +67,9 @@ const same: [
   true,
   true,
   true,
+  true,
+  true,
+  true,
 ];
 
 describe("store types mirror @nestrix-js/protocol", () => {
