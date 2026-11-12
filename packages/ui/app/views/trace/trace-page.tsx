@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiRequestError, getTrace, getTraceLogs } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
+import { summarizeDropped } from "@/lib/trace-omitted";
 import { buildTree, isErrorSpan } from "@/lib/trace-tree";
 import { routeDetailHref } from "@/views/route/route-detail";
 import { CopyButton } from "@/views/trace/copy-button";
+import { OmittedBanner } from "@/views/trace/omitted-banner";
 import { Waterfall } from "@/views/trace/waterfall";
 
 function BackLink() {
@@ -125,6 +127,7 @@ export function TracePage({ traceId }: { traceId: string }) {
 
   const trace = query.data;
   const summary = summarize(trace);
+  const omitted = summarizeDropped(trace.droppedSpans);
   return (
     <div className="space-y-4">
       <BackLink />
@@ -165,7 +168,8 @@ export function TracePage({ traceId }: { traceId: string }) {
           <TraceId id={trace.traceId} />
         </div>
       </header>
-      <Waterfall trace={trace} logs={logs.data} />
+      {omitted ? <OmittedBanner summary={omitted} /> : null}
+      <Waterfall trace={trace} logs={logs.data} omitted={omitted?.total} />
     </div>
   );
 }
