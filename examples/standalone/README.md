@@ -1,7 +1,7 @@
 # Standalone server example: several services, several replicas
 
 `docker-compose.yml` runs PostgreSQL, the published Nestrix server image
-(`ghcr.io/nestrix-js/nestrix-server:alpha`) and two NestJS services from `examples/jaeger`:
+(`ghcr.io/nestrix-js/nestrix-server:latest`) and two NestJS services from `examples/jaeger`:
 `service-a` calls `service-b`, and `service-b` runs as two replicas. Each service has only
 `OTEL_EXPORTER_OTLP_ENDPOINT=http://nestrix-server:4318`; the code has no Nestrix setting beyond
 `NestrixModule.forRoot({ serviceName })`.
@@ -21,9 +21,9 @@ attribute yourself, for example to the pod name with
 `NESTRIX_INGEST_AUTH=none` is for this demo only. In real use set `NESTRIX_INGEST_KEYS` on the server
 and `OTEL_EXPORTER_OTLP_HEADERS` on each service; `apps/server/README.md` has the details.
 
-The `alpha` tag follows the latest prerelease. The release workflow publishes it, so it exists only
-after publishing is enabled and the package is public. Until then build the server locally: replace
-the `image:` line with `build: { context: ../.., dockerfile: apps/server/Dockerfile }`.
+The `latest` tag follows the newest stable release and is published by the release workflow. To use
+your own checkout instead, replace the `image:` line with
+`build: { context: ../.., dockerfile: apps/server/Dockerfile }`.
 
 ## Add the server to an existing compose project
 
@@ -34,7 +34,7 @@ the endpoint and an ingest key:
 ```yaml
 services:
   nestrix-server:
-    image: ghcr.io/nestrix-js/nestrix-server:alpha
+    image: ghcr.io/nestrix-js/nestrix-server:latest
     environment:
       DATABASE_URL: ${NESTRIX_DATABASE_URL:?}
       NESTRIX_INGEST_KEYS: ${NESTRIX_INGEST_KEY:?} # at least 32 characters

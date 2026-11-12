@@ -10,15 +10,15 @@ The standalone Nestrix server. One process, one port (default `4318`), backed by
 | `/` | The dashboard (the `@nestrix-js/ui` build) |
 | `/login`, `/logout` | Admin sign-in |
 
-Use it when you want history beyond one process's memory, several services in one place, or a dashboard that is not inside your app. It is private (not on npm) and distributed as a Docker image on GHCR (`linux/amd64` and `linux/arm64`, with build provenance and an SBOM). Pre-release: tags are `<version>` (for example `0.1.0-alpha.0`) and `alpha`, the latest prerelease; `latest` appears with the first stable release.
+Use it when you want history beyond one process's memory, several services in one place, or a dashboard that is not inside your app. It is private (not on npm) and distributed as a Docker image on GHCR (`linux/amd64` and `linux/arm64`, with build provenance and an SBOM). Tags are `<version>` (for example `0.1.0`) and `latest`, the newest stable release.
 
 ## Run with Docker
 
 Without cloning the repository:
 
 ```bash
-docker pull ghcr.io/nestrix-js/nestrix-server:alpha
-docker run -p 4318:4318 -e DATABASE_URL=postgres://… -e NESTRIX_INGEST_KEYS=… -e NESTRIX_ADMIN_PASSWORD=… ghcr.io/nestrix-js/nestrix-server:alpha
+docker pull ghcr.io/nestrix-js/nestrix-server:latest
+docker run -p 4318:4318 -e DATABASE_URL=postgres://… -e NESTRIX_INGEST_KEYS=… -e NESTRIX_ADMIN_PASSWORD=… ghcr.io/nestrix-js/nestrix-server:latest
 ```
 
 `examples/standalone/` has a compose file with PostgreSQL, this image and two services (one with two replicas), and a snippet for adding the server to an existing compose project.

@@ -2,7 +2,7 @@
 
 Each phase is a vertical slice that ends with something a user can run. A phase is done when its acceptance criteria pass in CI, not when the code is written. Under delivery mode (owner, 2026-11-11) phases no longer stop for review; each ends with a phase report.
 
-All phases (0 to 9) are complete. Phases 3 to 9 ran under delivery mode (owner, 2026-11-11), each with a report: [phase-3-report.md](phase-3-report.md) to [phase-9-report.md](phase-9-report.md). `@nestrix-js/nestjs`, `@nestrix-js/ui` and `@nestrix-js/mcp` are published at `0.1.0-alpha.3` and the server image is on GHCR. Phases 1 and 2 were approved by the owner on 2026-11-11; phase 0 is complete ([phase-0-report.md](phase-0-report.md)). Next: the optimisation pass (deferred benchmarks listed in the reports) and the road to 1.0.
+All phases (0 to 11) are complete. Phases 3 to 11 ran under delivery mode (owner, 2026-11-11), each with a report: [phase-3-report.md](phase-3-report.md) to [phase-11-report.md](phase-11-report.md). `@nestrix-js/nestjs`, `@nestrix-js/ui` and `@nestrix-js/mcp` are published at `0.1.0` under the `latest` npm tag (D-77) and the server image is on GHCR (`:0.1.0`, `:latest`). Phases 1 and 2 were approved by the owner on 2026-11-11; phase 0 is complete ([phase-0-report.md](phase-0-report.md)). Next: the optimisation pass (deferred benchmarks listed in the reports) and the road to 1.0, an owner decision.
 
 ## Phase 0: foundations and spikes
 
@@ -172,3 +172,23 @@ Attribute names follow the OpenTelemetry HTTP semantic conventions current at im
 **Depends on.** Phases 2 and 5.
 
 **Acceptance and validation.** In [backlog/phase-9.md](backlog/phase-9.md) (its delivery rule: local per-task checks, CI on `main` as the safety net); results in [phase-9-report.md](phase-9-report.md).
+
+## Phase 10: remote CPU profiling
+
+**Objective.** Profile any instance of an app from the standalone dashboard, without the server ever connecting to the app (D-76).
+
+**Deliverables.** `export.profiler` in `@nestrix-js/nestjs` (default off): the instance checks in with the server every 15 s over its export endpoint with its ingest key, receives a capture order, runs the existing on-demand capture and uploads the `.cpuprofile`. In the server: check-in, upload and failure routes on the ingest port, `GET api/v1/instances`, admin-only `POST api/v1/remote-profiles`, a list, a detail with top functions and flame graph, a download, expiry and retention, migration `0008_remote_profiles.sql`. In the UI: a Profiler page for the standalone mode (instances, capture, history, detail). Security-reviewed.
+
+**Depends on.** Phases 5 and 7.
+
+**Acceptance as delivered.** Checked end to end against a real PostgreSQL, the server and an app: a 3 s capture was `done` in about 19 s, and a start from an API token or a cross-site request was refused. The Opus review found four problems, fixed (a key leak through the generic endpoint, ownership by key index, a transport that kept short-lived hosts alive, lost orders), and one deferred (upload memory accounting). Results in [backlog/phase-10.md](backlog/phase-10.md) and [phase-10-report.md](phase-10-report.md).
+
+## Phase 11: the Overview page
+
+**Objective.** The dashboard opens on what is better and what needs attention, with charts, instead of leaving the reader to scan tables.
+
+**Deliverables.** `GET api/v1/overview` on both backends from one pure computation (totals, series, Apdex, status mix, time by kind, releases, insight rules, health score); an Overview page as the new home (`/`), with the request list moved to `/requests` and old deep links redirected; every card says whether it is counted before sampling or built from sampled traces.
+
+**Depends on.** Phases 9 and 10.
+
+**Acceptance as delivered.** Unit tests for every rule and threshold boundary, one route test per backend, and 150 Chromium end-to-end tests passing. On merge, API tokens were allowed to read `overview` and the KPI arrows were made to follow the sign of the change. Results in [backlog/phase-11.md](backlog/phase-11.md) and [phase-11-report.md](phase-11-report.md).

@@ -2,7 +2,7 @@
 
 Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app produces a server span per request, outgoing HTTP spans, and your own spans, exported over OTLP to whatever backend you run (Jaeger, Tempo, an OpenTelemetry Collector, a vendor that accepts OTLP).
 
-> **Status: alpha.** Tracing with OTLP export, an embedded dashboard served by your own app, method spans for your own classes, database and cache spans (`pg`, `mysql2`, `ioredis`), BullMQ job traces and microservice spans. Option names are settled for 1.0 (see [Stability](#stability)).
+> **Status: 0.1.0.** Tracing with OTLP export, an embedded dashboard served by your own app, method spans for your own classes, database and cache spans (`pg`, `mysql2`, `ioredis`), BullMQ job traces and microservice spans. Option names are settled for 1.0 (see [Stability](#stability)).
 
 ## Contents
 

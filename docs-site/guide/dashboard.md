@@ -8,9 +8,20 @@ How it is opened and secured is on the [Security model](/guide/security) page. T
 
 ## Views
 
-The dashboard polls for new data every two seconds. The tabs, in order:
+The dashboard polls for new data every two seconds. It opens on the Overview (`/`); the tabs, in order:
 
-**Requests.** Recent traces, newest first, with filters for status, error, route, release, user, trace type (HTTP, jobs, scheduled) and text. A request timeline chart sits above the list (drag across it to narrow the time range), each row has a duration bar, and a filter set can be saved by name in your browser. Release and user columns appear when any stored trace has them (see `serviceVersion` and `user` in the [reference](/reference/configuration)).
+**Overview.** The home page says what is better and what needs attention, so you do not have to read tables first. Switch between the last 15 and the last 60 minutes; everything is compared with the window before it. Each card says whether its numbers are counted before sampling or built from stored, sampled traces.
+
+- **Health.** A score from 0 to 100 with a level (`healthy` from 90, `degraded` from 70, else `critical`) and one sentence, for example "2 things need attention: POST /orders p95 412 ms → 680 ms, and PaymentGatewayError is new (214 events)." The score starts at 100 and loses points for each high (12) or medium (6) item in Needs attention, for the error rate (up to 30) and for a low Apdex (up to 40).
+- **Needs attention** and **Getting better.** Up to six items each, ranked by impact (requests or events affected times the size of the change): a route whose p95 or error rate moved, a new or spiking error group (or one that cleared), a dependency that got slower or started failing, and on the standalone server an SLO that burns its budget. A route needs at least 20 requests in each window to be compared. Each item has a severity chip with words and an arrow, not colour alone, a sparkline and a link to the right page.
+- **KPI tiles.** Throughput per minute, error rate, p95, Apdex and the slowest dependency's p95, each with its change and a sparkline. Throughput, error rate, p95 and Apdex are counted for every request, before sampling.
+- **Latency percentiles** (p50, p95, p99, the previous p95 in grey, release markers), **throughput with errors** and the **Apdex split** (satisfied, tolerating, frustrated, for a threshold T shown on the card) are also before sampling. Apdex from the stored histograms is approximate: a request counts as satisfied when its bucket's upper edge is within T.
+- **Donuts.** Responses by status and where request time goes (database, outgoing HTTP, Redis, messaging, your code, other) come from sampled traces, with the change in share against the previous window.
+- **Top routes** by impact, and, on the embedded dashboard, a runtime card; on the standalone server, the SLO budget rings.
+
+Until a full previous window has been kept, changes show "—" and the lists say so. The thresholds for each rule are listed in [`docs/backlog/phase-11.md`](https://github.com/nestrix-js/nestrix/blob/main/docs/backlog/phase-11.md).
+
+**Requests** (`/requests`; a link to `/` that carries request-list filters is redirected here). Recent traces, newest first, with filters for status, error, route, release, user, trace type (HTTP, jobs, scheduled) and text. A request timeline chart sits above the list (drag across it to narrow the time range), each row has a duration bar, and a filter set can be saved by name in your browser. Release and user columns appear when any stored trace has them (see `serviceVersion` and `user` in the [reference](/reference/configuration)).
 
 **Trace waterfall.** One request's spans as a waterfall: server span, method spans, database and cache spans, outgoing HTTP calls and exception events. Above it, a summary of where the time went by span kind and by class, and a critical-path toggle that highlights the spans on the critical path. The [log lines](#logs-next-to-the-trace) written during the request are listed beside it.
 
@@ -28,9 +39,9 @@ The dashboard polls for new data every two seconds. The tabs, in order:
 
 **Runtime.** Event loop delay (p50, p99, max), heap used and total, RSS and CPU over the last hour, sampled every 10 seconds by a small timer that runs only while the dashboard is on. It needs no metrics setup. The standalone server has no such tab: it does not see your processes.
 
-**Profiler.** An on-demand [CPU profile](#profiler), when the dashboard is authenticated.
+**Profiler.** An on-demand [CPU profile](#profiler), when the dashboard is authenticated. On the standalone server the same tab profiles any instance that opted in: see [remote CPU profiling](/guide/standalone-server#remote-cpu-profiling).
 
-The [standalone server](/guide/standalone-server) adds **SLOs** (error budgets and burn rates) and **Settings** (read-only API tokens). The Profiler and Runtime tabs belong to the embedded dashboard only.
+The [standalone server](/guide/standalone-server) adds **SLOs** (error budgets and burn rates) and **Settings** (read-only API tokens). The Runtime tab belongs to the embedded dashboard only.
 
 ## Logs next to the trace
 
