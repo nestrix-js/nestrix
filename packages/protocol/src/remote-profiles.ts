@@ -101,7 +101,12 @@ export interface RemoteProfileStartRequest {
  * - `failed`: the instance reported a failure.
  * - `expired`: never picked up, or no upload within duration + 60 s.
  */
-export type RemoteProfileState = "pending" | "running" | "done" | "failed" | "expired";
+export type RemoteProfileState =
+  | "pending"
+  | "running"
+  | "done"
+  | "failed"
+  | "expired";
 
 export interface RemoteProfileSummary {
   id: string;
