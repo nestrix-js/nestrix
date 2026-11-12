@@ -8,9 +8,9 @@ Owner, 2026-11-12: complete everything as soon as possible, in parallel, without
 |---|---|---|---|
 | P15-01 | Previous-window changes for Dependencies, Classes, Map (both backends + UI tiles/rows) | sonnet | done (merged) |
 | P15-02 | Errors: release per group, New / Regressed / Ongoing / Quiet, weekday × hour heatmap, errors per release (both backends + UI) | sonnet | done (merged) |
-| P15-03 | Per-instance runtime in the standalone server through the check-in (SDK + server + Profiler "suggested instance") (D-80) | opus | done (merged; review running) |
+| P15-03 | Per-instance runtime in the standalone server through the check-in (SDK + server + Profiler "suggested instance") (D-80) | opus | done (reviewed: test race fixed, CPU interval on a monotonic clock) |
 | P15-04 | Docs: roadmap, AGENTS.md, phase reports 12–14, docs-site guides (route detail, large traces, redesign) | sonnet | done (merged) |
-| P15-05 | Merge, checks, review of P15-03, release | lead | in progress |
+| P15-05 | Merge, checks, review of P15-03, release | lead | done (pnpm verify 3,929 tests, UI Chromium 240, app e2e 21) |
 
 ## Decisions
 

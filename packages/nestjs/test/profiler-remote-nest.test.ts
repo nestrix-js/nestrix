@@ -189,16 +189,25 @@ describe("export.profiler through NestrixModule", () => {
         expect(board).toBeDefined();
         board?.runtime.sample();
         const seen = server.checkIns().length;
+        // Check-ins run every 20 ms here, so one built before sample() can arrive after `seen`:
+        // wait for any later check-in that carries the loop figure, then assert on that one.
+        const sampleOf = (c: unknown) =>
+          (bodyJson(c as never) as { runtimeSample?: Record<string, number> })
+            .runtimeSample;
         await until(
-          () => server.checkIns().length > seen,
+          () =>
+            server
+              .checkIns()
+              .slice(seen)
+              .some((c) => typeof sampleOf(c)?.eventLoopP99Ms === "number"),
           2000,
-          "a later check-in",
+          "a later check-in with the event-loop p99",
         );
-        const sample = (
-          bodyJson(server.checkIns().at(-1) as never) as {
-            runtimeSample?: Record<string, number>;
-          }
-        ).runtimeSample;
+        const sample = server
+          .checkIns()
+          .slice(seen)
+          .map(sampleOf)
+          .find((r) => typeof r?.eventLoopP99Ms === "number");
         expect(sample?.eventLoopP99Ms).toBeGreaterThanOrEqual(0);
         expect(sample?.rssBytes).toBeGreaterThan(0);
       } finally {

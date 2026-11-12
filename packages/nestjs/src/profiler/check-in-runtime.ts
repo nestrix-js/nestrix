@@ -28,13 +28,17 @@ export const LOOP_SAMPLE_MAX_AGE_MS = 30_000;
 
 /** What the reader takes from the process; tests replace it. */
 export interface CheckInRuntimeSources {
+  /** Wall clock, for `sampledAtUnixMs`. */
   now(): number;
+  /** Monotonic clock in ms, for the CPU interval (immune to wall-clock steps). Defaults to `now`. */
+  monotonic?(): number;
   cpuUsage(): { user: number; system: number };
   memoryUsage(): { heapUsed: number; rss: number };
 }
 
 const processSources: CheckInRuntimeSources = {
   now: () => Date.now(),
+  monotonic: () => performance.now(),
   cpuUsage: () => process.cpuUsage(),
   memoryUsage: () => process.memoryUsage(),
 };
@@ -61,10 +65,17 @@ export class CheckInRuntime implements CheckInRuntimeReader {
     private readonly sources: CheckInRuntimeSources = processSources,
   ) {}
 
+  /** The interval clock: monotonic when the source has one, so a wall-clock step cannot skew CPU %. */
+  private tick(): number {
+    return this.sources.monotonic
+      ? this.sources.monotonic()
+      : this.sources.now();
+  }
+
   start(): void {
     try {
       this.lastCpu = this.sources.cpuUsage();
-      this.lastAt = this.sources.now();
+      this.lastAt = this.tick();
     } catch (error) {
       this.lastCpu = undefined;
       this.diagnostics.countFailure("profiler.remote.runtime", error);
@@ -81,7 +92,8 @@ export class CheckInRuntime implements CheckInRuntimeReader {
       let any = false;
       try {
         const cpu = this.sources.cpuUsage();
-        const elapsedMicros = (now - this.lastAt) * 1000;
+        const at = this.tick();
+        const elapsedMicros = (at - this.lastAt) * 1000;
         if (this.lastCpu !== undefined && elapsedMicros > 0) {
           const used =
             cpu.user - this.lastCpu.user + (cpu.system - this.lastCpu.system);
@@ -92,7 +104,7 @@ export class CheckInRuntime implements CheckInRuntimeReader {
           }
         }
         this.lastCpu = cpu;
-        this.lastAt = now;
+        this.lastAt = at;
       } catch (error) {
         this.diagnostics.countFailure("profiler.remote.runtime", error);
       }
