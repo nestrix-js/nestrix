@@ -1,12 +1,15 @@
 import type { ProfileDetail } from "@nestrix-js/protocol";
-import { fmtMs, fmtPct } from "./format.js";
+import { clean, fmtMs, fmtPct } from "./format.js";
 
 export const PROFILE_TOP = 15;
 
 /** `file:///app/dist/x.js` as `/app/dist/x.js`, cut from the left to at most 90 characters. */
 function place(url: string, line: number): string {
   if (url === "") return "(runtime)";
-  let path = url.startsWith("file://") ? decodeSafe(url.slice(7)) : url;
+  let path = clean(
+    url.startsWith("file://") ? decodeSafe(url.slice(7)) : url,
+    400,
+  );
   const dependency = path.lastIndexOf("/node_modules/");
   if (dependency >= 0) path = path.slice(dependency + 1);
   const shortened =
@@ -27,7 +30,7 @@ export function renderProfile(detail: ProfileDetail): string {
   // The flame root's total excludes (idle): the share is of the time the process was working.
   const busy = detail.flame.totalSamples;
   const lines = [
-    `CPU profile ${detail.id}: ${fmtMs(detail.actualDurationMs)} captured, ${detail.samples} samples (${busy} not idle), starting it paused the app for ${fmtMs(detail.startPauseMs)}.`,
+    `CPU profile ${clean(detail.id, 64)}: ${fmtMs(detail.actualDurationMs)} captured, ${detail.samples} samples (${busy} not idle), starting it paused the app for ${fmtMs(detail.startPauseMs)}.`,
   ];
   if (detail.topFunctions.length === 0 || busy === 0) {
     lines.push(
@@ -38,7 +41,7 @@ export function renderProfile(detail: ProfileDetail): string {
   lines.push("Top functions by self time (share of non-idle samples):");
   detail.topFunctions.slice(0, PROFILE_TOP).forEach((f, i) => {
     lines.push(
-      `${i + 1}. ${fmtPct(f.selfSamples, busy)} ${f.functionName} ${place(f.url, f.line)} (self ${f.selfSamples} samples, with callees ${f.totalSamples})`,
+      `${i + 1}. ${fmtPct(f.selfSamples, busy)} ${clean(f.functionName, 100)} ${place(f.url, f.line)} (self ${f.selfSamples} samples, with callees ${f.totalSamples})`,
     );
   });
   if (detail.topFunctions.length > PROFILE_TOP) {

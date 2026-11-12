@@ -8,7 +8,7 @@ Owner, 2026-11-12: "worth adding MCP so an AI model can easily understand the ap
 |---|---|---|---|---|---|
 | P8-00 | Backlog, decisions | lead | — | done | |
 | P8-01 | Standalone server: read-only API tokens | opus | P8-00 | todo | Security: review required. |
-| P8-02 | `@nestrix-js/mcp`: stdio MCP server over the query API | sonnet | P8-00 | built, awaiting review (P8-03) | Starting a CPU capture is its one write: review required. Tested against a real embedded dashboard and a mocked standalone server; not yet against P8-01's server tokens. `get_profile` is not a separate tool: `start_profile` polls. |
+| P8-02 | `@nestrix-js/mcp`: stdio MCP server over the query API | sonnet | P8-00 | done | Security-reviewed; fixes: access value never in output, bounded iterative get_trace (200 KB cap, cycles), one-line telemetry text, data-not-instructions note, 403 explains proxy Host. |
 | P8-03 | Reviews of P8-01 and P8-02 | opus reviewer | each | todo | |
 | P8-04 | Docs (README, docs site), release | sonnet + lead | all | todo | |
 

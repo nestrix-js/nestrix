@@ -80,7 +80,23 @@ export class NestrixClient {
    * an `Origin` equal to the request's own origin and `Sec-Fetch-Site: same-origin`. This client
    * is the trusted caller (it holds the token), so it sets them.
    */
-  startProfile(durationSeconds: number): Promise<ProfileStartResponse> {
+  async startProfile(durationSeconds: number): Promise<ProfileStartResponse> {
+    try {
+      return await this.#startProfile(durationSeconds);
+    } catch (error) {
+      if (error instanceof NestrixError && error.status === 403) {
+        const said = apiMessage(error.body);
+        throw new NestrixError(
+          `${said ? `The app said: ${said}. ` : ""}The app refused to start the capture (HTTP 403). If NESTRIX_TOKEN is right, the cause is usually the request origin: a reverse proxy in front of the app must pass the original Host header, because the endpoint accepts only requests whose Origin equals their own Host.`,
+          403,
+          error.body,
+        );
+      }
+      throw error;
+    }
+  }
+
+  #startProfile(durationSeconds: number): Promise<ProfileStartResponse> {
     return this.#request(
       "api/v1/profiles",
       {},
@@ -154,16 +170,16 @@ export class NestrixClient {
         0,
       );
     }
-    const cause = (error as { cause?: { code?: unknown; message?: unknown } })
-      ?.cause;
-    const why =
+    // Never use `error.message`: undici can echo request headers (the token) in it.
+    const cause = (error as { cause?: { code?: unknown } } | null)?.cause;
+    const code = (error as { code?: unknown } | null)?.code;
+    const raw =
       typeof cause?.code === "string"
         ? cause.code
-        : typeof cause?.message === "string"
-          ? cause.message
-          : error instanceof Error
-            ? error.message
-            : "unknown error";
+        : typeof code === "string"
+          ? code
+          : "";
+    const why = /^[A-Z0-9_]{1,40}$/.test(raw) ? raw : "network error";
     return new NestrixError(
       `Could not reach ${this.#origin} (${why}). Is the app or server running, and is NESTRIX_URL right?`,
       0,

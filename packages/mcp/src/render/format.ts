@@ -37,6 +37,11 @@ export function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1))}…`;
 }
 
+/** For any string that came from telemetry: one line, at most `max` characters. */
+export function clean(text: string, max: number): string {
+  return truncate(oneLine(text), max);
+}
+
 /** Pads every cell but the last of each row to its column's width. */
 export function table(rows: string[][]): string[] {
   const widths: number[] = [];

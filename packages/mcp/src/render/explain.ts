@@ -3,7 +3,7 @@ import type {
   TraceResponse,
   TraceSummary,
 } from "@nestrix-js/protocol";
-import { fmtMs, fmtPct, oneLine, plural, truncate } from "./format.js";
+import { clean, fmtMs, fmtPct, plural, truncate } from "./format.js";
 import {
   buildTree,
   classOf,
@@ -37,7 +37,10 @@ export const EXPLAIN_TRACES = 5;
 
 /** Ranked summary of why a route is slow: statistics, then where the self time of its slowest stored traces goes. */
 export function renderExplanation(input: ExplainInput): string {
-  const label = input.method ? `${input.method} ${input.route}` : input.route;
+  const label = clean(
+    input.method ? `${input.method} ${input.route}` : input.route,
+    160,
+  );
   const lines: string[] = [];
   if (input.stats.length === 0) {
     lines.push(
@@ -45,7 +48,12 @@ export function renderExplanation(input: ExplainInput): string {
     );
     if (input.knownRoutes.length > 0) {
       lines.push(
-        `Routes with statistics: ${input.knownRoutes.slice(0, 10).join(", ")}${input.knownRoutes.length > 10 ? ", ..." : ""}. The route is the template, for example /users/:id.`,
+        `Routes with statistics: ${input.knownRoutes
+          .slice(0, 10)
+          .map((r) => clean(r, 120))
+          .join(
+            ", ",
+          )}${input.knownRoutes.length > 10 ? ", ..." : ""}. The route is the template, for example /users/:id.`,
       );
     }
   } else {
@@ -56,7 +64,7 @@ export function renderExplanation(input: ExplainInput): string {
       a.method < b.method ? -1 : 1,
     )) {
       lines.push(
-        `- ${s.method} ${s.route}: ${plural(s.count, "request")}, ${plural(s.errors, "error")}, p50 ${fmtMs(s.p50Ms)}, p95 ${fmtMs(s.p95Ms)}, p99 ${fmtMs(s.p99Ms)}, max ${fmtMs(s.maxMs)}`,
+        `- ${clean(`${s.method} ${s.route}`, 160)}: ${plural(s.count, "request")}, ${plural(s.errors, "error")}, p50 ${fmtMs(s.p50Ms)}, p95 ${fmtMs(s.p95Ms)}, p99 ${fmtMs(s.p99Ms)}, max ${fmtMs(s.maxMs)}`,
       );
     }
   }
@@ -80,8 +88,9 @@ export function renderExplanation(input: ExplainInput): string {
     for (const span of tree.spans) {
       const self = tree.selfMs.get(span.spanId) ?? 0;
       totalSelf += self;
-      const kind = statementOf(span) !== undefined ? "db" : span.kind;
-      const name = oneLine(span.name);
+      const kind =
+        statementOf(span) !== undefined ? "db" : clean(span.kind, 24);
+      const name = clean(span.name, 100);
       const key = `${name}\u0000${kind}`;
       const b = bySpan.get(key) ?? { name, selfMs: 0, calls: 0, kind };
       b.selfMs += self;
@@ -89,7 +98,11 @@ export function renderExplanation(input: ExplainInput): string {
       bySpan.set(key, b);
       const cls = classOf(span);
       if (cls !== undefined) {
-        const c = byClass.get(cls) ?? { name: cls, selfMs: 0, calls: 0 };
+        const c = byClass.get(cls) ?? {
+          name: clean(cls, 80),
+          selfMs: 0,
+          calls: 0,
+        };
         c.selfMs += self;
         c.calls++;
         byClass.set(cls, c);
@@ -113,7 +126,7 @@ export function renderExplanation(input: ExplainInput): string {
   );
   spanRank.slice(0, 8).forEach((b, i) => {
     lines.push(
-      `${i + 1}. ${truncate(b.name, 100)} [${b.kind}]: ${fmtMs(b.selfMs)} (${fmtPct(b.selfMs, totalSelf)}) over ${plural(b.calls, "call")}`,
+      `${i + 1}. ${b.name} [${b.kind}]: ${fmtMs(b.selfMs)} (${fmtPct(b.selfMs, totalSelf)}) over ${plural(b.calls, "call")}`,
     );
   });
   if (classRank.length > 0) {
@@ -152,7 +165,7 @@ export function renderExplanation(input: ExplainInput): string {
   if (slowest) {
     lines.push(
       "",
-      `Summary: ${summary.join("; ")}. Use get_trace ${slowest.traceId} for the slowest trace in full.`,
+      `Summary: ${summary.join("; ")}. Use get_trace ${clean(slowest.traceId, 64)} for the slowest trace in full.`,
     );
   }
   return lines.join("\n");

@@ -49,6 +49,12 @@ export function loadConfig(
     );
   }
 
+  if (!/^[\x21-\x7e]+$/.test(token)) {
+    throw new ConfigError(
+      "NESTRIX_TOKEN contains whitespace, control or non-ASCII characters, so it cannot be sent as an HTTP header. Check it for a stray newline or a bad copy-paste (the value is not shown).",
+    );
+  }
+
   let timeoutMs = DEFAULT_TIMEOUT_MS;
   const rawTimeout = env.NESTRIX_TIMEOUT_MS?.trim();
   if (rawTimeout) {
