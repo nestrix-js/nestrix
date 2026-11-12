@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
+import { Section } from "@/components/kit";
 import { formatDuration } from "@/lib/format";
 import { isSlowDbSpan, repeatedQueries } from "@/lib/trace-insights";
 import {
@@ -20,7 +21,7 @@ import {
   toneClass,
 } from "@/lib/trace-logs";
 import { omittedLabel } from "@/lib/trace-omitted";
-import { criticalPath, timeBreakdown } from "@/lib/trace-time";
+import { categoryOf, criticalPath, timeBreakdown } from "@/lib/trace-time";
 import {
   barLayout,
   buildTree,
@@ -32,6 +33,7 @@ import {
   scaleTicks,
 } from "@/lib/trace-tree";
 import { cn } from "@/lib/utils";
+import { CATEGORY_BG } from "@/views/trace/category-style";
 import { LogsPanel } from "@/views/trace/logs-panel";
 import { QueriesPanel } from "@/views/trace/queries-panel";
 import { SpanDetail } from "@/views/trace/span-detail";
@@ -235,7 +237,49 @@ export function Waterfall({
         />
       ) : null}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-        <div className="min-w-0 flex-1 rounded-lg border">
+        <Section
+          flush
+          testId="waterfall-card"
+          title="Waterfall"
+          description="Every span on a shared time axis; click a row for details, arrow keys to move"
+          source="from this trace's spans"
+          className="flex-1"
+          actions={
+            <ul
+              data-testid="waterfall-legend"
+              className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"
+            >
+              {(
+                [
+                  ["code", "Code"],
+                  ["database", "Database"],
+                  ["cache", "Cache"],
+                  ["http", "HTTP out"],
+                  ["messaging", "Messaging"],
+                ] as const
+              ).map(([category, label]) => (
+                <li key={category} className="flex items-center gap-1">
+                  <span
+                    aria-hidden
+                    className={cn("size-2 rounded-sm", CATEGORY_BG[category])}
+                  />
+                  {label}
+                </li>
+              ))}
+              <li className="flex items-center gap-1">
+                <span aria-hidden className="size-2 rounded-sm bg-warning" />
+                Slow query
+              </li>
+              <li className="flex items-center gap-1">
+                <span
+                  aria-hidden
+                  className="size-2 rounded-sm bg-destructive"
+                />
+                Error
+              </li>
+            </ul>
+          }
+        >
           <div
             ref={scrollRef}
             role="treegrid"
@@ -247,14 +291,14 @@ export function Waterfall({
             }
             tabIndex={0}
             onKeyDown={onKeyDown}
-            className="overflow-auto rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            className="overflow-auto border-t border-border outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
             style={{ height: viewport }}
           >
             <div className="min-w-[640px]">
               <div
                 role="row"
                 data-testid="waterfall-scale"
-                className="sticky top-0 z-10 flex h-7 border-b bg-background text-xs text-muted-foreground"
+                className="sticky top-0 z-10 flex h-7 border-b border-border bg-muted text-xs text-muted-foreground"
               >
                 <div role="columnheader" className="w-72 shrink-0 px-2 py-1.5">
                   Span
@@ -324,6 +368,7 @@ export function Waterfall({
                       top={item.start}
                       startMs={tree.startMs}
                       totalMs={tree.totalMs}
+                      gridPcts={ticks.map((t) => t.leftPct)}
                       selected={row.node.span.spanId === selectedId}
                       highlighted={highlighted.has(row.node.span.spanId)}
                       critical={critical.has(row.node.span.spanId)}
@@ -340,7 +385,7 @@ export function Waterfall({
               </div>
             </div>
           </div>
-        </div>
+        </Section>
         {detailOpen && selected ? (
           <SpanDetail
             span={selected.span}
@@ -373,6 +418,7 @@ function WaterfallRow({
   top,
   startMs,
   totalMs,
+  gridPcts,
   selected,
   highlighted,
   critical,
@@ -385,6 +431,8 @@ function WaterfallRow({
   top: number;
   startMs: number;
   totalMs: number;
+  /** Positions (percent) of the time axis ticks, drawn as faint lines in the bar cell. */
+  gridPcts: number[];
   selected: boolean;
   highlighted: boolean;
   critical: boolean;
@@ -396,7 +444,8 @@ function WaterfallRow({
   const error = isErrorSpan(span);
   const slow = isSlowDbSpan(span);
   const { leftPct, widthPct } = barLayout(span, startMs, totalMs);
-  const indent = Math.min(row.depth, MAX_INDENT_LEVELS) * INDENT_PX;
+  const levels = Math.min(row.depth, MAX_INDENT_LEVELS);
+  const indent = levels * INDENT_PX;
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard control is on the treegrid (arrows, Enter)
     <div
@@ -426,9 +475,19 @@ function WaterfallRow({
     >
       <div
         role="gridcell"
-        className="flex w-72 shrink-0 items-center gap-1 overflow-hidden px-2"
+        className="relative flex w-72 shrink-0 items-center gap-1 overflow-hidden px-2"
         style={{ paddingLeft: 8 + indent }}
       >
+        {Array.from({ length: levels }, (_, level) => (
+          <span
+            // biome-ignore lint/suspicious/noArrayIndexKey: guides are positional
+            key={level}
+            aria-hidden
+            data-testid="nest-guide"
+            className="absolute inset-y-0 w-px bg-border"
+            style={{ left: 8 + level * INDENT_PX + 8 }}
+          />
+        ))}
         {row.expanded === null ? (
           <span className="size-4 shrink-0" />
         ) : (
@@ -474,7 +533,7 @@ function WaterfallRow({
         </span>
         <span
           data-testid="span-kind"
-          className="shrink-0 text-xs text-muted-foreground"
+          className="shrink-0 rounded bg-muted px-1 text-[10px] uppercase tracking-wide text-muted-foreground"
         >
           {span.kind}
         </span>
@@ -495,13 +554,25 @@ function WaterfallRow({
         ) : null}
       </div>
       <div role="gridcell" className="relative h-full flex-1">
+        {gridPcts.map((pct) => (
+          <span
+            key={pct}
+            aria-hidden
+            className="absolute inset-y-0 w-px bg-border/50"
+            style={{ left: `${pct}%` }}
+          />
+        ))}
         <div
           data-testid="span-bar"
           data-left-pct={leftPct}
           data-width-pct={widthPct}
           className={cn(
-            "absolute top-1/2 h-3 min-w-[2px] -translate-y-1/2 rounded-sm",
-            error ? "bg-destructive" : slow ? "bg-warning" : "bg-primary/70",
+            "absolute top-1/2 h-3.5 min-w-[2px] -translate-y-1/2 rounded-[3px]",
+            error
+              ? "bg-destructive"
+              : slow
+                ? "bg-warning"
+                : CATEGORY_BG[categoryOf(span)],
           )}
           style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
         />
@@ -539,11 +610,20 @@ function WaterfallRow({
             })
           : null}
         <span
-          className="absolute top-1/2 -translate-y-1/2 pl-1 text-xs tabular-nums text-muted-foreground"
+          data-testid="span-duration"
+          className={cn(
+            "absolute top-1/2 -translate-y-1/2 whitespace-nowrap font-mono text-xs tabular-nums text-muted-foreground",
+            // A bar that fills the row has no room beside it: the label goes inside, on a chip.
+            leftPct + widthPct > 80 && leftPct < 15
+              ? "rounded bg-background/85 px-1 text-foreground"
+              : "px-1",
+          )}
           style={
-            leftPct + widthPct > 80
-              ? { right: `${100 - leftPct}%`, paddingRight: 4 }
-              : { left: `${leftPct + widthPct}%` }
+            leftPct + widthPct <= 80
+              ? { left: `${leftPct + widthPct}%` }
+              : leftPct < 15
+                ? { right: `${100 - leftPct - widthPct}%`, marginRight: 4 }
+                : { right: `${100 - leftPct}%` }
           }
         >
           {formatDuration(span.durationMs)}

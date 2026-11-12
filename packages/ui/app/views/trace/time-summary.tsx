@@ -1,20 +1,8 @@
+import { Section } from "@/components/kit";
 import { formatDuration } from "@/lib/format";
-import {
-  CATEGORY_LABELS,
-  type TimeBreakdown,
-  type TimeCategory,
-} from "@/lib/trace-time";
+import { CATEGORY_LABELS, type TimeBreakdown } from "@/lib/trace-time";
 import { cn } from "@/lib/utils";
-
-/** Segment colours: theme tokens only, so dark mode and the CSP are not an issue. */
-const CATEGORY_BG: Record<TimeCategory, string> = {
-  database: "bg-warning",
-  cache: "bg-flame-deps",
-  http: "bg-flame-runtime",
-  messaging: "bg-secondary-foreground",
-  code: "bg-primary",
-  other: "bg-muted-foreground/50",
-};
+import { CATEGORY_BG } from "@/views/trace/category-style";
 
 const pctText = (pct: number) =>
   pct > 0 && pct < 1 ? "<1%" : `${Math.round(pct)}%`;
@@ -38,18 +26,12 @@ export function TimeSummary({
 }) {
   const { categories, top, totalMs } = breakdown;
   return (
-    <section
-      data-testid="time-summary"
-      aria-label="Where the time went"
-      className="space-y-3 rounded-lg border p-3"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Where the time went
-          <span className="ml-2 normal-case tabular-nums">
-            {formatDuration(totalMs)} of own time
-          </span>
-        </h3>
+    <Section
+      testId="time-summary"
+      title="Where the time went"
+      description={`${formatDuration(totalMs)} of own time, by kind of work`}
+      source="from this trace's spans"
+      actions={
         <button
           type="button"
           data-testid="critical-path-toggle"
@@ -57,13 +39,14 @@ export function TimeSummary({
           title="Highlight the spans that determine the trace's end time"
           onClick={onToggleCriticalPath}
           className={cn(
-            "h-7 rounded-lg border px-2 text-xs hover:bg-muted",
+            "h-7 rounded-lg border border-border px-2.5 text-xs font-medium hover:bg-muted",
             criticalPathOn && "border-primary bg-primary/10",
           )}
         >
           Critical path
         </button>
-      </div>
+      }
+    >
       {categories.length === 0 ? (
         <p className="text-xs text-muted-foreground">No timing to show.</p>
       ) : (
@@ -74,7 +57,7 @@ export function TimeSummary({
             aria-label={categories
               .map((c) => `${CATEGORY_LABELS[c.category]} ${pctText(c.pct)}`)
               .join(", ")}
-            className="flex h-3 w-full overflow-hidden rounded-sm bg-muted"
+            className="flex h-4 w-full gap-px overflow-hidden rounded-md bg-muted"
           >
             {categories.map((c) => (
               <div
@@ -105,13 +88,20 @@ export function TimeSummary({
               </li>
             ))}
           </ul>
-          <ol className="space-y-0.5 text-xs">
+          <ol className="space-y-1 border-t border-border pt-3 text-xs">
             {top.map((item) => (
               <li
                 key={item.key}
                 data-testid="time-top-item"
-                className="flex items-baseline gap-3"
+                className="flex items-center gap-3"
               >
+                <span
+                  aria-hidden
+                  className={cn(
+                    "size-2.5 shrink-0 rounded-sm",
+                    CATEGORY_BG[item.category],
+                  )}
+                />
                 <span
                   className="min-w-0 flex-1 truncate font-mono"
                   title={item.label}
@@ -121,7 +111,16 @@ export function TimeSummary({
                 <span className="shrink-0 text-muted-foreground">
                   {CATEGORY_LABELS[item.category]}
                 </span>
-                <span className="w-16 shrink-0 text-right tabular-nums">
+                <span
+                  aria-hidden
+                  className="hidden h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-muted sm:block"
+                >
+                  <span
+                    className={cn("block h-full", CATEGORY_BG[item.category])}
+                    style={{ width: `${Math.min(100, item.pct)}%` }}
+                  />
+                </span>
+                <span className="w-16 shrink-0 text-right font-mono tabular-nums">
                   {formatDuration(item.selfMs)}
                 </span>
                 <span className="w-9 shrink-0 text-right tabular-nums text-muted-foreground">
@@ -132,6 +131,6 @@ export function TimeSummary({
           </ol>
         </>
       )}
-    </section>
+    </Section>
   );
 }
