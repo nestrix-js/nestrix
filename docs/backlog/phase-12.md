@@ -1,0 +1,45 @@
+# Phase 12 backlog: route detail and "what changed"
+
+Owner, 2026-11-12: build the next screen from the design canvas (https://claude.ai/artifact/XSyY3dCaUsnSyys8ud8216, artboard "Route detail"). When the Overview says a route got slower or fails more, one click shows why: which statement, dependency, method or error explains the change, compared window against window or release against release. Delivery mode (AGENTS.md). Design sources: our own needs and that canvas; nothing from `@nestjs/observe` (rule 8).
+
+The wire contract is `packages/protocol/src/route-explain.ts` (`routeExplainParams`, `RouteExplainResponse`). Both backends implement it. Every number on the page is built from sampled traces except the latency histogram and the KPI tiles taken from route statistics, and each card says which (D-61).
+
+## Status
+
+| ID | Task | Tier | Depends | Status |
+|---|---|---|---|---|
+| P12-00 | Protocol, this backlog | lead | — | done |
+| P12-01 | `GET api/v1/routes/explain` on both backends, one shared computation | sonnet | P12-00 | todo |
+| P12-02 | UI: route detail page | sonnet | P12-00 | todo |
+| P12-03 | Review, docs, changeset | lead | P12-01, P12-02 | todo |
+
+## Settled design
+
+### Computation (P12-01)
+
+As in phase 11: a pure module in `packages/nestjs/src/` that takes plain per-side aggregates and returns `RouteExplainResponse`, copied byte-for-byte into the server with a drift test (the pattern of `overview/compute.ts` and `apps/server/src/query/overview-compute.ts`). Each backend gathers, per side, the traces whose root is this route (`http.route` + method; `method` absent = all methods), and from their spans:
+
+- **Sides.** Window mode: `before` = the previous `windowMinutes`, `after` = the last `windowMinutes`, aligned as `routes/compare`. Release mode: traces of the route with `service.version` = `releaseA` (before) and `releaseB` (after), anywhere in the store. `400` when only one release is given; `releases` lists the route's releases newest first (by latest trace).
+- **Per side.** `traces`, mean and p95 root duration, error rate (root failed). Own time per span kind (same classification as the overview's `timeByKind`), divided by `traces`. Statements: group database spans by statement text (the same normalised text the Queries page uses, bind values never present), calls and total time per request and mean per execution. Methods: method spans by `Class.method`, calls and own time per request. Dependencies: client spans grouped as the Dependencies page groups them, calls, time per request, error rate. Errors: `exception.type` from exception events (or `Error`), traces per type, one example message. Slowest: the 10 slowest `after` traces with own time by kind.
+- **Findings** (only when both sides have at least 5 traces; otherwise `findings` is empty and `summary` says `Not enough traces to compare (N before, M after).`):
+  - `new-statement`: absent before (0 calls), ≥ 1 call per request after, and ≥ 5 ms per request after.
+  - `n-plus-one`: calls per request after ≥ 3 and ≥ 2 × before (or before was 0 and after ≥ 3), regardless of per-call speed. Takes precedence over `new-statement` for the same statement (one finding per statement).
+  - `slower-statement`: same calls (within 20%), mean per execution ≥ 1.5 × before and +≥ 5 ms per request.
+  - `slower-dependency`: time per request ≥ 1.3 × before and +≥ 20 ms; `dependency-errors`: error rate up ≥ 5 points with ≥ 3 failed calls after.
+  - `slower-method`: own time per request ≥ 1.5 × before and +≥ 10 ms.
+  - `new-error`: a type with 0 traces before and ≥ 2 after; `more-errors`: traces with it ≥ 3 × before and ≥ 5 after.
+  - `faster` (direction `better`): any statement, dependency or method whose time per request fell by ≥ 30% and ≥ 10 ms.
+  - `deltaMs` = after − before time per request for timing findings; `shareOfChange` = `deltaMs` / (after mean − before mean) when that difference is ≥ 10 ms, clamped 0..1, else `null`. Sort: worse timing findings by `deltaMs` desc, then error findings, then `faster` by |deltaMs|; at most 8.
+  - Titles are one plain sentence with numbers formatted like the UI (ms below 1 s, else seconds with one decimal; calls with one decimal), e.g. `A new statement runs 6.4 times per request (SELECT … FROM order_items WHERE order_id = $1), adding 214 ms.`, `api.stripe.com takes 1.1 s per request, was 640 ms.`, `PaymentGatewayError is new: 14 traces.`. Statements in titles are cut to 80 characters with `…`.
+  - `link`: statement → `{ view: "queries", params: { q: <first 120 chars> } }`; dependency → `dependencies` with `name`; method → `classes` with `class`; error → `errors` with `route` and `type`. Check the UI's existing search params for those pages and use what they accept; say so in the report.
+- **Summary.** `Mean time went from X to Y` + `; most of it is <kind label> time (+N ms)` when one kind explains ≥ 50% of the change + `, mainly <first worse finding, shortened>` when there is one; or `Mean time is about the same (X → Y).` when the change is under 10% and under 10 ms; error-only changes say `Errors went from A% to B%`.
+- **Cost.** Bound the work: at most the newest 2,000 traces per side (say so in a code comment and in the response's labels if trimmed: add nothing to the contract; the UI states "from up to 2,000 sampled traces per side").
+- **Tests.** Unit tests of the pure module for every finding (fires; just under each threshold; precedence of `n-plus-one` over `new-statement`), summary wording, fewer than 5 traces, release mode. One route test per backend (shape, `400` on one release, `service` on the server). Add the route to architecture route lists, and to the server's `TOKEN_READ_ROUTE` (API tokens read it; the existing guard test will fail if you forget).
+
+### UI (P12-02)
+
+- New page `/route?method=&route=` (hash route), reached from: the Overview's insight links with `view: "route"` (update the Overview to link here), the routes table rows on the Overview, the Routes page (a "Details" link per row, keep the existing histogram panel), and the trace page's route. Breadcrumb `Overview / Routes / <METHOD route>`.
+- Layout follows the canvas artboard: header with the route and a compare picker (`Previous window` 15/60 min, or two releases from `releases`); KPI tiles from route statistics (requests/min, p95, p99, error rate, each with its change; reuse `routes/compare` data) and "queries per request" from the explain response; the **What changed** card (`summary` + the findings list with direction icon, title, a bar for `shareOfChange`, and the link); the latency histogram (reuse the Routes page component, overlaid with the other side when the existing compare data allows; otherwise current only); **Where the time goes, per side**: two stacked bars from `kinds` with a legend; **Statements**, **Methods**, **Dependencies** tables (before/after per request with change); **Errors** by type; **Slowest traces** with per-trace kind bars linking to the trace page.
+- Empty states: route unknown or no traces → friendly message; fewer than 5 traces on a side → the summary sentence and the tables without findings.
+- Source labels on every card. Colours from tokens; worse red/amber, better green, never colour alone.
+- **Tests:** unit tests for helpers; Playwright (Chromium) against the mock API with fixtures for a slower route (N+1 finding), a release comparison, too few traces, an unknown route; navigation from the Overview insight and from the Routes page. Keep the whole Chromium suite and the app-level suite (`pnpm --filter e2e test`, needs `pnpm build`) passing.

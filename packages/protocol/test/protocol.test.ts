@@ -30,6 +30,7 @@ describe("package entry", () => {
         "profileStartBody",
         "queryStatsParams",
         "routeCompareParams",
+        "routeExplainParams",
         "routeHistogramParams",
         "routeStatsParams",
         "traceListParams",
