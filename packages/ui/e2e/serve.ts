@@ -178,6 +178,56 @@ export function startServer(): Promise<{
           },
           isText ? (answer.body as string) : JSON.stringify(answer.body),
         );
+      } else if (
+        path === `${BASE_PATH}/api/v1/instances` ||
+        path === `${BASE_PATH}/api/v1/remote-profiles` ||
+        path.startsWith(`${BASE_PATH}/api/v1/remote-profiles/`)
+      ) {
+        const rest = path.slice(`${BASE_PATH}/api/v1/`.length);
+        const query = new URL(req.url ?? "/", "http://localhost").searchParams;
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(chunk as Buffer);
+        const text = Buffer.concat(chunks).toString("utf8");
+        let answer: {
+          status: number;
+          body: unknown;
+          headers?: Record<string, string>;
+        };
+        if (req.method === "POST") {
+          const origin = req.headers.origin;
+          const secFetchSite = req.headers["sec-fetch-site"];
+          const contentType = req.headers["content-type"];
+          const body = text === "" ? undefined : JSON.parse(text);
+          mock.remoteStarts.push({ origin, secFetchSite, contentType, body });
+          // The same write rules as the embedded profiler's (architecture 4.7).
+          answer =
+            origin !== `http://${req.headers.host}` ||
+            secFetchSite !== "same-origin" ||
+            !contentType?.startsWith("application/json")
+              ? {
+                  status: 403,
+                  body: { error: { code: "forbidden", message: "Refused" } },
+                }
+              : mock.handleRemote("POST", rest, query, body);
+        } else {
+          answer = mock.handleRemote(
+            req.method ?? "GET",
+            rest,
+            query,
+            undefined,
+          );
+        }
+        send(
+          answer.status,
+          {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+            ...(answer.headers ?? {}),
+          },
+          typeof answer.body === "string"
+            ? answer.body
+            : JSON.stringify(answer.body),
+        );
       } else if (path.startsWith(`${BASE_PATH}/api/v1/`)) {
         const answer = await mock.handle(
           path.slice(`${BASE_PATH}/api/v1/`.length),

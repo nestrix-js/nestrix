@@ -7,12 +7,15 @@ import type {
   AppMapResponse,
   ClassStatsResponse,
   ErrorGroupsResponse,
+  InstanceSummary,
   MetaResponse,
   ProfileDetail,
   ProfileListResponse,
   ProfileRunning,
   ProfileSummary,
   QuerySort,
+  RemoteProfileDetail,
+  RemoteProfileSummary,
   RouteCompareResponse,
   RouteHistogramResponse,
   RouteStatsResponse,
@@ -82,6 +85,98 @@ interface Item extends TraceSummary {
   seq: number;
 }
 
+/** A small realistic profile: one hot function under a controller frame. */
+function sampleProfile(): Pick<ProfileDetail, "flame" | "topFunctions"> {
+  const frame = (
+    functionName: string,
+    url: string,
+    line: number,
+    selfSamples: number,
+    totalSamples: number,
+    children: ProfileDetail["flame"][] = [],
+  ): ProfileDetail["flame"] => ({
+    functionName,
+    url,
+    line,
+    selfSamples,
+    totalSamples,
+    children,
+  });
+  const flame = frame("(root)", "", 0, 0, 1000, [
+    frame(
+      "processTicksAndRejections",
+      "node:internal/process/task_queues",
+      95,
+      10,
+      900,
+      [
+        frame(
+          "handle",
+          "file:///srv/app/node_modules/express/lib/router/layer.js",
+          152,
+          20,
+          880,
+          [
+            frame(
+              "cpu",
+              "file:///srv/app/dist/app.controller.js",
+              24,
+              30,
+              860,
+              [
+                frame(
+                  "hotRouteWork",
+                  "file:///srv/app/dist/hot.js",
+                  18,
+                  830,
+                  830,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    ),
+    frame("(program)", "", 0, 60, 60),
+    frame("(garbage collector)", "", 0, 40, 40),
+  ]);
+  const topFunctions: ProfileDetail["topFunctions"] = [
+    {
+      functionName: "hotRouteWork",
+      url: "file:///srv/app/dist/hot.js",
+      line: 18,
+      column: 1,
+      selfSamples: 830,
+      totalSamples: 830,
+    },
+    {
+      functionName: "(program)",
+      url: "",
+      line: 0,
+      column: 0,
+      selfSamples: 60,
+      totalSamples: 60,
+    },
+    {
+      functionName: "(garbage collector)",
+      url: "",
+      line: 0,
+      column: 0,
+      selfSamples: 40,
+      totalSamples: 40,
+    },
+    {
+      functionName: "cpu",
+      url: "file:///srv/app/dist/app.controller.js",
+      line: 24,
+      column: 5,
+      selfSamples: 30,
+      totalSamples: 860,
+    },
+  ];
+  return { flame, topFunctions };
+}
+
 export class MockApi {
   epoch = 1;
   sampling: MetaResponse["sampling"] = { owner: "nestrix", rate: 0.25 };
@@ -142,6 +237,24 @@ export class MockApi {
     contentType: string | undefined;
     body: unknown;
   }[] = [];
+  /** `meta.profiler.remote` in standalone mode (the remote profiler, D-76). */
+  remoteProfiler = false;
+  /** The standalone server's instances and remote captures (newest first). */
+  instances: InstanceSummary[] = [];
+  remoteProfiles: RemoteProfileSummary[] = [];
+  /** When set, `POST remote-profiles` answers it (404, 409, 429, ...). */
+  remoteStartRefusal: {
+    status: number;
+    body: unknown;
+    headers?: Record<string, string>;
+  } | null = null;
+  /** `POST remote-profiles` requests seen: the headers the server checks and the parsed body. */
+  remoteStarts: {
+    origin: string | undefined;
+    secFetchSite: string | undefined;
+    contentType: string | undefined;
+    body: unknown;
+  }[] = [];
   /** `meta.runtime.available` (the embedded runtime view, P9-06) and the samples it answers. */
   runtimeAvailable = true;
   runtimeSamples: RuntimeSample[] = [];
@@ -188,6 +301,11 @@ export class MockApi {
     this.lastStartPauseMs = null;
     this.profileStartRefusal = null;
     this.profileStarts = [];
+    this.remoteProfiler = false;
+    this.instances = [];
+    this.remoteProfiles = [];
+    this.remoteStartRefusal = null;
+    this.remoteStarts = [];
     this.errors.reset(0);
     this.push(count);
   }
@@ -534,64 +652,157 @@ export class MockApi {
     return { status: 200, body: detail };
   }
 
+  /** Adds an instance that checked in 12 s ago. */
+  addInstance(
+    instanceId: string,
+    over: Partial<InstanceSummary> = {},
+  ): InstanceSummary {
+    const instance: InstanceSummary = {
+      service: "demo-service",
+      instanceId,
+      version: "1.4.2",
+      host: "web-1",
+      pid: 4242,
+      runtime: "v26.1.0",
+      sdkVersion: "0.1.0",
+      firstSeenUnixMs: Date.now() - 600_000,
+      lastSeenUnixMs: Date.now() - 12_000,
+      capture: null,
+      ...over,
+    };
+    this.instances.unshift(instance);
+    return instance;
+  }
+
+  /** Moves a remote capture along as the server would: pending, running, then a final state. */
+  advanceRemote(
+    id: string,
+    state: RemoteProfileSummary["state"],
+    error: string | null = null,
+  ): void {
+    const profile = this.remoteProfiles.find((p) => p.id === id);
+    if (!profile) return;
+    const now = Date.now();
+    profile.state = state;
+    if (state === "running") profile.startedAtUnixMs = now;
+    const final = state === "done" || state === "failed" || state === "expired";
+    if (final) {
+      profile.finishedAtUnixMs = now;
+      profile.error = error;
+    }
+    if (state === "done") {
+      profile.actualDurationMs = profile.durationMs + 31;
+      profile.samples = 1000;
+      profile.bytes = 117_521;
+    }
+    for (const i of this.instances) {
+      if (i.capture?.id === id) i.capture = final ? null : profile;
+    }
+  }
+
+  /**
+   * `instances`, `remote-profiles`, `remote-profiles/<id>`, `.../download` and `POST
+   * remote-profiles` (the same-origin checks are serve.ts's).
+   */
+  handleRemote(
+    method: string,
+    path: string,
+    query: URLSearchParams,
+    body: unknown,
+  ): { status: number; body: unknown; headers?: Record<string, string> } {
+    this.requests.push(path);
+    const notFound = {
+      status: 404,
+      body: { error: { code: "not_found", message: "Not found" } },
+    };
+    if (this.mode !== "standalone" || !this.remoteProfiler) return notFound;
+    const service = query.get("service");
+    if (path === "instances" && method === "GET") {
+      return {
+        status: 200,
+        body: {
+          instances: this.instances.filter(
+            (i) => service === null || i.service === service,
+          ),
+        },
+      };
+    }
+    if (path === "remote-profiles" && method === "POST") {
+      if (this.remoteStartRefusal) return this.remoteStartRefusal;
+      const req = body as { instanceId: string; durationSeconds?: number };
+      const instance = this.instances.find(
+        (i) => i.instanceId === req.instanceId,
+      );
+      if (!instance) return notFound;
+      if (instance.capture) {
+        return {
+          status: 409,
+          body: {
+            error: { code: "conflict", message: "A capture is in progress" },
+            capture: instance.capture,
+          },
+        };
+      }
+      const seconds = req.durationSeconds ?? 30;
+      const summary: RemoteProfileSummary = {
+        id: (this.remoteProfiles.length + 1).toString(16).padStart(16, "0"),
+        service: instance.service,
+        instanceId: instance.instanceId,
+        version: instance.version,
+        state: "pending",
+        requestedAtUnixMs: Date.now(),
+        startedAtUnixMs: null,
+        finishedAtUnixMs: null,
+        durationMs: seconds * 1000,
+        actualDurationMs: null,
+        samples: null,
+        bytes: null,
+        error: null,
+      };
+      this.remoteProfiles.unshift(summary);
+      instance.capture = summary;
+      return { status: 202, body: summary };
+    }
+    if (method !== "GET") return notFound;
+    if (path === "remote-profiles") {
+      return {
+        status: 200,
+        body: {
+          profiles: this.remoteProfiles.filter(
+            (p) => service === null || p.service === service,
+          ),
+        },
+      };
+    }
+    const [, id, tail] = path.split("/");
+    const found = this.remoteProfiles.find((p) => p.id === id);
+    if (!found || (tail !== undefined && tail !== "download")) return notFound;
+    if (tail === "download") {
+      return {
+        status: 200,
+        body: JSON.stringify({
+          nodes: [],
+          startTime: 0,
+          endTime: 1,
+          samples: [],
+          timeDeltas: [],
+        }),
+        headers: {
+          "Content-Disposition": `attachment; filename="nestrix-${found.id}.cpuprofile"`,
+        },
+      };
+    }
+    const detail: RemoteProfileDetail =
+      found.state === "done" ? { ...found, ...sampleProfile() } : { ...found };
+    return { status: 200, body: detail };
+  }
+
   /** Ends the running capture as the server's timer would, with a small realistic profile. */
   finishCapture(): void {
     const run = this.profileRunning;
     if (!run) return;
     this.profileRunning = null;
-    const frame = (
-      functionName: string,
-      url: string,
-      line: number,
-      selfSamples: number,
-      totalSamples: number,
-      children: ProfileDetail["flame"][] = [],
-    ): ProfileDetail["flame"] => ({
-      functionName,
-      url,
-      line,
-      selfSamples,
-      totalSamples,
-      children,
-    });
-    const flame = frame("(root)", "", 0, 0, 1000, [
-      frame(
-        "processTicksAndRejections",
-        "node:internal/process/task_queues",
-        95,
-        10,
-        900,
-        [
-          frame(
-            "handle",
-            "file:///srv/app/node_modules/express/lib/router/layer.js",
-            152,
-            20,
-            880,
-            [
-              frame(
-                "cpu",
-                "file:///srv/app/dist/app.controller.js",
-                24,
-                30,
-                860,
-                [
-                  frame(
-                    "hotRouteWork",
-                    "file:///srv/app/dist/hot.js",
-                    18,
-                    830,
-                    830,
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-      frame("(program)", "", 0, 60, 60),
-      frame("(garbage collector)", "", 0, 40, 40),
-    ]);
+    const { flame, topFunctions } = sampleProfile();
     const summary: ProfileSummary = {
       id: run.id,
       startedAtUnixMs: run.startedAtUnixMs,
@@ -605,40 +816,7 @@ export class MockApi {
     this.profiles.length = Math.min(this.profiles.length, 3);
     this.profileDetails.set(run.id, {
       ...summary,
-      topFunctions: [
-        {
-          functionName: "hotRouteWork",
-          url: "file:///srv/app/dist/hot.js",
-          line: 18,
-          column: 1,
-          selfSamples: 830,
-          totalSamples: 830,
-        },
-        {
-          functionName: "(program)",
-          url: "",
-          line: 0,
-          column: 0,
-          selfSamples: 60,
-          totalSamples: 60,
-        },
-        {
-          functionName: "(garbage collector)",
-          url: "",
-          line: 0,
-          column: 0,
-          selfSamples: 40,
-          totalSamples: 40,
-        },
-        {
-          functionName: "cpu",
-          url: "file:///srv/app/dist/app.controller.js",
-          line: 24,
-          column: 5,
-          selfSamples: 30,
-          totalSamples: 860,
-        },
-      ],
+      topFunctions,
       flame,
     });
   }
@@ -678,6 +856,9 @@ export class MockApi {
       profiler: {
         available: this.mode === "embedded" && this.profilerAvailable,
         running: this.profileRunning !== null,
+        ...(this.mode === "standalone" && this.remoteProfiler
+          ? { remote: true }
+          : {}),
       },
     };
   }
