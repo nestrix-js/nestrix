@@ -41,6 +41,8 @@ pnpm changeset status --since=origin/main
 
 Before merging the version PR, check that the changelogs read well and that CI is green.
 
+**Credits.** The changelog uses `@changesets/changelog-github` (from 0.1.1 on): each entry links its pull request and commit and ends with "Thanks @author!". The version job gives it the workflow's `GITHUB_TOKEN` to look up authors; a change committed straight to `main` without a pull request is credited to its commit author.
+
 ## The server image
 
 The standalone server (`apps/server`, private, not on npm) ships as a Docker image on GHCR:

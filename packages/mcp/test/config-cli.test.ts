@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -177,6 +177,14 @@ describe("the nestrix-mcp program", () => {
     });
     try {
       await client.connect(transport);
+      // The server reports this package's own version, not a hard-coded one.
+      const pkg = JSON.parse(
+        readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+      ) as { version: string };
+      expect(client.getServerVersion()).toEqual({
+        name: "nestrix",
+        version: pkg.version,
+      });
       const { tools } = await client.listTools();
       expect(tools).toHaveLength(9);
       const result = await client.callTool({ name: "overview", arguments: {} });

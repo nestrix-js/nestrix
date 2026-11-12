@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { ProfileDetail } from "@nestrix-js/protocol";
@@ -24,7 +25,17 @@ export interface McpServerOptions {
   pollIntervalMs?: number;
 }
 
-const VERSION = "0.1.0-alpha.2";
+/** This package's version, read from its `package.json` (one level up from `src/` and `dist/`; npm always ships it). */
+const VERSION: string = (() => {
+  try {
+    const pkg = createRequire(import.meta.url)("../package.json") as {
+      version?: unknown;
+    };
+    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+})();
 
 const INSTRUCTIONS = [
   "Nestrix shows what a NestJS application did: requests as traces, errors, per-route and per-class statistics, and the calls it makes to databases, caches, queues and other services.",

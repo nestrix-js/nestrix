@@ -2,11 +2,11 @@
 
 Instructions for AI coding agents working on this repository. This is the one shared file: `CLAUDE.md` imports it and adds only what is specific to Claude Code.
 
-Open-source observability for NestJS 12+: Nest-aware OpenTelemetry tracing, with an optional dashboard served by the host application. Apache-2.0. Pre-release.
+Open-source observability for NestJS 12+: Nest-aware OpenTelemetry tracing, with an optional dashboard served by the host application. Apache-2.0. Version 0.1.0 (first stable release, D-77).
 
 **Current state:** all phases (0 to 11) are complete. Phases 0 to 2 were approved by the owner (reports `docs/phase-0-report.md` to `phase-2-report.md`; the phase 0 questions are D-40 to D-51 in `docs/decisions.md`); phases 3 to 11 ran under delivery mode (reports `docs/phase-3-report.md` to `phase-11-report.md`). Phase 8 added the MCP server and standalone API tokens, phase 9 the dashboard insights and logs next to the trace, phase 10 remote CPU profiling of each app instance through the standalone server (D-76), phase 11 the Overview home page. `@nestrix-js/nestjs`, `@nestrix-js/ui` and `@nestrix-js/mcp` are published under the `@nestrix-js` npm scope (D-71) at `0.1.0` under the `latest` tag (D-77; the `alpha` tag still points at `0.1.0-alpha.3`), and the standalone server image is on GHCR (`ghcr.io/nestrix-js/nestrix-server`, tags `0.1.0` and `latest`). Next: the optimisation pass (deferred benchmarks listed in the reports; D-72 keeps it undated), candidates from the design canvas (a route "what changed" card, an Errors redesign, standalone runtime metrics), and the road to 1.0, which is an owner decision.
 
-**Remote:** `github.com/nestrix-js/nestrix`, private, already configured (`docs/decisions.md`, "GitHub: what is set up"). There is nothing left to set up on GitHub before implementing.
+**Remote:** `github.com/nestrix-js/nestrix`, public since 2026-11-12, already configured (`docs/decisions.md`, "GitHub: what is set up"). There is nothing left to set up on GitHub before implementing.
 
 ## Read before working
 

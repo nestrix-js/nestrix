@@ -12,7 +12,7 @@ on:
     inputs:
       version:
         description: >-
-          Publish the standalone server image for this existing release (for example 0.1.0-alpha.0).
+          Publish the standalone server image for this existing release (for example 0.1.0).
           Empty: the version in packages/nestjs/package.json on the selected ref.
         required: false
         default: ""
@@ -63,6 +63,10 @@ jobs:
           pr-title: "chore(release): version packages"
           # RELEASE_PAT is optional: PRs opened with GITHUB_TOKEN do not trigger CI.
           github-token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+        env:
+          # @changesets/changelog-github reads PR numbers and authors from the GitHub API for the
+          # "Thanks @user!" credits in the changelog.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Runs after the version PR is merged. The only job with id-token: write.
   # No NPM_TOKEN or NODE_AUTH_TOKEN: npm and pnpm exchange the job's OIDC token themselves
