@@ -14,8 +14,8 @@ Open-source observability for NestJS 12+: Nest-aware OpenTelemetry traces, in a 
 ## Quick start (0.1.0-alpha)
 
 ```bash
-pnpm add @nestrix-js/nestjs @opentelemetry/api@~1.10.0
-pnpm add @nestrix-js/ui   # optional: the dashboard
+pnpm add @nestrix-js/nestjs@alpha @opentelemetry/api@~1.10.0
+pnpm add @nestrix-js/ui@alpha   # optional: the dashboard
 ```
 
 ```ts
@@ -32,7 +32,30 @@ Spans are exported over OTLP when an endpoint is set, for example `OTEL_EXPORTER
 
 With `@nestrix-js/ui` installed, start the app in development and open the link Nestrix logs (`Nestrix dashboard: http://localhost:3000/_nestrix/auth?token=...`). Serving it in production needs `ui: { enabled: true, auth }`; see the [Dashboard section](packages/nestjs/README.md#dashboard).
 
-Planned, not available yet: spans for controller methods and jobs through `NestFactory.create(AppModule, { instrument: NestrixInstrument })`.
+Spans for your own controllers, services, repositories and jobs: `NestFactory.create(AppModule, { instrument: NestrixInstrument })`. `pg` queries are traced automatically; `mysql2`, `ioredis`, BullMQ and Nest microservices are covered too ([package README](packages/nestjs/README.md)).
+
+## Self-hosted server: several services and replicas
+
+The embedded dashboard shows the traces of the process it runs in. For several services, or several replicas of one, run the standalone server and point every process at it:
+
+```yaml
+services:
+  postgres:
+    image: postgres:18-alpine
+  nestrix-server:
+    image: ghcr.io/nestrix-js/nestrix-server:alpha
+    environment:
+      DATABASE_URL: postgres://postgres@postgres:5432/postgres
+      NESTRIX_ADMIN_PASSWORD: ${NESTRIX_ADMIN_PASSWORD}   # 12+ characters
+      NESTRIX_INGEST_KEYS: ${NESTRIX_INGEST_KEY}          # 32+ characters
+    ports: ["4318:4318"]
+  my-api:   # each service, each replica
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://nestrix-server:4318
+      OTEL_EXPORTER_OTLP_HEADERS: authorization=Bearer ${NESTRIX_INGEST_KEY}
+```
+
+Open `http://localhost:4318`, sign in with the admin password, and pick a service. Replicas appear as one service; each trace records the instance that served it. The Postgres service above needs its own credentials or `POSTGRES_HOST_AUTH_METHOD=trust` for a local demo. Full guide: [apps/server/README.md](apps/server/README.md); a runnable multi-service, multi-replica setup: [examples/standalone](examples/standalone).
 
 ## Support
 
