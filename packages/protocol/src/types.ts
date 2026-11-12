@@ -162,6 +162,22 @@ export interface TraceResponse {
   resource: Attributes;
   /** All stored spans of the trace, ordered by start time. */
   spans: SpanRecord[];
+  /**
+   * Spans of this trace that were counted but not recorded (D-78): over the app's
+   * `maxSpansPerTrace`, read from `nestrix.trace.spans_dropped*` on the trace's spans, plus spans
+   * the standalone server refused over its per-trace cap. Absent when nothing was dropped.
+   */
+  droppedSpans?: DroppedSpans;
+}
+
+/** `TraceResponse.droppedSpans`. */
+export interface DroppedSpans {
+  /** Every dropped span, from the app and the server. */
+  total: number;
+  /** Dropped in the app, by span kind (`db`, `http-out`, `redis`, `messaging`, `app`, `other`); empty when unknown. */
+  byKind: Record<string, number>;
+  /** Dropped by the standalone server over its per-trace cap; 0 in the embedded dashboard. */
+  byServer: number;
 }
 
 export interface ErrorItem {
