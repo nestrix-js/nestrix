@@ -1,5 +1,15 @@
 # @nestrix-js/ui
 
+## 0.4.0
+
+### Minor Changes
+
+- [`ede878b`](https://github.com/nestrix-js/nestrix/commit/ede878bdc1bf6a338ddc802a251ef335741558c2) Thanks [@lamberto15](https://github.com/lamberto15)! - **Errors page: releases, real states, a weekday by hour grid and errors per release.** Each error group now says which release(s) it was seen in (the newest, and the first when it differs), and its state (New, Regressed, Ongoing, Quiet) is computed by the backend from every stored occurrence instead of being guessed from the window: Regressed means seen before, absent for 24 hours or a whole release, and back. A new "When errors happen" card shows error events by weekday and hour (UTC) over the last 7 days, or what the embedded store holds, and "Errors per release" charts events per 1,000 requests where requests are counted. New endpoint `GET <path>/api/v1/errors/insights` (embedded and standalone server); `errors/groups` gains optional fields (`state`, `firstEverUnixMs`, `lastEverUnixMs`, `firstSeenRelease`, `lastSeenRelease`, `releases`, `history`). All additions are optional, so older clients keep working.
+
+- [`4ffecec`](https://github.com/nestrix-js/nestrix/commit/4ffecec23e4a7a0d45c281cadcb7de4ed7705115) Thanks [@lamberto15](https://github.com/lamberto15)! - **The standalone server's Profiler shows each instance's CPU, event-loop delay, heap and RSS, and suggests which one to capture.** With `export.profiler: true`, each check-in now also sends `runtimeSample`. It carries CPU since the previous check-in, heap used and RSS, read at that moment with no extra timer. When the process also runs the embedded dashboard, it adds the event-loop delay p99 from the Runtime view. The server keeps the latest figures per instance and returns them in `GET /api/v1/instances`. The Profiler page shows them, with "—" when an instance does not report a figure (an older SDK, or no loop figure without the dashboard). It marks an instance "Suggested" when it is clearly busier than the other instances of its service. The fields are optional and additive: older SDKs and servers keep working.
+
+- [`c90a19c`](https://github.com/nestrix-js/nestrix/commit/c90a19cc9e084a7c7c151f38b9214256c78e9d91) Thanks [@lamberto15](https://github.com/lamberto15)! - **Dependencies, Classes and Map show the change against the previous window.** The three answers now carry the window just before the current one of the same length (optional fields: `previousCovered`, `note`, `previousTotals`, and `previous` on every dependency, class and edge), in the embedded dashboard and the standalone server. The tiles show their change, the Dependencies and Map tables a "p95 change" column and the Classes table an "Avg change" column; a window that statistics do not cover yet shows "—" with the reason. Older servers keep working and show "—".
+
 ## 0.3.0
 
 ### Minor Changes
