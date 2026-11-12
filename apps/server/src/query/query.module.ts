@@ -14,6 +14,7 @@ import {
 } from "./options.js";
 import { QueryController } from "./query.controller.js";
 import { QueryService } from "./query.service.js";
+import { TraceLogsService } from "./trace-logs.service.js";
 
 /**
  * The query API (`GET /api/v1/*`). Needs `StorageModule` (global) for the database. Closed by
@@ -38,6 +39,7 @@ export class QueryModule {
         { provide: QUERY_OPTIONS, useValue: resolved },
         QueryGuardGate,
         QueryService,
+        TraceLogsService,
       ],
     };
   }

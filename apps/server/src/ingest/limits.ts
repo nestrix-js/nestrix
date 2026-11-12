@@ -10,11 +10,34 @@
  *   (each value is a container or follows a comma) and the messages the JSON reader builds.
  */
 import type { DescField, DescMessage } from "@bufbuild/protobuf";
+import { ExportLogsServiceRequestSchema } from "../proto/gen/opentelemetry/proto/collector/logs/v1/logs_service_pb.js";
 import { ExportTraceServiceRequestSchema } from "../proto/gen/opentelemetry/proto/collector/trace/v1/trace_service_pb.js";
+import { LogRecordSchema } from "../proto/gen/opentelemetry/proto/logs/v1/logs_pb.js";
 import { SpanSchema } from "../proto/gen/opentelemetry/proto/trace/v1/trace_pb.js";
 
+/** The request message of a signal and the item counted against `maxSpans`. */
+export interface WireShape {
+  readonly root: DescMessage;
+  readonly item: DescMessage;
+  /** Plural, for messages: `spans`, `log records`. */
+  readonly items: string;
+}
+
+export const TRACE_SHAPE: WireShape = {
+  root: ExportTraceServiceRequestSchema,
+  item: SpanSchema,
+  items: "spans",
+};
+
+/** `POST /v1/logs` (P9-07): the same walk, counting log records. */
+export const LOG_SHAPE: WireShape = {
+  root: ExportLogsServiceRequestSchema,
+  item: LogRecordSchema,
+  items: "log records",
+};
+
 export interface DecodeLimits {
-  /** Spans per request. */
+  /** Spans per request (log records, for a log export). */
   readonly maxSpans: number;
   /** Submessages per protobuf request; `{` per JSON request. */
   readonly maxMessages: number;
@@ -83,16 +106,20 @@ export interface DecodeCost {
   otherTokens: number;
 }
 
-/** Walks an `ExportTraceServiceRequest` without decoding it. Throws `LimitError` or `WireError`. */
+/**
+ * Walks an export request (`ExportTraceServiceRequest` by default) without decoding it. Throws
+ * `LimitError` or `WireError`.
+ */
 export function checkProtobuf(
   buf: Uint8Array,
   limits: DecodeLimits,
+  shape: WireShape = TRACE_SHAPE,
 ): DecodeCost {
   let pos = 0;
   let messages = 0;
   let spans = 0;
   const stack: Frame[] = [];
-  let frame: Frame = { desc: ExportTraceServiceRequestSchema, end: buf.length };
+  let frame: Frame = { desc: shape.root, end: buf.length };
 
   const varint = (): number => {
     let result = 0;
@@ -140,9 +167,9 @@ export function checkProtobuf(
               `request has more than ${limits.maxMessages} protobuf messages`,
             );
           }
-          if (child === SpanSchema && ++spans > limits.maxSpans) {
+          if (child === shape.item && ++spans > limits.maxSpans) {
             throw new LimitError(
-              `request has more than ${limits.maxSpans} spans`,
+              `request has more than ${limits.maxSpans} ${shape.items}`,
             );
           }
           if (stack.length + 1 >= limits.maxDepth) {

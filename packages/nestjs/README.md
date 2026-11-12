@@ -945,6 +945,8 @@ npm install @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http
 
 If your app already registered a `LoggerProvider`, the records go to it and Nestrix registers nothing. With a host-owned tracer provider Nestrix registers no `LoggerProvider` at all and logs one line saying so. Records logged before the packages finish loading at startup are printed but not exported. A failure in correlation or export never changes what the log call prints or throws.
 
+**Logs next to the trace.** With the dashboard on, a `NestrixLogger` line written while a recording span is active is also kept in the dashboard's store with its trace, and the trace view lists it beside the waterfall (click a line to select its span). This needs no option and no package. What is kept: time, level, logger context and the message after the logger's own `redact` option, cut to 8,192 characters (no stack traces). At most 200 lines per trace; they count toward `store.maxBytes` and leave with their trace. Lines outside a span, or under a span that is not sampled, are not kept. The dashboard is not a log viewer: there is no search across lines. The standalone server does the same for log records sent to its `/v1/logs` (point `logs.export` at it). Log messages are free text, so the advice in [What the dashboard shows](#what-the-dashboard-shows) applies: use the logger's `redact` option for structured values you do not want shown, and do not log secrets.
+
 ## Privacy
 
 By default Nestrix records no request or response bodies, no query bind parameters and no headers outside an allowlist.

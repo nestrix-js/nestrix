@@ -295,3 +295,20 @@ export interface TraceTimelineResponse {
   bucketMs: number;
   buckets: TimelineBucket[];
 }
+
+/** `packages/protocol/src/logs.ts` (P9-07). */
+export interface TraceLogRecord {
+  timeUnixMs: number;
+  severity: number;
+  level: string;
+  context?: string;
+  message: string;
+  spanId?: string;
+  service?: string;
+}
+
+export interface TraceLogsResponse {
+  traceId: string;
+  items: TraceLogRecord[];
+  truncated: boolean;
+}

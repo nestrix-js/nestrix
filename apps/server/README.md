@@ -61,7 +61,7 @@ OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer <one of NESTRIX_INGEST_KEYS>
 
 The key may instead be sent as `x-nestrix-key: <key>`. Keys are compared in constant time. With neither `NESTRIX_INGEST_KEYS` nor `NESTRIX_INGEST_AUTH=none`, ingest answers 401 to everything and a start-up log line says how to configure it.
 
-**Only `/v1/traces` is accepted.** The server has no metrics or logs receiver. An exporter pointed at it for metrics or logs is refused (see "Only traces" below); send those signals to an OpenTelemetry Collector instead.
+**`/v1/traces` and `/v1/logs` are accepted.** Logs are kept only as context for a trace: a log record that carries a trace id is stored next to its trace (at most 200 per trace) and shown in the trace view; a record without one is accepted and discarded. The server is not a log backend (no log search) and has no metrics receiver: send metrics, and logs you want to keep or search, to an OpenTelemetry Collector (see "Traces and trace logs only" below).
 
 ## Configuration
 
@@ -88,7 +88,7 @@ Not configurable by environment: the ingest limits and rate limit below, and the
 - **A restart signs everyone out**, even with a fixed `NESTRIX_SESSION_SECRET`, because sign-out revocations are held in memory and a per-process random value is part of the signing key. Changing the admin password also ends every session. Plan on signing in again after an upgrade.
 - The cookie name includes the port (`nestrix_admin_<port>`), because browsers share cookies across ports on one host.
 - Rate limits: 5 login attempts per minute per client address (IPv6 by /64), counted on every attempt, and a global budget of 60 failed logins a minute across all clients; once it is spent every `POST /login` answers 429 until the oldest failure leaves the minute.
-- Every request except `/v1/traces`, `/login` and `/logout` needs a session, including paths added later; the query API's read routes also accept an API token (below). A state-changing request needs a same-origin `Origin` header. The API never emits CORS headers, so a browser page on another origin cannot read it.
+- Every request except `/v1/traces`, `/v1/logs`, `/login` and `/logout` needs a session, including paths added later; the query API's read routes also accept an API token (below). A state-changing request needs a same-origin `Origin` header. The API never emits CORS headers, so a browser page on another origin cannot read it.
 - **Behind a reverse proxy:** pass the `Host` header through (`proxy_set_header Host $host;` in nginx), or the `Origin` check fails and login answers 403. Serve it over HTTPS: on a non-loopback host the cookie is `Secure`, so a browser will not send it over plain HTTP. The limiter keys on the connection's address and never trusts `X-Forwarded-For`, so behind a proxy all visitors share one login limit.
 
 ## API tokens
@@ -110,12 +110,12 @@ curl -H "Authorization: Bearer $NESTRIX_TOKEN" https://nestrix.example.com/api/v
 
 ## Ingest
 
-Accepted: `application/x-protobuf` and `application/json`, `Content-Encoding: gzip` or none. Responses use the request's content type. Spans that fail validation (bad ids, end before start, times far in the future) are rejected individually and reported through OTLP `partial_success`.
+`POST /v1/traces` and `POST /v1/logs`. Accepted: `application/x-protobuf` and `application/json`, `Content-Encoding: gzip` or none. Responses use the request's content type. Spans that fail validation (bad ids, end before start, times far in the future) are rejected individually and reported through OTLP `partial_success`; so are log records (bad trace or span id, no time, a time far in the future). Both paths share the key, the limits below, the memory budget and the rate limit (one budget per key across both).
 
 | Limit | Value |
 |---|---|
 | Request body | 20 MiB, applied to the compressed bytes and, separately, to the inflated size |
-| Spans per request | 100 000 |
+| Spans (or log records) per request | 100 000 |
 | Protobuf submessages (or JSON objects) per request | 400 000 |
 | JSON values (`{`, `[`, `,`) per request | 1 200 000 |
 | Memory for requests in flight, whole server | 320 MiB |
@@ -134,9 +134,15 @@ What the answers mean:
 
 The 20 MiB limit matches the OpenTelemetry Collector's OTLP receiver. A batch of 2 048 spans, as the SDK's batch processor sends them, is far below every cap.
 
-### Only traces
+### Traces and trace logs only
 
-There is no `/v1/metrics` or `/v1/logs`. A request to them is not an ingest request: the admin layer answers it (403 for a `POST` without a same-origin `Origin` header, which OTLP exporters do not send; 503 when no admin password is set). Exporters treat both as failures and may retry. A Nestrix app that exports metrics or logs to the same base endpoint will log these errors; point those signals at a collector (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`) or turn them off, and set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://nestrix.internal:4318/v1/traces` for traces.
+Log records sent to `/v1/logs` are kept only when they carry a trace id, in the `logs` table: time, severity, the body as text (cut to 8,192 characters), the `nestrix.log.context` attribute, the span id and the resource's `service.name`. Other attributes are not stored. At most 200 lines are kept per trace (later ones are dropped), and they are partitioned by day and removed by the same retention as spans. The trace view lists them next to the waterfall (`GET /api/v1/trace/logs?id=`). A Nestrix app sends them with `logs.export` (and `NestrixLogger`) and the same endpoint as its traces:
+
+```ts
+NestrixModule.forRoot({ logs: { export: true } }) // OTEL_EXPORTER_OTLP_ENDPOINT=http://nestrix.internal:4318
+```
+
+There is no `/v1/metrics`. A request to it is not an ingest request: the admin layer answers it (403 for a `POST` without a same-origin `Origin` header, which OTLP exporters do not send; 503 when no admin password is set). Exporters treat both as failures and may retry. A Nestrix app that exports metrics to the same base endpoint will log these errors; point metrics at a collector (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`) or turn them off.
 
 ## The measured envelope
 
@@ -146,7 +152,7 @@ Preliminary, from one run (`benchmarks/results/server-ingest.md`): on a laptop (
 
 ## Retention and partitions
 
-`spans`, `traces` and the per-minute rollups are partitioned by UTC day. At start and then every hour the server creates partitions for today and the next two days and drops partitions older than `NESTRIX_RETENTION_DAYS`. With 7 and today 2026-11-11, 2026-11-04 is the oldest day kept: at least 7 days of data, up to nearly 8. Retention is by dropping partitions, so it is instant and leaves no dead rows. Per-route and per-class statistics are rolled up per minute at ingest; a retried export is not counted twice. Class counts are post-sampling, because the server sees only what services chose to export.
+`spans`, `traces`, the per-minute rollups and the trace logs (`logs`) are partitioned by UTC day. At start and then every hour the server creates partitions for today and the next two days and drops partitions older than `NESTRIX_RETENTION_DAYS`. With 7 and today 2026-11-11, 2026-11-04 is the oldest day kept: at least 7 days of data, up to nearly 8. Retention is by dropping partitions, so it is instant and leaves no dead rows. Per-route and per-class statistics are rolled up per minute at ingest; a retried export is not counted twice. Class counts are post-sampling, because the server sees only what services chose to export.
 
 ## Alerting
 

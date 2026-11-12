@@ -13,6 +13,10 @@
  */
 import { fromBinary, fromJson, type JsonValue } from "@bufbuild/protobuf";
 import {
+  type ExportLogsServiceRequest,
+  ExportLogsServiceRequestSchema,
+} from "../proto/gen/opentelemetry/proto/collector/logs/v1/logs_service_pb.js";
+import {
   type ExportTraceServiceRequest,
   ExportTraceServiceRequestSchema,
 } from "../proto/gen/opentelemetry/proto/collector/trace/v1/trace_service_pb.js";
@@ -22,7 +26,9 @@ import {
   type DecodeCost,
   type DecodeLimits,
   LimitError,
+  TRACE_SHAPE,
   WireError,
+  type WireShape,
 } from "./limits.js";
 
 export type BodyFormat = "protobuf" | "json";
@@ -43,15 +49,16 @@ export function checkBody(
   body: Uint8Array,
   format: BodyFormat,
   limits: DecodeLimits,
+  shape: WireShape = TRACE_SHAPE,
 ): DecodeCost {
   try {
     return format === "protobuf"
-      ? checkProtobuf(body, limits)
+      ? checkProtobuf(body, limits, shape)
       : checkJson(body, limits);
   } catch (error) {
     if (error instanceof WireError) {
       throw new DecodeError(
-        `request body is not a valid protobuf ExportTraceServiceRequest: ${error.message}`,
+        `request body is not a valid protobuf ${shape.root.name}: ${error.message}`,
       );
     }
     throw error;
@@ -89,7 +96,48 @@ export function decodeRequest(
   }
 }
 
-function describe(error: unknown, format: BodyFormat): string {
+/**
+ * `decodeRequest` for `POST /v1/logs` (P9-07): the same rules, over `ExportLogsServiceRequest`.
+ * Run `checkBody(…, LOG_SHAPE)` first.
+ */
+export function decodeLogsRequest(
+  body: Buffer,
+  format: BodyFormat,
+  limits: DecodeLimits,
+): ExportLogsServiceRequest {
+  try {
+    if (format === "protobuf") {
+      return fromBinary(ExportLogsServiceRequestSchema, body, {
+        recursionLimit: limits.maxDepth,
+        readUnknownFields: false,
+      });
+    }
+    const json: unknown = JSON.parse(body.toString("utf8"));
+    if (json === null || typeof json !== "object" || Array.isArray(json)) {
+      throw new DecodeError("expected a JSON object");
+    }
+    const records = rewriteLogIds(json as Record<string, unknown>);
+    if (records > limits.maxSpans) {
+      throw new LimitError(
+        `request has more than ${limits.maxSpans} log records`,
+      );
+    }
+    return fromJson(ExportLogsServiceRequestSchema, json as JsonValue, {
+      ignoreUnknownFields: true,
+    });
+  } catch (error) {
+    if (error instanceof DecodeError || error instanceof LimitError) {
+      throw error;
+    }
+    throw new DecodeError(describe(error, format, "ExportLogsServiceRequest"));
+  }
+}
+
+function describe(
+  error: unknown,
+  format: BodyFormat,
+  name = "ExportTraceServiceRequest",
+): string {
   if (error instanceof RangeError) {
     return "request body is nested too deeply";
   }
@@ -102,8 +150,8 @@ function describe(error: unknown, format: BodyFormat): string {
   const detail =
     error instanceof Error ? error.message.slice(0, 300) : "unknown error";
   return format === "json"
-    ? `request body is not a valid OTLP JSON ExportTraceServiceRequest: ${detail}`
-    : `request body is not a valid protobuf ExportTraceServiceRequest: ${detail}`;
+    ? `request body is not a valid OTLP JSON ${name}: ${detail}`
+    : `request body is not a valid protobuf ${name}: ${detail}`;
 }
 
 function hexToBase64(value: unknown): unknown {
@@ -144,4 +192,19 @@ function rewriteIds(request: Record<string, unknown>): number {
     }
   }
   return spans;
+}
+
+/** `rewriteIds` for a log export: hex `traceId` and `spanId` of each record; returns the record count. */
+function rewriteLogIds(request: Record<string, unknown>): number {
+  let records = 0;
+  for (const rl of objects(request.resourceLogs)) {
+    for (const sl of objects(rl.scopeLogs)) {
+      for (const record of objects(sl.logRecords)) {
+        records++;
+        if ("traceId" in record) record.traceId = hexToBase64(record.traceId);
+        if ("spanId" in record) record.spanId = hexToBase64(record.spanId);
+      }
+    }
+  }
+  return records;
 }

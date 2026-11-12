@@ -36,6 +36,18 @@ export const MAX_PENDING_SPANS = 4096;
 /** Spans converted per drain before yielding to the event loop with another `setImmediate`. */
 export const DRAIN_CHUNK = 512;
 
+/**
+ * Log lines kept per trace (P9-07). Later lines of the trace are counted (`truncated`) and
+ * dropped. Lines count toward `maxBytes` and leave with their trace.
+ */
+export const MAX_LOGS_PER_TRACE = 200;
+
+/** A log line's context (Nest's logger context) is cut to this many characters. */
+export const MAX_LOG_CONTEXT_LENGTH = 256;
+
+/** `NestrixLogger`'s `MAX_BODY_LENGTH` (8,192) plus its `…`: the longest message kept. */
+export const MAX_LOG_MESSAGE_LENGTH = 8193;
+
 /** Keeps a usable positive integer, or falls back. */
 function positiveInt(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 1

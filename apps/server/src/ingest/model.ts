@@ -65,6 +65,39 @@ export interface IngestBatch {
   errorMessage?: string;
 }
 
+/**
+ * One OTLP log record that carries a trace id (P9-07): logs are kept as context for a trace, so a
+ * record without one is not kept. Strings are capped and made safe for PostgreSQL by the mapper.
+ */
+export interface IngestLogRecord {
+  traceId: string;
+  /** Absent when the record names no span. */
+  spanId?: string;
+  /** `time_unix_nano`, else `observed_time_unix_nano`. */
+  timeUnixNano: bigint;
+  /** OTLP `SeverityNumber`, 0 to 24 (anything else becomes 0). */
+  severityNumber: number;
+  severityText: string;
+  /** The body as text (a non-string body is its JSON text), cut to `MAX_LOG_BODY_LENGTH`. */
+  body: string;
+  /** The `nestrix.log.context` attribute (Nest's logger context), when it is a string. */
+  context?: string;
+}
+
+/** One OTLP `ResourceLogs`: the resource once, its kept records flattened across scopes. */
+export interface IngestResourceLogs {
+  resource: IngestAttributes;
+  records: IngestLogRecord[];
+}
+
+/** One decoded log export request. */
+export interface IngestLogBatch {
+  resourceLogs: IngestResourceLogs[];
+  /** Records rejected as invalid (partial success). Records without a trace id are not rejected. */
+  rejectedLogRecords: number;
+  errorMessage?: string;
+}
+
 /** What the receiver hands a batch to. Implemented by the storage writer (P5-02). */
 export interface IngestSink {
   /**
@@ -72,6 +105,11 @@ export interface IngestSink {
    * is over capacity (the receiver answers 503 with `Retry-After`).
    */
   write(batch: IngestBatch): Promise<void>;
+  /**
+   * Stores log records next to their traces (P9-07), with the same contract as `write`. A sink
+   * without it accepts log exports and keeps nothing.
+   */
+  writeLogs?(batch: IngestLogBatch): Promise<void>;
 }
 
 export class IngestBusyError extends Error {

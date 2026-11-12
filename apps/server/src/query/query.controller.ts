@@ -4,6 +4,7 @@ import {
   Get,
   Header,
   HttpException,
+  Inject,
   Req,
   UseFilters,
   UseGuards,
@@ -30,6 +31,7 @@ import {
   type Values,
 } from "./params.js";
 import { NotFoundError, QueryService } from "./query.service.js";
+import { TraceLogsService } from "./trace-logs.service.js";
 
 interface RequestLike {
   originalUrl?: string;
@@ -67,6 +69,9 @@ function parse(
 @UseFilters(QueryExceptionFilter)
 export class QueryController {
   constructor(private readonly query: QueryService) {}
+
+  @Inject(TraceLogsService)
+  private readonly traceLogsService!: TraceLogsService;
 
   @Get("meta")
   @Headers()
@@ -108,6 +113,23 @@ export class QueryController {
       }
       throw error;
     }
+  }
+
+  /** P9-07: the log lines stored next to a trace; none is `200` with no items. */
+  @Get("trace/logs")
+  @Headers()
+  traceLogs(@Req() req: RequestLike) {
+    const id = parse(req, traceSpec).id;
+    if (typeof id !== "string") {
+      const body: ApiError = {
+        error: {
+          code: "bad_request",
+          message: 'Query parameter "id" is required.',
+        },
+      };
+      throw new HttpException(body, 400);
+    }
+    return this.traceLogsService.getTraceLogs(id);
   }
 
   @Get("errors")

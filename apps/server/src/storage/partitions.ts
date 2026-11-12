@@ -24,13 +24,15 @@ export const PARTITIONED_TABLES = [
   "traces",
   "route_minutes",
   "class_minutes",
+  "logs",
 ] as const;
 export type PartitionedTable = (typeof PARTITIONED_TABLES)[number];
 
 const DAY_MS = 86_400_000;
 /** Days ahead of today that get partitions, today excluded. */
 export const DAYS_AHEAD = 2;
-const PARTITION_NAME = /^(spans|traces|route_minutes|class_minutes)_p(\d{8})$/;
+const PARTITION_NAME =
+  /^(spans|traces|route_minutes|class_minutes|logs)_p(\d{8})$/;
 
 /** Days since the Unix epoch (UTC) of a Unix-ms time. */
 export function utcDay(unixMs: number): number {

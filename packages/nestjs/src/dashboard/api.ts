@@ -34,6 +34,7 @@ import type {
   RouteStatsResponse,
   TraceListParamsSpec,
   TraceListResponse,
+  TraceLogsResponse,
   TraceParamsSpec,
   TraceResponse,
   TraceTimelineParamsSpec,
@@ -499,6 +500,28 @@ export function traceHandler(
   if (body === undefined) {
     return apiError(404, "not_found", "No trace with this id is stored.");
   }
+  return ok(body);
+}
+
+/**
+ * `GET api/v1/trace/logs?id=` (P9-07): the log lines kept next to a trace. A trace with none, or
+ * not stored, answers 200 with no items.
+ */
+export function traceLogsHandler(
+  target: unknown,
+  sources: ApiSources,
+): DashboardResponse {
+  const parsed = parseQuery(target, traceSpec);
+  if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
+  const id = parsed.values.id;
+  if (typeof id !== "string") {
+    return apiError(400, "bad_request", 'Query parameter "id" is required.');
+  }
+  const body: TraceLogsResponse = sources.store?.getTraceLogs(id) ?? {
+    traceId: id,
+    items: [],
+    truncated: false,
+  };
   return ok(body);
 }
 

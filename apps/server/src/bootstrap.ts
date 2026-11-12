@@ -4,14 +4,14 @@ import type { NestExpressApplication } from "@nestjs/platform-express";
 import { AppModule } from "./app.module.js";
 import { AdminAuth } from "./auth/admin-auth.js";
 import type { HttpServerConfig, ServerConfig } from "./config.js";
-import { INGEST_TRACES_PATH_PATTERN } from "./ingest/tokens.js";
+import { INGEST_PATH_PATTERN } from "./ingest/tokens.js";
 
 /**
  * True for the ingest path as Express routes it: case-insensitive, with or without a trailing
  * slash, query string ignored.
  */
 export function isIngestRequest(req: IncomingMessage): boolean {
-  return INGEST_TRACES_PATH_PATTERN.test((req.url ?? "").split("?", 1)[0]);
+  return INGEST_PATH_PATTERN.test((req.url ?? "").split("?", 1)[0]);
 }
 
 function mediaType(req: IncomingMessage): string {

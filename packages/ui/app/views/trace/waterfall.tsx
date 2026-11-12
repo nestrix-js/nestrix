@@ -1,17 +1,24 @@
 // biome-ignore-all lint/a11y/useSemanticElements: a virtualised treegrid positions its rows absolutely, which table elements cannot do
 // biome-ignore-all lint/a11y/useFocusableInteractive: the treegrid is the single focus stop; rows are reached with the arrow keys (aria-activedescendant)
-import type { TraceResponse } from "@nestrix-js/protocol";
+import type { TraceLogsResponse, TraceResponse } from "@nestrix-js/protocol";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   AlertCircle,
   ChevronDown,
   ChevronRight,
   CornerUpRight,
+  ScrollText,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import { formatDuration } from "@/lib/format";
 import { isSlowDbSpan, repeatedQueries } from "@/lib/trace-insights";
+import {
+  logsBySpan,
+  logTone,
+  type SpanLogSummary,
+  toneClass,
+} from "@/lib/trace-logs";
 import { criticalPath, timeBreakdown } from "@/lib/trace-time";
 import {
   barLayout,
@@ -24,6 +31,7 @@ import {
   scaleTicks,
 } from "@/lib/trace-tree";
 import { cn } from "@/lib/utils";
+import { LogsPanel } from "@/views/trace/logs-panel";
 import { QueriesPanel } from "@/views/trace/queries-panel";
 import { SpanDetail } from "@/views/trace/span-detail";
 import { TimeSummary } from "@/views/trace/time-summary";
@@ -42,6 +50,8 @@ const NAV_KEYS = new Set<string>([
 ]);
 
 const rowDomId = (spanId: string) => `span-row-${spanId}`;
+/** Log ticks drawn on one row at most; a span with more shows the count only. */
+const MAX_LOG_TICKS = 50;
 
 /**
  * The trace waterfall and its detail panel.
@@ -54,8 +64,18 @@ const rowDomId = (spanId: string) => `span-row-${spanId}`;
  * panel, `data-critical="true"` on the critical path while it is switched on, and
  * `data-orphan="true"` on spans whose parent is missing. The span name is `[data-testid="span-name"]`. Only visible rows (plus a
  * small overscan) are in the DOM; `aria-rowcount` is the number of rows after collapsing.
+ *
+ * With `logs` (P9-07), a row whose span wrote log lines shows `[data-testid="log-marker"]` (the
+ * count, `data-tone` of the most severe line) and one `[data-testid="log-tick"]` per line on the
+ * time axis; the Logs panel below lists the lines, and picking one selects its span.
  */
-export function Waterfall({ trace }: { trace: TraceResponse }) {
+export function Waterfall({
+  trace,
+  logs,
+}: {
+  trace: TraceResponse;
+  logs?: TraceLogsResponse | undefined;
+}) {
   const tree = useMemo(
     () => buildTree(trace.spans, trace.rootSpanId),
     [trace.spans, trace.rootSpanId],
@@ -77,6 +97,12 @@ export function Waterfall({ trace }: { trace: TraceResponse }) {
   const queries = useMemo(() => repeatedQueries(trace.spans), [trace.spans]);
   const picked = queries.find((q) => q.text === pickedQuery);
   const highlighted = useMemo(() => new Set(picked?.spanIds ?? []), [picked]);
+  const logLines = logs?.items;
+  const spanLogs = useMemo(() => logsBySpan(logLines ?? []), [logLines]);
+  const spanIds = useMemo(
+    () => new Set(trace.spans.map((s) => s.spanId)),
+    [trace.spans],
+  );
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -120,6 +146,25 @@ export function Waterfall({ trace }: { trace: TraceResponse }) {
     setDetailOpen(true);
     const index = flattenRows(tree, open).findIndex(
       (r) => r.node.span.spanId === first,
+    );
+    if (index >= 0) virtualizer.scrollToIndex(index);
+  };
+
+  /** Selects a span from outside the tree (a log line): opens its ancestors and shows it. */
+  const showSpan = (id: string) => {
+    if (!tree.byId.has(id)) return;
+    const open = new Set(collapsed);
+    for (
+      let parent = tree.byId.get(id)?.span.parentSpanId;
+      parent !== undefined;
+      parent = tree.byId.get(parent)?.span.parentSpanId
+    )
+      open.delete(parent);
+    if (open.size !== collapsed.size) setCollapsed(open);
+    setSelectedId(id);
+    setDetailOpen(true);
+    const index = flattenRows(tree, open).findIndex(
+      (r) => r.node.span.spanId === id,
     );
     if (index >= 0) virtualizer.scrollToIndex(index);
   };
@@ -231,6 +276,7 @@ export function Waterfall({ trace }: { trace: TraceResponse }) {
                       selected={row.node.span.spanId === selectedId}
                       highlighted={highlighted.has(row.node.span.spanId)}
                       critical={critical.has(row.node.span.spanId)}
+                      logSummary={spanLogs.get(row.node.span.spanId)}
                       onSelect={() => {
                         select(row.node.span.spanId);
                         setDetailOpen(true);
@@ -256,6 +302,16 @@ export function Waterfall({ trace }: { trace: TraceResponse }) {
           />
         ) : null}
       </div>
+      {logLines !== undefined && logLines.length > 0 ? (
+        <LogsPanel
+          logs={logLines}
+          truncated={logs?.truncated ?? false}
+          traceStartMs={tree.startMs}
+          spanIds={spanIds}
+          selectedSpanId={selectedId}
+          onSelectSpan={showSpan}
+        />
+      ) : null}
     </div>
   );
 }
@@ -269,6 +325,7 @@ function WaterfallRow({
   selected,
   highlighted,
   critical,
+  logSummary,
   onSelect,
   onToggle,
 }: {
@@ -280,6 +337,7 @@ function WaterfallRow({
   selected: boolean;
   highlighted: boolean;
   critical: boolean;
+  logSummary?: SpanLogSummary | undefined;
   onSelect: () => void;
   onToggle: () => void;
 }) {
@@ -369,6 +427,21 @@ function WaterfallRow({
         >
           {span.kind}
         </span>
+        {logSummary ? (
+          <span
+            data-testid="log-marker"
+            data-tone={logTone(logSummary.maxSeverity)}
+            className={cn(
+              "inline-flex shrink-0 items-center gap-0.5 text-xs tabular-nums",
+              toneClass(logTone(logSummary.maxSeverity)) ||
+                "text-muted-foreground",
+            )}
+            title={`${logSummary.count} log ${logSummary.count === 1 ? "line" : "lines"}`}
+          >
+            <ScrollText className="size-3" aria-hidden="true" />
+            {logSummary.count}
+          </span>
+        ) : null}
       </div>
       <div role="gridcell" className="relative h-full flex-1">
         <div
@@ -381,6 +454,39 @@ function WaterfallRow({
           )}
           style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
         />
+        {logSummary && logSummary.lines.length <= MAX_LOG_TICKS
+          ? logSummary.lines.map((line, i) => {
+              const tone = logTone(line.severity);
+              const pct =
+                totalMs > 0
+                  ? Math.min(
+                      100,
+                      Math.max(
+                        0,
+                        ((line.timeUnixMs - startMs) / totalMs) * 100,
+                      ),
+                    )
+                  : 0;
+              return (
+                <span
+                  // biome-ignore lint/suspicious/noArrayIndexKey: ticks have no id; the span's lines keep their order
+                  key={i}
+                  data-testid="log-tick"
+                  data-tone={tone}
+                  aria-hidden="true"
+                  className={cn(
+                    "pointer-events-none absolute top-1 h-5 w-0.5 -translate-x-1/2 rounded-full",
+                    tone === "error" || tone === "fatal"
+                      ? "bg-destructive"
+                      : tone === "warn"
+                        ? "bg-warning"
+                        : "bg-foreground/50",
+                  )}
+                  style={{ left: `${pct}%` }}
+                />
+              );
+            })
+          : null}
         <span
           className="absolute top-1/2 -translate-y-1/2 pl-1 text-xs tabular-nums text-muted-foreground"
           style={

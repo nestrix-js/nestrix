@@ -11,3 +11,8 @@ export const MAINTENANCE_LOCK = 2;
 export const TRACES_LOCK = 3;
 /** Session lock around one alert evaluation run (only one server instance evaluates at a time). */
 export const ALERTS_LOCK = 4;
+/**
+ * Class of the per-trace transaction locks around a log insert (P9-07): `(LOGS_LOCK_CLASS,
+ * hashtext(trace_id))`, so the per-trace cap holds across concurrent writers. "NSTL" in ASCII.
+ */
+export const LOGS_LOCK_CLASS = 0x4e53544c;

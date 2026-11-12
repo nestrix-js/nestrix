@@ -167,6 +167,24 @@ export const classMinutes = pgTable(
   ],
 );
 
+/** Log lines next to their trace (migrations/0007_logs.sql, src/storage/logs.ts; P9-07). */
+export const logs = pgTable(
+  "logs",
+  {
+    traceId: text("trace_id").notNull(),
+    spanId: text("span_id"),
+    time: timestamp("time", tz).notNull(),
+    timeNs: bigint("time_ns", { mode: "bigint" }).notNull(),
+    severityNumber: integer("severity_number").notNull(),
+    severityText: text("severity_text").notNull(),
+    body: text("body").notNull(),
+    context: text("context"),
+    serviceName: text("service_name").notNull(),
+    recordHash: text("record_hash").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.traceId, t.recordHash, t.time] })],
+);
+
 /** Alerting (migrations/0002_alerts.sql, src/alerts/). */
 export const alertRules = pgTable("alert_rules", {
   id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
@@ -246,6 +264,7 @@ export const schema = {
   traces,
   routeMinutes,
   classMinutes,
+  logs,
   slos,
   apiTokens,
   alertRules,

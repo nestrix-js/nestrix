@@ -25,8 +25,15 @@
  * error items. A late span of an evicted trace starts a new, unlisted entry that is
  * evicted in turn; a span estimated larger than `maxBytes` on its own is dropped.
  */
+import type { LogLevel } from "@nestjs/common";
 import { context, ROOT_CONTEXT } from "@opentelemetry/api";
 import { diagnostics as processDiagnostics } from "../diagnostics.js";
+import {
+  getTraceLogSink,
+  setTraceLogSink,
+  type TraceLogInput,
+  type TraceLogSink,
+} from "../logs/sink.js";
 import type { RedactableSpan, RedactHook } from "../options.js";
 import { redactSpan } from "../otel/redaction.js";
 import type { TelemetryDiagnostics } from "../otel/types.js";
@@ -37,6 +44,9 @@ import { type ErrorOccurrence, groupErrors } from "./error-groups.js";
 import {
   DEFAULT_STORE_LIMITS,
   DRAIN_CHUNK,
+  MAX_LOG_CONTEXT_LENGTH,
+  MAX_LOG_MESSAGE_LENGTH,
+  MAX_LOGS_PER_TRACE,
   MAX_PENDING_SPANS,
   normaliseLimits,
   type StoreLimits,
@@ -48,6 +58,8 @@ import type {
   ErrorListResponse,
   SpanRecord,
   TraceListResponse,
+  TraceLogRecord,
+  TraceLogsResponse,
   TraceResponse,
   TraceSummary,
   TraceType,
@@ -133,6 +145,10 @@ export interface StoreStats {
   readonly processors: number;
   /** Apps attached now; spans are accepted only while this is above 0. */
   readonly attached: number;
+  /** Log lines held (P9-07). */
+  readonly logs: number;
+  /** Log lines not kept because their trace already held `MAX_LOGS_PER_TRACE`. */
+  readonly droppedLogs: number;
 }
 
 export interface TraceStore {
@@ -154,6 +170,13 @@ export interface TraceStore {
   listTraces(query: TraceListQuery): TraceListResponse;
   /** All stored spans of a trace, by start time; `undefined` when not stored. */
   getTrace(traceId: string): TraceResponse | undefined;
+  /**
+   * Keeps a log line next to its trace (P9-07), while attached. O(1) amortised, never throws.
+   * The store registers itself as `NestrixLogger`'s trace slot while attached.
+   */
+  addLog(record: TraceLogInput): void;
+  /** The kept log lines of a trace, oldest first; no items when there are none. Never throws. */
+  getTraceLogs(traceId: string): TraceLogsResponse;
   listErrors(query: ErrorListQuery): ErrorListResponse;
   /** Error occurrences of the window grouped by (type, normalised message, route). */
   groupErrors(windowMinutes: number, now?: number): ErrorGroupsResponse;
@@ -208,6 +231,15 @@ interface TraceEntry {
   seq: number;
   dead: boolean;
   readonly errors: ErrorEntry[];
+  /**
+   * Log lines (P9-07), in arrival order. A line usually arrives before its span ends, so a
+   * line can create the entry; such an entry has no spans (and no resource) until one arrives.
+   */
+  readonly logs: TraceLogRecord[];
+  /** Lines not kept because `logs` was full. */
+  droppedLogs: number;
+  /** `resource` was read from a span (false for an entry a log line created). */
+  hasResource: boolean;
 }
 
 interface ErrorEntry {
@@ -297,6 +329,32 @@ function randomId(): string {
 function stringAttr(record: SpanRecord, key: string): string | undefined {
   const value = record.attributes[key];
   return typeof value === "string" ? value : undefined;
+}
+
+/** Nest's levels as OTLP `SeverityNumber` (the values `logs/export.ts` sends). */
+const LOG_SEVERITY: Readonly<Record<LogLevel, number>> = {
+  verbose: 1,
+  debug: 5,
+  log: 9,
+  warn: 13,
+  error: 17,
+  fatal: 21,
+};
+
+/** Fixed estimate per kept log line (object, fields, array slot), as `record.ts` estimates spans. */
+const LOG_BYTES = 160;
+const TRACE_ID = /^[0-9a-f]{32}$/;
+const SPAN_ID = /^[0-9a-f]{16}$/;
+
+function logBytes(record: TraceLogRecord): number {
+  return (
+    LOG_BYTES +
+    2 *
+      (record.message.length +
+        record.level.length +
+        (record.context?.length ?? 0) +
+        (record.spanId?.length ?? 0))
+  );
 }
 
 /** Traces up to this many spans use a scan for the duplicate check; larger ones a `Set`. */
@@ -501,6 +559,12 @@ class Store implements TraceStore {
   private oversize = 0;
   private received = 0;
   private processors = 0;
+  private logCount = 0;
+  private droppedLogs = 0;
+  /** `NestrixLogger`'s trace slot while this store is attached. */
+  private readonly logSink: TraceLogSink = {
+    add: (record) => this.addLog(record),
+  };
 
   constructor(
     limits: StoreLimits,
@@ -519,6 +583,7 @@ class Store implements TraceStore {
     };
     try {
       this.attachments.push(token);
+      setTraceLogSink(this.logSink);
     } catch (error) {
       this.diagnostics.countFailure("store.attach", error);
     }
@@ -529,7 +594,10 @@ class Store implements TraceStore {
         detached = true;
         const index = this.attachments.indexOf(token);
         if (index !== -1) this.attachments.splice(index, 1);
-        if (this.attachments.length === 0) this.pending = [];
+        if (this.attachments.length === 0) {
+          this.pending = [];
+          if (getTraceLogSink() === this.logSink) setTraceLogSink(undefined);
+        }
       } catch (error) {
         this.diagnostics.countFailure("store.detach", error);
       }
@@ -665,25 +733,14 @@ class Store implements TraceStore {
     record: SpanRecord,
     bytes: number,
   ): void {
-    let entry = this.traces.get(identity.traceId);
-    if (entry === undefined) {
+    const entry =
+      this.traces.get(identity.traceId) ?? this.newEntry(identity.traceId);
+    if (!entry.hasResource) {
       const resource = readResource(span);
-      entry = {
-        traceId: identity.traceId,
-        spans: [],
-        spanIds: undefined,
-        resource: resource.attributes,
-        bytes: TRACE_BYTES + resource.bytes,
-        root: undefined,
-        candidates: [],
-        hasJob: false,
-        seq: 0,
-        dead: false,
-        errors: [],
-      };
-      this.traces.set(identity.traceId, entry);
-      this.order.push(entry);
-      this.bytes += entry.bytes;
+      entry.resource = resource.attributes;
+      entry.hasResource = true;
+      entry.bytes += resource.bytes;
+      this.bytes += resource.bytes;
     }
     if (hasSpan(entry, identity.spanId)) return;
     entry.spans.push(record);
@@ -723,6 +780,87 @@ class Store implements TraceStore {
       this.bytes += ERROR_ITEM_BYTES;
     }
     this.enforceLimits();
+  }
+
+  /** A new, empty entry, last in eviction order. */
+  private newEntry(traceId: string): TraceEntry {
+    const entry: TraceEntry = {
+      traceId,
+      spans: [],
+      spanIds: undefined,
+      resource: {},
+      bytes: TRACE_BYTES,
+      root: undefined,
+      candidates: [],
+      hasJob: false,
+      seq: 0,
+      dead: false,
+      errors: [],
+      logs: [],
+      droppedLogs: 0,
+      hasResource: false,
+    };
+    this.traces.set(traceId, entry);
+    this.order.push(entry);
+    this.bytes += entry.bytes;
+    return entry;
+  }
+
+  addLog(input: TraceLogInput): void {
+    try {
+      if (this.attachments.length === 0) return;
+      const { traceId, spanId } = input;
+      if (typeof traceId !== "string" || !TRACE_ID.test(traceId)) return;
+      const entry = this.traces.get(traceId) ?? this.newEntry(traceId);
+      if (entry.logs.length >= MAX_LOGS_PER_TRACE) {
+        entry.droppedLogs++;
+        this.droppedLogs++;
+        return;
+      }
+      const level = typeof input.level === "string" ? input.level : "log";
+      const record: TraceLogRecord = {
+        timeUnixMs: Number.isFinite(input.timeUnixMs)
+          ? input.timeUnixMs
+          : Date.now(),
+        severity: Object.hasOwn(LOG_SEVERITY, level) ? LOG_SEVERITY[level] : 0,
+        level: level.slice(0, MAX_LOG_CONTEXT_LENGTH),
+        // The logger already cut it to MAX_BODY_LENGTH plus `…`; this bounds any other caller.
+        message: String(input.body).slice(0, MAX_LOG_MESSAGE_LENGTH),
+      };
+      if (typeof input.context === "string" && input.context !== "") {
+        record.context = input.context.slice(0, MAX_LOG_CONTEXT_LENGTH);
+      }
+      if (typeof spanId === "string" && SPAN_ID.test(spanId)) {
+        record.spanId = spanId;
+      }
+      const bytes = logBytes(record);
+      entry.logs.push(record);
+      entry.bytes += bytes;
+      this.bytes += bytes;
+      this.logCount++;
+      this.enforceLimits();
+    } catch (error) {
+      this.diagnostics.countFailure("store.log", error);
+    }
+  }
+
+  getTraceLogs(traceId: string): TraceLogsResponse {
+    try {
+      const entry =
+        typeof traceId === "string" ? this.traces.get(traceId) : undefined;
+      if (entry === undefined) {
+        return { traceId, items: [], truncated: false };
+      }
+      // Arrival order is time order within a process; sorting keeps it right if clocks step.
+      const items = entry.logs
+        .map((record, i) => ({ record, i }))
+        .sort((a, b) => a.record.timeUnixMs - b.record.timeUnixMs || a.i - b.i)
+        .map(({ record }) => ({ ...record }));
+      return { traceId, items, truncated: entry.droppedLogs > 0 };
+    } catch (error) {
+      this.diagnostics.countFailure("store.query", error);
+      return { traceId, items: [], truncated: false };
+    }
   }
 
   private enforceLimits(): void {
@@ -765,9 +903,11 @@ class Store implements TraceStore {
     }
     // Dead entries stay in `listed` and `errors` until the next compaction; release what
     // they hold now, so the byte limit bounds real memory and not only live records.
+    this.logCount -= entry.logs.length;
     entry.spans.length = 0;
     entry.spanIds = undefined;
     entry.errors.length = 0;
+    entry.logs.length = 0;
     entry.root = undefined;
     entry.candidates.length = 0;
     entry.resource = {};
@@ -944,7 +1084,8 @@ class Store implements TraceStore {
     try {
       if (typeof traceId !== "string") return undefined;
       const entry = this.traces.get(traceId);
-      if (entry === undefined) return undefined;
+      // An entry with log lines only (its spans have not ended yet) is not a stored trace.
+      if (entry === undefined || entry.spans.length === 0) return undefined;
       const depths = depthsOf(entry.spans);
       // By start time; on a tie (spans started within the clock's resolution) a parent
       // before its descendants, whatever order they ended in.
@@ -1061,7 +1202,9 @@ class Store implements TraceStore {
 
   scanAllTraces(visit: (spans: readonly SpanRecord[]) => void): void {
     try {
-      for (const entry of this.traces.values()) visit(entry.spans);
+      for (const entry of this.traces.values()) {
+        if (entry.spans.length > 0) visit(entry.spans);
+      }
     } catch (error) {
       this.diagnostics.countFailure("store.query", error);
     }
@@ -1092,6 +1235,8 @@ class Store implements TraceStore {
       receivedSpans: this.received,
       processors: this.processors,
       attached: this.attachments.length,
+      logs: this.logCount,
+      droppedLogs: this.droppedLogs,
     };
   }
 
@@ -1148,4 +1293,5 @@ export function getStore(): TraceStore | undefined {
 /** For tests only: forget the store. */
 export function resetStoreForTests(): void {
   store = undefined;
+  setTraceLogSink(undefined);
 }

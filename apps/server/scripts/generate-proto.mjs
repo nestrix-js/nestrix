@@ -22,6 +22,8 @@ const FILES = [
   "opentelemetry/proto/resource/v1/resource.proto",
   "opentelemetry/proto/trace/v1/trace.proto",
   "opentelemetry/proto/collector/trace/v1/trace_service.proto",
+  "opentelemetry/proto/logs/v1/logs.proto",
+  "opentelemetry/proto/collector/logs/v1/logs_service.proto",
 ];
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");

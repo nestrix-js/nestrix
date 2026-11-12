@@ -29,6 +29,7 @@ import type { Pool, PoolClient } from "pg";
 import {
   type IngestBatch,
   IngestBusyError,
+  type IngestLogBatch,
   type IngestSink,
 } from "../ingest/model.js";
 import {
@@ -40,6 +41,7 @@ import {
   UNMATCHED_ROUTE,
 } from "./derive.js";
 import { bucketIndex, emptyHistogram } from "./histogram.js";
+import { type LogWriterOptions, PostgresLogWriter } from "./logs.js";
 import type { PartitionManager } from "./partitions.js";
 import { upsertTraces } from "./traces.js";
 
@@ -54,6 +56,8 @@ export interface WriterOptions {
   resourceCacheSize?: number;
   /** Called with failures worth a log line (never with a busy rejection). */
   onError?: (error: unknown, context: string) => void;
+  /** The log writer behind `writeLogs` (P9-07, `logs.ts`). */
+  logs?: LogWriterOptions;
 }
 
 export interface WriterStats {
@@ -165,6 +169,8 @@ export class PostgresIngestSink implements IngestSink {
   private working = false;
   private closed = false;
   private idleWaiters: (() => void)[] = [];
+  /** `writeLogs` (P9-07): log records next to their traces, written outside the span queue. */
+  readonly logs: PostgresLogWriter;
   private readonly resourceIds = new Map<string, number>();
   private readonly servicesWritten = new Map<string, number>();
   private readonly counters = {
@@ -186,6 +192,21 @@ export class PostgresIngestSink implements IngestSink {
     this.maxSpansPerTransaction = options.maxSpansPerTransaction ?? 5_000;
     this.retryAfterSeconds = options.retryAfterSeconds ?? 5;
     this.resourceCacheSize = options.resourceCacheSize ?? 10_000;
+    this.logs = new PostgresLogWriter(pool, partitions, {
+      retryAfterSeconds: this.retryAfterSeconds,
+      ...options.logs,
+    });
+  }
+
+  /** Stores log records next to their traces (`logs.ts`). Same contract as `write`. */
+  async writeLogs(batch: IngestLogBatch): Promise<void> {
+    try {
+      await this.logs.write(batch);
+    } catch (error) {
+      if (!(error instanceof IngestBusyError))
+        this.report(error, "writer.logs");
+      throw error;
+    }
   }
 
   write(batch: IngestBatch): Promise<void> {
@@ -232,6 +253,7 @@ export class PostgresIngestSink implements IngestSink {
    */
   async close(timeoutMs = 10_000): Promise<void> {
     this.closed = true;
+    this.logs.close();
     let timer: NodeJS.Timeout | undefined;
     await Promise.race([
       this.whenIdle(),

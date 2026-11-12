@@ -204,7 +204,7 @@ function status(span: Span): IngestSpan["status"] {
 }
 
 /** `safe`, after cutting to `MAX_STRING_LENGTH` (a pair cut in half becomes U+FFFD). */
-function text(value: string): string {
+export function text(value: string): string {
   return safe(
     value.length > MAX_STRING_LENGTH
       ? value.slice(0, MAX_STRING_LENGTH)
@@ -304,7 +304,7 @@ function attributeValue(
 }
 
 /** Cut like any string, so it may no longer parse as JSON when the value was huge. */
-function jsonText(value: AnyValue): string {
+export function jsonText(value: AnyValue): string {
   return text(JSON.stringify(toJson(value, 0)));
 }
 

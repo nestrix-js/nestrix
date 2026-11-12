@@ -15,7 +15,7 @@ async function main(): Promise<void> {
   const app = await createApp(result.config);
   await app.listen(result.config.port);
   new Logger("NestrixServer").log(
-    `Listening on port ${result.config.port}: POST /v1/traces (ingest), / (dashboard, sign in at /login)`,
+    `Listening on port ${result.config.port}: POST /v1/traces and /v1/logs (ingest), / (dashboard, sign in at /login)`,
   );
 }
 

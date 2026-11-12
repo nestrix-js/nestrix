@@ -61,6 +61,7 @@ import {
   routesHandler,
   timelineHandler,
   traceHandler,
+  traceLogsHandler,
   tracesHandler,
 } from "./api.js";
 import { loadUi, renderIndex, type UiBundle, uiPackage } from "./assets.js";
@@ -409,6 +410,10 @@ export class Dashboard {
         this.handler("api", (t) => tracesHandler(t, sources())),
       ],
       [`${api}/trace`, this.handler("api", (t) => traceHandler(t, sources()))],
+      [
+        `${api}/trace/logs`,
+        this.handler("api", (t) => traceLogsHandler(t, sources())),
+      ],
       [
         `${api}/errors`,
         this.handler("api", (t) => errorsHandler(t, sources())),

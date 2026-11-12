@@ -12,7 +12,11 @@ import {
   loadConfig,
   type ServerConfig,
 } from "../../src/config.js";
-import type { IngestBatch, IngestSink } from "../../src/ingest/model.js";
+import type {
+  IngestBatch,
+  IngestLogBatch,
+  IngestSink,
+} from "../../src/ingest/model.js";
 import { INGEST_SINK } from "../../src/ingest/tokens.js";
 
 export const KEY = `${"k".repeat(16)}0123456789abcdef0123`;
@@ -34,6 +38,18 @@ export class RecordingSink implements IngestSink {
   }
   spans() {
     return this.batches.flatMap((b) => b.resourceSpans.flatMap((r) => r.spans));
+  }
+  readonly logBatches: IngestLogBatch[] = [];
+  /** Replace to make `writeLogs` fail or wait. */
+  logBehaviour: (batch: IngestLogBatch) => Promise<void> = async () => {};
+  async writeLogs(batch: IngestLogBatch): Promise<void> {
+    await this.logBehaviour(batch);
+    this.logBatches.push(batch);
+  }
+  logRecords() {
+    return this.logBatches.flatMap((b) =>
+      b.resourceLogs.flatMap((r) => r.records),
+    );
   }
 }
 

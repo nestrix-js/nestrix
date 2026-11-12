@@ -5,7 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ApiRequestError, getTrace } from "@/lib/api";
+import { ApiRequestError, getTrace, getTraceLogs } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
 import { buildTree, isErrorSpan } from "@/lib/trace-tree";
 import { CopyButton } from "@/views/trace/copy-button";
@@ -56,6 +56,13 @@ export function TracePage({ traceId }: { traceId: string }) {
   const query = useQuery({
     queryKey: ["trace", traceId],
     queryFn: () => getTrace(traceId),
+  });
+  // P9-07: the trace's log lines. Optional: a failure (or an older backend without the route)
+  // leaves the trace view as it was, without the Logs panel.
+  const logs = useQuery({
+    queryKey: ["trace-logs", traceId],
+    queryFn: () => getTraceLogs(traceId),
+    retry: false,
   });
 
   if (query.isPending)
@@ -141,7 +148,7 @@ export function TracePage({ traceId }: { traceId: string }) {
           <TraceId id={trace.traceId} />
         </div>
       </header>
-      <Waterfall trace={trace} />
+      <Waterfall trace={trace} logs={logs.data} />
     </div>
   );
 }

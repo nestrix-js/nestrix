@@ -321,6 +321,12 @@ export class MockApi {
         return this.traces(query);
       case "trace":
         return this.trace(query.get("id"));
+      case "trace/logs":
+        // P9-07: no log lines for the generated traces (trace-logs.pw.ts routes its own).
+        return {
+          status: 200,
+          body: { traceId: query.get("id"), items: [], truncated: false },
+        };
       case "errors":
         return this.errors.answer(query);
       case "errors/groups": {

@@ -23,6 +23,7 @@ import type {
   SloListResponse,
   SloUpdate,
   TraceListResponse,
+  TraceLogsResponse,
   TraceResponse,
   TraceTimelineResponse,
 } from "@nestrix-js/protocol";
@@ -164,6 +165,9 @@ export const getRouteHistogram = (params: QueryParams) =>
 export const getRouteCompare = (params: QueryParams) =>
   getJson<RouteCompareResponse>("routes/compare", params);
 export const getTrace = (id: string) => getJson<TraceResponse>("trace", { id });
+/** P9-07: the log lines kept next to a trace (both backends). */
+export const getTraceLogs = (id: string) =>
+  getJson<TraceLogsResponse>("trace/logs", { id });
 export const getClasses = (params: QueryParams = {}) =>
   getJson<ClassStatsResponse>("classes", params);
 export const getMap = (params: QueryParams = {}) =>

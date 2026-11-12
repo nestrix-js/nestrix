@@ -46,7 +46,11 @@ const same: [
   Equals<Mirror.DependenciesResponse, Protocol.DependenciesResponse>,
   Equals<Mirror.TimelineBucket, Protocol.TimelineBucket>,
   Equals<Mirror.TraceTimelineResponse, Protocol.TraceTimelineResponse>,
+  Equals<Mirror.TraceLogRecord, Protocol.TraceLogRecord>,
+  Equals<Mirror.TraceLogsResponse, Protocol.TraceLogsResponse>,
 ] = [
+  true,
+  true,
   true,
   true,
   true,

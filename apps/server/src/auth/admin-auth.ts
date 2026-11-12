@@ -6,7 +6,7 @@
  * 1. `AdminAuth.middleware()`, mounted by `configureApp` with `app.use()` before the body parsers
  *    and before any Nest route, so it sees every request, matched or not. It is **default deny**:
  *    only these raw paths pass without a session (anchored, case-insensitive, as Express routes):
- *    the OTLP receiver (`/v1/traces`), `/login`, `/login.css` and `/logout`. Every other path,
+ *    the OTLP receiver (`/v1/traces`, `/v1/logs`), `/login`, `/login.css` and `/logout`. Every other path,
  *    `/`, `/assets/*`, `/api/v1/*` and any path a later controller adds, needs a valid session.
  * 2. `AdminAuthGuard`, a global Nest guard (`APP_GUARD`), lets a controller run only when the
  *    middleware stamped the request, and lets the session-free stamps reach only the controllers
@@ -30,7 +30,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import type { ServerConfig } from "../config.js";
 import { SERVER_CONFIG } from "../config.module.js";
-import { INGEST_TRACES_PATH_PATTERN } from "../ingest/tokens.js";
+import { INGEST_PATH_PATTERN } from "../ingest/tokens.js";
 import {
   type ApiTokenVerifier,
   isApiTokenShape,
@@ -161,7 +161,7 @@ export function startupMessages(
   const log: string[] = [];
   if (config.adminPassword === undefined) {
     warn.push(
-      "NESTRIX_ADMIN_PASSWORD is not set: the dashboard (/) and the query API (/api/v1) answer 503 until it is set (at least 12 characters) and the server restarted. Trace ingest (/v1/traces) is not affected.",
+      "NESTRIX_ADMIN_PASSWORD is not set: the dashboard (/) and the query API (/api/v1) answer 503 until it is set (at least 12 characters) and the server restarted. Ingest (/v1/traces, /v1/logs) is not affected.",
     );
   } else if (config.sessionSecretGenerated) {
     log.push(
@@ -283,8 +283,8 @@ export class AdminAuth implements OnModuleInit {
     res: ServerResponse,
   ): boolean | Promise<boolean> {
     const path = pathnameOf(req);
-    if (INGEST_TRACES_PATH_PATTERN.test(path)) {
-      // Ingest keeps its own keys: an API token is not one (the receiver checks them).
+    if (INGEST_PATH_PATTERN.test(path)) {
+      // Ingest (/v1/traces, /v1/logs) keeps its own keys: an API token is not one (the receiver checks them).
       stamp(req, "ingest");
       return true;
     }

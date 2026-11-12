@@ -8,7 +8,7 @@ import type { ServerConfig } from "./config.js";
 import { ServerConfigModule } from "./config.module.js";
 import { IngestModule } from "./ingest/ingest.module.js";
 import { MemoryIngestSink } from "./ingest/memory-sink.js";
-import { INGEST_TRACES_PATH_PATTERN } from "./ingest/tokens.js";
+import { INGEST_PATH_PATTERN } from "./ingest/tokens.js";
 import { QueryModule } from "./query/query.module.js";
 import { SlosModule } from "./slos/slos.module.js";
 import { PostgresIngestSink, StorageModule } from "./storage/index.js";
@@ -43,7 +43,7 @@ export class AppModule {
           // The server's own storage queries are not traced (a trace of each write would be
           // exported to the receiver, whose write would be traced again).
           integrations: { pg: false },
-          ignore: { paths: [INGEST_TRACES_PATH_PATTERN] },
+          ignore: { paths: [INGEST_PATH_PATTERN] },
         }),
         // Admin login (P5-04): its middleware is mounted by `configureApp`, its guard is global
         // and covers every controller, the query API included.
