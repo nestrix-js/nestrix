@@ -1,15 +1,28 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
 
+import type { ChipTone, Tone } from "@/components/kit/format";
 import { cn } from "@/lib/utils";
-import type { Tone } from "@/views/overview/overview-format";
 
+/** Text colour per tone: worse is destructive, better is success, neutral is muted. */
 export const toneText: Record<Tone, string> = {
-  worse: "text-destructive",
+  worse: "text-destructive-text",
   better: "text-success",
   neutral: "text-muted-foreground",
 };
 
-/** A formatted change with an arrow for its direction; the colour says good or bad, never alone. */
+/** Chip and badge colours per tone; `info` and `warn` are for facts and caution. */
+export const chipTone: Record<ChipTone, string> = {
+  worse: "bg-destructive/10 text-destructive-text",
+  better: "bg-success/8 text-success",
+  neutral: "bg-secondary text-secondary-foreground",
+  info: "bg-info/10 text-info",
+  warn: "bg-warning/15 text-warning-text",
+};
+
+/**
+ * A formatted change ("+12%", "−3 pt", "—") with an arrow for its direction. The arrow follows
+ * the sign; the colour says good or bad (never alone: the sign is in the text). "—" is unknown.
+ */
 export function Delta({
   text,
   tone,

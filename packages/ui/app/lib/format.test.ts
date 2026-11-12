@@ -1,21 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  durationPct,
-  formatDuration,
-  formatRelative,
-  samplingNotice,
-} from "@/lib/format";
-
-describe("durationPct", () => {
-  it("is the share of the maximum, clamped, and 0 without a maximum", () => {
-    expect(durationPct(50, 200)).toBe(25);
-    expect(durationPct(200, 200)).toBe(100);
-    expect(durationPct(300, 200)).toBe(100);
-    expect(durationPct(-1, 200)).toBe(0);
-    expect(durationPct(5, 0)).toBe(0);
-  });
-});
+import { formatDuration, formatRelative, samplingNotice } from "@/lib/format";
 
 describe("sampling notice", () => {
   it("says lists are sampled when the rate is below 1", () => {

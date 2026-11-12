@@ -6,7 +6,7 @@ Owner, 2026-11-12: "why you only fix the overview ui, the rest still plain, ugly
 
 | ID | Task | Tier | Depends | Status |
 |---|---|---|---|---|
-| P14-01 | Shared kit + shell + Requests (reference page) | sonnet | — | todo |
+| P14-01 | Shared kit + shell + Requests (reference page) | sonnet | — | done (branch `p14-01-kit`, not merged) |
 | P14-02 | Errors (canvas design) + Queries | sonnet | P14-01 | todo |
 | P14-03 | Routes + Classes + Map | sonnet | P14-01 | todo |
 | P14-04 | Dependencies + Runtime + Profiler (embedded and standalone; canvas design) | sonnet | P14-01 | todo |
@@ -32,6 +32,36 @@ Owner, 2026-11-12: "why you only fix the overview ui, the rest still plain, ugly
 - **Shell:** consistent header (service picker, live state, time-range control where pages share it), section menu that does not overflow at phone width, focus styles, page container width and spacing used by every page.
 - **Requests** as the reference page: header; KPI strip (requests, error rate, p95, slowest request in the window, from the data the page already loads); the timeline as an area/stacked chart with the existing drag-to-filter; rows with status chip, duration `BarCell` against the window's max, method/route monospace, release and user columns as today; filters in a tidy toolbar with the saved filters menu.
 - Write a short `packages/ui/README.md` section "Design rules and the kit" summarising the rules above with the component list, so the other agents and future work follow it.
+
+### P14-01 as built
+
+Read `packages/ui/README.md` "Design rules and the kit" first: the rules and one usage line per component. Import from `@/components/kit` (barrel `app/components/kit/index.ts`). Moved, not copied: `card.tsx` became `kit/section.tsx` (`Card` is now `Section`, `aside` is now `actions`), `delta.tsx`, `sparkline.tsx`, `sparkline.ts` (now `kit/sparkline-points.ts`, with its test) and the uPlot `chart.tsx` (now `kit/line-chart.tsx`, still exporting `Chart` and `ChartSeries`); `overview-charts.tsx` keeps only `LatencyChart` and `ThroughputBars`, now thin wrappers over `AreaChart` and `BarChart`; `Tone`, `donutSlices`, `ringDasharray` moved to `kit/format.ts` and are re-exported from `overview-format.ts`. `durationPct` was removed (`barPercent` replaces it).
+
+Components and props (all in `app/components/kit/`):
+
+- `PageHeader({ title, description, source?, controls? })`: `source` is `"stats"`, `"traces"` or any text; description has no trailing period.
+- `Section({ title, description?, source, testId, actions?, flush?, className?, children })`.
+- `StatTile({ testId, label, value, unit?, delta?, deltaTone?, deltaTitle?, series?, seriesColor?, seriesLabel?, source?, footer? })`, `KpiStrip({ columns?: 2..5, className?, children })` (2 columns on a phone, `columns` from `lg`). The value has `data-testid="kpi-value"`.
+- `Delta({ text, tone, title? })`, `toneText` and `chipTone` (class maps).
+- `Chip({ tone?: "worse" | "better" | "neutral" | "info" | "warn", icon?, ...span props })`. `warn` is an addition to the brief's four tones (a 4xx, a slow call).
+- `SourceLabel({ kind?: "stats" | "traces", children?, className? })`, `SOURCE_TEXT`.
+- `Sparkline({ values, label, width?, height? })` (red bars); `TrendLine({ values, color, label, width?, height?, area?, stretch? })`.
+- `AreaChart({ series: { id, label, color, values, width?, dash? }[], previous?, markers?: { id, atUnixMs, label }[], fromUnixMs, toUnixMs, format?, label, testId?, markerTestId?, markerLabelTestId?, area?, stacked?, heightClass? })`.
+- `BarChart({ items: { key, label, segments: { value, color, label?, opacity? }[], title?, valueLabel?, to?, search?, attrs? }[], orientation?: "vertical" | "horizontal", max?, label, testId?, barTestId?, heightClass?, labelWidthClass? })`.
+- `Donut({ slices, label, children, testId, size? })` with `donutSlices(items, DONUT_RADIUS)`; `DonutLegend({ items: { key, label, color, value? }[], testId?, rowTestId? })`; `Swatch({ color })`.
+- `Heatmap({ rows, columns, values, color?, format?, label, testId?, columnLabelEvery? })`.
+- `ScoreRing({ score, color, label, caption?, valueTestId? })`.
+- `BarCell({ value, max, label, color?, testId? })` (number right-aligned, bar to its left; bar has `data-pct`).
+- `SegmentedControl({ options, value, onChange, label })` (buttons with `aria-pressed`).
+- `EmptyState({ title, children?, icon?, action?, testId?, className? })`, `ErrorState({ title, message?, onRetry?, retryLabel?, testId?, className? })` (`role="alert"`).
+- `SkeletonStatTile`, `SkeletonKpiStrip({ count? })`, `SkeletonChart({ heightClass? })`, `SkeletonList({ rows? })`; `DataTableSkeleton` stays in `components/data-table/`.
+- `Chart` (uPlot), unchanged.
+
+Also changed: `DataTable` takes `onRowClick(row)` (ignores clicks on links, buttons and fields) and `containerClassName` (a max height makes the sticky header stick); `DataTableToolbar` takes `className`; `Table` takes `containerClassName` and its header cells are sticky; tokens `--info`, `--warning-text`, `--destructive-text` (text colours that hold 4.5:1 in both themes; `Delta` and `Chip` "worse" text now use `--destructive-text`, a slightly darker red in light and lighter in dark than before), `--focus` (the focus outline); the shell is brand plus service, a live chip, the sampling notice, the pause button and a section menu that scrolls inside its own box and keeps the current section in view; page width is `max-w-7xl` (was `max-w-6xl`) and blocks are `space-y-6` apart.
+
+Requests: header with the window toggle (`SegmentedControl`, "15 min" / "60 min") and Reload; four tiles (requests and error rate from the timeline answer, p95 of the listed requests, slowest listed request in the window with a link); the timeline (uPlot stacked bars with the drag and click filter) inside a `Section`; a two-row filter toolbar in a card (search, route, method, status, type; release, user, min to max ms; saved filters, reset, view); the table with `Chip` status, `BarCell` duration against the slowest listed, whole-row click, sticky header, `EmptyState` and `ErrorState`. The window state moved from `RequestTimeline` to `RequestsPage`; `RequestTimeline` now takes `data`. The change line of every tile is "—": neither the timeline nor the list answers with a previous window. There is no shared time-range control in the shell: each page holds its own window (Overview 15/60, Requests 15/60), so the kit offers `SegmentedControl` for the page header instead.
+
+Tests added: `kit/format.test.ts`, `requests/requests-stats.test.ts`, `e2e/p14-kit.pw.ts` (screenshots `p14-requests-dark.png`, `p14-requests-light.png`, `p14-shell-phone.png` in `packages/ui/test-results/`; row click; sticky header; phone overflow; focus outline).
 
 ## P14-02 Errors and Queries
 

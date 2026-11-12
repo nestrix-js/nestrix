@@ -2,7 +2,7 @@ import type { RuntimeSample } from "@nestrix-js/protocol";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-import { Chart, type ChartSeries } from "@/components/chart";
+import { Chart, type ChartSeries } from "@/components/kit/line-chart";
 import { getMeta, getRuntime } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";

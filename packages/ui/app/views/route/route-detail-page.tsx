@@ -2,9 +2,8 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { parseAsStringLiteral, useQueryStates } from "nuqs";
 import { useEffect, useMemo, useState } from "react";
-
-import { Card } from "@/components/card";
-import { Delta } from "@/components/delta";
+import { Delta } from "@/components/kit/delta";
+import { Section } from "@/components/kit/section";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -372,7 +371,7 @@ export function RouteDetailPage() {
           />
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <Card
+            <Section
               title="Latency distribution"
               testId="card-histogram"
               source={`Last ${windowMinutes} minutes, counted before sampling${
@@ -386,7 +385,7 @@ export function RouteDetailPage() {
                 label={label}
                 showTitle={false}
               />
-            </Card>
+            </Section>
             <KindsCard data={data} names={names} />
           </div>
 

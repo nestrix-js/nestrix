@@ -4,9 +4,8 @@ import { Link } from "@tanstack/react-router";
 import { RefreshCw } from "lucide-react";
 import { parseAsStringLiteral, useQueryStates } from "nuqs";
 import { useMemo } from "react";
-
-import { Chart } from "@/components/chart";
 import { DataTableSkeleton } from "@/components/data-table/data-table-skeleton";
+import { Chart } from "@/components/kit/line-chart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {

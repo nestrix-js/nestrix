@@ -1,28 +1,30 @@
 import type { TraceTimelineResponse } from "@nestrix-js/protocol";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import uPlot from "uplot";
 
+import { Swatch } from "@/components/kit/donut";
+import { Section } from "@/components/kit/section";
 import { Button } from "@/components/ui/button";
-import { getTimeline, type QueryParams } from "@/lib/api";
-import { pollInterval, usePaused } from "@/lib/live";
+import { bucketTotal as total } from "@/views/requests/requests-stats";
 import {
   formatClock,
   rangeOfBuckets,
   type TimeRange,
 } from "@/views/requests/timeline-range";
 
-const WINDOWS = [15, 60] as const;
 /** A drag shorter than this many pixels is a click. */
 const MIN_DRAG_PX = 4;
-const HEIGHT = 96;
+const HEIGHT = 140;
+
+const LEGEND = [
+  { label: "ok", color: "--chart-2" },
+  { label: "4xx", color: "--warning" },
+  { label: "5xx or error", color: "--chart-3" },
+] as const;
 
 const cssColor = (name: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim() ||
   "currentColor";
-
-const total = (b: TraceTimelineResponse["buckets"][number]) =>
-  b.ok + b.clientError + b.serverError;
 
 /** Stacked series for uPlot: each is a running total, drawn largest first so the smaller ones overlay it. */
 function stack(data: TraceTimelineResponse): (number | null)[][] {
@@ -37,32 +39,24 @@ function stack(data: TraceTimelineResponse): (number | null)[][] {
   ];
 }
 
-/** Filters of the request list that the timeline understands (it has no time range of its own). */
-export type TimelineFilters = QueryParams;
-
 /**
  * Sampled requests per bucket, split by outcome, above the request list. Dragging over the chart,
  * or clicking a bar, sets the list's time range through `onRange`.
  */
 export function RequestTimeline({
-  filters,
+  data,
+  error,
   range,
   onRange,
 }: {
-  filters: TimelineFilters;
+  /** The timeline answer for the page's window; `undefined` until the first one arrives. */
+  data: TraceTimelineResponse | undefined;
+  /** Set when loading failed and there is nothing to show. */
+  error: Error | null;
   range: TimeRange | null;
   onRange: (range: TimeRange | null) => void;
 }) {
-  const [windowMinutes, setWindowMinutes] = useState<number>(WINDOWS[0]);
-  const [paused] = usePaused();
-  const timeline = useQuery({
-    queryKey: ["timeline", windowMinutes, filters],
-    queryFn: () => getTimeline({ windowMinutes, ...filters }),
-    refetchInterval: pollInterval(paused),
-    refetchIntervalInBackground: false,
-    placeholderData: keepPreviousData,
-  });
-  const data = timeline.data;
+  const windowMinutes = data?.windowMinutes;
 
   const hostRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
@@ -95,8 +89,14 @@ export function RequestTimeline({
         },
         select: { show: true, left: 0, top: 0, width: 0, height: 0 },
         axes: [
-          { ...axis, size: 24 },
-          { ...axis, size: 36, splits: (_u, _a, min, max) => [min, max] },
+          { ...axis, size: 24, grid: { show: false } },
+          {
+            ...axis,
+            size: 36,
+            ticks: { show: false },
+            splits: (_u, _a, _min, max) => [0, max / 2, max],
+            values: (_u, vals) => vals.map((v) => String(Math.round(v))),
+          },
         ],
         scales: {
           x: {
@@ -202,60 +202,40 @@ export function RequestTimeline({
 
   const sampled = data?.buckets.reduce((n, b) => n + total(b), 0) ?? 0;
   return (
-    <div
-      className="space-y-2 rounded-lg border border-border p-3"
-      data-testid="timeline-panel"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span>
-          Requests over time, from sampled traces
-          {data && ` (${sampled} in ${data.windowMinutes} min)`}.{" "}
-          <span className="inline-flex items-center gap-1">
-            <i className="inline-block size-2 rounded-sm bg-[var(--chart-2)]" />{" "}
-            ok
-          </span>{" "}
-          <span className="inline-flex items-center gap-1">
-            <i className="inline-block size-2 rounded-sm bg-warning" /> 4xx
-          </span>{" "}
-          <span className="inline-flex items-center gap-1">
-            <i className="inline-block size-2 rounded-sm bg-[var(--chart-3)]" />{" "}
-            5xx or error
-          </span>
-          . Drag or click to filter the list by time.
-        </span>
-        <span className="flex items-center gap-1">
-          {range && (
-            <Button
-              size="sm"
-              variant="outline"
-              data-testid="timeline-range"
-              onClick={() => onRange(null)}
-            >
-              {formatClock(range.fromUnixMs)} to {formatClock(range.toUnixMs)}:
-              clear
-            </Button>
-          )}
-          <fieldset
-            className="flex items-center gap-1"
-            aria-label="Timeline window"
+    <Section
+      title="Requests over time"
+      description={
+        data
+          ? `${sampled} sampled requests in ${data.windowMinutes} min. Drag over the chart, or click a bar, to filter the list by time.`
+          : "Drag over the chart, or click a bar, to filter the list by time."
+      }
+      source="from sampled traces"
+      testId="timeline-panel"
+      actions={
+        range && (
+          <Button
+            size="sm"
+            variant="outline"
+            data-testid="timeline-range"
+            onClick={() => onRange(null)}
           >
-            {WINDOWS.map((minutes) => (
-              <Button
-                key={minutes}
-                size="sm"
-                variant={windowMinutes === minutes ? "default" : "outline"}
-                aria-pressed={windowMinutes === minutes}
-                onClick={() => setWindowMinutes(minutes)}
-              >
-                {minutes} min
-              </Button>
-            ))}
-          </fieldset>
-        </span>
-      </div>
-      {timeline.isError && data === undefined && (
+            {formatClock(range.fromUnixMs)} to {formatClock(range.toUnixMs)}:
+            clear
+          </Button>
+        )
+      }
+    >
+      <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        {LEGEND.map((item) => (
+          <li key={item.color} className="flex items-center gap-1.5">
+            <Swatch color={item.color} />
+            {item.label}
+          </li>
+        ))}
+      </ul>
+      {error && data === undefined && (
         <p role="alert" className="text-sm text-destructive">
-          Could not load the timeline: {timeline.error?.message}
+          Could not load the timeline: {error.message}
         </p>
       )}
       <div
@@ -266,6 +246,6 @@ export function RequestTimeline({
         data-buckets={data?.buckets.length ?? 0}
         className="w-full"
       />
-    </div>
+    </Section>
   );
 }

@@ -7,6 +7,7 @@ import type * as React from "react";
 import { DataTableViewOptions } from "@/components/data-table/data-table-view-options";
 import type { DataTableFeatures } from "@/components/data-table/features";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export function DataTableToolbar<TData extends RowData>({
   table,
@@ -14,18 +15,20 @@ export function DataTableToolbar<TData extends RowData>({
   isFiltered,
   onReset,
   children,
+  className,
 }: {
   table: ReactTable<DataTableFeatures, TData>;
   labels: Record<string, string>;
   isFiltered: boolean;
   onReset: () => void;
   children: React.ReactNode;
+  className?: string;
 }) {
   return (
     <div
       role="toolbar"
       aria-label="Filters"
-      className="flex flex-wrap items-center gap-2"
+      className={cn("flex flex-wrap items-center gap-2", className)}
     >
       {children}
       {isFiltered && (

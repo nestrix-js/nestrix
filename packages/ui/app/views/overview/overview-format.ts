@@ -8,7 +8,16 @@ import type {
   RouteCompareRow,
 } from "@nestrix-js/protocol";
 
+import type { Tone } from "@/components/kit/format";
 import { formatDuration } from "@/lib/format";
+
+// The tone type and the donut and ring helpers live in the kit; these re-exports keep old imports working.
+export {
+  type DonutSlice,
+  donutSlices,
+  ringDasharray,
+  type Tone,
+} from "@/components/kit/format";
 
 const MINUS = "−";
 const DASH = "—";
@@ -56,8 +65,6 @@ export function formatShare(fraction: number): string {
   if (percent >= 99.95) return "100%";
   return `${percent.toFixed(1)}%`;
 }
-
-export type Tone = "worse" | "better" | "neutral";
 
 /**
  * Whether a change is good or bad news. `badDirection` says which way hurts: `up` for latency and
@@ -193,57 +200,6 @@ export function apdexShares(totals: OverviewTotals): {
     tolerating: totals.tolerating / total,
     frustrated: totals.frustrated / total,
   };
-}
-
-export interface DonutSlice {
-  key: string;
-  /** The raw value this slice stands for. */
-  value: number;
-  /** A CSS custom property, e.g. `--chart-1`. */
-  color: string;
-  /** `value` over the sum, 0 to 1. */
-  fraction: number;
-  /** SVG `stroke-dasharray` and `stroke-dashoffset` of a circle of `radius` that draws the slice. */
-  dasharray: string;
-  dashoffset: number;
-}
-
-/**
- * Slices of a donut drawn as arcs of one circle (`stroke-dasharray`): each slice starts where the
- * last ended, from the top. Slices with no value are left out. A tiny slice is kept at least
- * `minArc` long (in circumference units) so it stays visible.
- */
-export function donutSlices(
-  items: readonly { key: string; value: number; color: string }[],
-  radius: number,
-  minArc = 1.5,
-): DonutSlice[] {
-  const positive = items.filter((i) => i.value > 0);
-  const total = positive.reduce((sum, i) => sum + i.value, 0);
-  if (total <= 0) return [];
-  const circumference = 2 * Math.PI * radius;
-  let start = 0;
-  return positive.map((item) => {
-    const fraction = item.value / total;
-    const length = Math.max(minArc, fraction * circumference);
-    const slice: DonutSlice = {
-      key: item.key,
-      value: item.value,
-      color: item.color,
-      fraction,
-      dasharray: `${length.toFixed(2)} ${(circumference - length).toFixed(2)}`,
-      dashoffset: -start,
-    };
-    start += fraction * circumference;
-    return slice;
-  });
-}
-
-/** `stroke-dasharray` of a ring that is `fraction` full (0 to 1, clamped). */
-export function ringDasharray(fraction: number, radius: number): string {
-  const circumference = 2 * Math.PI * radius;
-  const filled = Math.min(1, Math.max(0, fraction)) * circumference;
-  return `${filled.toFixed(2)} ${(circumference - filled).toFixed(2)}`;
 }
 
 export const STATUS_PARTS: readonly {
