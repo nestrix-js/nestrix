@@ -14,5 +14,5 @@ Every new number shown in the UI says whether it is counted before sampling (rou
 | P9-04 | Error groups (type + message + route) with counts, first/last seen, sparkline | sonnet | todo |
 | P9-05 | Dependencies page (hosts, databases, Redis: calls, p95, errors, trend); request timeline chart above the list | sonnet | done |
 | P9-06 | Runtime view: event loop delay, heap, RSS, CPU (embedded) | sonnet | todo |
-| P9-07 | Logs next to the trace: embedded capture from `NestrixLogger`; server OTLP `/v1/logs` receiver and storage | opus | done, needs review (untrusted input; D-19 amendment drafted in the report) |
+| P9-07 | Logs next to the trace: embedded capture from `NestrixLogger`; server OTLP `/v1/logs` receiver and storage | opus | done (reviewed) |
 | P9-08 | Reviews, docs, release | lead | todo |

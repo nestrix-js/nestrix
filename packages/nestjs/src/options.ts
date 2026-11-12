@@ -139,6 +139,11 @@ export interface NestrixUiOptions {
    * the startup token or `auth`. `false` removes it: its routes are not registered.
    */
   profiler?: boolean;
+  /**
+   * Keep `NestrixLogger` lines next to their trace in the dashboard store (P9-07). Default `true`.
+   * `false` keeps none: the logger still prints and the correlation ids are unchanged.
+   */
+  logs?: boolean;
 }
 
 /** The dashboard's in-memory store of recent traces. Oldest evicted first; nothing is written to disk. */

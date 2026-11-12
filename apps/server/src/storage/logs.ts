@@ -157,7 +157,7 @@ export class PostgresLogWriter {
 
   private async store(batch: IngestLogBatch): Promise<void> {
     const rows: LogRow[] = [];
-    const seen = new Set<string>();
+    const seen = new Map<string, number>();
     let invalid = 0;
     for (const rl of batch.resourceLogs) {
       const { serviceName } = deriveResource(rl.resource);
@@ -167,9 +167,16 @@ export class PostgresLogWriter {
           invalid++;
           continue;
         }
-        // The same line twice in one batch is stored once.
-        if (seen.has(row.hash)) continue;
-        seen.add(row.hash);
+        // Identical lines in one batch (same millisecond) are real repeats: the dedupe key
+        // includes how often the same base hash was already seen in this batch, so a retry
+        // of the same payload still dedupes while genuine repeats are all kept.
+        const ordinal = seen.get(row.hash) ?? 0;
+        seen.set(row.hash, ordinal + 1);
+        if (ordinal > 0) {
+          row.hash = createHash("sha256")
+            .update(`${row.hash}:${ordinal}`)
+            .digest("hex");
+        }
         rows.push(row);
       }
     }
@@ -202,10 +209,11 @@ export class PostgresLogWriter {
     let broken: Error | undefined;
     try {
       await client.query("BEGIN");
-      // In trace id order, so two transactions never wait on each other in a cycle.
+      // In lock key order, so two transactions never wait on each other in a cycle.
       await client.query(
-        `SELECT pg_advisory_xact_lock($1, hashtext(t))
-           FROM unnest($2::text[]) AS t ORDER BY t`,
+        `SELECT pg_advisory_xact_lock($1, h)
+           FROM (SELECT DISTINCT hashtext(t) AS h FROM unnest($2::text[]) t) s
+          ORDER BY h`,
         [LOGS_LOCK_CLASS, traceIds],
       );
       const { rows: counts } = await client.query<{

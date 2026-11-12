@@ -194,6 +194,20 @@ describe.skipIf(noDatabase)(`trace logs ${skipReason}`, () => {
     ]);
   });
 
+  it("identical lines in the same millisecond are all kept; re-sending the export stores nothing more", async () => {
+    const traceId = hex(16);
+    const same = line(traceId, 7);
+    const records = Array.from({ length: 5 }, () => ({ ...same }));
+    await sink.writeLogs(logBatch(records));
+    await sink.writeLogs(logBatch(records));
+    const { rows } = await db.pool.query(
+      "SELECT count(*)::int AS n FROM logs WHERE trace_id = $1",
+      [traceId],
+    );
+    expect(rows[0].n).toBe(5);
+    expect((await logsOf(traceId)).items).toHaveLength(5);
+  });
+
   it("the logs table is day-partitioned like spans", async () => {
     const parts = await listPartitions(db.pool);
     expect([...(parts.get("logs") ?? [])].sort()).toEqual(

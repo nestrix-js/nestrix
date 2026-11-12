@@ -86,6 +86,7 @@ export class NestrixCore
             ...options,
             scrub: (span) => scrubSpanAttributes(span, queryKeys),
             dashboardStore: dashboard ? options.store : undefined,
+            dashboardLogs: options.ui.mode !== "off" && options.ui.logs,
           },
           diagnostics,
         );

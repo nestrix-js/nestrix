@@ -144,6 +144,8 @@ describe("store: log lines next to a trace", () => {
       for (let i = 0; i < 5; i++)
         add(store, line(n, { body: "y".repeat(1000) }));
     }
+    // Limits are enforced by the background drain, not in the logger call.
+    store.drainNow();
     expect(store.getTrace(traceId(1))).toBeUndefined();
     expect(store.getTraceLogs(traceId(1)).items).toEqual([]);
     const stats = store.stats();
@@ -154,6 +156,54 @@ describe("store: log lines next to a trace", () => {
     for (let n = 1; n < 40; n++)
       held += store.getTraceLogs(traceId(n)).items.length;
     expect(stats.logs).toBe(held);
+  });
+
+  it("entries made only by log lines do not push out real traces, and are capped at 10% of maxTraces", () => {
+    const store = getOrCreateStore({ maxTraces: 20 }, recordingDiagnostics());
+    store.attach({});
+    const processor = createStoreProcessor(store);
+    for (let n = 1; n <= 20; n++) processor.onEnd(serverRoot(n));
+    store.drainNow();
+    // 100 traces known only by their log lines.
+    for (let n = 101; n <= 200; n++) add(store, line(n));
+    store.drainNow();
+    // Every real trace is still there.
+    for (let n = 1; n <= 20; n++) {
+      expect(store.getTrace(traceId(n))).toBeDefined();
+    }
+    // Only the newest two (10% of 20) log-only entries remain; the oldest were dropped first.
+    let kept = 0;
+    for (let n = 101; n <= 200; n++) {
+      if (store.getTraceLogs(traceId(n)).items.length > 0) kept++;
+    }
+    expect(kept).toBe(2);
+    expect(store.getTraceLogs(traceId(200)).items).toHaveLength(1);
+    expect(store.getTraceLogs(traceId(199)).items).toHaveLength(1);
+    expect(store.getTraceLogs(traceId(101)).items).toEqual([]);
+    // A log-only entry that gets its span becomes a real trace and counts as one.
+    processor.onEnd(serverRoot(200));
+    store.drainNow();
+    expect(store.getTrace(traceId(200))).toBeDefined();
+    expect(store.getTraceLogs(traceId(200)).items).toHaveLength(1);
+  });
+
+  it("the logger call does not enforce limits itself: a drain is scheduled instead", async () => {
+    const store = getOrCreateStore({ maxTraces: 10 }, recordingDiagnostics());
+    store.attach({});
+    for (let n = 1; n <= 30; n++) add(store, line(n));
+    // Nothing evicted synchronously.
+    expect(store.stats().evictedTraces).toBe(0);
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(store.stats().evictedTraces).toBe(29);
+    expect(store.getTraceLogs(traceId(30)).items).toHaveLength(1);
+  });
+
+  it("attach({ keepLogs: false }) keeps no lines and leaves the logger's slot alone", () => {
+    const store = getOrCreateStore({}, recordingDiagnostics());
+    const detach = store.attach({ keepLogs: false });
+    expect(getTraceLogSink()).toBeUndefined();
+    detach();
   });
 
   it("a line that arrives before its spans: the trace is not listed or served until a span ends, then has its resource", () => {
