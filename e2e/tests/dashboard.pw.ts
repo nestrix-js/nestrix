@@ -104,6 +104,11 @@ async function mainFlow(
     .getByRole("navigation", { name: "Sections" })
     .getByText("Errors")
     .click();
+  // Grouped is the default view (P9-04): one group for the thrown error.
+  await expect(page.getByTestId("error-group-row")).toHaveCount(1);
+  await expect(page.getByTestId("group-count")).toHaveText("1");
+  // The flat list still shows the error itself.
+  await page.getByRole("button", { name: "All", exact: true }).click();
   await expect(page.getByTestId("error-row")).toHaveCount(1);
   await expect(page.getByTestId("error-message")).toHaveText("boom");
 
