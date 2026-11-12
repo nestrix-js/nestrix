@@ -235,6 +235,21 @@ Service level objectives are managed on the dashboard's **SLOs** page or through
 
 Pull or rebuild the image and restart. Migrations are applied at start, in order, under a PostgreSQL advisory lock, so several instances starting together are safe; each runs in a transaction, and a migration file changed after it was applied stops the start. There is no downgrade: back up the database before upgrading. A restart signs every admin out (see "Admin login").
 
+### Upgrading to 0.2.0: the `spans` index
+
+Migration `0009_spans_parent_idx.sql` adds an index on `spans (trace_id, parent_span_id)`, which the own-time queries (Overview, Classes) need. PostgreSQL cannot build an index on a partitioned table `CONCURRENTLY`, so the migration builds it on every daily partition in turn, and ingest into a partition waits while its index builds. On a small install this takes seconds. On a large one (many millions of spans) build the indexes yourself first, without blocking writes, then upgrade; the migration then finds the index and does nothing:
+
+```sql
+-- for each partition spans_pYYYYMMDD (list them with \d+ spans), outside a transaction:
+CREATE INDEX CONCURRENTLY spans_pYYYYMMDD_parent_idx ON spans_pYYYYMMDD (trace_id, parent_span_id);
+-- once, on the parent without touching the partitions:
+CREATE INDEX spans_parent_idx ON ONLY spans (trace_id, parent_span_id);
+-- for each partition:
+ALTER INDEX spans_parent_idx ATTACH PARTITION spans_pYYYYMMDD_parent_idx;
+```
+
+Partitions created after that inherit the index.
+
 ## Security notes
 
 - **The ingest port is the admin port.** Ingest, the login form, the dashboard and the API all share one port, so exposing it to your services exposes `/login` to them too. Login is rate limited and the password needs 12 characters, but put the server behind a TLS-terminating proxy and, where you can, restrict who can reach it.

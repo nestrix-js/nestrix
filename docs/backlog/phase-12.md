@@ -62,3 +62,18 @@ As in phase 11: a pure module in `packages/nestjs/src/` that takes plain per-sid
 - **Finding links** pass what `link.params` names, and the target pages now read it: Queries `q` (statement text contained in the row's, case-insensitive, whitespace folded; at most 120 characters), plus `nplus=true` for an `n-plus-one` finding; Dependencies `name` (exact); Classes `class` (exact); Errors `view=all&route&type`. Each page shows a "Filtered by" chip with Clear. The errors list API has no `type` parameter, so that filter applies to the errors already loaded ("Load older" still pages).
 - **Shared components.** `Card` and `Delta` moved from the Overview page to `app/components/`.
 - **Known, not mine.** The shell's section tabs are wider than a phone, so every page scrolls sideways at 390 px; the route page's own content does not (tested).
+
+## Fix: own-time queries (before 0.2.0)
+
+A real deployment (server 0.1.1, Postgres at 0.5 CPU, one trace of about 4,700 spans: an upload whose BullMQ job joins the request's trace) made `GET /api/v1/overview` take 4 to 8 s and `/classes` 2 s.
+
+### As built
+
+- **Cause.** Own time summed the children with a `LEFT JOIN LATERAL` per span, and `spans` had no index on the parent, so each span re-read its whole trace (quadratic per trace).
+- **Index.** `migrations/0009_spans_parent_idx.sql`: `spans (trace_id, parent_span_id)` on the partitioned parent, so existing and future daily partitions have it (`CREATE TABLE ... PARTITION OF` inherits). It cannot be built `CONCURRENTLY` on a partitioned table; `apps/server/README.md` ("Upgrading to 0.2.0") gives the pre-build recipe for large installs.
+- **One pass.** `OverviewService.kindRows` and `QueryService.classes`: a `win` CTE of the window's spans, a `kids` CTE summing children once per `(trace_id, parent_span_id)` for the traces in `win`, joined back. Dependencies and Map already used `EXISTS` / a join with a skew bound and only needed the index; unchanged.
+- **Clock skew.** Children are bounded by `start_time >= <window start> - 1 minute`, not `>= parent.start_time`, which dropped children of a host with a slow clock and overstated own time. The bound still prunes old partitions.
+- **Route explain cap.** A trace's spans are loaded only up to 200,000 per side, newest traces first (server: by the `span_count` stored with each trace, stopping at the first trace that would pass the cap; embedded: `trimSpans` drops the oldest traces). The trace count stays at most 2,000 per side, so the UI wording and the protocol are unchanged. A single trace of more than 200,000 spans is not loaded by the server (that side may be empty); the embedded gatherer keeps its newest trace.
+- **Tests.** `apps/server/test/query/own-time.test.ts` (a 5,203-span two-service job trace, overview and classes under 1,500 ms, plus a child starting 5 ms before its parent); `OWN_TIME_ROWS=5000` makes it 50,000 spans. Explain cap tests on both backends.
+- **Measured** on that fixture (local Docker Postgres): overview 3,723 ms before, 72 ms after; classes 197 ms before, 11 ms after. At 50,000 spans overview was over 60 s before (test timeout) and 346 ms after.
+

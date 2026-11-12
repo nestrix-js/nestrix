@@ -1053,20 +1053,31 @@ export class QueryService {
       if (service !== undefined) {
         spanWhere.push(`s.service_name = ${p.add(service)}`);
       }
+      const skewFrom = p.add(new Date(w.fromMs - SKEW_MS));
       const ownRows = await this.rows<{
         class_name: string;
         method_name: string;
         own_avg_ms: number;
       }>(
-        `SELECT s.class_name, s.method_name,
+        // One pass (the window's method spans once, their children summed once per parent). A
+        // child may start before its parent (another host's clock): children are bounded by the
+        // window start less a minute of skew, which still lets Postgres skip older partitions.
+        `WITH win AS (
+           SELECT s.trace_id, s.span_id, s.class_name, s.method_name, s.duration_ns
+             FROM spans s
+            WHERE ${spanWhere.join(" AND ")}
+         ), kids AS (
+           SELECT c.trace_id, c.parent_span_id, sum(c.duration_ns) AS child_ns
+             FROM spans c
+            WHERE c.trace_id IN (SELECT trace_id FROM win)
+              AND c.parent_span_id IS NOT NULL
+              AND c.start_time >= ${skewFrom}
+            GROUP BY c.trace_id, c.parent_span_id
+         )
+         SELECT s.class_name, s.method_name,
                 avg(greatest(0, s.duration_ns - coalesce(ch.child_ns, 0)))::float8 / 1e6 AS own_avg_ms
-           FROM spans s
-           LEFT JOIN LATERAL (
-             SELECT sum(c.duration_ns) AS child_ns FROM spans c
-              WHERE c.trace_id = s.trace_id AND c.parent_span_id = s.span_id
-                AND c.start_time >= s.start_time
-           ) ch ON true
-          WHERE ${spanWhere.join(" AND ")}
+           FROM win s
+           LEFT JOIN kids ch ON ch.trace_id = s.trace_id AND ch.parent_span_id = s.span_id
           GROUP BY s.class_name, s.method_name`,
         p.values,
       );
