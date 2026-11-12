@@ -54,7 +54,9 @@ describe.skipIf(noDatabase)(`SLO API ${skipReason}`, () => {
     const now = Date.now();
     await ensurePartitions(
       db.pool,
-      [0, 3, 20].map((d) => utcDay(now - d * DAY)),
+      // Every day the seeds can reach: they sit at hour offsets from now, so near UTC midnight
+      // they cross into neighbouring days.
+      Array.from({ length: 32 }, (_, d) => utcDay(now - d * DAY)),
     );
   });
 
