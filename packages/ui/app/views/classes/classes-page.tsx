@@ -1,10 +1,20 @@
+import type { MethodStats } from "@nestrix-js/protocol";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, ChevronRight, RefreshCw } from "lucide-react";
 import { parseAsStringLiteral, useQueryStates } from "nuqs";
 import { Fragment, useMemo, useState } from "react";
 
 import { DataTableSkeleton } from "@/components/data-table/data-table-skeleton";
-import { Badge } from "@/components/ui/badge";
+import { BarCell } from "@/components/kit/bar-cell";
+import { Chip } from "@/components/kit/chip";
+import { DONUT_RADIUS, Donut, DonutLegend } from "@/components/kit/donut";
+import { donutSlices } from "@/components/kit/format";
+import { PageHeader } from "@/components/kit/page-header";
+import { Section } from "@/components/kit/section";
+import { SegmentedControl } from "@/components/kit/segmented-control";
+import { SkeletonChart, SkeletonKpiStrip } from "@/components/kit/skeletons";
+import { KpiStrip, StatTile } from "@/components/kit/stat-tile";
+import { EmptyState, ErrorState } from "@/components/kit/states";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -21,6 +31,11 @@ import { routeWindowParser, stringParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
 import {
+  formatShare,
+  kindBreakdown,
+  summarizeClasses,
+} from "@/views/classes/class-kpis";
+import {
   DEFAULT_DIR,
   DEFAULT_SORT,
   ENABLE_LINE,
@@ -33,8 +48,15 @@ import {
   sortMethods,
 } from "@/views/classes/class-stats";
 
-const WINDOWS = [15, 60] as const;
+const WINDOWS = [
+  { value: 15, label: "15 min" },
+  { value: 60, label: "60 min" },
+] as const;
 const DEFAULT_WINDOW = 15;
+const NO_PREVIOUS =
+  "The class statistics do not compare with a previous window.";
+const STATS = "counted before sampling";
+const OWN_SOURCE = "estimated from sampled traces";
 
 // Window and sort are part of the URL, so a link or a reload keeps them.
 const parsers = {
@@ -55,6 +77,50 @@ const COLUMNS: { key: SortKey; label: string; numeric: boolean }[] = [
   { key: "own", label: "Own", numeric: true },
 ];
 
+/** Errors as a chip when there are any, a muted zero otherwise. */
+const errorCell = (errors: number, of: number) =>
+  errors > 0 ? (
+    <Chip
+      tone="worse"
+      className="font-mono"
+      title={`${errors} of ${of} calls threw or rejected`}
+    >
+      {errors}
+    </Chip>
+  ) : (
+    <span className="font-mono text-muted-foreground">0</span>
+  );
+
+/** The own-time cell: a bar against the largest own time on screen, "-" without an estimate. */
+const ownCell = (ms: number | null, max: number) => (
+  <BarCell
+    value={ms ?? 0}
+    max={max}
+    label={formatOwn(ms, formatDuration)}
+    color="--chart-1"
+  />
+);
+
+function MethodRow({ m, maxOwn }: { m: MethodStats; maxOwn: number }) {
+  return (
+    <TableRow data-testid="method-row" className="bg-muted/40">
+      <TableCell className="pl-9 font-mono">{m.method}</TableCell>
+      <TableCell />
+      <TableCell className="text-right font-mono">{m.calls}</TableCell>
+      <TableCell className="text-right">
+        {errorCell(m.errors, m.calls)}
+      </TableCell>
+      <TableCell className="text-right font-mono">
+        {formatDuration(m.avgMs)}
+      </TableCell>
+      <TableCell className="text-right font-mono">
+        {formatDuration(m.totalMs)}
+      </TableCell>
+      <TableCell>{ownCell(methodOwnMs(m), maxOwn)}</TableCell>
+    </TableRow>
+  );
+}
+
 export function ClassesPage() {
   const [query, setQuery] = useQueryStates(parsers);
   const windowMinutes = query.windowMinutes ?? DEFAULT_WINDOW;
@@ -74,14 +140,19 @@ export function ClassesPage() {
     placeholderData: keepPreviousData,
   });
 
+  const all = stats.data?.classes ?? [];
   const classes = useMemo(
-    () =>
-      sortClasses(
-        filterByClass(stats.data?.classes ?? [], query.class),
-        sort,
-        dir,
-      ),
-    [stats.data, sort, dir, query.class],
+    () => sortClasses(filterByClass(all, query.class), sort, dir),
+    [all, sort, dir, query.class],
+  );
+  const summary = useMemo(() => summarizeClasses(all), [all]);
+  const breakdown = useMemo(() => kindBreakdown(all), [all]);
+  const maxOwn = Math.max(
+    1,
+    ...classes.flatMap((c) => [
+      c.ownMs ?? 0,
+      ...c.methods.map(methodOwnMs).map((v) => v ?? 0),
+    ]),
   );
   const shownWindow = stats.data?.windowMinutes ?? windowMinutes;
 
@@ -106,42 +177,40 @@ export function ClassesPage() {
       return next;
     });
 
+  const ownParts =
+    summary.ownMs === null ? null : formatDuration(summary.ownMs).split(" ");
+  const on = stats.data?.methodsState === "on";
+
   return (
-    <section className="space-y-4" aria-label="Classes">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">Classes</h2>
-        <div className="flex items-center gap-2">
-          <fieldset
-            className="flex items-center gap-1"
-            aria-label="Time window"
-          >
-            {WINDOWS.map((minutes) => (
-              <Button
-                key={minutes}
-                size="sm"
-                variant={windowMinutes === minutes ? "default" : "outline"}
-                aria-pressed={windowMinutes === minutes}
-                onClick={() =>
-                  void setQuery({
-                    windowMinutes: minutes === DEFAULT_WINDOW ? null : minutes,
-                  })
-                }
-              >
-                {minutes} min
-              </Button>
-            ))}
-          </fieldset>
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label="Reload"
-            onClick={() => void stats.refetch()}
-          >
-            <RefreshCw />
-            Reload
-          </Button>
-        </div>
-      </div>
+    <section className="space-y-6" aria-label="Classes">
+      <PageHeader
+        title="Classes"
+        description="Where the time goes in your controllers, services and providers"
+        source={STATS}
+        controls={
+          <>
+            <SegmentedControl
+              label="Time window"
+              options={WINDOWS}
+              value={windowMinutes}
+              onChange={(minutes) =>
+                void setQuery({
+                  windowMinutes: minutes === DEFAULT_WINDOW ? null : minutes,
+                })
+              }
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Reload"
+              onClick={() => void stats.refetch()}
+            >
+              <RefreshCw />
+              Reload
+            </Button>
+          </>
+        }
+      />
 
       {query.class !== null && (
         <div
@@ -149,9 +218,9 @@ export function ClassesPage() {
           className="flex flex-wrap items-center gap-2 text-sm"
         >
           <span className="text-muted-foreground">Filtered by class</span>
-          <code className="rounded bg-secondary px-2 py-0.5 text-xs">
+          <Chip tone="info" className="font-mono">
             {query.class}
-          </code>
+          </Chip>
           <Button
             size="sm"
             variant="outline"
@@ -162,120 +231,232 @@ export function ClassesPage() {
           </Button>
         </div>
       )}
-      {stats.isPending && <DataTableSkeleton columnCount={8} />}
+      {stats.isPending && (
+        <>
+          <SkeletonKpiStrip />
+          <SkeletonChart heightClass="h-40" />
+          <DataTableSkeleton columnCount={7} />
+        </>
+      )}
       {stats.isError && stats.data === undefined && (
-        <div
-          role="alert"
-          className="space-y-3 rounded-lg border border-border p-6 text-center"
-        >
-          <p className="font-medium">Could not load class statistics.</p>
-          <p className="text-sm text-muted-foreground">
-            {stats.error?.message}
-          </p>
-          <Button variant="outline" onClick={() => void stats.refetch()}>
-            Try again
-          </Button>
-        </div>
+        <ErrorState
+          title="Could not load class statistics."
+          message={stats.error?.message}
+          onRetry={() => void stats.refetch()}
+        />
       )}
 
       {stats.data?.methodsState === "no-data-in-range" && (
-        <div
-          data-testid="methods-no-data-in-range"
-          className="space-y-2 rounded-lg border border-border p-6"
+        <EmptyState
+          testId="methods-no-data-in-range"
+          title="No method spans from this service in the selected range."
         >
-          <p className="font-medium">
-            No method spans from this service in the selected range.
-          </p>
-          <p className="text-sm text-muted-foreground">
-            The service has sent method spans before, but none in the last{" "}
-            {shownWindow} minutes. Widen the range with the window buttons
-            above.
-          </p>
-        </div>
+          {`The service has sent method spans before, but none in the last ${shownWindow} minutes. Widen the range with the window buttons above.`}
+        </EmptyState>
       )}
 
       {stats.data !== undefined && stats.data.methodsState === "off" && (
-        <div
-          data-testid="methods-disabled"
-          className="space-y-2 rounded-lg border border-border p-6"
+        <EmptyState
+          testId="methods-disabled"
+          title="Method spans are off."
+          action={
+            <div className="w-full max-w-xl space-y-2 text-left">
+              <pre className="overflow-x-auto rounded-md bg-secondary px-3 py-2 text-sm">
+                <code className="font-mono">{ENABLE_LINE}</code>
+              </pre>
+              <p className="text-xs text-muted-foreground">
+                They stay off under{" "}
+                <code className="font-mono">@nestjs/testing</code>.
+              </p>
+            </div>
+          }
         >
-          <p className="font-medium">Method spans are off.</p>
-          <p className="text-sm text-muted-foreground">
-            Class statistics come from method spans. Turn them on by passing the
-            instrument when the app is created, in{" "}
-            <code className="font-mono">main.ts</code>. The{" "}
-            <code className="font-mono">instrument</code> option works the same
-            with <code className="font-mono">NestFactory.create</code>,{" "}
-            <code className="font-mono">
-              NestFactory.createApplicationContext
-            </code>{" "}
-            and{" "}
-            <code className="font-mono">NestFactory.createMicroservice</code>:
-          </p>
-          <pre className="overflow-x-auto rounded-md bg-secondary px-3 py-2 text-sm">
-            <code className="font-mono">{ENABLE_LINE}</code>
-          </pre>
-          <p className="text-xs text-muted-foreground">
-            They stay off under{" "}
-            <code className="font-mono">@nestjs/testing</code>.
-          </p>
-        </div>
+          Class statistics come from method spans. Turn them on by passing the
+          instrument when the app is created, in main.ts. The instrument option
+          works the same with NestFactory.create,
+          NestFactory.createApplicationContext and
+          NestFactory.createMicroservice:
+        </EmptyState>
       )}
 
-      {stats.data?.methodsState === "on" && (
+      {on && (
         <>
-          <p
-            data-testid="own-note"
-            className="rounded-lg bg-secondary px-3 py-2 text-sm text-secondary-foreground"
-          >
-            {standalone
-              ? `${STANDALONE_STATISTICS_NOTE} Own time (duration minus time in child spans) is a guide, and a dash means no stored call has it.`
-              : "Calls, errors and durations count every call. Own time (duration minus time in child spans) is estimated from sampled traces, so it is a guide, and a dash means no sampled call is in the store."}
-          </p>
-          <div className="rounded-lg border border-border">
-            <Table data-testid="classes">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  {COLUMNS.map((c) => {
-                    const active = sort === c.key;
-                    return (
-                      <TableHead
-                        key={c.key}
-                        className={cn(c.numeric && "text-right")}
-                        aria-sort={
-                          active
-                            ? dir === "asc"
-                              ? "ascending"
-                              : "descending"
-                            : "none"
-                        }
+          {all.length > 0 && (
+            <>
+              <KpiStrip>
+                <StatTile
+                  testId="kpi-classes"
+                  label="Traced classes"
+                  value={String(summary.classes)}
+                  unit="with calls"
+                  delta="—"
+                  deltaTitle={NO_PREVIOUS}
+                  source={STATS}
+                />
+                <StatTile
+                  testId="kpi-calls"
+                  label="Calls"
+                  value={summary.calls.toLocaleString("en")}
+                  unit={`in ${shownWindow} min`}
+                  delta="—"
+                  deltaTitle={NO_PREVIOUS}
+                  source={STATS}
+                />
+                <StatTile
+                  testId="kpi-errors"
+                  label="Error rate"
+                  value={
+                    summary.errorRate === null
+                      ? "—"
+                      : `${(summary.errorRate * 100).toFixed(summary.errorRate >= 0.1 ? 0 : 1)}%`
+                  }
+                  unit={`${summary.errors.toLocaleString("en")} of ${summary.calls.toLocaleString("en")} calls`}
+                  delta="—"
+                  deltaTitle={NO_PREVIOUS}
+                  source={`threw or rejected · ${STATS}`}
+                />
+                <StatTile
+                  testId="kpi-own"
+                  label="Own time"
+                  value={ownParts?.[0] ?? "—"}
+                  unit={ownParts?.[1]}
+                  delta="—"
+                  deltaTitle={NO_PREVIOUS}
+                  footer={
+                    summary.heaviest ? (
+                      <span
+                        className="truncate font-mono text-xs"
+                        title={summary.heaviest.className}
                       >
-                        <button
-                          type="button"
-                          data-testid={`sort-${c.key}`}
-                          onClick={() => toggleSort(c.key)}
-                          className="inline-flex items-center gap-1 hover:text-foreground"
+                        {summary.heaviest.className}
+                      </span>
+                    ) : undefined
+                  }
+                  source={ownParts === null ? "no estimate yet" : OWN_SOURCE}
+                />
+              </KpiStrip>
+              {breakdown.shares.length > 0 && (
+                <Section
+                  testId="card-kind-share"
+                  title={
+                    breakdown.basis === "own"
+                      ? "Own time by kind"
+                      : "Total time by kind"
+                  }
+                  description={
+                    breakdown.basis === "own"
+                      ? "Duration minus time in child spans, by what the class is"
+                      : "Own time has no estimate yet, so this is total call time"
+                  }
+                  source={breakdown.basis === "own" ? OWN_SOURCE : STATS}
+                >
+                  <div className="flex flex-wrap items-center gap-6">
+                    <Donut
+                      testId="donut-kind"
+                      label={`${breakdown.basis === "own" ? "Own" : "Total"} time by class kind: ${breakdown.shares
+                        .slice()
+                        .sort((a, b) => b.value - a.value)
+                        .map(
+                          (s) =>
+                            `${s.label} ${formatShare(s.value, breakdown.sum)}`,
+                        )
+                        .join(", ")}`}
+                      slices={donutSlices(breakdown.shares, DONUT_RADIUS)}
+                    >
+                      <span className="font-mono text-lg font-semibold">
+                        {formatDuration(breakdown.sum)}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {breakdown.basis === "own" ? "own time" : "total time"}
+                      </span>
+                    </Donut>
+                    <div className="w-full max-w-sm sm:w-auto sm:min-w-72">
+                      <DonutLegend
+                        testId="legend-kind"
+                        rowTestId="legend-kind-row"
+                        items={breakdown.shares.map((s) => ({
+                          key: s.key,
+                          label: s.label,
+                          color: s.color,
+                          value: `${formatDuration(s.value)} · ${formatShare(s.value, breakdown.sum)}`,
+                        }))}
+                      />
+                    </div>
+                  </div>
+                </Section>
+              )}
+            </>
+          )}
+          {classes.length > 0 ? (
+            <Section
+              testId="card-class-table"
+              title="Calls and time per class"
+              description="Select a class to see its methods"
+              source={`${STATS}; own time ${OWN_SOURCE}`}
+              flush
+            >
+              <p
+                data-testid="own-note"
+                className="border-t border-border bg-muted/30 px-4 py-2 text-xs text-muted-foreground"
+              >
+                {standalone
+                  ? `${STANDALONE_STATISTICS_NOTE} Own time (duration minus time in child spans) is a guide, and a dash means no stored call has it.`
+                  : "Calls, errors and durations count every call. Own time (duration minus time in child spans) is estimated from sampled traces, so it is a guide, and a dash means no sampled call is in the store."}
+              </p>
+              <Table
+                data-testid="classes"
+                containerClassName="max-h-[70vh]"
+                className="min-w-[48rem]"
+              >
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    {COLUMNS.map((c) => {
+                      const active = sort === c.key;
+                      return (
+                        <TableHead
+                          key={c.key}
+                          className={cn(c.numeric && "text-right")}
+                          aria-sort={
+                            active
+                              ? dir === "asc"
+                                ? "ascending"
+                                : "descending"
+                              : "none"
+                          }
                         >
-                          {c.label}
-                          {active &&
-                            (dir === "asc" ? (
-                              <ArrowUp className="size-3" />
-                            ) : (
-                              <ArrowDown className="size-3" />
-                            ))}
-                        </button>
-                      </TableHead>
-                    );
-                  })}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {classes.length > 0 ? (
-                  classes.map((c) => {
+                          <button
+                            type="button"
+                            data-testid={`sort-${c.key}`}
+                            onClick={() => toggleSort(c.key)}
+                            className="inline-flex items-center gap-1 hover:text-foreground"
+                          >
+                            {c.label}
+                            {active &&
+                              (dir === "asc" ? (
+                                <ArrowUp className="size-3" />
+                              ) : (
+                                <ArrowDown className="size-3" />
+                              ))}
+                          </button>
+                        </TableHead>
+                      );
+                    })}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {classes.map((c) => {
                     const expanded = open.has(c.className);
                     return (
                       <Fragment key={c.className}>
-                        <TableRow data-testid="class-row">
+                        <TableRow
+                          data-testid="class-row"
+                          onClick={(e) => {
+                            if ((e.target as Element).closest("a, button"))
+                              return;
+                            toggleOpen(c.className);
+                          }}
+                          className="cursor-pointer"
+                        >
                           <TableCell>
                             <button
                               type="button"
@@ -293,18 +474,13 @@ export function ClassesPage() {
                             </button>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline">{c.kind}</Badge>
+                            <Chip>{c.kind}</Chip>
                           </TableCell>
                           <TableCell className="text-right font-mono">
                             {c.calls}
                           </TableCell>
-                          <TableCell
-                            className={cn(
-                              "text-right font-mono",
-                              c.errors > 0 && "text-destructive",
-                            )}
-                          >
-                            {c.errors}
+                          <TableCell className="text-right">
+                            {errorCell(c.errors, c.calls)}
                           </TableCell>
                           <TableCell className="text-right font-mono">
                             {formatDuration(c.avgMs)}
@@ -312,61 +488,34 @@ export function ClassesPage() {
                           <TableCell className="text-right font-mono">
                             {formatDuration(c.totalMs)}
                           </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {formatOwn(c.ownMs, formatDuration)}
-                          </TableCell>
+                          <TableCell>{ownCell(c.ownMs, maxOwn)}</TableCell>
                         </TableRow>
                         {expanded &&
                           sortMethods(c.methods, sort, dir).map((m) => (
-                            <TableRow
+                            <MethodRow
                               key={`${c.className}.${m.method}`}
-                              data-testid="method-row"
-                              className="bg-muted/40"
-                            >
-                              <TableCell className="pl-9 font-mono">
-                                {m.method}
-                              </TableCell>
-                              <TableCell />
-                              <TableCell className="text-right font-mono">
-                                {m.calls}
-                              </TableCell>
-                              <TableCell
-                                className={cn(
-                                  "text-right font-mono",
-                                  m.errors > 0 && "text-destructive",
-                                )}
-                              >
-                                {m.errors}
-                              </TableCell>
-                              <TableCell className="text-right font-mono">
-                                {formatDuration(m.avgMs)}
-                              </TableCell>
-                              <TableCell className="text-right font-mono">
-                                {formatDuration(m.totalMs)}
-                              </TableCell>
-                              <TableCell className="text-right font-mono">
-                                {formatOwn(methodOwnMs(m), formatDuration)}
-                              </TableCell>
-                            </TableRow>
+                              m={m}
+                              maxOwn={maxOwn}
+                            />
                           ))}
                       </Fragment>
                     );
-                  })
-                ) : (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell
-                      colSpan={COLUMNS.length}
-                      className="h-24 text-center text-muted-foreground"
-                    >
-                      {query.class !== null
-                        ? `No calls of ${query.class} in the last ${shownWindow} minutes.`
-                        : `No method calls in the last ${shownWindow} minutes.`}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  })}
+                </TableBody>
+              </Table>
+            </Section>
+          ) : (
+            <EmptyState
+              testId="classes"
+              title={
+                query.class !== null
+                  ? `No calls of ${query.class} in the last ${shownWindow} minutes.`
+                  : `No method calls in the last ${shownWindow} minutes.`
+              }
+            >
+              Classes appear here once their methods are called.
+            </EmptyState>
+          )}
         </>
       )}
     </section>

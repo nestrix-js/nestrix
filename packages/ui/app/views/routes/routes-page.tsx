@@ -1,12 +1,22 @@
-import type { RouteStats } from "@nestrix-js/protocol";
+import type { RouteCompareRow, RouteStats } from "@nestrix-js/protocol";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { RefreshCw } from "lucide-react";
 import { parseAsStringLiteral, useQueryStates } from "nuqs";
 import { useMemo } from "react";
 import { DataTableSkeleton } from "@/components/data-table/data-table-skeleton";
+import { BarCell } from "@/components/kit/bar-cell";
+import { BarChart } from "@/components/kit/bar-chart";
+import { Chip } from "@/components/kit/chip";
+import { Delta } from "@/components/kit/delta";
 import { Chart } from "@/components/kit/line-chart";
-import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/kit/page-header";
+import { Section } from "@/components/kit/section";
+import { SegmentedControl } from "@/components/kit/segmented-control";
+import { SkeletonChart, SkeletonKpiStrip } from "@/components/kit/skeletons";
+import { KpiStrip, StatTile } from "@/components/kit/stat-tile";
+import { EmptyState, ErrorState } from "@/components/kit/states";
+import { TrendLine } from "@/components/kit/trend-line";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -16,7 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getMeta, getRoutes } from "@/lib/api";
+import { getMeta, getRouteCompare, getRoutes } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser, stringParser } from "@/lib/params";
@@ -25,6 +35,14 @@ import { cn } from "@/lib/utils";
 import { routeDetailHref } from "@/views/route/route-detail";
 import { ComparePanel } from "@/views/routes/compare-panel";
 import { RouteHistogram } from "@/views/routes/route-histogram";
+import {
+  compareByKey,
+  formatPerMinute,
+  rowChange,
+  summarizeRoutes,
+  topByP95,
+  windowChanges,
+} from "@/views/routes/route-kpis";
 import {
   chartData,
   describeMethod,
@@ -35,8 +53,15 @@ import {
   statisticsNote,
 } from "@/views/routes/route-stats";
 
-const WINDOWS = [15, 60] as const;
+const WINDOWS = [
+  { value: 15, label: "15 min" },
+  { value: 60, label: "60 min" },
+] as const;
 const DEFAULT_WINDOW = 15;
+const VIEWS = [
+  ["routes", "Routes"],
+  ["compare", "Compare"],
+] as const;
 
 // The selected route is part of the URL, so a link or a reload keeps it.
 const parsers = {
@@ -64,19 +89,13 @@ function RouteCharts({
   const data = useMemo(() => chartData(stats), [stats]);
   const { label, note } = describeRoute(stats);
   return (
-    <div
-      data-testid="route-detail"
-      className="space-y-4 rounded-lg border border-border p-4"
+    <Section
+      testId="route-detail"
+      title={`${describeMethod(stats.method)} ${label}`}
+      description={`${note ? `${note}; ` : ""}last ${windowMinutes} minutes, one point per minute; slowest request ${formatDuration(stats.maxMs)}`}
+      source="counted before sampling"
+      className="space-y-4"
     >
-      <div>
-        <h3 className="font-mono text-sm font-semibold">
-          {describeMethod(stats.method)} {label}
-        </h3>
-        <p className="text-xs text-muted-foreground">
-          {note ? `${note}; ` : ""}last {windowMinutes} minutes, one point per
-          minute; slowest request {formatDuration(stats.maxMs)}
-        </p>
-      </div>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-1">
           <h4 className="text-sm font-medium">Latency</h4>
@@ -107,7 +126,108 @@ function RouteCharts({
         service={service}
         label={label}
       />
-    </div>
+    </Section>
+  );
+}
+
+function RouteRow({
+  r,
+  active,
+  maxCount,
+  maxP95,
+  compareRow,
+  onSelect,
+}: {
+  r: RouteStats;
+  active: boolean;
+  maxCount: number;
+  maxP95: number;
+  compareRow: RouteCompareRow | undefined;
+  onSelect: () => void;
+}) {
+  const { label, note } = describeRoute(r);
+  const change = rowChange(compareRow);
+  return (
+    <TableRow
+      data-testid="route-row"
+      data-selected={active}
+      onClick={(e) => {
+        // The route button and the Details link do their own thing.
+        if ((e.target as Element).closest("a, button")) return;
+        onSelect();
+      }}
+      className={cn("cursor-pointer", active && "bg-muted")}
+    >
+      <TableCell>
+        <Chip className="font-mono">{describeMethod(r.method)}</Chip>
+      </TableCell>
+      <TableCell>
+        <button
+          type="button"
+          aria-pressed={active}
+          title={routeKey(r)}
+          onClick={onSelect}
+          className={cn(
+            "font-mono underline-offset-4 hover:underline",
+            note && "italic",
+          )}
+        >
+          {label}
+        </button>
+        {note && <div className="text-xs text-muted-foreground">{note}</div>}
+      </TableCell>
+      <TableCell>
+        <BarCell value={r.count} max={maxCount} label={String(r.count)} />
+      </TableCell>
+      <TableCell className="text-right">
+        <Chip
+          tone={r.errors > 0 ? "worse" : "neutral"}
+          className="font-mono"
+          title={`${r.errors} of ${r.count} requests failed (5xx or thrown)`}
+        >
+          {formatErrorRate(r.errors, r.count)}
+        </Chip>
+      </TableCell>
+      <TableCell className="text-right font-mono">
+        {formatDuration(r.p50Ms)}
+      </TableCell>
+      <TableCell>
+        <BarCell
+          value={r.p95Ms}
+          max={maxP95}
+          label={formatDuration(r.p95Ms)}
+          color="--chart-2"
+        />
+      </TableCell>
+      <TableCell className="text-right font-mono">
+        {formatDuration(r.p99Ms)}
+      </TableCell>
+      <TableCell>
+        <span className="flex justify-end">
+          <TrendLine
+            values={r.series.map((p) => p.count)}
+            color="--chart-1"
+            label={`Requests per minute of ${routeKey(r)}`}
+            width={80}
+            height={22}
+            area
+          />
+        </span>
+      </TableCell>
+      <TableCell className="text-right">
+        <Delta text={change.text} tone={change.tone} title={change.title} />
+      </TableCell>
+      <TableCell className="text-right">
+        <Link
+          to={routeDetailHref(r.method, r.route) as "/"}
+          data-testid="route-details-link"
+          aria-label={`Details of ${routeKey(r)}`}
+          className="text-sm underline underline-offset-4"
+        >
+          Details
+        </Link>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -126,6 +246,15 @@ export function RoutesPage() {
     // Switching the window keeps the old table on screen until the new one arrives.
     placeholderData: keepPreviousData,
   });
+  // Same key and function as the Compare tab's, so opening it reuses this answer.
+  const compare = useQuery({
+    queryKey: ["routes", "compare", "window", windowMinutes, service],
+    queryFn: () => getRouteCompare({ windowMinutes, previous: 1, service }),
+    refetchInterval: pollInterval(paused),
+    refetchIntervalInBackground: false,
+    placeholderData: keepPreviousData,
+    enabled: view === "routes",
+  });
   // Same key and function as the header's, so this is the cached answer.
   const meta = useQuery({ queryKey: ["meta"], queryFn: getMeta });
   const note = meta.data
@@ -136,6 +265,15 @@ export function RoutesPage() {
     () => sortByCount(stats.data?.routes ?? []),
     [stats.data],
   );
+  const summary = useMemo(
+    () => summarizeRoutes(routes, windowMinutes),
+    [routes, windowMinutes],
+  );
+  const changes = useMemo(() => windowChanges(compare.data), [compare.data]);
+  const compareRows = useMemo(() => compareByKey(compare.data), [compare.data]);
+  const top = useMemo(() => topByP95(routes), [routes]);
+  const maxCount = Math.max(1, ...routes.map((r) => r.count));
+  const maxP95 = Math.max(1, ...routes.map((r) => r.p95Ms));
   const selected =
     query.route === null
       ? undefined
@@ -145,69 +283,77 @@ export function RoutesPage() {
             (query.method === null || r.method === query.method),
         );
   const shownWindow = stats.data?.windowMinutes ?? windowMinutes;
+  const select = (r: RouteStats, active: boolean) =>
+    void setQuery(
+      active
+        ? { route: null, method: null }
+        : { route: r.route, method: r.method },
+    );
+
+  const worstParts = summary.worst
+    ? formatDuration(summary.worst.p95Ms).split(" ")
+    : null;
 
   return (
-    <section className="space-y-4" aria-label="Routes">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">Routes</h2>
-        <div className="flex items-center gap-2">
-          <fieldset
-            className="flex items-center gap-1"
-            aria-label="Time window"
-          >
-            {WINDOWS.map((minutes) => (
-              <Button
-                key={minutes}
-                size="sm"
-                variant={windowMinutes === minutes ? "default" : "outline"}
-                aria-pressed={windowMinutes === minutes}
-                onClick={() =>
-                  void setQuery({
-                    windowMinutes: minutes === DEFAULT_WINDOW ? null : minutes,
-                  })
-                }
-              >
-                {minutes} min
-              </Button>
-            ))}
-          </fieldset>
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label="Reload"
-            onClick={() => void stats.refetch()}
-          >
-            <RefreshCw />
-            Reload
-          </Button>
-        </div>
-      </div>
+    <section className="space-y-6" aria-label="Routes">
+      <PageHeader
+        title="Routes"
+        description="Traffic, errors and latency of every route"
+        source="stats"
+        controls={
+          <>
+            <SegmentedControl
+              label="Time window"
+              options={WINDOWS}
+              value={windowMinutes}
+              onChange={(minutes) =>
+                void setQuery({
+                  windowMinutes: minutes === DEFAULT_WINDOW ? null : minutes,
+                })
+              }
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Reload"
+              onClick={() => void stats.refetch()}
+            >
+              <RefreshCw />
+              Reload
+            </Button>
+          </>
+        }
+      />
       {note && (
         <p
           data-testid="statistics-note"
-          className="rounded-lg bg-secondary px-3 py-2 text-sm text-secondary-foreground"
+          className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
         >
           {note}
         </p>
       )}
 
-      <div role="tablist" aria-label="Routes view" className="flex gap-1">
-        {(
-          [
-            ["routes", "Routes"],
-            ["compare", "Compare"],
-          ] as const
-        ).map(([id, name]) => (
-          <Button
+      <div
+        role="tablist"
+        aria-label="Routes view"
+        className="flex gap-4 border-b border-border"
+      >
+        {VIEWS.map(([id, name]) => (
+          <button
             key={id}
+            type="button"
             role="tab"
-            size="sm"
-            variant={view === id ? "default" : "outline"}
             aria-selected={view === id}
             onClick={() => void setQuery({ view: id === "routes" ? null : id })}
+            className={cn(
+              "-mb-px border-b-2 px-1 pb-2 text-sm font-medium transition-colors",
+              view === id
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
           >
             {name}
-          </Button>
+          </button>
         ))}
       </div>
       {view === "compare" && (
@@ -225,128 +371,166 @@ export function RoutesPage() {
       )}
 
       {view === "routes" && stats.isPending && (
-        <DataTableSkeleton columnCount={8} />
+        <>
+          <SkeletonKpiStrip />
+          <SkeletonChart heightClass="h-40" />
+          <DataTableSkeleton columnCount={10} />
+        </>
       )}
       {view === "routes" && stats.isError && stats.data === undefined && (
-        <div
-          role="alert"
-          className="space-y-3 rounded-lg border border-border p-6 text-center"
-        >
-          <p className="font-medium">Could not load route statistics.</p>
-          <p className="text-sm text-muted-foreground">
-            {stats.error?.message}
-          </p>
-          <Button variant="outline" onClick={() => void stats.refetch()}>
-            Try again
-          </Button>
-        </div>
+        <ErrorState
+          title="Could not load route statistics."
+          message={stats.error?.message}
+          onRetry={() => void stats.refetch()}
+        />
       )}
       {view === "routes" && stats.data !== undefined && (
         <>
-          <div className="rounded-lg border border-border">
-            <Table data-testid="routes">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead>Method</TableHead>
-                  <TableHead>Route</TableHead>
-                  <TableHead className="text-right">Requests</TableHead>
-                  <TableHead className="text-right">Error rate</TableHead>
-                  <TableHead className="text-right">p50</TableHead>
-                  <TableHead className="text-right">p95</TableHead>
-                  <TableHead className="text-right">p99</TableHead>
-                  <TableHead className="text-right">
-                    <span className="sr-only">Route detail</span>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {routes.length > 0 ? (
-                  routes.map((r) => {
-                    const { label, note: routeNote } = describeRoute(r);
+          {routes.length > 0 && (
+            <>
+              <KpiStrip>
+                <StatTile
+                  testId="kpi-routes"
+                  label="Routes"
+                  value={String(summary.routes)}
+                  unit={`with ${summary.requests.toLocaleString("en")} requests`}
+                  source="counted before sampling"
+                />
+                <StatTile
+                  testId="kpi-rate"
+                  label="Requests per minute"
+                  value={formatPerMinute(summary.requestsPerMinute)}
+                  unit="req/min"
+                  delta={changes.requests.text}
+                  deltaTone={changes.requests.tone}
+                  deltaTitle={changes.requests.title}
+                  series={summary.requestSeries}
+                  seriesColor="--chart-1"
+                  seriesLabel={`Requests per minute over the last ${shownWindow} minutes`}
+                  source="counted before sampling"
+                />
+                <StatTile
+                  testId="kpi-error-rate"
+                  label="Error rate"
+                  value={
+                    summary.errorRate === null
+                      ? "—"
+                      : formatErrorRate(summary.errors, summary.requests)
+                  }
+                  unit={`${summary.errors.toLocaleString("en")} of ${summary.requests.toLocaleString("en")}`}
+                  delta={changes.errorRate.text}
+                  deltaTone={changes.errorRate.tone}
+                  deltaTitle={changes.errorRate.title}
+                  series={summary.errorSeries}
+                  seriesColor="--destructive"
+                  seriesLabel={`Errors per minute over the last ${shownWindow} minutes`}
+                  source="5xx or thrown · counted before sampling"
+                />
+                <StatTile
+                  testId="kpi-worst-p95"
+                  label="Worst p95"
+                  value={worstParts?.[0] ?? "—"}
+                  unit={worstParts?.[1]}
+                  delta={changes.worstP95.text}
+                  deltaTone={changes.worstP95.tone}
+                  deltaTitle={changes.worstP95.title}
+                  footer={
+                    summary.worst ? (
+                      <span
+                        className="truncate font-mono text-xs"
+                        title={routeKey(summary.worst)}
+                      >
+                        {describeMethod(summary.worst.method)}{" "}
+                        {describeRoute(summary.worst).label}
+                      </span>
+                    ) : undefined
+                  }
+                  source="slowest route by p95"
+                />
+              </KpiStrip>
+              <Section
+                testId="card-top-p95"
+                title="Slowest by p95"
+                description={`Top ${top.length} by p95 over the last ${shownWindow} minutes`}
+                source="counted before sampling"
+              >
+                <BarChart
+                  orientation="horizontal"
+                  testId="chart-top-p95"
+                  barTestId="top-p95-bar"
+                  labelWidthClass="w-28 sm:w-56"
+                  max={Math.max(1, ...top.map((r) => r.p95Ms))}
+                  label={`Routes by p95: ${top[0] ? `${routeKey(top[0])} is slowest at ${formatDuration(top[0].p95Ms)}` : "none"}`}
+                  items={top.map((r) => ({
+                    key: routeKey(r),
+                    label: `${describeMethod(r.method)} ${describeRoute(r).label}`,
+                    title: routeKey(r),
+                    valueLabel: formatDuration(r.p95Ms),
+                    segments: [{ value: r.p95Ms, color: "--chart-2" }],
+                  }))}
+                />
+              </Section>
+            </>
+          )}
+          {routes.length > 0 ? (
+            <Section
+              testId="card-routes"
+              title="Route table"
+              description="Busiest first; select a route for its charts"
+              source="counted before sampling"
+              flush
+            >
+              <Table
+                data-testid="routes"
+                containerClassName="max-h-[70vh]"
+                className="min-w-[56rem]"
+              >
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead>Method</TableHead>
+                    <TableHead>Route</TableHead>
+                    <TableHead className="text-right">Requests</TableHead>
+                    <TableHead className="text-right">Error rate</TableHead>
+                    <TableHead className="text-right">p50</TableHead>
+                    <TableHead className="text-right">p95</TableHead>
+                    <TableHead className="text-right">p99</TableHead>
+                    <TableHead className="text-right">Trend</TableHead>
+                    <TableHead
+                      className="text-right"
+                      title="p95 against the previous window"
+                    >
+                      p95 change
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <span className="sr-only">Route detail</span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {routes.map((r) => {
                     const active = selected === r;
                     return (
-                      <TableRow
+                      <RouteRow
                         key={routeKey(r)}
-                        data-testid="route-row"
-                        data-selected={active}
-                        className={cn(active && "bg-muted")}
-                      >
-                        <TableCell>
-                          <Badge variant="outline" className="font-mono">
-                            {describeMethod(r.method)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <button
-                            type="button"
-                            aria-pressed={active}
-                            title={routeKey(r)}
-                            onClick={() =>
-                              void setQuery(
-                                active
-                                  ? { route: null, method: null }
-                                  : { route: r.route, method: r.method },
-                              )
-                            }
-                            className={cn(
-                              "font-mono underline-offset-4 hover:underline",
-                              routeNote && "italic",
-                            )}
-                          >
-                            {label}
-                          </button>
-                          {routeNote && (
-                            <div className="text-xs text-muted-foreground">
-                              {routeNote}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right font-mono">
-                          {r.count}
-                        </TableCell>
-                        <TableCell
-                          className={cn(
-                            "text-right font-mono",
-                            r.errors > 0 && "text-destructive",
-                          )}
-                        >
-                          {formatErrorRate(r.errors, r.count)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono">
-                          {formatDuration(r.p50Ms)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono">
-                          {formatDuration(r.p95Ms)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono">
-                          {formatDuration(r.p99Ms)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Link
-                            to={routeDetailHref(r.method, r.route) as "/"}
-                            data-testid="route-details-link"
-                            aria-label={`Details of ${routeKey(r)}`}
-                            className="text-sm underline underline-offset-4"
-                          >
-                            Details
-                          </Link>
-                        </TableCell>
-                      </TableRow>
+                        r={r}
+                        active={active}
+                        maxCount={maxCount}
+                        maxP95={maxP95}
+                        compareRow={compareRows.get(routeKey(r))}
+                        onSelect={() => select(r, active)}
+                      />
                     );
-                  })
-                ) : (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell
-                      colSpan={8}
-                      className="h-24 text-center text-muted-foreground"
-                    >
-                      No requests in the last {shownWindow} minutes.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  })}
+                </TableBody>
+              </Table>
+            </Section>
+          ) : (
+            <EmptyState
+              title={`No requests in the last ${shownWindow} minutes.`}
+            >
+              Routes appear here as the app handles requests.
+            </EmptyState>
+          )}
           {selected ? (
             <RouteCharts
               stats={selected}

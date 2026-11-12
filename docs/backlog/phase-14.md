@@ -8,7 +8,7 @@ Owner, 2026-11-12: "why you only fix the overview ui, the rest still plain, ugly
 |---|---|---|---|---|
 | P14-01 | Shared kit + shell + Requests (reference page) | sonnet | — | done (branch `p14-01-kit`, not merged) |
 | P14-02 | Errors (canvas design) + Queries | sonnet | P14-01 | todo |
-| P14-03 | Routes + Classes + Map | sonnet | P14-01 | todo |
+| P14-03 | Routes + Classes + Map | sonnet | P14-01 | done (branch `p14-03-routes-classes-map`, not merged) |
 | P14-04 | Dependencies + Runtime + Profiler (embedded and standalone; canvas design) | sonnet | P14-01 | todo |
 | P14-05 | Trace view + SLOs + Settings + login and empty/error states | sonnet | P14-01 | done (branch `p14-05-trace-slos-settings`, not merged) |
 | P14-06 | Screenshot review with the owner, fixes, changeset, release | lead | P14-02..05 | todo |
@@ -73,6 +73,16 @@ Tests added: `kit/format.test.ts`, `requests/requests-stats.test.ts`, `e2e/p14-k
 - **Routes:** KPI strip (routes, requests/min, error rate, worst p95); a "top routes by p95" bar chart; table with p95 `BarCell`, error chip, sparkline, change vs previous window (from `routes/compare`), and the Details link (phase 12); keep the histogram panel and compare.
 - **Classes:** KPI strip; donut of own time by class kind (controller, service, repository, guard/pipe/interceptor, processor, other — from the data's class kind); table with own-time `BarCell`, calls sparkline, errors chip; keep the `class` filter.
 - **Map:** nodes coloured by health (error rate and p95 thresholds as tokens), edge width by call volume, a legend, a side panel on click with the node's numbers and links; keep the existing layout code.
+
+### P14-03 as built
+
+- **Routes** (`views/routes/routes-page.tsx`, helpers in `route-kpis.ts`): header with the 15/60 window and Reload, the sampling note, underline tabs (Routes, Compare; the compare panel and the histogram are unchanged), four tiles (routes, requests per minute, error rate, worst p95), "Slowest by p95" horizontal bars (top 8), the route table (method chip, `BarCell` for requests and p95, error chip, p50, p99, a requests trend line, "p95 change", Details link; whole-row click selects, the route button and the link keep working) and the selected route's card. The changes on the tiles and rows come from `routes/compare` (window mode, `previous=1`, the same query key as the Compare tab); they are "—" with the API's reason as tooltip when the previous window is not covered. The first seven cells keep their order (method, route, requests, error rate, p50, p95, p99); the new cells come after.
+- **Classes** (`classes-page.tsx`, `class-kpis.ts`): four tiles (traced classes, calls, error rate, own time with the heaviest class), a donut of own time by kind (guard, pipe, interceptor and filter are one group; falls back to total time, and says so, when no class has an own-time estimate), the sortable table with an own-time `BarCell`, error chips and row-click expand; the `class` filter, methods-off and no-data states keep their test ids and text.
+- **Map** (`map-page.tsx`, health helpers in `map-layout.ts`; the layout code is unchanged): nodes get a health stroke and a word (healthy, degraded, failing, no calls) from the edges into them (`HEALTH` constants: failing from 5% errors or p95 1 s, degraded on any error or p95 300 ms), edge width follows call volume (`edgeWidth`, 1.5 to 6), a legend, a node list of buttons (the keyboard path), a "Node details" side panel with the node's numbers, its connections and links (Dependencies, Queries for databases, Routes and Classes for the app), and the edge table with bars.
+- **Thresholds are constants, not CSS tokens**: the health colours are the existing `--success`, `--warning` and `--destructive` tokens; only the numbers live in `HEALTH`.
+- **Data gaps**: `ClassStats` has no time series, so the classes table has no calls sparkline (the own-time bar and the errors chip stand in); neither `classes` nor `map` answers with a previous window, so their tiles show "—"; `routes` has a previous window only through `routes/compare`.
+- Headings: h3 titles avoid the words "routes", "classes" and "map" because tests find the page heading by substring.
+- Tests added: `route-kpis.test.ts`, `class-kpis.test.ts`, health, edge width and `edgesOf` cases in `map-layout.test.ts`, `e2e/p14-routes-classes-map.pw.ts` (screenshots `p14-routes-*.png`, `p14-classes-*.png`, `p14-map-*.png` dark and light, and `p14-*-phone.png`). Size: 968,374 to 985,709 bytes (+17,335).
 
 ## P14-04 Dependencies, Runtime and Profiler
 
