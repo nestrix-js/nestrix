@@ -138,6 +138,6 @@ For whoever is asked to do it, in this order:
 
 ## Owner actions outstanding
 
-Done on 2026-11-12: the `@nestrix-js` npm organisation (D-71), the repository made public, the code-of-conduct contact, trusted publishing for `@nestrix-js/nestjs`, `@nestrix-js/ui` and `@nestrix-js/mcp`, `NPM_PUBLISH_ENABLED`, releases through CI with provenance (the `0.0.0` placeholders are deprecated), and the server image on GHCR (public). `0.1.0` is published under the `latest` npm tag (D-77); the `alpha` tag still points at `0.1.0-alpha.3`, and the server image is published as `:0.1.0` and `:latest`. Still the owner's:
+Done on 2026-11-12: the `@nestrix-js` npm organisation (D-71), the repository made public, the code-of-conduct contact, trusted publishing for `@nestrix-js/nestjs`, `@nestrix-js/ui` and `@nestrix-js/mcp`, `NPM_PUBLISH_ENABLED`, releases through CI with provenance (the `0.0.0` placeholders are deprecated), and the server image on GHCR (public). `0.1.0` was published under the `latest` npm tag (D-77), and `0.2.0` (route detail, span limits, the own-time query fix) after it; the `alpha` tag still points at `0.1.0-alpha.3`, and the server image is published per release (`:0.2.0`, `:latest`). 0.3.0 with the dashboard redesign is about to be released. Still the owner's:
 
 - When to go to 1.0.0 (the API promise of D-69; needs a `major` changeset). Nothing else is outstanding.

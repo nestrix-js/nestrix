@@ -8,6 +8,8 @@ How it is opened and secured is on the [Security model](/guide/security) page. T
 
 ## Views
 
+For a page-by-page walk through, see the [Dashboard tour](/guide/dashboard-tour); the route page is on [Route detail](/guide/route-detail).
+
 The dashboard polls for new data every two seconds. It opens on the Overview (`/`); the tabs, in order:
 
 **Overview.** The home page says what is better and what needs attention, so you do not have to read tables first. Switch between the last 15 and the last 60 minutes; everything is compared with the window before it. Each card says whether its numbers are counted before sampling or built from stored, sampled traces.
@@ -23,7 +25,9 @@ Until a full previous window has been kept, changes show "—" and the lists say
 
 **Requests** (`/requests`; a link to `/` that carries request-list filters is redirected here). Recent traces, newest first, with filters for status, error, route, release, user, trace type (HTTP, jobs, scheduled) and text. A request timeline chart sits above the list (drag across it to narrow the time range), each row has a duration bar, and a filter set can be saved by name in your browser. Release and user columns appear when any stored trace has them (see `serviceVersion` and `user` in the [reference](/reference/configuration)).
 
-**Trace waterfall.** One request's spans as a waterfall: server span, method spans, database and cache spans, outgoing HTTP calls and exception events. Above it, a summary of where the time went by span kind and by class, and a critical-path toggle that highlights the spans on the critical path. The [log lines](#logs-next-to-the-trace) written during the request are listed beside it.
+**Trace waterfall.** One request's spans as a waterfall (a trace that hit [`maxSpansPerTrace`](/guide/large-traces) shows an omitted-spans banner): server span, method spans, database and cache spans, outgoing HTTP calls and exception events. Above it, a summary of where the time went by span kind and by class, and a critical-path toggle that highlights the spans on the critical path. The [log lines](#logs-next-to-the-trace) written during the request are listed beside it.
+
+**Route detail.** From a route, an Overview item or a trace: why one route changed, window against window or release against release. A "What changed" summary with ranked findings, time per request by kind, and statements, methods, dependencies, errors and the slowest traces. See [Route detail](/guide/route-detail).
 
 **Errors.** Opens **Grouped**: errors grouped by type, message and route, each with a count, first and last seen and a sparkline; **All** switches to the flat list. Both come from every stored span with error status, client spans and your own spans included. A span is an error when its status code is `error`: for a server span, a 5xx response or a handler exception that maps to 5xx. A thrown `NotFoundException` (404) keeps its exception event in the trace detail but counts as no error.
 
