@@ -31,6 +31,7 @@ import type {
   TraceResponse,
 } from "@nestrix-js/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ensurePartitions, utcDay } from "../../src/storage/partitions.js";
 import { PostgresIngestSink } from "../../src/storage/writer.js";
 import { signedCookie } from "../auth/helpers.js";
 import { auth, JSON_TYPE, KEY, post } from "../ingest/helpers.js";
@@ -836,10 +837,11 @@ describe.skipIf(noDatabase)(`query API ${skipReason}`, () => {
 
   describe("classes: methodsState", () => {
     it("separates never-seen (off) from idle past the window (no-data-in-range) and in-window (on)", async () => {
-      // An older minute, still on today's partition unless this runs just after midnight UTC.
+      // An older minute; make sure its day has a partition (it may be yesterday just after midnight UTC).
       const old = new Date(
         Math.floor((Date.now() - 20 * 60_000) / 60_000) * 60_000,
       );
+      await ensurePartitions(db.pool, [utcDay(old.getTime())]);
       await db.pool.query(
         `INSERT INTO class_minutes
            (minute, service_name, class_name, method_name, class_kind, count, errors, total_ms, max_ms, hist)

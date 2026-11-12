@@ -155,6 +155,9 @@ export function renderRoutes(stats: RouteStatsResponse): string {
 }
 
 export function renderClasses(stats: ClassStatsResponse): string {
+  if (stats.methodsState === "no-data-in-range") {
+    return `This service has sent method spans before, but none in the last ${stats.windowMinutes} minutes (it may be idle). Try a longer window.`;
+  }
   if (!stats.methodsEnabled) {
     return "Method spans are off in this app (no NestrixInstrument, or it runs under @nestjs/testing), so there are no per-class statistics.";
   }
