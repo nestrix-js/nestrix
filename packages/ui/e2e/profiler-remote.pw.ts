@@ -239,3 +239,145 @@ test("a 403 explains that starting a capture needs HTTPS or localhost", async ({
   await expect(alert).toContainText("needs HTTPS or localhost");
   await expect(alert).not.toContainText("Refused");
 });
+
+// P15-03 (D-80): per-instance runtime figures from the check-in and the "Suggested" chip.
+const ID_A = "aaaaaaaa-0000-4000-8000-000000000001";
+const ID_B = "bbbbbbbb-0000-4000-8000-000000000002";
+const ID_C = "cccccccc-0000-4000-8000-000000000003";
+const ID_D = "dddddddd-0000-4000-8000-000000000004";
+
+test("runtime columns show each instance's figures, — when absent, and Suggested on the clear CPU leader", async ({
+  page,
+}) => {
+  const problems = watch(page);
+  await recordViolations(page);
+  const at = Date.now() - 12_000;
+  mock.addInstance(ID_A, {
+    runtimeSample: {
+      cpuPercent: 12.5,
+      eventLoopP99Ms: 21,
+      heapUsedBytes: 48_000_000,
+      rssBytes: 120_000_000,
+      sampledAtUnixMs: at,
+    },
+  });
+  mock.addInstance(ID_B, {
+    runtimeSample: {
+      cpuPercent: 71,
+      heapUsedBytes: 96_000_000,
+      rssBytes: 210_000_000,
+      sampledAtUnixMs: at,
+    },
+  });
+  // An instance on an older SDK: the server answers runtimeSample: null.
+  mock.addInstance(ID_C, { runtimeSample: null });
+  await page.goto(url("profiler"));
+
+  const rowA = page.locator(`[data-instance="${ID_A}"]`);
+  const rowB = page.locator(`[data-instance="${ID_B}"]`);
+  const rowC = page.locator(`[data-instance="${ID_C}"]`);
+  await expect(page.getByTestId("instance-row")).toHaveCount(3);
+  const headers = page.getByTestId("instances").getByRole("columnheader");
+  for (const name of ["CPU", "Loop p99", "Heap / RSS"]) {
+    await expect(headers.filter({ hasText: name })).toHaveCount(1);
+  }
+
+  await expect(rowA.getByTestId("instance-cpu")).toHaveText("13%");
+  await expect(rowA.getByTestId("instance-loop")).toHaveText("21 ms");
+  await expect(rowA.getByTestId("instance-heap")).toHaveText("48.0 MB");
+  await expect(rowA.getByTestId("instance-rss")).toHaveText("120.0 MB");
+  await expect(rowB.getByTestId("instance-cpu")).toHaveText("71%");
+  // B reports no loop figure (no embedded dashboard in that process).
+  await expect(rowB.getByTestId("instance-loop")).toHaveText("—");
+  for (const cell of ["cpu", "loop", "heap", "rss"]) {
+    await expect(rowC.getByTestId(`instance-${cell}`)).toHaveText("—");
+  }
+
+  const chips = page.getByTestId("suggested-chip");
+  await expect(chips).toHaveCount(1);
+  const chip = rowB.getByTestId("suggested-chip");
+  await expect(chip).toHaveText("Suggested");
+  await expect(chip).toHaveAttribute("data-reason", "cpu");
+  await expect(chip).toHaveAttribute(
+    "title",
+    /Highest CPU among the demo-service instances: 71% of a core against 13%/,
+  );
+  // The CPU bar is against one core: 71% is drawn at 71%.
+  await expect(
+    rowB.getByTestId("instance-cpu").locator("[data-pct]"),
+  ).toHaveAttribute("data-pct", "71.0");
+  await expect(
+    rowA.getByTestId("instance-loop").locator("[data-pct]"),
+  ).toHaveAttribute("data-pct", "100.0");
+  expect(problems).toEqual([]);
+  expect(await violations(page)).toEqual([]);
+});
+
+test("the wider instances table holds at phone width without a horizontal page scroll", async ({
+  page,
+}) => {
+  const at = Date.now();
+  mock.addInstance(ID_A, {
+    runtimeSample: {
+      cpuPercent: 80,
+      eventLoopP99Ms: 120,
+      heapUsedBytes: 1_200_000_000,
+      rssBytes: 2_400_000_000,
+      sampledAtUnixMs: at,
+    },
+  });
+  mock.addInstance(ID_B, {
+    runtimeSample: { cpuPercent: 5, sampledAtUnixMs: at },
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(url("profiler"));
+  await expect(page.getByTestId("suggested-chip")).toHaveCount(1);
+  const overflow = await page.evaluate(
+    () =>
+      document.documentElement.scrollWidth -
+      document.documentElement.clientWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test("no Suggested chip when the top instance is not clearly higher, or from an older server", async ({
+  page,
+}) => {
+  const at = Date.now();
+  mock.addInstance(ID_A, {
+    runtimeSample: { cpuPercent: 64, eventLoopP99Ms: 30, sampledAtUnixMs: at },
+  });
+  mock.addInstance(ID_B, {
+    runtimeSample: { cpuPercent: 58, eventLoopP99Ms: 41, sampledAtUnixMs: at },
+  });
+  await page.goto(url("profiler"));
+  await expect(page.getByTestId("instance-row")).toHaveCount(2);
+  await expect(
+    page.locator(`[data-instance="${ID_A}"]`).getByTestId("instance-cpu"),
+  ).toHaveText("64%");
+  await expect(page.getByTestId("suggested-chip")).toHaveCount(0);
+
+  // Loop delay decides when CPU does not: 40 ms against 300 ms.
+  mock.instances = [];
+  mock.addInstance(ID_C, {
+    runtimeSample: { cpuPercent: 40, eventLoopP99Ms: 40, sampledAtUnixMs: at },
+  });
+  mock.addInstance(ID_D, {
+    runtimeSample: { cpuPercent: 45, eventLoopP99Ms: 300, sampledAtUnixMs: at },
+  });
+  await page.reload();
+  const chip = page
+    .locator(`[data-instance="${ID_D}"]`)
+    .getByTestId("suggested-chip");
+  await expect(chip).toHaveAttribute("data-reason", "loop");
+  await expect(page.getByTestId("suggested-chip")).toHaveCount(1);
+
+  // An older server sends no runtimeSample at all: every figure is —, no chip.
+  mock.instances = [];
+  mock.addInstance(ID_A);
+  mock.addInstance(ID_B);
+  await page.reload();
+  await expect(page.getByTestId("instance-row")).toHaveCount(2);
+  await expect(page.getByTestId("instance-cpu").first()).toHaveText("—");
+  await expect(page.getByTestId("suggested-chip")).toHaveCount(0);
+});

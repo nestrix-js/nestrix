@@ -241,6 +241,14 @@ for (const scheme of SCHEMES) {
         host: hosts[i] as string,
         pid: 1 + i,
         lastSeenUnixMs: now - (4 + i * 4) * 1000,
+        // P15-03: the first instance is clearly the busiest; the third has no loop figure.
+        runtimeSample: {
+          cpuPercent: [68, 21, 17][i] as number,
+          ...(i < 2 ? { eventLoopP99Ms: [94, 23][i] as number } : {}),
+          heapUsedBytes: ([182, 141, 133][i] as number) * 1_000_000,
+          rssBytes: ([412, 318, 301][i] as number) * 1_000_000,
+          sampledAtUnixMs: now - (4 + i * 4) * 1000,
+        },
       });
       if (i === 0) instance.capture = running;
     });
@@ -265,6 +273,16 @@ for (const scheme of SCHEMES) {
     await expect(page.getByTestId("instance-status")).toContainText(
       "Capturing",
     );
+    await expect(page.getByTestId("suggested-chip")).toHaveCount(1);
+    await expect(
+      page.locator(`[data-instance="${ids[0]}"]`).getByTestId("suggested-chip"),
+    ).toBeVisible();
+    // P15-03: the runtime columns do not push the Capture button out of a 1280 px window.
+    const tableOverflow = await page.getByTestId("instances").evaluate((t) => {
+      const box = t.parentElement as HTMLElement;
+      return box.scrollWidth - box.clientWidth;
+    });
+    expect(tableOverflow).toBeLessThanOrEqual(0);
     await expect(page.getByTestId("remote-profile-row")).toHaveCount(4);
     await expect(page.getByTestId("state-badge")).toHaveText([
       "Running",

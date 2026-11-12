@@ -16,6 +16,10 @@
  * rotating or reordering `NESTRIX_INGEST_KEYS` keeps every key's instances; an old `key:<index>`
  * principal is replaced by the fingerprint at the next check-in. With ingest auth off every request
  * has the principal `none` (anyone can send anyway).
+ *
+ * Runtime figures (P15-03, D-80, migration `0011_instance_runtime.sql`): each check-in's validated
+ * `runtimeSample` is written by the same upsert, NULL when absent, so `instances` always shows the
+ * latest check-in's figures or none. Their time is the server's `now()` of that check-in.
  */
 import { randomBytes } from "node:crypto";
 import { promisify } from "node:util";
@@ -30,6 +34,7 @@ import {
 import type {
   CaptureOrder,
   FlameNode,
+  InstanceRuntimeSample,
   InstanceSummary,
   ProfileFunction,
   RemoteProfileState,
@@ -74,6 +79,14 @@ export const ORDER_LOST_MESSAGE = "the instance did not receive the order";
 export const RUNNING_EXPIRED_MESSAGE =
   "The instance did not upload the profile within its duration plus 60 s.";
 
+/** The validated figures of a check-in's `runtimeSample`; at least one is not null. */
+export interface CheckInRuntime {
+  cpuPercent: number | null;
+  eventLoopP99Ms: number | null;
+  heapUsedBytes: number | null;
+  rssBytes: number | null;
+}
+
 /** The validated fields of a check-in. */
 export interface CheckIn {
   service: string;
@@ -85,6 +98,8 @@ export interface CheckIn {
   sdkVersion: string | null;
   /** The capture the instance says it runs now (`runningCaptureId`). */
   runningCaptureId: string | null;
+  /** `null` when the check-in carried no usable sample. */
+  runtimeSample: CheckInRuntime | null;
 }
 
 /** What `complete` stores. */
@@ -147,6 +162,29 @@ function toSummary(row: ProfileRow): RemoteProfileSummary {
     bytes: row.bytes === null ? null : Number(row.bytes),
     error: row.error,
   };
+}
+
+/** The stored figures as `InstanceSummary.runtimeSample`: absent figures left out. */
+function toRuntimeSample(row: {
+  cpu_percent: number | null;
+  event_loop_p99_ms: number | null;
+  heap_used_bytes: number | null;
+  rss_bytes: number | null;
+  runtime_sampled_at: Date | null;
+}): InstanceRuntimeSample | null {
+  if (row.runtime_sampled_at === null) return null;
+  const sample: InstanceRuntimeSample = {
+    sampledAtUnixMs: row.runtime_sampled_at.getTime(),
+  };
+  if (row.cpu_percent !== null) sample.cpuPercent = Number(row.cpu_percent);
+  if (row.event_loop_p99_ms !== null) {
+    sample.eventLoopP99Ms = Number(row.event_loop_p99_ms);
+  }
+  if (row.heap_used_bytes !== null) {
+    sample.heapUsedBytes = Number(row.heap_used_bytes);
+  }
+  if (row.rss_bytes !== null) sample.rssBytes = Number(row.rss_bytes);
+  return sample;
 }
 
 /** A random capture id: 16 lowercase hex characters. */
@@ -240,12 +278,18 @@ export class RemoteProfileStore
     const owner = this.owner(principal);
     return this.transaction(async (client) => {
       const upsert = await client.query(
-        `INSERT INTO instances (service, instance_id, version, host, pid, runtime, sdk_version, principal)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO instances (service, instance_id, version, host, pid, runtime, sdk_version, principal,
+                                cpu_percent, event_loop_p99_ms, heap_used_bytes, rss_bytes,
+                                runtime_sampled_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                 CASE WHEN $13::boolean THEN now() END)
          ON CONFLICT (service, instance_id) DO UPDATE
             SET version = EXCLUDED.version, host = EXCLUDED.host, pid = EXCLUDED.pid,
                 runtime = EXCLUDED.runtime, sdk_version = EXCLUDED.sdk_version, last_seen = now(),
-                principal = EXCLUDED.principal
+                principal = EXCLUDED.principal,
+                cpu_percent = EXCLUDED.cpu_percent, event_loop_p99_ms = EXCLUDED.event_loop_p99_ms,
+                heap_used_bytes = EXCLUDED.heap_used_bytes, rss_bytes = EXCLUDED.rss_bytes,
+                runtime_sampled_at = EXCLUDED.runtime_sampled_at
           WHERE instances.principal = EXCLUDED.principal
              OR instances.principal LIKE 'key:%'
          RETURNING 1`,
@@ -258,6 +302,11 @@ export class RemoteProfileStore
           checkIn.runtime,
           checkIn.sdkVersion,
           owner,
+          checkIn.runtimeSample?.cpuPercent ?? null,
+          checkIn.runtimeSample?.eventLoopP99Ms ?? null,
+          checkIn.runtimeSample?.heapUsedBytes ?? null,
+          checkIn.runtimeSample?.rssBytes ?? null,
+          checkIn.runtimeSample !== null,
         ],
       );
       if (upsert.rowCount === 0) return { kind: "conflict" };
@@ -462,10 +511,17 @@ export class RemoteProfileStore
         sdk_version: string | null;
         first_seen: Date;
         last_seen: Date;
+        cpu_percent: number | null;
+        event_loop_p99_ms: number | null;
+        heap_used_bytes: number | null;
+        rss_bytes: number | null;
+        runtime_sampled_at: Date | null;
       } & { [K in keyof ProfileRow as `r_${K}`]: ProfileRow[K] | null }
     >(
       `SELECT i.service AS i_service, i.instance_id AS i_instance_id, i.version AS i_version,
               i.host, i.pid, i.runtime, i.sdk_version, i.first_seen, i.last_seen,
+              i.cpu_percent, i.event_loop_p99_ms, i.heap_used_bytes, i.rss_bytes,
+              i.runtime_sampled_at,
               r.id AS r_id, r.service AS r_service, r.instance_id AS r_instance_id,
               r.version AS r_version, r.state AS r_state, r.requested_at AS r_requested_at,
               r.started_at AS r_started_at, r.finished_at AS r_finished_at,
@@ -490,6 +546,7 @@ export class RemoteProfileStore
       sdkVersion: row.sdk_version,
       firstSeenUnixMs: row.first_seen.getTime(),
       lastSeenUnixMs: row.last_seen.getTime(),
+      runtimeSample: toRuntimeSample(row),
       capture:
         row.r_id === null
           ? null

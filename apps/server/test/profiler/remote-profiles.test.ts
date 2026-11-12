@@ -348,6 +348,107 @@ describe.skipIf(noDatabase)(`remote profiling ${skipReason}`, () => {
       expect(ids).not.toContain(stale.instanceId);
     });
 
+    it("P15-03: stores the latest runtime sample and returns it; a check-in without one clears it", async () => {
+      const instance = newInstance("runtime-svc");
+      const listed = async () =>
+        (
+          (await (
+            await read("/api/v1/instances?service=runtime-svc")
+          ).json()) as InstanceListResponse
+        ).instances[0];
+
+      // An old client: no runtimeSample at all. The answer carries `runtimeSample: null`.
+      await checkInOk(instance, { runtime: "v26.1.0" });
+      const old = await listed();
+      expect(old?.runtimeSample).toBeNull();
+      expect(old?.runtime).toBe("v26.1.0");
+
+      const before = Date.now();
+      await checkInOk(instance, {
+        runtime: "v26.1.0",
+        runtimeSample: {
+          cpuPercent: 37.25,
+          eventLoopP99Ms: 12.5,
+          heapUsedBytes: 48_000_000,
+          rssBytes: 3_000_000_000,
+          // The instance's clock is not trusted; the server stamps its own time.
+          sampledAtUnixMs: 1,
+        },
+      });
+      const first = await listed();
+      expect(first?.runtimeSample).toEqual({
+        cpuPercent: 37.25,
+        eventLoopP99Ms: 12.5,
+        heapUsedBytes: 48_000_000,
+        rssBytes: 3_000_000_000,
+        sampledAtUnixMs: expect.any(Number),
+      });
+      expect(first?.runtimeSample?.sampledAtUnixMs).toBeGreaterThanOrEqual(
+        before - 5_000,
+      );
+      expect(first?.runtimeSample?.sampledAtUnixMs).toBe(first?.lastSeenUnixMs);
+
+      // The latest wins, figure by figure: absent and invalid figures are not kept from before.
+      await checkInOk(instance, {
+        runtimeSample: {
+          cpuPercent: 80,
+          eventLoopP99Ms: -3,
+          rssBytes: Number.MAX_VALUE,
+          sampledAtUnixMs: Date.now(),
+        },
+      });
+      expect((await listed())?.runtimeSample).toEqual({
+        cpuPercent: 80,
+        sampledAtUnixMs: expect.any(Number),
+      });
+
+      // Invalid as a whole: still 200, stored as none.
+      await checkInOk(instance, {
+        runtimeSample: { cpuPercent: 10, sampledAtUnixMs: "yesterday" },
+      });
+      expect((await listed())?.runtimeSample).toBeNull();
+
+      await checkInOk(instance, {
+        runtimeSample: { heapUsedBytes: 1, sampledAtUnixMs: Date.now() },
+      });
+      expect((await listed())?.runtimeSample).toMatchObject({
+        heapUsedBytes: 1,
+      });
+      await checkInOk(instance);
+      expect((await listed())?.runtimeSample).toBeNull();
+      const { rows } = await db.pool.query(
+        "SELECT cpu_percent, event_loop_p99_ms, heap_used_bytes, rss_bytes, runtime_sampled_at FROM instances WHERE instance_id = $1",
+        [instance.instanceId],
+      );
+      expect(rows[0]).toEqual({
+        cpu_percent: null,
+        event_loop_p99_ms: null,
+        heap_used_bytes: null,
+        rss_bytes: null,
+        runtime_sampled_at: null,
+      });
+    });
+
+    it("P15-03: a check-in from another key does not overwrite the owner's figures", async () => {
+      const instance = newInstance("runtime-owner");
+      await checkInOk(instance, {
+        runtimeSample: { cpuPercent: 5, sampledAtUnixMs: Date.now() },
+      });
+      const res = await checkIn(
+        server.baseUrl,
+        {
+          ...instance,
+          runtimeSample: { cpuPercent: 99, sampledAtUnixMs: Date.now() },
+        },
+        OTHER_KEY,
+      );
+      expect(res.status).not.toBe(200);
+      const list = (await (
+        await read("/api/v1/instances?service=runtime-owner")
+      ).json()) as InstanceListResponse;
+      expect(list.instances[0]?.runtimeSample?.cpuPercent).toBe(5);
+    });
+
     it("refuses unknown query parameters", async () => {
       expect((await read("/api/v1/instances?x=1")).status).toBe(400);
     });

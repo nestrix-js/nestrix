@@ -42,6 +42,43 @@ export interface CheckInRequest {
   sdkVersion?: string;
   /** Id of the capture this instance is running now, if any. */
   runningCaptureId?: string;
+  /**
+   * The instance's latest runtime figures (D-80, P15-03). Older SDKs leave it out. Named `runtimeSample` because `runtime` is the Node version.
+   */
+  runtimeSample?: InstanceRuntimeSample;
+}
+
+/**
+ * Runtime figures of one instance at its latest check-in (D-80). Field names follow
+ * `RuntimeSample` (`runtime.ts`); each figure is optional because an instance sends only what it
+ * has at no extra cost (see `eventLoopP99Ms`).
+ *
+ * The server keeps a field only when it is a finite number from 0 to its bound
+ * (`cpuPercent` 100,000, `eventLoopP99Ms` 3,600,000, bytes 2^50); it drops a field outside that,
+ * and the whole sample when `sampledAtUnixMs` is not a positive whole number or no figure is left.
+ * A bad sample never fails the check-in.
+ */
+export interface InstanceRuntimeSample {
+  /**
+   * CPU time (user + system) used since the previous check-in, as a percentage of one core
+   * (`RuntimeSample.cpuUserPercent + cpuSystemPercent`); may exceed 100 with worker threads.
+   */
+  cpuPercent?: number;
+  /**
+   * Event loop delay p99, milliseconds. Sent only while the embedded dashboard's runtime sampler
+   * runs in that process (its latest sample, at most 30 s old): the SDK starts no event-loop
+   * histogram of its own for the check-in.
+   */
+  eventLoopP99Ms?: number;
+  /** `process.memoryUsage().heapUsed`, bytes. */
+  heapUsedBytes?: number;
+  /** `process.memoryUsage().rss`, bytes. */
+  rssBytes?: number;
+  /**
+   * On a check-in: when the instance read the figures (its own clock). In `InstanceSummary`: when
+   * the server received them (the server's clock, like `lastSeenUnixMs`).
+   */
+  sampledAtUnixMs: number;
 }
 
 /** A capture the server asks the instance to run. */
@@ -79,6 +116,11 @@ export interface InstanceSummary {
   lastSeenUnixMs: number;
   /** The pending or running capture for this instance, if any. */
   capture: RemoteProfileSummary | null;
+  /**
+   * Runtime figures from the latest check-in (D-80); `null` when that check-in carried none (an
+   * older SDK, or nothing valid). Absent from older servers: treat as `null`.
+   */
+  runtimeSample?: InstanceRuntimeSample | null;
 }
 
 /** `GET api/v1/instances`. Instances seen in the last 2 minutes, newest check-in first. */

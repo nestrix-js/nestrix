@@ -23,7 +23,9 @@ import {
   cleanText,
   parseCheckIn,
   parseFailed,
+  parseRuntimeSample,
   parseStart,
+  RUNTIME_BOUNDS,
 } from "../../src/profiler/parse.js";
 import {
   downloadName,
@@ -250,6 +252,7 @@ describe("body parsers", () => {
         runtime: null,
         sdkVersion: null,
         runningCaptureId: null,
+        runtimeSample: null,
       },
     });
     expect(parseCheckIn({ service: "s".repeat(256), instanceId: "i" }).ok).toBe(
@@ -260,6 +263,94 @@ describe("body parsers", () => {
     );
     expect(parseCheckIn({ service: "\uD800", instanceId: "i" }).ok).toBe(false);
     expect(parseCheckIn(null).ok).toBe(false);
+  });
+
+  it("P15-03: parseRuntimeSample keeps finite figures within bounds and drops the rest", () => {
+    const at = 1_763_000_000_000;
+    expect(
+      parseRuntimeSample({
+        cpuPercent: 12.5,
+        eventLoopP99Ms: 0,
+        heapUsedBytes: 10_000_000,
+        rssBytes: 2 ** 50,
+        sampledAtUnixMs: at,
+        extra: "ignored",
+      }),
+    ).toEqual({
+      cpuPercent: 12.5,
+      eventLoopP99Ms: 0,
+      heapUsedBytes: 10_000_000,
+      rssBytes: 2 ** 50,
+    });
+    // Per figure: negative, non-finite, over the bound, a string: dropped, the rest kept.
+    expect(
+      parseRuntimeSample({
+        cpuPercent: -1,
+        eventLoopP99Ms: RUNTIME_BOUNDS.eventLoopP99Ms + 1,
+        heapUsedBytes: "10",
+        rssBytes: 5,
+        sampledAtUnixMs: at,
+      }),
+    ).toEqual({
+      cpuPercent: null,
+      eventLoopP99Ms: null,
+      heapUsedBytes: null,
+      rssBytes: 5,
+    });
+    expect(
+      parseRuntimeSample({
+        cpuPercent: RUNTIME_BOUNDS.cpuPercent + 0.01,
+        rssBytes: 2 ** 50 + 1,
+        sampledAtUnixMs: at,
+      }),
+    ).toBeNull();
+    // JSON cannot carry NaN or Infinity, but a caller passing parsed values might.
+    expect(
+      parseRuntimeSample({
+        cpuPercent: Number.NaN,
+        heapUsedBytes: Number.POSITIVE_INFINITY,
+        sampledAtUnixMs: at,
+      }),
+    ).toBeNull();
+    // The whole sample: not an object, an array, a bad timestamp.
+    for (const bad of [
+      null,
+      "x",
+      42,
+      [1, 2],
+      { cpuPercent: 1 },
+      { cpuPercent: 1, sampledAtUnixMs: 0 },
+      { cpuPercent: 1, sampledAtUnixMs: -5 },
+      { cpuPercent: 1, sampledAtUnixMs: 1.5 },
+      { cpuPercent: 1, sampledAtUnixMs: "1763000000000" },
+      { cpuPercent: 1, sampledAtUnixMs: 2 ** 60 },
+    ]) {
+      expect(parseRuntimeSample(bad), JSON.stringify(bad)).toBeNull();
+    }
+  });
+
+  it("P15-03: a bad runtimeSample never fails the check-in; an absent one is null (old clients)", () => {
+    const withBad = parseCheckIn({
+      service: "s",
+      instanceId: "i",
+      runtimeSample: { cpuPercent: "high", sampledAtUnixMs: "now" },
+    });
+    expect(withBad.ok).toBe(true);
+    expect(withBad.ok && withBad.checkIn.runtimeSample).toBeNull();
+    const old = parseCheckIn({ service: "s", instanceId: "i", runtime: "v26" });
+    expect(old.ok && old.checkIn.runtimeSample).toBeNull();
+    expect(old.ok && old.checkIn.runtime).toBe("v26");
+    const good = parseCheckIn({
+      service: "s",
+      instanceId: "i",
+      runtimeSample: { rssBytes: 1, sampledAtUnixMs: 1 },
+    });
+    expect(good.ok && good.checkIn.runtimeSample).toEqual({
+      cpuPercent: null,
+      eventLoopP99Ms: null,
+      heapUsedBytes: null,
+      rssBytes: 1,
+    });
   });
 
   it("parseFailed needs a string message and gives an empty one a default", () => {
