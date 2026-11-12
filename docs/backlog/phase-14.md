@@ -8,9 +8,9 @@ Owner, 2026-11-12: "why you only fix the overview ui, the rest still plain, ugly
 |---|---|---|---|---|
 | P14-01 | Shared kit + shell + Requests (reference page) | sonnet | — | done (branch `p14-01-kit`, not merged) |
 | P14-02 | Errors (canvas design) + Queries | sonnet | P14-01 | todo |
-| P14-03 | Routes + Classes + Map | sonnet | P14-01 | done (branch `p14-03-routes-classes-map`, not merged) |
-| P14-04 | Dependencies + Runtime + Profiler (embedded and standalone; canvas design) | sonnet | P14-01 | todo |
-| P14-05 | Trace view + SLOs + Settings + login and empty/error states | sonnet | P14-01 | done (branch `p14-05-trace-slos-settings`, not merged) |
+| P14-03 | Routes + Classes + Map | sonnet | P14-01 | done (merged) |
+| P14-04 | Dependencies + Runtime + Profiler (embedded and standalone; canvas design) | sonnet | P14-01 | done (merged) |
+| P14-05 | Trace view + SLOs + Settings + login and empty/error states | sonnet | P14-01 | done (merged) |
 | P14-06 | Screenshot review with the owner, fixes, changeset, release | lead | P14-02..05 | todo |
 
 ## Design rules (every page)
@@ -89,6 +89,17 @@ Tests added: `kit/format.test.ts`, `requests/requests-stats.test.ts`, `e2e/p14-k
 - **Dependencies:** a health card per dependency (status dot by error rate/p95, kind icon, p95, error rate, calls, trend sparkline) in a responsive grid above a calls-over-time chart and the table; keep the `name` filter.
 - **Runtime (embedded):** gauges or tiles for event-loop delay p99, heap, RSS, CPU with thresholds; area charts over time; clear empty state.
 - **Profiler** (canvas artboard "Profiler"): flame graph coloured by origin (your code, `node_modules`, Node built-ins, V8) with a legend; top functions with self-time `BarCell`; a CPU-by-origin donut; in the standalone page, the instances table with a "suggested" chip for the instance with the highest CPU or loop delay only if the data is available (otherwise skip and note), capture states as a progress bar; recent captures with state chips.
+
+### P14-04 as built
+
+All three pages use the kit only (no new kit component: the two things used by one page each, `Gauge` on Runtime and `CaptureProgress`/`Problem` on the profiler pages, stay in the page folders).
+
+- **Dependencies** (`views/dependencies/`): `PageHeader` (window `SegmentedControl`, Reload), the sampled-traces note (`dependencies-note`), four tiles (dependencies, outbound calls with a series, error rate, slowest p95; every change is "—", the answer has no previous window), a grid of up to 8 health cards (`dependency-card`: kind icon, status `Chip`, p95, error rate, calls, p95 trend line), a stacked `AreaChart` of calls over time (top 4 by total time plus "Other"), and the table (status chip, `BarCell` for total time, whole row opens the slowest call's trace, `sparkline` wrappers keep `data-points`). Status (`dependency-health.ts`, unit tested): failing from 5% errors, degraded from 1% errors or a 1 s p95, else healthy. The `name` filter and its chip are unchanged.
+- **Runtime** (`views/runtime/`): eight `StatTile`s with ids `tile-*` as before; event loop p99, heap, RSS and CPU carry a trend line, and the first, second and fourth also a gauge (`role="meter"`) and a word chip (Normal, Elevated, High). Thresholds (`runtime-format.ts`, unit tested): loop p99 20 and 50 ms; CPU 60% and 85% of a core; heap in use against the heap V8 has allocated (the samples carry no heap limit) 75% and 90%. The four uPlot charts sit in `Section`s; empty and error states use `EmptyState`/`ErrorState`. The uPlot legend is set to 12 px in `styles.css`, and the memory axis prints whole MB from 100 MB (`formatMemoryAxis`) so its labels fit.
+- **Profiler** (`views/profiler/`, embedded and standalone): origin is now four-way (`frameKind(url, functionName)`: your code, `node_modules`, Node built-ins, V8; was three, with Node and V8 together). Tokens: `--flame-app`, `--flame-deps`, `--flame-runtime` (now Node built-ins only) and the new `--flame-v8` (grey). The flame graph has a legend, taller rows and the origin in each bar's tooltip and `data-origin`; below it the top-functions table (origin swatch, self-time `BarCell`) and the CPU-by-origin donut, computed by `cpuByOrigin` from the flame tree's own samples (what the server pruned from the tree is its own grey "Small frames (pruned)" slice; idle time is excluded, as the API does). The capture header carries the single `profile-download` link of the capture shown (the rows keep only "View"). Capture progress is a `role="progressbar"` bar; refused starts (403 HTTPS or localhost, 409, 429 countdown, 404) show in one `Problem` alert as before. The standalone page has the duration select in the header, instances and recent captures in `Section`s with word state chips (Pending, Running, Done, Failed, Expired).
+- **Gaps (API gives no data, so nothing is shown):** the standalone instances table has no "suggested instance" chip and no CPU or loop-delay column, because `InstanceSummary` carries no CPU or event-loop figure; the canvas's "Compare with" button needs a diff of two captures (not in the API); the Dependencies page has no per-dependency previous window.
+- **Not fixed here:** `components/ui/table.tsx` gives `TableRow` `border-b` with no colour, so row borders are `currentColor` (white in dark mode, black in light) on every page that does not pass `border-border`. The three pages pass `border-border` themselves; the table component should do it.
+- Tests: `e2e/p14-deps-runtime-profiler.pw.ts` (screenshots `p14-dependencies-*`, `p14-runtime-*`, `p14-profiler-*`, `p14-profiler-standalone-*` in dark and light, and `p14-profiler-phone.png`; phone-width overflow check), `e2e/mock-rich-profile.ts` (a profile with every origin), unit tests for `frameKind`/`cpuByOrigin`, `dependency-health.ts` and the runtime thresholds. Existing specs unchanged. `errors.pw.ts` "renders the protocol fixture" fails on the date of the run ("yesterday" against `/ago|now|.../`); it is the Errors page, not part of this task.
 
 ## P14-05 Trace view, SLOs, Settings, login
 

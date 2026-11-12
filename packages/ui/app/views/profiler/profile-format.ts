@@ -1,18 +1,85 @@
 import type { FlameNode } from "@nestrix-js/protocol";
 
-/** Where a frame's code lives; the flame graph's colour (three hues, see styles.css). */
-export type FrameKind = "app" | "deps" | "runtime";
+/**
+ * Where a frame's code lives; the flame graph's colour. `v8` is V8's own entries (`(program)`,
+ * `(garbage collector)`, native code with no URL), `node` is Node's built-ins (`node:` ids).
+ */
+export type FrameKind = "app" | "deps" | "node" | "v8";
 
 export const frameKindLabel: Record<FrameKind, string> = {
-  app: "Application",
-  deps: "Dependencies (node_modules)",
-  runtime: "Node.js and V8",
+  app: "Your code",
+  deps: "node_modules",
+  node: "Node built-ins",
+  v8: "V8 (GC, program)",
 };
 
-/** `file://` outside `node_modules` is the app; inside is a dependency; `node:` and V8's own are runtime. */
-export function frameKind(url: string): FrameKind {
-  if (!url.startsWith("file:")) return "runtime";
-  return /[\\/]node_modules[\\/]/.test(url) ? "deps" : "app";
+/** The colour token (`--flame-*`) of each origin: one set for the flame graph, donut and table. */
+export const frameKindColor: Record<FrameKind, string> = {
+  app: "--flame-app",
+  deps: "--flame-deps",
+  node: "--flame-runtime",
+  v8: "--flame-v8",
+};
+
+export const FRAME_KINDS = ["app", "deps", "node", "v8"] as const;
+
+/**
+ * `file://` (or an absolute path) outside `node_modules` is the app, inside is a dependency;
+ * `node:` ids are Node's built-ins; an empty URL or a V8 entry named `(...)` is V8; any other
+ * scheme (wasm, data) counts with Node's own.
+ */
+export function frameKind(url: string, functionName = ""): FrameKind {
+  if (url === "") return "v8";
+  if (/^(file:|\/|[a-zA-Z]:[\\/])/.test(url)) {
+    return /[\\/]node_modules[\\/]/.test(url) ? "deps" : "app";
+  }
+  if (url.startsWith("node:") || url.startsWith("internal/")) return "node";
+  return functionName.startsWith("(") && functionName.endsWith(")")
+    ? "v8"
+    : "node";
+}
+
+/** Samples of one origin in a flame tree; see `cpuByOrigin`. */
+export interface OriginShare {
+  kind: FrameKind | "pruned";
+  samples: number;
+  /** `samples` over the root's total, 0 to 1. */
+  fraction: number;
+}
+
+/**
+ * CPU by origin from a capture's flame tree: each node's own (self) samples go to its origin.
+ * The server prunes small subtrees, so a node's total can exceed its self plus its children's
+ * totals; that remainder is reported as `pruned` rather than guessed. Iterative.
+ */
+export function cpuByOrigin(root: FlameNode): OriginShare[] {
+  const total = root.totalSamples;
+  if (!(total > 0)) return [];
+  const sums: Record<FrameKind | "pruned", number> = {
+    app: 0,
+    deps: 0,
+    node: 0,
+    v8: 0,
+    pruned: 0,
+  };
+  const stack: FlameNode[] = [root];
+  while (stack.length > 0) {
+    const n = stack.pop() as FlameNode;
+    sums[frameKind(n.url, n.functionName)] += n.selfSamples;
+    let children = 0;
+    for (const c of n.children) {
+      children += c.totalSamples;
+      stack.push(c);
+    }
+    sums.pruned += Math.max(0, n.totalSamples - n.selfSamples - children);
+  }
+  return ([...FRAME_KINDS, "pruned"] as const)
+    .map((kind) => ({
+      kind,
+      samples: sums[kind],
+      fraction: sums[kind] / total,
+    }))
+    .filter((s) => s.samples > 0);
 }
 
 /** The last two path segments of a URL, enough to tell files apart; empty for V8's entries. */
@@ -86,7 +153,7 @@ export function layoutFlame(
       x: item.x,
       width,
       node: item.node,
-      kind: frameKind(item.node.url),
+      kind: frameKind(item.node.url, item.node.functionName),
     });
     depth = Math.max(depth, item.depth + 1);
     let x = item.x;
