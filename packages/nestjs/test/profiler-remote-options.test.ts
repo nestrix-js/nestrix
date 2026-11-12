@@ -65,6 +65,26 @@ describe("export.profiler", () => {
     });
   });
 
+  it("with a base from the generic endpoint, never sends the traces-only headers (the ingest key)", () => {
+    const resolved = remote(
+      { export: { profiler: true, otlp: { headers: { "x-opt": "o" } } } },
+      {
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://nestrix.example/v1/traces",
+        OTEL_EXPORTER_OTLP_TRACES_HEADERS: "authorization=Bearer secret",
+        OTEL_EXPORTER_OTLP_HEADERS: "x-generic=g",
+        OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector.internal:4318",
+      },
+    );
+    expect(resolved).toEqual({
+      target: {
+        baseUrl: "http://collector.internal:4318",
+        headers: { "x-generic": "g", "x-opt": "o" },
+        timeoutMillis: 10_000,
+      },
+    });
+    expect(JSON.stringify(resolved)).not.toContain("secret");
+  });
+
   it("a traces URL alone gives no base; otlp: false or no endpoint gives none", () => {
     expect(
       remote(

@@ -199,10 +199,11 @@ export class IngestReceiver implements OnApplicationBootstrap {
   /**
    * The ingest key (401) and the rate limit (429) of every ingest-key route: `/v1/traces`,
    * `/v1/logs` and the instance side of remote profiling (P10-02), which share one bucket per
-   * key. `principal` is `key:<n>`, or `ip:<address>` with auth off. Never throws.
+   * key. `principal` (the rate-limit bucket) is `key:<n>`, or `ip:<address>` with auth off; `owner` is
+   * the key's fingerprint (`undefined` with auth off). Never throws.
    */
   admit(req: IncomingMessage):
-    | { ok: true; principal: string }
+    | { ok: true; principal: string; owner: string | undefined }
     | {
         ok: false;
         status: number;
@@ -231,7 +232,7 @@ export class IngestReceiver implements OnApplicationBootstrap {
           headers: { "Retry-After": String(rate.retryAfterSeconds) },
         };
       }
-      return { ok: true, principal: auth.principal };
+      return { ok: true, principal: auth.principal, owner: auth.owner };
     } catch {
       return {
         ok: false,

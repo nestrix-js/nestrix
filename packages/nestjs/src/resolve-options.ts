@@ -103,7 +103,11 @@ export interface ResolvedRemoteProfilerTarget {
 /**
  * `export.profiler` (P10-01, D-76). A boolean or absent; anything else throws. On only when trace
  * export resolves; the base is `export.otlp.endpoint`, else `OTEL_EXPORTER_OTLP_ENDPOINT` (a full
- * traces URL set alone gives no base, as for metrics). The headers are the traces export's.
+ * traces URL set alone gives no base, as for metrics). With a base from `export.otlp.endpoint` the
+ * headers are the traces export's. With a base from `OTEL_EXPORTER_OTLP_ENDPOINT` they are the
+ * generic `OTEL_EXPORTER_OTLP_HEADERS` plus `export.otlp.headers`, never
+ * `OTEL_EXPORTER_OTLP_TRACES_HEADERS`: that variable belongs to a traces URL that may be the
+ * Nestrix server while the generic endpoint is a Collector, and the ingest key must not reach it.
  */
 export function resolveRemoteProfiler(
   options: NestrixModuleOptions,
@@ -115,12 +119,19 @@ export function resolveRemoteProfiler(
   const traces = resolveOtlp(options, env);
   if (traces === false) return Object.freeze({ target: undefined });
   const otlp = options.export?.otlp || undefined;
-  const base = blank(otlp?.endpoint) ?? blank(env.OTEL_EXPORTER_OTLP_ENDPOINT);
+  const optionBase = blank(otlp?.endpoint);
+  const base = optionBase ?? blank(env.OTEL_EXPORTER_OTLP_ENDPOINT);
   if (base === undefined) return Object.freeze({ target: undefined });
   return Object.freeze({
     target: Object.freeze({
       baseUrl: base.replace(/\/+$/, ""),
-      headers: traces.headers,
+      headers:
+        optionBase !== undefined
+          ? traces.headers
+          : Object.freeze({
+              ...parseHeaderList(env.OTEL_EXPORTER_OTLP_HEADERS),
+              ...otlp?.headers,
+            }),
       timeoutMillis: traces.timeoutMillis,
     }),
   });

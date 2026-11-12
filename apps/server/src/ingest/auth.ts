@@ -7,11 +7,21 @@ import type { IncomingHttpHeaders } from "node:http";
 import type { IngestConfig } from "../config.js";
 
 export type AuthResult =
-  /** `principal` names the rate-limit bucket: `key:<n>` for a key, `ip:<address>` with auth off. */
-  { ok: true; principal: string } | { ok: false; message: string };
+  /**
+   * `principal` names the rate-limit bucket: `key:<n>` for a key, `ip:<address>` with auth off.
+   * `owner` is the stable ownership identity of the key (a fingerprint of its digest), which survives a
+   * reorder or rotation of the key list; `undefined` with auth off.
+   */
+  | { ok: true; principal: string; owner?: string }
+  | { ok: false; message: string };
 
 function digest(value: string): Buffer {
   return createHash("sha256").update(value, "utf8").digest();
+}
+
+/** First 16 hex characters of the key's SHA-256 digest: a stable name that does not reveal it. */
+function fingerprint(keyDigest: Buffer): string {
+  return keyDigest.subarray(0, 8).toString("hex");
 }
 
 /** The presented key, or `undefined` when the request carries none. */
@@ -62,6 +72,10 @@ export class IngestAuth {
     }
     return match === -1
       ? { ok: false, message: "invalid API key" }
-      : { ok: true, principal: `key:${match}` };
+      : {
+          ok: true,
+          principal: `key:${match}`,
+          owner: fingerprint(this.digests[match] as Buffer),
+        };
   }
 }

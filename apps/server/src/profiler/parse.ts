@@ -87,6 +87,7 @@ export function parseCheckIn(
         pid,
         runtime: optionalText(value.runtime),
         sdkVersion: optionalText(value.sdkVersion),
+        runningCaptureId: optionalText(value.runningCaptureId),
       },
     };
   } catch {

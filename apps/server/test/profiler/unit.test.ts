@@ -249,6 +249,7 @@ describe("body parsers", () => {
         pid: null,
         runtime: null,
         sdkVersion: null,
+        runningCaptureId: null,
       },
     });
     expect(parseCheckIn({ service: "s".repeat(256), instanceId: "i" }).ok).toBe(

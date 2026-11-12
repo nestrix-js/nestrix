@@ -12,7 +12,10 @@
  * Ownership: a capture is handed only to a check-in for its `service` + `instanceId`, made with the
  * ingest key that owns that instance (the key of its first check-in); the key that received the
  * order is recorded as the capture's `principal`, and only that key may upload it or report its
- * failure. With ingest auth off every request has the principal `none` (anyone can send anyway).
+ * failure. The principal is a fingerprint of the key (first 16 hex characters of its SHA-256), so
+ * rotating or reordering `NESTRIX_INGEST_KEYS` keeps every key's instances; an old `key:<index>`
+ * principal is replaced by the fingerprint at the next check-in. With ingest auth off every request
+ * has the principal `none` (anyone can send anyway).
  */
 import { randomBytes } from "node:crypto";
 import { promisify } from "node:util";
@@ -65,6 +68,9 @@ const SUMMARY_CACHE_SIZE = 8;
 
 export const PENDING_EXPIRED_MESSAGE =
   "The instance did not check in within 60 s of the request.";
+/** A `running` capture older than this, which its instance does not report, was never received. */
+export const ORDER_LOST_AFTER_MS = 20_000;
+export const ORDER_LOST_MESSAGE = "the instance did not receive the order";
 export const RUNNING_EXPIRED_MESSAGE =
   "The instance did not upload the profile within its duration plus 60 s.";
 
@@ -77,6 +83,8 @@ export interface CheckIn {
   pid: number | null;
   runtime: string | null;
   sdkVersion: string | null;
+  /** The capture the instance says it runs now (`runningCaptureId`). */
+  runningCaptureId: string | null;
 }
 
 /** What `complete` stores. */
@@ -236,8 +244,10 @@ export class RemoteProfileStore
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (service, instance_id) DO UPDATE
             SET version = EXCLUDED.version, host = EXCLUDED.host, pid = EXCLUDED.pid,
-                runtime = EXCLUDED.runtime, sdk_version = EXCLUDED.sdk_version, last_seen = now()
+                runtime = EXCLUDED.runtime, sdk_version = EXCLUDED.sdk_version, last_seen = now(),
+                principal = EXCLUDED.principal
           WHERE instances.principal = EXCLUDED.principal
+             OR instances.principal LIKE 'key:%'
          RETURNING 1`,
         [
           checkIn.service,
@@ -251,6 +261,27 @@ export class RemoteProfileStore
         ],
       );
       if (upsert.rowCount === 0) return { kind: "conflict" };
+      // Rows from before ownership followed the key's fingerprint carry `key:<index>`; the check-in
+      // that just claimed the instance carries the same claim over to its running capture.
+      await client.query(
+        `UPDATE remote_profiles SET principal = $3
+          WHERE service = $1 AND instance_id = $2 AND state = 'running' AND principal LIKE 'key:%'`,
+        [checkIn.service, checkIn.instanceId, owner],
+      );
+      // An order handed over but never received (the answer was lost): the instance does not
+      // report it as running. Fail it, so a new one can be handed out and started.
+      await client.query(
+        `UPDATE remote_profiles SET state = 'failed', finished_at = now(), error = $3
+          WHERE service = $1 AND instance_id = $2 AND state = 'running'
+            AND started_at < now() - interval '${ORDER_LOST_AFTER_MS} milliseconds'
+            AND ($4::text IS NULL OR id <> $4::text)`,
+        [
+          checkIn.service,
+          checkIn.instanceId,
+          ORDER_LOST_MESSAGE,
+          checkIn.runningCaptureId,
+        ],
+      );
       const handed = await client.query<{ id: string; duration_ms: number }>(
         `UPDATE remote_profiles SET state = 'running', started_at = now(), principal = $3
           WHERE id = (SELECT id FROM remote_profiles

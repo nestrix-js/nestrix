@@ -19,6 +19,8 @@
  *   an export (`outbound/rules.ts`). Nestrix's fetch/undici subscriber, and any host
  *   instrumentation that honours the key, create no span and inject no `traceparent`. It never
  *   enters an incoming request, so it is not in route statistics either.
+ * - Requests go through `unrefFetch` (`node:http`, `agent: false`, unref'ed sockets): a request in
+ *   flight never keeps a short-lived host process alive.
  * - Redirects are not followed (`redirect: "manual"`), so the export headers are never sent to
  *   another URL; a 3xx counts as a failure.
  * - `stop()` clears the timer, aborts every in-flight request and discards a capture this poller
@@ -46,6 +48,7 @@ import {
   PROFILE_LIMITS,
   type StartResult,
 } from "./profiler.js";
+import { unrefFetch } from "./unref-fetch.js";
 
 export const CHECK_IN_PATH = "/v1/nestrix/check-in";
 export const PROFILES_PATH = "/v1/nestrix/profiles";
@@ -119,6 +122,7 @@ export interface RemotePollerConfig {
   /** Test seams. */
   readonly profiler?: PollerProfiler;
   readonly timing?: Partial<PollerTiming>;
+  /** The transport; defaults to `unrefFetch` (`node:http` with unref'ed sockets). */
   readonly fetch?: typeof fetch;
   readonly random?: () => number;
 }
@@ -244,7 +248,7 @@ export class RemoteProfilerPoller {
       ...config.timing,
     };
     this.profiler = config.profiler ?? getProfiler();
-    this.fetchFn = config.fetch ?? ((input, init) => fetch(input, init));
+    this.fetchFn = config.fetch ?? (unrefFetch as typeof fetch);
     this.random = config.random ?? Math.random;
     this.url = shownUrl(config.target.baseUrl);
   }
