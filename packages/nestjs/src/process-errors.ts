@@ -18,6 +18,7 @@ import { diagnostics } from "./diagnostics.js";
 import { exceptionType } from "./http/interceptor.js";
 import { getStateFromContext, maybeFault } from "./http/request-state.js";
 import { TRACER_NAME } from "./http/server.js";
+import { endNestrixSpan, startNestrixSpan } from "./trace-limit.js";
 
 const EVENT = "uncaughtExceptionMonitor";
 
@@ -54,13 +55,16 @@ export function onUncaughtExceptionMonitor(
       typeof origin === "string" && origin !== ""
         ? origin
         : "uncaughtException";
-    const span = trace
-      .getTracer(TRACER_NAME)
-      .startSpan(name, { kind: SpanKind.INTERNAL }, active);
+    const span = startNestrixSpan(
+      trace.getTracer(TRACER_NAME),
+      name,
+      { kind: SpanKind.INTERNAL },
+      active,
+    );
     span.recordException(asException(error));
     span.setAttribute(ATTR_ERROR_TYPE, exceptionType(error));
     span.setStatus({ code: SpanStatusCode.ERROR });
-    span.end();
+    endNestrixSpan(span);
   } catch (failure) {
     diagnostics.countFailure("process.uncaught-exception-monitor", failure);
   }

@@ -56,6 +56,7 @@ const OPTIONS = [
   "serviceName",
   "resourceAttributes",
   "sampleRate",
+  "maxSpansPerTrace",
   "export",
   "export.otlp",
   "export.otlp.endpoint",

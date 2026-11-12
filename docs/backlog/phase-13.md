@@ -9,7 +9,7 @@ Wire contract: `TraceResponse.droppedSpans` and `DroppedSpans` in `packages/prot
 | ID | Task | Tier | Depends | Status |
 |---|---|---|---|---|
 | P13-00 | D-78, protocol, this backlog | lead | — | done |
-| P13-01 | SDK: `maxSpansPerTrace` and dropped-span counting | opus | P13-00 | todo |
+| P13-01 | SDK: `maxSpansPerTrace` and dropped-span counting | opus | P13-00 | done (local checks; see "As built (P13-01)") |
 | P13-02 | Server: per-trace cap at ingest, dropped count stored, `droppedSpans` in `trace`; embedded store reads the attributes | sonnet | P13-00 | done |
 | P13-03 | UI: "omitted N spans" in the trace view | sonnet | P13-00 | done |
 | P13-04 | Review, docs, changeset | lead + reviewer | P13-01..03 | todo |
@@ -25,6 +25,16 @@ Wire contract: `TraceResponse.droppedSpans` and `DroppedSpans` in `packages/prot
 - **Statistics stay exact.** Route statistics, class statistics and metrics are counted before sampling today (D-61); make sure dropped spans still count in class statistics (call counts and total time) the same way unsampled ones do.
 - **Memory.** Per-trace counters in a bounded map (e.g. at most 10,000 live traces, entries removed when the local root ends or after 1 hour idle), so a leak is impossible.
 - **Tests.** A trace with 25,000 child spans and limit 10,000: exactly 10,000 recorded (root included), 15,000 counted with kinds, the attributes on the root, class statistics still count all calls. Limit off (`false`) records everything. Host-owned SDK: only Nestrix spans limited. A BullMQ-style trace where the job's processor span is the local root. Two concurrent traces counted separately. Map stays bounded. Every hook catches everything (fault injection).
+
+#### As built (P13-01)
+
+- **Code.** `packages/nestjs/src/trace-limit.ts` (the per-trace counter and the host-mode helpers; `@opentelemetry/api` only), `src/otel/span-limit.ts` (limiting sampler and limit processor; setup code), wired in `src/otel/setup.ts`. Option in `options.ts`, validated in `resolve-options.ts` (`false` or a safe integer ≥ 100; `null`/`undefined` → 10,000). Every Nestrix span site (HTTP server, methods, db, outbound, microservices client/server, process errors, `withSpan`/`@Span`) starts through `startNestrixSpan` (or `hostGate`/`hostStarted`) and ends through `endNestrixSpan`; outside host mode these cost one branch.
+- **Decisions** (details and evidence in architecture §4.5 "Span limit per trace"): owned provider = sampler around the existing `ParentBasedSampler` plus a processor whose `onEnding` writes the counts (experimental hook in sdk-trace 3.1.1, pinned by a test, fallback logged). **Downstream sampled flag after the limit is `-00`**, not the preferred `-01`: an SDK 3 sampler cannot return a non-recording span that stays sampled (`Tracer.mjs`), and the alternatives (record and filter, or rewrite `traceparent`) cost a `SpanImpl` per dropped span or misreport. Host-owned SDK = Nestrix spans only; a dropped Nestrix span is replaced by its parent's context (sampled), and the counts go on the first Nestrix span of the trace. Each local root carries the drops counted since the previous root wrote (the server sums them).
+- **"25,000 children → 15,000 dropped"** in the test list is off by one (25,000 children plus the root is 25,001 spans, 15,001 dropped); the test uses 25,000 spans (root + 24,999 children): 10,000 recorded, 15,000 counted (3,000 per kind).
+- **Memory.** One map, ≤ 10,000 traces, entry removed when its last local root ends, idle 1 h, or least recently moved when full (logged once); constant work per new trace.
+- **Cost** far below the limit: 77 to 92 ns per span on a bare provider (6.5 to 8 %), counter alone 8 to 10 ns (`test/manual/span-limit-bench.mjs`).
+- **Tests.** `test/span-limit-unit.test.ts` (counter, sampler and processor on a private provider: 25,000 spans, kinds, grandchildren, `traceparent` flags, concurrent traces, remote-parent roots, `onEnding` pin, bounded map and idle sweep, host-mode counter, faults), `test/span-limit-owned.test.ts` (Nestrix owns the provider, OTLP receiver: 25,000-span trace, `false`, a BullMQ-style job root with class statistics counting all 250 calls, a request root on Express, Fastify and platform-node, a counter that throws everywhere), `test/span-limit-host.test.ts` (host SDK: host spans unlimited and parented on recorded spans, job and request roots, `withSpan` past the limit runs once, `false`, faults), `test/resolve-options.test.ts`.
+- **Not done here.** No changeset (P13-04). The reading of the attributes is P13-02/P13-03; it sums them over the trace's spans, which matches each local root carrying its own share, and P13-02's cap exempts spans carrying them.
 
 ### P13-02 Server and embedded store
 

@@ -11,6 +11,7 @@ describe("resolveOptions defaults", () => {
       serviceName: undefined,
       resourceAttributes: {},
       sampleRate: 1,
+      maxSpansPerTrace: 10_000,
       export: {
         otlp: false,
         queue: {
@@ -245,6 +246,34 @@ describe("resolveOptions validation", () => {
 
   it.each([0, 0.5, 1])("accepts sampleRate %s", (sampleRate) => {
     expect(resolveOptions({ sampleRate }, none).sampleRate).toBe(sampleRate);
+  });
+
+  it.each([
+    99,
+    0,
+    -1,
+    100.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    true,
+    "1000",
+  ])("rejects maxSpansPerTrace %s", (maxSpansPerTrace) => {
+    expect(() => resolveOptions({ maxSpansPerTrace } as never, none)).toThrow(
+      /maxSpansPerTrace must be false or an integer of at least 100/,
+    );
+  });
+
+  it.each([100, 10_000, 1_000_000, false] as const)(
+    "accepts maxSpansPerTrace %s",
+    (maxSpansPerTrace) => {
+      expect(resolveOptions({ maxSpansPerTrace }, none).maxSpansPerTrace).toBe(
+        maxSpansPerTrace,
+      );
+    },
+  );
+
+  it("defaults maxSpansPerTrace to 10,000", () => {
+    expect(resolveOptions(undefined, none).maxSpansPerTrace).toBe(10_000);
   });
 
   it.each([

@@ -46,6 +46,7 @@ import {
   splitUrl,
 } from "../privacy.js";
 import type { ResolvedOptions } from "../resolve-options.js";
+import { endNestrixSpan, startNestrixSpan } from "../trace-limit.js";
 
 export const TRACER_NAME = "@nestrix-js/nestjs";
 
@@ -294,13 +295,12 @@ export function startClientSpan(
   attributes: Attributes,
   parent: Context,
 ): Span {
-  return trace
-    .getTracer(TRACER_NAME)
-    .startSpan(
-      clientSpanName(method),
-      { kind: SpanKind.CLIENT, attributes },
-      parent,
-    );
+  return startNestrixSpan(
+    trace.getTracer(TRACER_NAME),
+    clientSpanName(method),
+    { kind: SpanKind.CLIENT, attributes },
+    parent,
+  );
 }
 
 /** Records the response head: status code, allowlisted headers, error status from 400 on. */
@@ -413,7 +413,7 @@ export interface ClientSpanState {
 export function endOnce(state: ClientSpanState, endTime?: TimeInput): boolean {
   if (state.ended) return false;
   state.ended = true;
-  state.span.end(endTime);
+  endNestrixSpan(state.span, endTime);
   return true;
 }
 

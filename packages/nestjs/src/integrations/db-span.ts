@@ -29,6 +29,7 @@ import {
   SUPPRESS_TRACING_KEY,
   TRACER_NAME,
 } from "../outbound/rules.js";
+import { endNestrixSpan, startNestrixSpan } from "../trace-limit.js";
 
 export type DbSystem = "postgresql" | "mysql" | "redis";
 
@@ -88,7 +89,8 @@ export function startDbSpan(
   parent: Context,
   startTime?: TimeInput,
 ): Span {
-  return trace.getTracer(TRACER_NAME).startSpan(
+  return startNestrixSpan(
+    trace.getTracer(TRACER_NAME),
     dbSpanName(call),
     {
       kind: SpanKind.CLIENT,
@@ -102,7 +104,7 @@ export function startDbSpan(
 /** Ends `span`, first recording `error` (exception event, error status, `error.type`) if any. */
 export function endDbSpan(span: Span, error?: unknown): void {
   if (error !== undefined && error !== null) recordClientError(span, error);
-  span.end();
+  endNestrixSpan(span);
 }
 
 /** A port number from a string or number, else `undefined`. */

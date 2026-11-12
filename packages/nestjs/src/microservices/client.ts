@@ -30,6 +30,7 @@ import { ATTR_ERROR_TYPE } from "@opentelemetry/semantic-conventions";
 import { Observable, type Subscriber, type Subscription } from "rxjs";
 import { diagnostics } from "../diagnostics.js";
 import { parentContext } from "../outbound/rules.js";
+import { endNestrixSpan, startNestrixSpan } from "../trace-limit.js";
 import { recordError } from "./server.js";
 import {
   ATTR_MESSAGING_DESTINATION_NAME,
@@ -168,19 +169,18 @@ function startClientSpan(
   };
   if (state.transport !== undefined)
     attributes[ATTR_MESSAGING_SYSTEM] = state.transport;
-  const span = trace
-    .getTracer(TRACER_NAME)
-    .startSpan(
-      spanName(state.transport, destination),
-      { kind, attributes },
-      parent,
-    );
+  const span = startNestrixSpan(
+    trace.getTracer(TRACER_NAME),
+    spanName(state.transport, destination),
+    { kind, attributes },
+    parent,
+  );
   return { span, ctx: trace.setSpan(parent, span) };
 }
 
 function endSpan(span: Span): void {
   try {
-    span.end();
+    endNestrixSpan(span);
   } catch (error) {
     diagnostics.countFailure("microservices.end", error);
   }
