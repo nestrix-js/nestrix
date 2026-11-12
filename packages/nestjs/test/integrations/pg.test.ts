@@ -111,8 +111,11 @@ describe.skipIf(reason !== undefined)("pg against PostgreSQL 18", () => {
       "server.address": "127.0.0.1",
       "server.port": address("postgres").port,
     });
-    expect(JSON.stringify(span?.attributes)).not.toContain("42");
-    expect(JSON.stringify(span?.attributes)).not.toContain("secret");
+    // The port is random (a container's), so leave it out of the bind-value check: a port such as
+    // 34262 contains "42" without any bind value being recorded.
+    const { "server.port": _port, ...noPort } = span?.attributes ?? {};
+    expect(JSON.stringify(noPort)).not.toContain("42");
+    expect(JSON.stringify(noPort)).not.toContain("secret");
   });
 
   it("client callback, both signatures: one span each, the callback runs once with pg's result", async () => {
