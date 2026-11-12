@@ -1,5 +1,11 @@
 # @nestrix-js/ui
 
+## 0.3.0
+
+### Minor Changes
+
+- [`9484441`](https://github.com/nestrix-js/nestrix/commit/9484441b9bae56fbdd7e769aba2659b508fe9da0) Thanks [@lamberto15](https://github.com/lamberto15)! - **Every dashboard page redesigned** in the style of the Overview: one page header that says what the page answers and where its numbers come from, a strip of KPI tiles, charts before tables (stacked area and bar charts, donuts, gauges), tables with bars, chips and sparklines in the rows, loading skeletons and friendly empty states, and layouts that work in dark and light themes and at phone width. Requests, Errors, Routes, Classes, Map, Queries, Dependencies, Runtime, Profiler (flame graph coloured by origin: your code, `node_modules`, Node, V8), the trace view, SLOs, Settings and the standalone server's login page. No API changes.
+
 ## 0.2.0
 
 ### Minor Changes
