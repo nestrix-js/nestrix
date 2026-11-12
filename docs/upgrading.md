@@ -1,8 +1,8 @@
 # Upgrading from 0.x to 1.0
 
-Nestrix has not been published to npm yet. The 0.x versions exist only as builds from this repository (the changesets in `.changeset/` record them as `alpha` pre-releases), so this page is for anyone who installed one of those builds, or followed the repository's own examples before 1.0. If you start with 1.0, you can skip it.
+`0.1.0` is the first stable release of Nestrix on npm (the `latest` tag). Before it, `0.1.0-alpha.0` to `0.1.0-alpha.3` were prereleases under the `alpha` tag, and the `0.0.0` placeholders are deprecated. This page is for anyone who installed one of those prereleases, or builds from this repository, or followed the repository's own examples before 1.0. If you start with 0.1.0 or later, you can skip the renames below.
 
-Everything below is a breaking change made before 1.0 on purpose (decision D-69, "1.0 API freeze decisions"): nothing was released, so nothing has a deprecation path. The old names are gone, not aliased. TypeScript reports the renamed options and types at compile time; the behaviour changes in the second section do not fail loudly, so read them.
+Everything below is a breaking change made before 1.0 on purpose (decision D-69, "1.0 API freeze decisions"): nothing stable was released, so nothing has a deprecation path. The old names are gone, not aliased. TypeScript reports the renamed options and types at compile time; the behaviour changes in the second section do not fail loudly, so read them.
 
 From 1.0, semantic versioning covers the exports of `@nestrix-js/nestjs`, the option names and their defaults, and the documented environment variables. It does not cover the dashboard's query API (`/_nestrix/api/v1`) or the `@nestrix-js/protocol` types, which belong to the bundled UI, nor the names of the runtime metrics or the default set of traced classes (a minor release may change those).
 

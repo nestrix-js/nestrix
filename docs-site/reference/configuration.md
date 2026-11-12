@@ -56,6 +56,7 @@ Method spans need `instrument: NestrixInstrument` in `main.ts`; without it these
 | `export.queue.maxQueueSize` | `2048` | Spans buffered before new ones are dropped (and counted). |
 | `export.queue.maxExportBatchSize` | `512` | Spans per export request. Must not exceed `maxQueueSize`. |
 | `export.queue.scheduledDelayMillis` | `5000` | How often a partial batch is exported. A full batch is exported at once. |
+| `export.profiler` | `false` | Lets the [standalone server](/guide/standalone-server#remote-cpu-profiling) take CPU profiles of this instance: it checks in every 15 s and uploads a capture an admin ordered. Needs `export.otlp.endpoint` or `OTEL_EXPORTER_OTLP_ENDPOINT` (a full traces URL alone is not enough). With a base from `OTEL_EXPORTER_OTLP_ENDPOINT` only `OTEL_EXPORTER_OTLP_HEADERS` and `export.otlp.headers` are sent, never `OTEL_EXPORTER_OTLP_TRACES_HEADERS`. A non-boolean throws. |
 
 All three queue values must be positive integers.
 

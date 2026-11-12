@@ -5,7 +5,7 @@
 [`release.yml`](./.github/workflows/release.yml) workflow. `@nestrix-js/protocol` and
 `@nestrix-js/testing` are private and are never versioned, tagged or published.
 
-**Publishing is on** (`NPM_PUBLISH_ENABLED=true` since 2026-11-12; first release `0.1.0-alpha.0` under the `alpha` tag, with provenance). The text below is kept as the record of how it was set up. Every job in `release.yml` is
+**Publishing is on** (`NPM_PUBLISH_ENABLED=true` since 2026-11-12). The first releases were `0.1.0-alpha.0` to `0.1.0-alpha.3` under the `alpha` tag; the repository left Changesets pre mode with `0.1.0` (D-77), which publishes under `latest`, with provenance. A stable version always takes `latest`. To publish a future prerelease, re-enter pre mode first with `pnpm changeset pre enter <tag>` (for example `next`), commit `.changeset/pre.json`, and leave it with `pnpm changeset pre exit` before the stable release. The text below is kept as the record of how it was set up. Every job in `release.yml` is
 skipped until the repository variable `NPM_PUBLISH_ENABLED` is set to `true` (see
 [Keeping publishing off](#keeping-publishing-off)). The owner flips that switch last.
 
@@ -46,15 +46,15 @@ Before merging the version PR, check that the changelogs read well and that CI i
 The standalone server (`apps/server`, private, not on npm) ships as a Docker image on GHCR:
 `ghcr.io/nestrix-js/nestrix-server`. The `server-image` job in `release.yml` builds
 `apps/server/Dockerfile` for `linux/amd64` and `linux/arm64` (arm64 under QEMU, so it is slow) and
-pushes two tags: the version (`0.1.0-alpha.0`) and the npm dist-tag (`alpha` while
-`.changeset/pre.json` exists, `latest` for a stable version). The image carries OCI labels (source,
+pushes two tags: the version (for example `0.1.0`) and the npm dist-tag (the pre tag while
+`.changeset/pre.json` exists, `latest` for a stable version; `0.1.0` was the first stable one). The image carries OCI labels (source,
 version, revision, licence `Apache-2.0`, description) and BuildKit provenance (`mode=max`) and SBOM
 attestations, stored in the registry beside it. The job is the only one with `packages: write`; it
 needs no `id-token` or `attestations` permission. It is gated on `NPM_PUBLISH_ENABLED` like the others.
 
 It runs after the `publish` job when that job published something. To publish the image for an
 existing release (a failed run, or a release made before this job existed), run the workflow by hand
-from `main`: Actions, Release, Run workflow, with `version` set (for example `0.1.0-alpha.0`; empty
+from `main`: Actions, Release, Run workflow, with `version` set (for example `0.1.0`; empty
 means the version in `packages/nestjs/package.json`). With a version set, the job builds from that
 release's git tag `@nestrix-js/nestjs@<version>`, not from the tip of `main`. Re-running for a
 version overwrites its tags.
@@ -72,7 +72,7 @@ pushing. The repository itself must be public for the provenance to be verifiabl
 **Owner, once**, from a clean `main` that carries the version of the version PR:
 
 1. Run `pnpm install --frozen-lockfile` and `pnpm verify`, then `pnpm --filter @nestrix-js/mcp pack --dry-run` and check that only `dist`, `README.md` and `package.json` ship.
-2. Log in with `npm login`, then publish the package by hand with the `alpha` tag (`npx @nestrix-js/mcp@alpha` resolves that tag), approving the 2FA prompt in the browser. Never bypass pnpm's clean-tree check.
+2. Log in with `npm login`, then publish the package by hand with the tag of the version being released (the record of how `@nestrix-js/mcp` was first published used `alpha`), approving the 2FA prompt in the browser. Never bypass pnpm's clean-tree check.
 3. On npmjs.com, package `@nestrix-js/mcp`, Settings, Trusted publishing, GitHub Actions: owner `nestrix-js`, repository `nestrix`, workflow `release.yml`, environment empty, with **Allow direct `npm publish`**; then require 2FA and disallow tokens (or use `npm trust github`, npm 11.15 or later), as for the other two packages above.
 4. The next release through CI publishes it with provenance.
 

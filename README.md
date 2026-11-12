@@ -2,7 +2,7 @@
 
 Open-source observability for NestJS 12+: Nest-aware OpenTelemetry traces, in a dashboard served by your own app or in the backend you already run.
 
-> **Status: pre-release.** `@nestrix-js/nestjs`, `@nestrix-js/ui` and `@nestrix-js/mcp` are published at `0.1.0-alpha.3` under the `alpha` npm tag, and the standalone server image is on GHCR. Everything described below is built (phases 0 to 9); the API can still change before 1.0.
+> **Status: 0.1.0.** `@nestrix-js/nestjs`, `@nestrix-js/ui` and `@nestrix-js/mcp` are published at `0.1.0` under the `latest` npm tag, and the standalone server image is on GHCR (`:0.1.0`, `:latest`). Everything described below is built (phases 0 to 11); the API can still change before 1.0.
 
 ## What it is for
 
@@ -20,11 +20,11 @@ Open-source observability for NestJS 12+: Nest-aware OpenTelemetry traces, in a 
 - **No loader flags.** Built on NestJS 12's own instrumentation hooks and on the tracing events libraries now publish, so there is no `node --import` or `--experimental-loader` step.
 - **Yours to run.** Apache-2.0. Send the telemetry wherever you like.
 
-## Quick start (0.1.0-alpha)
+## Quick start
 
 ```bash
-pnpm add @nestrix-js/nestjs@alpha @opentelemetry/api@~1.10.0
-pnpm add @nestrix-js/ui@alpha   # optional: the dashboard
+pnpm add @nestrix-js/nestjs @opentelemetry/api@~1.10.0
+pnpm add @nestrix-js/ui   # optional: the dashboard
 ```
 
 ```ts
@@ -48,7 +48,7 @@ Spans for your own controllers, services, repositories and jobs: `NestFactory.cr
 `@nestrix-js/mcp` is an MCP server (stdio) that lets Claude Code, Claude Desktop, Cursor and other assistants read your traces, errors, route and class statistics, and start a CPU capture, from an embedded dashboard or the standalone server. It runs outside your app and reads only what the dashboard shows.
 
 ```bash
-claude mcp add nestrix --env NESTRIX_URL=http://localhost:3000/_nestrix --env NESTRIX_TOKEN="$NESTRIX_UI_TOKEN" -- npx -y @nestrix-js/mcp@alpha
+claude mcp add nestrix --env NESTRIX_URL=http://localhost:3000/_nestrix --env NESTRIX_TOKEN="$NESTRIX_UI_TOKEN" -- npx -y @nestrix-js/mcp
 ```
 
 See the [package README](packages/mcp/README.md) and the [docs site page](docs-site/guide/mcp.md).
@@ -62,7 +62,7 @@ services:
   postgres:
     image: postgres:18-alpine
   nestrix-server:
-    image: ghcr.io/nestrix-js/nestrix-server:alpha
+    image: ghcr.io/nestrix-js/nestrix-server:latest
     environment:
       DATABASE_URL: postgres://postgres@postgres:5432/postgres
       NESTRIX_ADMIN_PASSWORD: ${NESTRIX_ADMIN_PASSWORD}   # 12+ characters

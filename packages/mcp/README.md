@@ -2,7 +2,7 @@
 
 An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant (Claude Code, Claude Desktop, Cursor and others) read what your NestJS app is doing through [Nestrix](https://github.com/nestrix-js/nestrix): requests as traces, errors, per-route and per-class statistics, and what the app calls. It is a small program the assistant starts over stdio. It talks HTTP to Nestrix and runs nothing inside your app.
 
-> **Status: alpha.** Needs Node 26.13 or later.
+> **Status: 0.1.0.** Needs Node 26.13 or later.
 
 ## What it can do
 
@@ -52,7 +52,7 @@ Use `https://` for anything that is not on your own machine: the token otherwise
 claude mcp add nestrix \
   --env NESTRIX_URL=http://localhost:3000/_nestrix \
   --env NESTRIX_TOKEN="$NESTRIX_UI_TOKEN" \
-  -- npx -y @nestrix-js/mcp@alpha
+  -- npx -y @nestrix-js/mcp
 ```
 
 **Claude Desktop** (`claude_desktop_config.json`) and **Cursor** (`.cursor/mcp.json`)
@@ -62,7 +62,7 @@ claude mcp add nestrix \
   "mcpServers": {
     "nestrix": {
       "command": "npx",
-      "args": ["-y", "@nestrix-js/mcp@alpha"],
+      "args": ["-y", "@nestrix-js/mcp"],
       "env": {
         "NESTRIX_URL": "http://localhost:3000/_nestrix",
         "NESTRIX_TOKEN": "the app's ui.auth.token"

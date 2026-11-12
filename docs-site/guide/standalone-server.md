@@ -3,7 +3,7 @@
 `@nestrix-js/server` is a separate process that receives OTLP/HTTP traces from one or more services, stores them in PostgreSQL 18 and serves the same dashboard. Use it when you want history beyond one process's memory, several services in one place, or a dashboard that is not inside your app.
 
 ::: warning Status
-The server is built and tested in the repository. It is private (not on npm). The Docker image is published to GHCR by the release workflow (`linux/amd64` and `linux/arm64`, with provenance and an SBOM), tagged `<version>` and `alpha` while releases are prereleases.
+The server is built and tested in the repository. It is private (not on npm). The Docker image is published to GHCR by the release workflow (`linux/amd64` and `linux/arm64`, with provenance and an SBOM), tagged `<version>` (for example `0.1.0`) and `latest`.
 :::
 
 ## Run it
@@ -11,7 +11,7 @@ The server is built and tested in the repository. It is private (not on npm). Th
 Without cloning the repository:
 
 ```bash
-docker pull ghcr.io/nestrix-js/nestrix-server:alpha
+docker pull ghcr.io/nestrix-js/nestrix-server:latest
 ```
 
 `examples/standalone/` in the repository has a compose file with PostgreSQL, this image and two services (one running two replicas), and a snippet for adding the server to an existing compose project.
@@ -44,7 +44,9 @@ The server listens on one port (default `4318`):
 |---|---|
 | `POST /v1/traces` | OTLP/HTTP trace receiver (ingest key) |
 | `POST /v1/logs` | OTLP/HTTP log receiver: records with a trace id are kept next to the trace (ingest key) |
-| `GET /api/v1/*` | Query API, same shapes as the embedded dashboard (`meta`, `traces`, `traces/timeline`, `trace`, `trace/logs`, `errors`, `errors/groups`, `routes`, `routes/histogram`, `routes/compare`, `classes`, `queries`, `map`, `dependencies`); session or API token |
+| `GET /api/v1/*` | Query API, same shapes as the embedded dashboard (`meta`, `traces`, `traces/timeline`, `trace`, `trace/logs`, `errors`, `errors/groups`, `routes`, `routes/histogram`, `routes/compare`, `classes`, `queries`, `map`, `dependencies`, `overview`, `instances`, `remote-profiles`); session or API token |
+| `POST /v1/nestrix/check-in`, `POST /v1/nestrix/profiles/:id` (and `/failed`) | [Remote CPU profiling](#remote-cpu-profiling), instance side (ingest key) |
+| `POST /api/v1/remote-profiles` | Start a remote capture (admin session only) |
 | `/api/v1/tokens` | Create, list and revoke API tokens (session only) |
 | `/api/v1/alerts`, `/api/v1/slos` | Alert rules and SLOs (session only) |
 | `/` | The dashboard (from `@nestrix-js/ui`) |
@@ -91,7 +93,7 @@ For tools that read the server without a browser, such as the Nestrix MCP server
 curl -H "Authorization: Bearer $NESTRIX_TOKEN" https://nestrix.example.com/api/v1/traces?limit=10
 ```
 
-A token reads `GET`/`HEAD` on every route of the query API (`/api/v1/meta`, `traces`, `traces/timeline`, `trace`, `trace/logs`, `errors`, `errors/groups`, `routes`, `routes/histogram`, `routes/compare`, `classes`, `queries`, `map`, `dependencies`), and nothing else: not the dashboard, not the token, alert or SLO routes, never a write, and never ingest (ingest keys and API tokens are separate). Revoking a token on the Settings page stops it at the next request. Refused tokens count toward the login's global budget of failed attempts, within an allowance of 5 refused tokens a minute per client, so one client guessing tokens cannot lock the others out; a valid token is never refused by either limit. At most 100 tokens can be active. The [Security model](/guide/security#standalone-server-api-tokens) page has the rules.
+A token reads `GET`/`HEAD` on every route of the query API (`/api/v1/meta`, `traces`, `traces/timeline`, `trace`, `trace/logs`, `errors`, `errors/groups`, `routes`, `routes/histogram`, `routes/compare`, `classes`, `queries`, `map`, `dependencies`, `overview`, and the read routes for instances and remote profiles), and nothing else: not the dashboard, not the token, alert or SLO routes, never a write, and never ingest (ingest keys and API tokens are separate). Revoking a token on the Settings page stops it at the next request. Refused tokens count toward the login's global budget of failed attempts, within an allowance of 5 refused tokens a minute per client, so one client guessing tokens cannot lock the others out; a valid token is never refused by either limit. At most 100 tokens can be active. The [Security model](/guide/security#standalone-server-api-tokens) page has the rules.
 
 ## Retention and storage
 
@@ -108,6 +110,36 @@ Alert rules (error rate, p95 or an SLO's burn rate over a window, for one servic
 ## SLOs
 
 The **SLOs** page lists availability and latency objectives per service or route, over 7 or 30 days, with attainment, error budget and 1 h and 6 h burn rates. You create, edit and delete them on the page (or through `/api/v1/slos`), and they can drive an alert rule with the `slo_burn_rate` metric. Like the route statistics they are computed from the minute rollups, so they reflect what services chose to export.
+
+## Remote CPU profiling
+
+The server can take a CPU profile of one instance of an app, from the **Profiler** tab. The server never connects to an instance: an app that opts in checks in with the server and picks up a capture order there, so it works behind load balancers and NAT.
+
+```ts
+NestrixModule.forRoot({
+  export: {
+    profiler: true,
+    otlp: { endpoint: "http://nestrix.internal:4318", headers: { authorization: "Bearer <ingest key>" } },
+  },
+})
+```
+
+How it works:
+
+1. Each instance sends a check-in (`POST /v1/nestrix/check-in`, with the ingest key) a few seconds after it starts and then every 15 seconds, with its service name, instance id, version, host name, pid and Node.js version. The Profiler tab lists the instances seen in the last 2 minutes.
+2. An admin picks an instance and a duration (15 to 120 seconds in the page, 1 to 120 in the API) and starts a capture. It waits as `pending`, so it begins at the instance's next check-in, up to 15 seconds later.
+3. The instance captures with the same limits as the [embedded profiler](/guide/dashboard#profiler) (one capture per process, a 10-second cool-down) and uploads the gzipped `.cpuprofile`, or reports why it could not. The tab then shows a flame graph, the top functions and a download for Chrome DevTools or speedscope.
+4. A capture not picked up within 60 seconds, or not uploaded within its duration plus 60 seconds, becomes `expired`. The newest 20 finished captures per service are kept, within the retention period.
+
+Security notes:
+
+- **Off by default.** Starting a capture pauses the instance's main thread briefly (tens of milliseconds, more with a lot of compiled code), so nobody can do it to an app that has not set `export.profiler: true`.
+- **Admin session only.** An API token cannot start a capture, as tokens are read-only. The start needs the same same-origin checks as the embedded one (`Sec-Fetch-Site: same-origin` and a same-origin `Origin`), so a browser sends it only over HTTPS or to localhost.
+- **The key goes only to the export endpoint.** Check-ins carry the same headers as the trace export. When the endpoint comes from `OTEL_EXPORTER_OTLP_ENDPOINT`, only `OTEL_EXPORTER_OTLP_HEADERS` and `export.otlp.headers` are sent, never `OTEL_EXPORTER_OTLP_TRACES_HEADERS`, because that variable belongs to the traces URL, which may be a different host. To check in with your server while a Collector is the generic endpoint, set `export.otlp.endpoint`. Redirects are not followed.
+- **An instance is owned by the key that first checked in.** Another key cannot check in for the same instance id, and only the key that received an order can upload or fail it. Uploads are checked field by field, and only `.cpuprofile` fields are stored.
+- **A non-Nestrix endpoint** (a Collector, Jaeger) answers 404 to the check-in: the app logs one line and stops polling until it restarts. The check-in requests are not traced.
+
+The [server README](https://github.com/nestrix-js/nestrix/blob/main/apps/server/README.md#remote-cpu-profiling) has the request and response details.
 
 ## Settings
 

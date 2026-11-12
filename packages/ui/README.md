@@ -15,7 +15,7 @@ How the dashboard is opened, secured and limited is documented in the [Dashboard
 - **No runtime dependencies.** Everything the app uses (React, TanStack Router, Query, Table and Virtual, Tailwind, uPlot, a self-hosted Geist Mono font) is bundled at build time. `package.json` has no `dependencies`.
 - **Files only.** `dist/` holds `index.html`, hashed files under `dist/assets/`, `manifest.json` (every file in `dist/`, with its path, size, SHA-256 and content type; only `index.html` and `assets/` are served) and `THIRD_PARTY_NOTICES.txt`. The Node entry (`dist/index.js`) exports two URLs, `dashboardDirectory` and `manifestUrl`, and runs no code beyond that.
 - **No inline script or style.** The app runs under a strict Content-Security-Policy (`default-src 'none'; script-src 'self'; style-src 'self'; ...`) that `@nestrix-js/nestjs` sets on every dashboard response.
-- **Size.** About 874 KB unpacked at `0.1.0-alpha.3` (`npm pack --dry-run`), against a budget of 1 MB that CI enforces with `scripts/check-size.mjs` (decision D-52).
+- **Size.** About 918 KB unpacked at `0.1.0` (`npm pack --dry-run`), against a budget of 1 MB that CI enforces with `scripts/check-size.mjs` (decision D-52).
 
 ## How `@nestrix-js/nestjs` uses it
 

@@ -21,5 +21,5 @@ features:
 ---
 
 ::: warning Status
-Nestrix is pre-release (alpha). Option names and defaults are settled for 1.0; see [Upgrading from 0.x](/reference/upgrading) and [Compatibility](/reference/compatibility).
+Nestrix is at 0.1.0, before the 1.0 API promise. Option names and defaults are settled for 1.0; see [Upgrading from 0.x](/reference/upgrading) and [Compatibility](/reference/compatibility).
 :::

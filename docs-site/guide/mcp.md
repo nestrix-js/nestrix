@@ -3,7 +3,7 @@
 `@nestrix-js/mcp` lets an AI assistant such as Claude Code, Claude Desktop or Cursor read what your app is doing: slow routes, failing requests, one trace at a time, repeated database statements, and a CPU profile on request. The assistant starts it as a small program over stdio. It talks HTTP to Nestrix, so nothing new runs inside your app, and it works with both an app's embedded dashboard and the standalone server.
 
 ::: warning Status
-Alpha, published with the other packages under the `alpha` tag. Needs Node 26.13 or later.
+Version 0.1.0, published with the other packages under the `latest` tag. Needs Node 26.13 or later.
 :::
 
 ## Point it at a target
@@ -24,7 +24,7 @@ Claude Desktop, Cursor and most other clients take a JSON entry that names the p
   "mcpServers": {
     "nestrix": {
       "command": "npx",
-      "args": ["-y", "@nestrix-js/mcp@alpha"],
+      "args": ["-y", "@nestrix-js/mcp"],
       "env": {
         "NESTRIX_URL": "http://localhost:3000/_nestrix",
         "NESTRIX_TOKEN": "the app's ui.auth.token"
