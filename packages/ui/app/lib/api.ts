@@ -10,6 +10,7 @@ import type {
   ErrorListResponse,
   InstanceListResponse,
   MetaResponse,
+  OverviewResponse,
   ProfileDetail,
   ProfileListResponse,
   ProfileStartRequest,
@@ -181,6 +182,9 @@ export const getQueries = (params: QueryParams = {}) =>
   getJson<QueryStatsResponse>("queries", params);
 export const getDependencies = (params: QueryParams = {}) =>
   getJson<DependenciesResponse>("dependencies", params);
+/** P11-02: the Overview (both backends): verdict, what changed, totals and series. */
+export const getOverview = (params: QueryParams = {}) =>
+  getJson<OverviewResponse>("overview", params);
 export const getTimeline = (params: QueryParams = {}) =>
   getJson<TraceTimelineResponse>("traces/timeline", params);
 

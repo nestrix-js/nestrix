@@ -74,7 +74,7 @@ describe("histogram buckets", () => {
       minDurationMs: 60_000,
     });
     expect(requestsLink({ route: "/a/:id", minDurationMs: 2 })).toBe(
-      "/?route=%2Fa%2F%3Aid&minDurationMs=2",
+      "/requests?route=%2Fa%2F%3Aid&minDurationMs=2",
     );
   });
 

@@ -89,8 +89,8 @@ test("shows the histogram with percentiles, and a bucket opens the request list 
   const from = BOUNDS[19] as number;
   const to = BOUNDS[20] as number;
   await buckets.nth(1).click();
-  await expect(page).toHaveURL(/#\/\?/);
-  const search = new URLSearchParams(page.url().split("#/?")[1]);
+  await expect(page).toHaveURL(/#\/requests\?/);
+  const search = new URLSearchParams(page.url().split("#/requests?")[1]);
   expect(search.get("route")).toBe("/orders/:id");
   expect(search.get("method")).toBe("GET");
   expect(Number(search.get("minDurationMs"))).toBeCloseTo(from, 6);
@@ -131,8 +131,8 @@ test("clicking a bar of the chart does the same as its entry in the list", async
     box.x + (box.width * 8.5) / 30,
     box.y + box.height - 4,
   );
-  await expect(page).toHaveURL(/#\/\?/);
-  const search = new URLSearchParams(page.url().split("#/?")[1]);
+  await expect(page).toHaveURL(/#\/requests\?/);
+  const search = new URLSearchParams(page.url().split("#/requests?")[1]);
   expect(Number(search.get("minDurationMs"))).toBeCloseTo(
     BOUNDS[7] as number,
     6,

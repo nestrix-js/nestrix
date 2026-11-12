@@ -60,6 +60,17 @@ export const requestFilterParsers = {
 };
 export type RequestFilters = inferParserType<typeof requestFilterParsers>;
 
+/**
+ * Whether a search object (the router's parsed one) carries a request-list parameter. The
+ * Overview, which is home since phase 11, only knows `windowMinutes` and `service`; anything
+ * else from the old home page (the request list) belongs to `/requests`.
+ */
+export function isRequestListLink(search: Record<string, unknown>): boolean {
+  return Object.keys(requestFilterParsers).some(
+    (key) => search[key] !== undefined,
+  );
+}
+
 /** For P2-10: the error list filters by route only. */
 export const errorFilterParsers = {
   route: stringParser(errorListParams.route),

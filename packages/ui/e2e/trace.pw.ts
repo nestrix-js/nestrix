@@ -311,7 +311,9 @@ test("an evicted trace says so and links back to the list", async ({
   await expect(evicted).toContainText("no longer in memory");
   await expect(page.getByTestId("trace-id")).toHaveText("deadbeef".repeat(4));
   await page.getByTestId("back-to-list").click();
-  await expect.poll(() => page.evaluate(() => location.hash)).toBe("#/");
+  await expect
+    .poll(() => page.evaluate(() => location.hash))
+    .toBe("#/requests");
   // The only failed request is the 404 the test provoked.
   expect(
     problems.filter(

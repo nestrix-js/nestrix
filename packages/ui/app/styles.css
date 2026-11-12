@@ -25,6 +25,7 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-destructive: var(--destructive);
   --color-warning: var(--warning);
+  --color-success: var(--success);
   --color-border: var(--border);
   --color-ring: var(--ring);
   --color-flame-app: var(--flame-app);
@@ -43,12 +44,15 @@
   --muted-foreground: oklch(0.45 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --warning: oklch(0.7 0.16 70);
+  --success: oklch(0.52 0.14 150);
   --border: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   /* Chart series colours, read by components/chart.tsx. */
   --chart-1: oklch(0.55 0.2 260);
   --chart-2: oklch(0.65 0.17 150);
   --chart-3: oklch(0.577 0.245 27.325);
+  --chart-4: oklch(0.55 0.19 295);
+  --chart-5: oklch(0.6 0.11 195);
   /* Flame graph: where the code lives (app, node_modules, Node.js and V8). The dataviz reference
      palette's first three slots, validated all-pairs in both modes. */
   --flame-app: #2a78d6;
@@ -67,11 +71,14 @@
     --muted: oklch(0.269 0 0);
     --muted-foreground: oklch(0.708 0 0);
     --warning: oklch(0.8 0.15 80);
+    --success: oklch(0.78 0.16 150);
     --border: oklch(1 0 0 / 10%);
     --ring: oklch(0.556 0 0);
     --chart-1: oklch(0.72 0.15 255);
     --chart-2: oklch(0.75 0.16 150);
     --chart-3: oklch(0.7 0.19 25);
+    --chart-4: oklch(0.74 0.14 295);
+    --chart-5: oklch(0.78 0.11 195);
     --flame-app: #3987e5;
     --flame-deps: #d95926;
     --flame-runtime: #199e70;

@@ -60,7 +60,7 @@ test("with several services the selector lists them and its choice is sent as se
   page,
 }) => {
   standalone(["billing", "orders", "gateway"]);
-  await page.goto(url());
+  await page.goto(url("requests"));
   const select = page.getByTestId("service-select");
   await expect(select).toBeVisible();
   await expect(select.locator("option")).toHaveText([
@@ -100,7 +100,7 @@ test("a service in the URL is sent from the first request", async ({
   page,
 }) => {
   standalone(["billing", "orders"]);
-  await page.goto(url("?service=billing"));
+  await page.goto(url("requests?service=billing"));
   await expect(page.getByTestId("service-select")).toHaveValue("billing");
   await expect
     .poll(() => asked("traces").some((q) => q.get("service") === "billing"))
@@ -196,7 +196,7 @@ test("sign out posts to logout next to the base and goes to login", async ({
 
 test("a 401 in standalone mode goes to the login page", async ({ page }) => {
   standalone(["billing", "orders"]);
-  await page.goto(url());
+  await page.goto(url("requests"));
   await expect(page.getByTestId("connection")).toHaveAttribute(
     "data-state",
     "live",

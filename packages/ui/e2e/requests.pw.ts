@@ -10,7 +10,8 @@ import { BASE_PATH, startServer } from "./serve.ts";
 let server: Server;
 let origin: string;
 let mock: MockApi;
-const url = () => `${origin}${BASE_PATH}/`;
+// The request list lives at /requests since the Overview became home (P11-02).
+const url = () => `${origin}${BASE_PATH}/#/requests`;
 const idOf = (seq: number) => seq.toString(16).padStart(32, "0");
 // A poll is every 2 s; leave room for a slow browser.
 const POLL = { timeout: 10_000 };
@@ -66,7 +67,7 @@ test("empty store and empty filter result have their own messages", async ({
   mock.reset(0);
   await page.goto(url());
   await expect(page.getByText("No requests yet.")).toBeVisible();
-  await page.goto(`${url()}#/?search=nothing-matches-this`);
+  await page.goto(`${url()}?search=nothing-matches-this`);
   await page.reload();
   await expect(
     page.getByText("No requests match these filters."),

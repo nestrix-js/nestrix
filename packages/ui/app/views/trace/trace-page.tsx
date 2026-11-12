@@ -13,7 +13,7 @@ import { Waterfall } from "@/views/trace/waterfall";
 
 function BackLink() {
   return (
-    <Link to="/" className="text-sm underline">
+    <Link to="/requests" className="text-sm underline">
       Back to requests
     </Link>
   );
@@ -106,7 +106,11 @@ export function TracePage({ traceId }: { traceId: string }) {
             </Button>
           )}
           <p className="text-sm">
-            <Link to="/" className="underline" data-testid="back-to-list">
+            <Link
+              to="/requests"
+              className="underline"
+              data-testid="back-to-list"
+            >
               Back to the request list
             </Link>
           </p>
