@@ -147,6 +147,7 @@ describe("read routes open to tokens", () => {
     "/api/v1/errors/groups",
     "/api/v1/routes/histogram",
     "/api/v1/routes/compare",
+    "/api/v1/routes/explain",
     "/api/v1/queries",
     "/api/v1/dependencies",
   ])("%s is a read route", (path) =>

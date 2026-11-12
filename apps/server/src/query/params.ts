@@ -17,6 +17,7 @@ import type {
   ParamSpec,
   QueryStatsParamsSpec,
   RouteCompareParamsSpec,
+  RouteExplainParamsSpec,
   RouteHistogramParamsSpec,
   RouteStatsParamsSpec,
   TraceListParamsSpec,
@@ -135,6 +136,21 @@ export const routeCompareSpec: RouteCompareParamsSpec = {
     default: 15,
   },
   previous: { kind: "int", min: 1, max: 1, default: 1 },
+  releaseA: { kind: "string", maxLength: 255 },
+  releaseB: { kind: "string", maxLength: 255 },
+  service: { kind: "string", maxLength: 256 },
+};
+
+export const routeExplainSpec: RouteExplainParamsSpec = {
+  method: { kind: "string", maxLength: 16 },
+  route: { kind: "string", maxLength: 512 },
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 60,
+  },
   releaseA: { kind: "string", maxLength: 255 },
   releaseB: { kind: "string", maxLength: 255 },
   service: { kind: "string", maxLength: 256 },
