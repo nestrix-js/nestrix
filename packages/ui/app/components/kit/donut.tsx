@@ -108,7 +108,9 @@ export function DonutLegend({
           className="flex items-center gap-2"
         >
           <Swatch color={item.color} />
-          <span className="flex-1">{item.label}</span>
+          <span className="min-w-0 flex-1 truncate" title={item.label}>
+            {item.label}
+          </span>
           {item.value !== undefined && (
             <span className="font-mono">{item.value}</span>
           )}

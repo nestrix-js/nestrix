@@ -2,11 +2,16 @@ import type { QueryStatement } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 
 import {
+  callsPerTrace,
   filterByText,
+  formatPerTrace,
   isTruncated,
   onlyRepeated,
   PREVIEW_CHARS,
   preview,
+  shortStatement,
+  summarizeQueries,
+  topBy,
 } from "./queries";
 
 const q = (repeatedTraces: number): QueryStatement => ({
@@ -52,6 +57,79 @@ describe("filterByText", () => {
   });
   it("finds nothing for text no statement holds", () => {
     expect(filterByText([a, b], "DELETE")).toEqual([]);
+  });
+});
+
+const full = (
+  statement: string,
+  count: number,
+  avgMs: number,
+  extra: Partial<QueryStatement> = {},
+): QueryStatement => ({
+  ...q(0),
+  statement,
+  count,
+  avgMs,
+  totalMs: count * avgMs,
+  ...extra,
+});
+
+describe("shortStatement", () => {
+  it("folds whitespace and cuts at the given length", () => {
+    expect(shortStatement("SELECT *\n FROM t")).toBe("SELECT * FROM t");
+    expect(shortStatement("abcdef", 4)).toBe("abcd…");
+    expect(shortStatement("abcd", 4)).toBe("abcd");
+  });
+});
+
+describe("topBy", () => {
+  const list = [
+    full("a", 5, 1),
+    full("b", 1, 9),
+    full("c", 3, 4),
+    full("z", 0, 0),
+  ];
+  it("ranks by the key, largest first, and drops zeros", () => {
+    expect(topBy(list, "avgMs").map((x) => x.statement)).toEqual([
+      "b",
+      "c",
+      "a",
+    ]);
+    expect(topBy(list, "count", 2).map((x) => x.statement)).toEqual(["a", "c"]);
+  });
+  it("does not reorder the input", () => {
+    topBy(list, "count");
+    expect(list.map((x) => x.statement)).toEqual(["a", "b", "c", "z"]);
+  });
+});
+
+describe("callsPerTrace", () => {
+  it("divides calls by the traces they ran in", () => {
+    expect(callsPerTrace({ count: 12, traces: 3 })).toBe(4);
+    expect(callsPerTrace({ count: 5, traces: 0 })).toBe(5);
+    expect(formatPerTrace(1)).toBe("1");
+    expect(formatPerTrace(4.25)).toBe("4.3");
+    expect(formatPerTrace(12.4)).toBe("12");
+  });
+});
+
+describe("summarizeQueries", () => {
+  it("counts statements, total time, N+1 candidates and the slowest mean", () => {
+    const s = summarizeQueries([
+      full("a", 10, 2, { repeatedTraces: 2 }),
+      full("b", 1, 30),
+      full("c", 4, 1, { repeatedTraces: 1 }),
+    ]);
+    expect(s.statements).toBe(3);
+    expect(s.totalMs).toBe(20 + 30 + 4);
+    expect(s.nPlusOne).toBe(2);
+    expect(s.slowest?.statement).toBe("b");
+    expect(summarizeQueries([])).toEqual({
+      statements: 0,
+      totalMs: 0,
+      nPlusOne: 0,
+      slowest: null,
+    });
   });
 });
 

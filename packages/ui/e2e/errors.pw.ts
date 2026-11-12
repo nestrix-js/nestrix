@@ -38,6 +38,9 @@ test("renders the protocol fixture: every column, newest first, link to the trac
 }) => {
   const { errorList } = await loadFixtures();
   mock.errors.fixed = errorList;
+  // The fixture's times are fixed; fix the browser's clock a minute after them so the relative
+  // text ("1 minute ago") cannot age into "yesterday".
+  await page.clock.setFixedTime(new Date(1_794_400_060_000));
   const problems = watch(page);
   await recordViolations(page);
   await page.goto(url());
@@ -254,21 +257,25 @@ test("grouped is the default view: counts, sparkline, times, route, sampled note
   );
   await expect(groupRows(page)).toHaveCount(2);
   const first = groupRows(page).nth(0).locator("td");
-  await expect(first.nth(0)).toHaveText("12");
-  await expect(first.nth(1)).toContainText("NotFoundException");
-  await expect(first.nth(1)).toContainText("user <n> not found");
-  await expect(first.nth(2).getByTestId("sparkline")).toHaveAttribute(
+  // Columns: error, state, events, trend, route, first seen, last seen.
+  await expect(first.nth(2)).toHaveText("12");
+  await expect(first.nth(0)).toContainText("NotFoundException");
+  await expect(first.nth(0)).toContainText("user <n> not found");
+  // It occurred in the window's first half and is still occurring; the other began a minute ago.
+  await expect(first.nth(1)).toHaveText("Ongoing");
+  await expect(first.nth(3).getByTestId("sparkline")).toHaveAttribute(
     "aria-label",
     "12 in the last 15 minutes",
   );
   // One bar per non-empty bucket, scaled to the largest.
-  await expect(first.nth(2).locator("rect")).toHaveCount(2);
-  await expect(first.nth(3)).toHaveText(/ago|now/);
-  await expect(first.nth(4)).toHaveText(/ago|now/);
-  await expect(first.nth(5)).toHaveText("/users/:id");
+  await expect(first.nth(3).locator("rect")).toHaveCount(2);
+  await expect(first.nth(4)).toHaveText("/users/:id");
+  await expect(first.nth(5)).toHaveText(/ago|now/);
+  await expect(first.nth(6)).toHaveText(/ago|now/);
   // A group without a route shows a dash.
   const second = groupRows(page).nth(1).locator("td");
-  await expect(second.nth(5)).toHaveText("-");
+  await expect(second.nth(1)).toHaveText("New");
+  await expect(second.nth(4)).toHaveText("-");
   await expect(page.getByTestId("groups-note")).toContainText("sampled");
   expect(await violations(page)).toEqual([]);
   expect(problems).toEqual([]);
@@ -307,9 +314,9 @@ test("the window switches to 60 minutes and asks the server for it", async ({
 }) => {
   mock.errorGroups = twoGroups;
   await page.goto(groupsUrl());
-  await expect(groupRows(page).first().locator("td").nth(0)).toHaveText("12");
+  await expect(groupRows(page).first().locator("td").nth(2)).toHaveText("12");
   await page.getByRole("button", { name: "60 min" }).click();
-  await expect(groupRows(page).first().locator("td").nth(0)).toHaveText("40");
+  await expect(groupRows(page).first().locator("td").nth(2)).toHaveText("40");
   await expect(
     groupRows(page).first().getByTestId("sparkline"),
   ).toHaveAttribute("aria-label", "40 in the last 60 minutes");
@@ -326,7 +333,7 @@ test("the All toggle shows the list and back; an empty window says so; a failure
   await expect(
     page.getByText("No errors in the last 15 minutes."),
   ).toBeVisible();
-  await page.getByRole("button", { name: "All", exact: true }).click();
+  await page.getByRole("button", { name: "Every event" }).click();
   await expect(page).toHaveURL(/#\/errors\?view=all$/);
   await expect(rows(page)).toHaveCount(2);
   await page.getByRole("button", { name: "Grouped" }).click();

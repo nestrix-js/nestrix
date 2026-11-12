@@ -1,11 +1,29 @@
-import type { ErrorGroup } from "@nestrix-js/protocol";
+import type { ErrorGroup, ErrorGroupsResponse } from "@nestrix-js/protocol";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
-import { useState } from "react";
+import type * as React from "react";
+import { useMemo, useState } from "react";
 
 import { DataTableSkeleton } from "@/components/data-table/data-table-skeleton";
+import { AreaChart } from "@/components/kit/area-chart";
+import { BarCell } from "@/components/kit/bar-cell";
+import { BarChart } from "@/components/kit/bar-chart";
+import { Chip } from "@/components/kit/chip";
+import {
+  DONUT_RADIUS,
+  Donut,
+  DonutLegend,
+  Swatch,
+} from "@/components/kit/donut";
+import { donutSlices } from "@/components/kit/format";
+import { PageHeader } from "@/components/kit/page-header";
+import { Section } from "@/components/kit/section";
+import { SegmentedControl } from "@/components/kit/segmented-control";
+import { SkeletonChart, SkeletonKpiStrip } from "@/components/kit/skeletons";
 import { Sparkline } from "@/components/kit/sparkline";
+import { KpiStrip, StatTile } from "@/components/kit/stat-tile";
+import { EmptyState, ErrorState } from "@/components/kit/states";
 import { RelativeTimeCard } from "@/components/relative-time-card";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,15 +37,46 @@ import {
 import { getErrorGroups } from "@/lib/api";
 import { pollInterval, usePaused } from "@/lib/live";
 import { useService } from "@/lib/service";
+import {
+  bucketTotals,
+  type GroupState,
+  groupState,
+  NO_TYPE,
+  OTHER_COLOR,
+  percentOf,
+  routeBreakdown,
+  STATE_LABEL,
+  STATE_TITLE,
+  totalEvents,
+  typeBreakdown,
+} from "@/views/errors/errors-stats";
 
-const WINDOWS = [15, 60] as const;
-const COLUMNS = 6;
+const WINDOWS = [
+  { value: 15, label: "15 min" },
+  { value: 60, label: "60 min" },
+] as const;
+const COLUMNS = 7;
+const SOURCE = "from sampled traces";
+const NO_PREVIOUS =
+  "The error groups API does not compare with a previous window.";
+// The API returns at most 100 groups; a full list may hide the tail.
+const GROUP_CAP = 100;
+
+const STATE_TONE = { new: "worse", ongoing: "info", quiet: "neutral" } as const;
+
+const countText = (n: number) => n.toLocaleString("en");
 
 function GroupRow({
   group,
+  state,
+  color,
+  max,
   windowMinutes,
 }: {
   group: ErrorGroup;
+  state: GroupState;
+  color: string;
+  max: number;
   windowMinutes: number;
 }) {
   const [open, setOpen] = useState(false);
@@ -35,10 +84,15 @@ function GroupRow({
   const shown = group.pattern || group.latestMessage || "-";
   return (
     <>
-      <TableRow data-testid="error-group-row">
-        <TableCell className="text-right font-mono" data-testid="group-count">
-          {group.count}
-        </TableCell>
+      <TableRow
+        data-testid="error-group-row"
+        className="cursor-pointer"
+        onClick={(event) => {
+          // A click on the button or a link belongs to that control.
+          if ((event.target as Element).closest("a, button")) return;
+          setOpen(!open);
+        }}
+      >
         <TableCell className="max-w-md">
           <button
             type="button"
@@ -60,7 +114,10 @@ function GroupRow({
               />
             )}
             <span className="min-w-0">
-              <span className="block font-mono">{group.errorType ?? "-"}</span>
+              <span className="flex items-center gap-2 font-mono">
+                <Swatch color={color} />
+                <span className="truncate">{group.errorType ?? "-"}</span>
+              </span>
               <span
                 className="block truncate text-xs text-muted-foreground"
                 data-testid="group-pattern"
@@ -71,23 +128,36 @@ function GroupRow({
           </button>
         </TableCell>
         <TableCell>
+          <Chip tone={STATE_TONE[state]} title={STATE_TITLE[state]}>
+            {STATE_LABEL[state]}
+          </Chip>
+        </TableCell>
+        <TableCell data-testid="group-count">
+          <BarCell
+            value={group.count}
+            max={max}
+            label={countText(group.count)}
+            color="--destructive"
+          />
+        </TableCell>
+        <TableCell>
           <Sparkline
             values={group.series}
             label={`${group.count} in the last ${windowMinutes} minutes`}
           />
         </TableCell>
         <TableCell>
+          {group.route ? (
+            <span className="font-mono text-xs">{group.route}</span>
+          ) : (
+            <span className="text-muted-foreground">-</span>
+          )}
+        </TableCell>
+        <TableCell>
           <RelativeTimeCard timeUnixMs={group.firstSeenUnixMs} />
         </TableCell>
         <TableCell>
           <RelativeTimeCard timeUnixMs={group.lastSeenUnixMs} />
-        </TableCell>
-        <TableCell>
-          {group.route ? (
-            <span className="font-mono">{group.route}</span>
-          ) : (
-            <span className="text-muted-foreground">-</span>
-          )}
         </TableCell>
       </TableRow>
       {open && (
@@ -96,11 +166,22 @@ function GroupRow({
           data-testid="error-group-detail"
         >
           <TableCell id={detailId} colSpan={COLUMNS} className="bg-muted/30">
-            {group.services.length > 0 && (
-              <p className="mb-2 text-xs text-muted-foreground">
-                Services: {group.services.join(", ")}
-              </p>
-            )}
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span>
+                {group.services.length > 0 &&
+                  `Services: ${group.services.join(", ")}`}
+              </span>
+              {group.errorType !== undefined && (
+                <Link
+                  to={
+                    `/errors?view=all&type=${encodeURIComponent(group.errorType)}` as "/"
+                  }
+                  className="underline-offset-4 hover:underline"
+                >
+                  Every event of this type
+                </Link>
+              )}
+            </div>
             <p className="mb-1 text-xs text-muted-foreground">
               Recent occurrences (latest {group.recent.length} of {group.count})
             </p>
@@ -138,9 +219,96 @@ function GroupRow({
   );
 }
 
+function Charts({ data }: { data: ErrorGroupsResponse }) {
+  const types = useMemo(() => typeBreakdown(data.groups), [data.groups]);
+  const routes = useMemo(() => routeBreakdown(data.groups), [data.groups]);
+  const total = totalEvents(data.groups);
+  const buckets = bucketTotals(data.groups);
+  const peak = Math.max(0, ...buckets);
+  const lead = types[0];
+  const slices = donutSlices(
+    types.map((t) => ({ key: t.label, value: t.count, color: t.color })),
+    DONUT_RADIUS,
+  );
+  return (
+    <>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Section
+          title="Errors over time, by type"
+          description={`Per ${data.bucketMs / 60_000} min, last ${data.windowMinutes} min`}
+          source={SOURCE}
+          testId="card-errors-time"
+          className="lg:col-span-2"
+        >
+          <AreaChart
+            testId="errors-chart"
+            series={types.map((t) => ({
+              id: t.label,
+              label: t.label,
+              color: t.color,
+              values: t.series,
+            }))}
+            stacked
+            fromUnixMs={data.fromUnixMs}
+            toUnixMs={data.toUnixMs}
+            heightClass="h-48"
+            label={`Errors per ${data.bucketMs / 60_000} minutes stacked by exception type, peak ${peak} in one bucket${lead ? `, most from ${lead.label}` : ""}`}
+          />
+        </Section>
+        <Section
+          title="By exception type"
+          description={`Last ${data.windowMinutes} min`}
+          source={SOURCE}
+          testId="card-errors-types"
+        >
+          <div className="flex flex-wrap items-center gap-6">
+            <Donut
+              slices={slices}
+              testId="donut-types"
+              label={`Errors by exception type: ${types.map((t) => `${t.label} ${percentOf(t.count, total)}`).join(", ")}`}
+            >
+              <span className="text-xl font-semibold">{countText(total)}</span>
+              <span className="text-xs text-muted-foreground">events</span>
+            </Donut>
+            <DonutLegend
+              rowTestId="type-row"
+              items={types.map((t) => ({
+                key: t.label,
+                label: t.label,
+                color: t.color,
+                value: percentOf(t.count, total),
+              }))}
+            />
+          </div>
+        </Section>
+      </div>
+      <Section
+        title="Where it happens"
+        description="Events per route"
+        source={SOURCE}
+        testId="card-errors-routes"
+      >
+        <BarChart
+          orientation="horizontal"
+          testId="routes-chart"
+          label={`Error events by route, most from ${routes[0]?.label ?? "none"}`}
+          labelWidthClass="w-48"
+          items={routes.map((r) => ({
+            key: r.label,
+            label: r.label,
+            segments: [{ value: r.count, color: "--destructive" }],
+            valueLabel: countText(r.count),
+            title: `${r.label}: ${r.count} events`,
+          }))}
+        />
+      </Section>
+    </>
+  );
+}
+
 /** The errors of the last 15 or 60 minutes grouped by type, normalised message and route. */
-export function ErrorGroups() {
-  const [windowMinutes, setWindowMinutes] = useState<number>(WINDOWS[0]);
+export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
+  const [windowMinutes, setWindowMinutes] = useState<number>(WINDOWS[0].value);
   const [service] = useService();
   const [paused] = usePaused();
   const groups = useQuery({
@@ -150,93 +318,182 @@ export function ErrorGroups() {
     refetchIntervalInBackground: false,
     placeholderData: keepPreviousData,
   });
-  const shownWindow = groups.data?.windowMinutes ?? windowMinutes;
-  return (
-    <div className="space-y-4" data-testid="errors-grouped">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p
-          data-testid="groups-note"
-          className="rounded-lg bg-secondary px-3 py-2 text-sm text-secondary-foreground"
-        >
-          Grouped from the stored traces, which are sampled: counts cover the
-          errors in stored traces, last {shownWindow} minutes, not every error
-          that happened.
-        </p>
-        <div className="flex items-center gap-2">
-          <fieldset
-            className="flex items-center gap-1"
-            aria-label="Time window"
-          >
-            {WINDOWS.map((minutes) => (
-              <Button
-                key={minutes}
-                size="sm"
-                variant={windowMinutes === minutes ? "default" : "outline"}
-                aria-pressed={windowMinutes === minutes}
-                onClick={() => setWindowMinutes(minutes)}
-              >
-                {minutes} min
-              </Button>
-            ))}
-          </fieldset>
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label="Reload"
-            onClick={() => void groups.refetch()}
-          >
-            <RefreshCw />
-            Reload
-          </Button>
-        </div>
-      </div>
+  const data = groups.data;
+  const shownWindow = data?.windowMinutes ?? windowMinutes;
 
-      {groups.isPending && <DataTableSkeleton columnCount={COLUMNS} />}
-      {groups.isError && groups.data === undefined && (
-        <div
-          role="alert"
-          className="space-y-3 rounded-lg border border-border p-6 text-center"
-        >
-          <p className="font-medium">Could not load error groups.</p>
-          <p className="text-sm text-muted-foreground">
-            {groups.error?.message}
-          </p>
-          <Button variant="outline" onClick={() => void groups.refetch()}>
-            Try again
-          </Button>
-        </div>
+  const derived = useMemo(() => {
+    if (data === undefined) return null;
+    const types = typeBreakdown(data.groups);
+    const colorOf = new Map(types.map((t) => [t.label, t.color]));
+    const states = data.groups.map((g) => groupState(g, data));
+    return {
+      total: totalEvents(data.groups),
+      buckets: bucketTotals(data.groups),
+      states,
+      added: states.filter((s) => s === "new").length,
+      quiet: states.filter((s) => s === "quiet").length,
+      max: Math.max(1, ...data.groups.map((g) => g.count)),
+      colorOf: (g: ErrorGroup) =>
+        colorOf.get(g.errorType ?? NO_TYPE) ?? OTHER_COLOR,
+    };
+  }, [data]);
+
+  return (
+    <div className="space-y-6" data-testid="errors-grouped">
+      <PageHeader
+        title="Errors"
+        description="What is failing, grouped by exception type, message and route"
+        source="traces"
+        controls={
+          <>
+            {viewToggle}
+            <SegmentedControl
+              label="Time window"
+              options={WINDOWS}
+              value={windowMinutes}
+              onChange={setWindowMinutes}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Reload"
+              onClick={() => void groups.refetch()}
+            >
+              <RefreshCw />
+              Reload
+            </Button>
+          </>
+        }
+      />
+      <p
+        data-testid="groups-note"
+        className="-mt-3 text-xs text-muted-foreground"
+      >
+        Grouped from the stored traces, which are sampled: counts cover the
+        errors in stored traces, last {shownWindow} minutes, not every error
+        that happened.
+      </p>
+
+      {groups.isPending && (
+        <>
+          <SkeletonKpiStrip />
+          <SkeletonChart />
+          <DataTableSkeleton columnCount={COLUMNS} />
+        </>
       )}
-      {groups.data !== undefined && (
-        <div className="rounded-lg border border-border">
-          <Table data-testid="error-groups">
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="text-right">Count</TableHead>
-                <TableHead>Error</TableHead>
-                <TableHead>Trend</TableHead>
-                <TableHead>First seen</TableHead>
-                <TableHead>Last seen</TableHead>
-                <TableHead>Route</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {groups.data.groups.length > 0 ? (
-                groups.data.groups.map((g) => (
-                  <GroupRow key={g.key} group={g} windowMinutes={shownWindow} />
-                ))
-              ) : (
-                <TableRow className="hover:bg-transparent">
-                  <TableCell
-                    colSpan={COLUMNS}
-                    className="h-24 text-center text-muted-foreground"
-                  >
-                    No errors in the last {shownWindow} minutes.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
+      {groups.isError && data === undefined && (
+        <ErrorState
+          title="Could not load error groups."
+          message={groups.error?.message}
+          onRetry={() => void groups.refetch()}
+        />
+      )}
+      {data !== undefined && derived !== null && (
+        <>
+          {data.groups.length > 0 && (
+            <KpiStrip>
+              <StatTile
+                testId="kpi-events"
+                label="Error events"
+                value={`${data.groups.length >= GROUP_CAP ? "≥ " : ""}${countText(derived.total)}`}
+                unit={`in ${shownWindow} min`}
+                delta="—"
+                deltaTitle={NO_PREVIOUS}
+                series={derived.buckets}
+                seriesColor="--destructive"
+                source={SOURCE}
+              />
+              <StatTile
+                testId="kpi-groups"
+                label="Error groups"
+                value={countText(data.groups.length)}
+                unit={
+                  data.groups.length >= GROUP_CAP
+                    ? "(the most frequent)"
+                    : "distinct"
+                }
+                delta="—"
+                deltaTitle={NO_PREVIOUS}
+                source="type + message + route"
+              />
+              <StatTile
+                testId="kpi-new"
+                label="New groups"
+                value={String(derived.added)}
+                unit="in this window"
+                delta="—"
+                deltaTitle={STATE_TITLE.new}
+                source="not seen in the window's first half"
+              />
+              <StatTile
+                testId="kpi-quiet"
+                label="Gone quiet"
+                value={String(derived.quiet)}
+                unit="groups"
+                delta="—"
+                deltaTitle={STATE_TITLE.quiet}
+                source="nothing in the last two buckets"
+              />
+            </KpiStrip>
+          )}
+          {data.groups.length > 0 && <Charts data={data} />}
+          {data.groups.length > 0 ? (
+            <Section
+              title="Error groups"
+              description="Type + message + route, most events first"
+              source={SOURCE}
+              testId="card-error-groups"
+              flush
+              actions={
+                <span className="flex flex-wrap gap-1.5">
+                  {(["new", "ongoing", "quiet"] as const).map((s) => (
+                    <Chip key={s} tone={STATE_TONE[s]} title={STATE_TITLE[s]}>
+                      {STATE_LABEL[s]}{" "}
+                      {derived.states.filter((x) => x === s).length}
+                    </Chip>
+                  ))}
+                </span>
+              }
+            >
+              <Table
+                data-testid="error-groups"
+                containerClassName="max-h-[70vh]"
+              >
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead>Error</TableHead>
+                    <TableHead>State</TableHead>
+                    <TableHead className="text-right">Events</TableHead>
+                    <TableHead>Trend</TableHead>
+                    <TableHead>Route</TableHead>
+                    <TableHead>First seen</TableHead>
+                    <TableHead>Last seen</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.groups.map((g, i) => (
+                    <GroupRow
+                      key={g.key}
+                      group={g}
+                      state={derived.states[i] ?? "ongoing"}
+                      color={derived.colorOf(g)}
+                      max={derived.max}
+                      windowMinutes={shownWindow}
+                    />
+                  ))}
+                </TableBody>
+              </Table>
+            </Section>
+          ) : (
+            <EmptyState
+              title={`No errors in the last ${shownWindow} minutes.`}
+              testId="error-groups"
+            >
+              Failed requests and thrown spans in stored traces appear here. Try
+              the 60 minute window, or send a failing request to your app.
+            </EmptyState>
+          )}
+        </>
       )}
     </div>
   );
