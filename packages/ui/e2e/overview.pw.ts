@@ -160,7 +160,7 @@ test("degraded: the verdict, both lists, the KPI changes and the donuts", async 
   await page.getByTestId("investigate").click();
   await expect
     .poll(() => page.evaluate(() => location.hash))
-    .toMatch(/^#\/routes\?/);
+    .toMatch(/^#\/route\?/);
   expect(await page.evaluate(() => location.hash)).toContain("route=%2Forders");
 });
 

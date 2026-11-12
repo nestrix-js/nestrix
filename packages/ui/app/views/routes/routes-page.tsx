@@ -1,5 +1,6 @@
 import type { RouteStats } from "@nestrix-js/protocol";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { RefreshCw } from "lucide-react";
 import { parseAsStringLiteral, useQueryStates } from "nuqs";
 import { useMemo } from "react";
@@ -22,6 +23,7 @@ import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser, stringParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
+import { routeDetailHref } from "@/views/route/route-detail";
 import { ComparePanel } from "@/views/routes/compare-panel";
 import { RouteHistogram } from "@/views/routes/route-histogram";
 import {
@@ -224,7 +226,7 @@ export function RoutesPage() {
       )}
 
       {view === "routes" && stats.isPending && (
-        <DataTableSkeleton columnCount={7} />
+        <DataTableSkeleton columnCount={8} />
       )}
       {view === "routes" && stats.isError && stats.data === undefined && (
         <div
@@ -253,6 +255,9 @@ export function RoutesPage() {
                   <TableHead className="text-right">p50</TableHead>
                   <TableHead className="text-right">p95</TableHead>
                   <TableHead className="text-right">p99</TableHead>
+                  <TableHead className="text-right">
+                    <span className="sr-only">Route detail</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -317,13 +322,23 @@ export function RoutesPage() {
                         <TableCell className="text-right font-mono">
                           {formatDuration(r.p99Ms)}
                         </TableCell>
+                        <TableCell className="text-right">
+                          <Link
+                            to={routeDetailHref(r.method, r.route) as "/"}
+                            data-testid="route-details-link"
+                            aria-label={`Details of ${routeKey(r)}`}
+                            className="text-sm underline underline-offset-4"
+                          >
+                            Details
+                          </Link>
+                        </TableCell>
                       </TableRow>
                     );
                   })
                 ) : (
                   <TableRow className="hover:bg-transparent">
                     <TableCell
-                      colSpan={7}
+                      colSpan={8}
                       className="h-24 text-center text-muted-foreground"
                     >
                       No requests in the last {shownWindow} minutes.

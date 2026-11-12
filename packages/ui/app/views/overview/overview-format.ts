@@ -284,7 +284,7 @@ export function formatShareChange(
 /** Where an insight leads: the target view's path and its search params. */
 export function insightHref(link: InsightLink): string {
   const path: Record<InsightLink["view"], string> = {
-    route: "/routes",
+    route: "/route",
     errors: "/errors",
     dependencies: "/dependencies",
     slos: "/slos",

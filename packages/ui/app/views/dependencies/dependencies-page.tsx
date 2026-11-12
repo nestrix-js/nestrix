@@ -18,14 +18,19 @@ import {
 import { getDependencies, getMeta } from "@/lib/api";
 import { formatDuration, STANDALONE_STATISTICS_NOTE } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
-import { routeWindowParser } from "@/lib/params";
+import { routeWindowParser, stringParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
+import { filterByName } from "@/views/dependencies/dependency-filter";
 import { sparklinePoints } from "@/views/dependencies/sparkline";
 
 const WINDOWS = [15, 60] as const;
 const DEFAULT_WINDOW = 15;
-const parsers = { windowMinutes: routeWindowParser };
+const parsers = {
+  windowMinutes: routeWindowParser,
+  // From a finding on the route page: the dependency's name as this page shows it.
+  name: stringParser({ maxLength: 256 }),
+};
 
 const KIND_LABEL: Record<MapNodeKind, string> = {
   app: "app",
@@ -93,10 +98,10 @@ export function DependenciesPage() {
   // Most total time first; the server sorts the same way, this keeps it true for any answer.
   const rows = useMemo(
     () =>
-      [...(deps.data?.dependencies ?? [])].sort(
+      filterByName(deps.data?.dependencies ?? [], query.name).sort(
         (a, b) => b.totalMs - a.totalMs || (a.id < b.id ? -1 : 1),
       ),
-    [deps.data],
+    [deps.data, query.name],
   );
   const shownWindow = deps.data?.windowMinutes ?? windowMinutes;
   const bucketMinutes = (deps.data?.bucketMs ?? 60_000) / 60_000;
@@ -148,6 +153,25 @@ export function DependenciesPage() {
         {standalone && ` ${STANDALONE_STATISTICS_NOTE}`}
       </p>
 
+      {query.name !== null && (
+        <div
+          data-testid="dependency-filter"
+          className="flex flex-wrap items-center gap-2 text-sm"
+        >
+          <span className="text-muted-foreground">Filtered by dependency</span>
+          <code className="rounded bg-secondary px-2 py-0.5 text-xs">
+            {query.name}
+          </code>
+          <Button
+            size="sm"
+            variant="outline"
+            data-testid="clear-dependency-filter"
+            onClick={() => void setQuery({ name: null })}
+          >
+            Clear
+          </Button>
+        </div>
+      )}
       {deps.isPending && <DataTableSkeleton columnCount={7} />}
       {deps.isError && deps.data === undefined && (
         <div
@@ -167,7 +191,9 @@ export function DependenciesPage() {
             data-testid="dependencies-empty"
             className="rounded-lg border border-border p-6 text-center text-muted-foreground"
           >
-            No outbound calls in the last {shownWindow} minutes.
+            {query.name !== null
+              ? `No calls to ${query.name} in the last ${shownWindow} minutes.`
+              : `No outbound calls in the last ${shownWindow} minutes.`}
           </p>
         ) : (
           <div className="rounded-lg border border-border">

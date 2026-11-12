@@ -18,6 +18,7 @@ import type {
   RemoteProfileDetail,
   RemoteProfileSummary,
   RouteCompareResponse,
+  RouteExplainResponse,
   RouteHistogramResponse,
   RouteStatsResponse,
   RuntimeResponse,
@@ -31,12 +32,14 @@ import { generatedClasses, generatedMap } from "./mock-classes-map.ts";
 import { generatedDependencies, generatedTimeline } from "./mock-insights.ts";
 import { empty as emptyOverview } from "./mock-overview.ts";
 import { generatedQueries } from "./mock-queries.ts";
+import { emptyExplain } from "./mock-route-explain.ts";
 import { ErrorStore } from "./mock-stats.ts";
 
 type Endpoint =
   | "meta"
   | "traces"
   | "routes"
+  | "routes/explain"
   | "errors"
   | "errors/groups"
   | "classes"
@@ -200,6 +203,9 @@ export class MockApi {
     null;
   routeCompare: ((query: URLSearchParams) => RouteCompareResponse) | null =
     null;
+  /** When set, `routes/explain` answers with this (P12-02); an empty comparison otherwise. */
+  routeExplain: ((query: URLSearchParams) => RouteExplainResponse) | null =
+    null;
   /** When set, `overview` answers with this for the asked window; no traffic otherwise (P11-02). */
   overview: ((windowMinutes: number) => OverviewResponse) | null = null;
   /** When set, `classes` / `map` answer with this for the asked window instead of the generated data. */
@@ -286,6 +292,7 @@ export class MockApi {
     this.errorGroups = null;
     this.routeHistogram = null;
     this.routeCompare = null;
+    this.routeExplain = null;
     this.overview = null;
     this.classStats = null;
     this.appMap = null;
@@ -408,6 +415,11 @@ export class MockApi {
         return {
           status: 200,
           body: (this.routeCompare ?? emptyCompare)(query),
+        };
+      case "routes/explain":
+        return {
+          status: 200,
+          body: (this.routeExplain ?? emptyExplain)(query),
         };
       case "overview":
         return {

@@ -10,7 +10,7 @@ The wire contract is `packages/protocol/src/route-explain.ts` (`routeExplainPara
 |---|---|---|---|---|
 | P12-00 | Protocol, this backlog | lead | — | done |
 | P12-01 | `GET api/v1/routes/explain` on both backends, one shared computation | sonnet | P12-00 | done (local checks; see "As built (P12-01)") |
-| P12-02 | UI: route detail page | sonnet | P12-00 | todo |
+| P12-02 | UI: route detail page | sonnet | P12-00 | done (review pending, P12-03) |
 | P12-03 | Review, docs, changeset | lead | P12-01, P12-02 | todo |
 
 ## Settled design
@@ -52,3 +52,13 @@ As in phase 11: a pure module in `packages/nestjs/src/` that takes plain per-sid
 - Empty states: route unknown or no traces → friendly message; fewer than 5 traces on a side → the summary sentence and the tables without findings.
 - Source labels on every card. Colours from tokens; worse red/amber, better green, never colour alone.
 - **Tests:** unit tests for helpers; Playwright (Chromium) against the mock API with fixtures for a slower route (N+1 finding), a release comparison, too few traces, an unknown route; navigation from the Overview insight and from the Routes page. Keep the whole Chromium suite and the app-level suite (`pnpm --filter e2e test`, needs `pnpm build`) passing.
+
+#### As built (P12-02)
+
+- **URL.** `#/route?method=&route=` plus `windowMinutes` (15 default, 60), `compare=release` with `releaseA` and `releaseB`. `method` absent means every method. The Overview's `view: "route"` links (`params: { method, route }`) go to `/route` (`insightHref`); the Overview routes table, a "Details" column on the Routes page and a "Route details" link on the trace page use `routeDetailHref`. The Routes tab stays marked on `/route`.
+- **KPIs.** Window mode: requests/min, p95, p99, error rate from `routes` statistics (before sampling), changes from the window `routes/compare` row; the comparison has no p99, so that tile shows no change. Without a method, the route's busiest method stands for it. Release mode: sampled traces, tiles from the explain `before`/`after` (traces, mean, p95, error rate). "Queries per request" sums the (at most 20) statements returned, so it is a lower bound when a route has more.
+- **Histogram.** The Routes page component for the current window only (no overlay; the compare data has no histogram). In release mode its card says it shows the window, not the releases.
+- **Release picker.** The first request is a window one, to learn `releases`; then the two newest are compared until the person picks.
+- **Finding links** pass what `link.params` names, and the target pages now read it: Queries `q` (statement text contained in the row's, case-insensitive, whitespace folded; at most 120 characters), plus `nplus=true` for an `n-plus-one` finding; Dependencies `name` (exact); Classes `class` (exact); Errors `view=all&route&type`. Each page shows a "Filtered by" chip with Clear. The errors list API has no `type` parameter, so that filter applies to the errors already loaded ("Load older" still pages).
+- **Shared components.** `Card` and `Delta` moved from the Overview page to `app/components/`.
+- **Known, not mine.** The shell's section tabs are wider than a phone, so every page scrolls sideways at 390 px; the route page's own content does not (tested).

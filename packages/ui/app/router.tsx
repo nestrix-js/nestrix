@@ -18,6 +18,7 @@ import { OverviewPage } from "@/views/overview/overview-page";
 import { ProfilerPage } from "@/views/profiler/profiler-page";
 import { QueriesPage } from "@/views/queries/queries-page";
 import { RequestsPage } from "@/views/requests/requests-page";
+import { RouteDetailPage } from "@/views/route/route-detail-page";
 import { RoutesPage } from "@/views/routes/routes-page";
 import { RuntimePage } from "@/views/runtime/runtime-page";
 import { SettingsPage } from "@/views/settings/settings-page";
@@ -64,6 +65,11 @@ const routesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/routes",
   component: RoutesPage,
+});
+const routeDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/route",
+  component: RouteDetailPage,
 });
 const classesRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -119,6 +125,7 @@ export const router = createRouter({
     requestsRoute,
     errorsRoute,
     routesRoute,
+    routeDetailRoute,
     classesRoute,
     mapRoute,
     queriesRoute,

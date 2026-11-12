@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { LogOut, Pause, Play } from "lucide-react";
 import type * as React from "react";
 
@@ -66,6 +66,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const services = meta.data?.services ?? [];
   const [selected, setSelected] = useService();
   // Links keep the chosen service: the hash holds it, and a plain link would drop it.
+  // The route detail page belongs to Routes: that tab stays marked while it is open.
+  const onRouteDetail = useRouterState({
+    select: (s) => s.location.pathname === "/route",
+  });
   const keep = selected ? `?service=${encodeURIComponent(selected)}` : "";
 
   return (
@@ -163,7 +167,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               key={item.to}
               to={`${item.to}${keep}` as typeof item.to}
               activeOptions={{ exact: item.to === "/" }}
-              className="border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground hover:text-foreground"
+              className={cn(
+                "border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground hover:text-foreground",
+                item.to === "/routes" &&
+                  onRouteDetail &&
+                  "border-primary font-medium text-foreground",
+              )}
               activeProps={{
                 className: "border-primary text-foreground font-medium",
               }}

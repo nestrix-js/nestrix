@@ -262,7 +262,7 @@ describe("insightHref and insightChange", () => {
         view: "route",
         params: { method: "POST", route: "/orders" },
       }),
-    ).toBe("/routes?method=POST&route=%2Forders");
+    ).toBe("/route?method=POST&route=%2Forders");
     expect(insightHref({ view: "errors", params: {} })).toBe("/errors");
     expect(insightHref({ view: "dependencies", params: {} })).toBe(
       "/dependencies",

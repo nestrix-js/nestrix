@@ -24,6 +24,16 @@ export function methodOwnMs(m: MethodStats): number | null {
   return m.ownAvgMs === null ? null : m.ownAvgMs * m.calls;
 }
 
+/** The class named `name`; every class for none. */
+export function filterByClass(
+  classes: readonly ClassStats[],
+  name: string | null,
+): ClassStats[] {
+  return name === null
+    ? [...classes]
+    : classes.filter((c) => c.className === name);
+}
+
 interface Row {
   name: string;
   kind: string;

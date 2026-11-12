@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ApiRequestError, getTrace, getTraceLogs } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
 import { buildTree, isErrorSpan } from "@/lib/trace-tree";
+import { routeDetailHref } from "@/views/route/route-detail";
 import { CopyButton } from "@/views/trace/copy-button";
 import { Waterfall } from "@/views/trace/waterfall";
 
@@ -40,6 +41,9 @@ function summarize(trace: TraceResponse) {
   const code = attrs["http.response.status_code"];
   const { totalMs } = buildTree(trace.spans, trace.rootSpanId);
   return {
+    // The root's route (and method), for the link to the route detail page.
+    route: typeof route === "string" ? route : undefined,
+    method: typeof method === "string" ? method : undefined,
     title:
       typeof route === "string"
         ? `${typeof method === "string" ? `${method} ` : ""}${route}`
@@ -129,6 +133,15 @@ export function TracePage({ traceId }: { traceId: string }) {
           <h2 className="text-lg font-semibold" data-testid="trace-title">
             {summary.title}
           </h2>
+          {summary.route !== undefined && (
+            <Link
+              to={routeDetailHref(summary.method, summary.route) as "/"}
+              data-testid="trace-route-link"
+              className="text-sm underline underline-offset-4"
+            >
+              Route details
+            </Link>
+          )}
           {summary.statusCode !== undefined ? (
             <Badge
               variant={summary.error ? "destructive" : "secondary"}

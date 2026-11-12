@@ -18,6 +18,8 @@ import {
 import { useQueryStates } from "nuqs";
 import { useMemo } from "react";
 
+import { Card } from "@/components/card";
+import { Delta, toneText } from "@/components/delta";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   getDependencies,
@@ -60,6 +62,7 @@ import {
   type Tone,
   toneOf,
 } from "@/views/overview/overview-format";
+import { routeDetailHref } from "@/views/route/route-detail";
 import {
   describeMethod,
   describeRoute,
@@ -91,87 +94,11 @@ const levelStyle = {
   critical: { label: "Critical", color: "--destructive", Icon: CircleX },
 } as const;
 
-const toneText: Record<Tone, string> = {
-  worse: "text-destructive",
-  better: "text-success",
-  neutral: "text-muted-foreground",
-};
 const toneColor: Record<Tone, string> = {
   worse: "--destructive",
   better: "--success",
   neutral: "--chart-1",
 };
-
-function Card({
-  title,
-  source,
-  testId,
-  className,
-  children,
-  aside,
-}: {
-  title: string;
-  /** Where the figures come from; every card says. */
-  source: string;
-  testId: string;
-  className?: string;
-  children: React.ReactNode;
-  aside?: React.ReactNode;
-}) {
-  return (
-    <section
-      data-testid={testId}
-      aria-label={title}
-      className={cn("space-y-3 rounded-lg border border-border p-4", className)}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h3 className="text-sm font-semibold">{title}</h3>
-          <p data-testid="source" className="text-xs text-muted-foreground">
-            {source}
-          </p>
-        </div>
-        {aside}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Delta({
-  text,
-  tone,
-  title,
-}: {
-  text: string;
-  tone: Tone;
-  title?: string;
-}) {
-  const unknown = text === "—";
-  // The arrow shows which way the number moved; the colour says whether that is good or bad
-  // (Apdex falling is worse and points down).
-  const rising = /^\+/.test(text);
-  const falling = /^[−-]/.test(text);
-  return (
-    <span
-      data-testid="delta"
-      data-tone={unknown ? "unknown" : tone}
-      title={title}
-      className={cn(
-        "inline-flex items-center gap-0.5 whitespace-nowrap font-mono text-xs",
-        unknown ? "text-muted-foreground" : toneText[tone],
-      )}
-    >
-      {!unknown && tone !== "neutral" && rising && (
-        <ArrowUp className="size-3" aria-hidden />
-      )}
-      {!unknown && tone !== "neutral" && falling && (
-        <ArrowDown className="size-3" aria-hidden />
-      )}
-      {text}
-    </span>
-  );
-}
 
 function HealthCard({ data }: { data: OverviewResponse }) {
   const { health } = data;
@@ -826,9 +753,7 @@ function RoutesCard({
                   >
                     <td className="py-2 pr-2 font-mono">
                       <Link
-                        to={
-                          `/routes?method=${encodeURIComponent(row.method)}&route=${encodeURIComponent(row.route)}` as "/"
-                        }
+                        to={routeDetailHref(row.method, row.route) as "/"}
                         className="hover:underline"
                       >
                         <span className="mr-2 text-muted-foreground">
