@@ -498,7 +498,7 @@ All three must be positive integers.
 
 | Option | Default | |
 |---|---|---|
-| `export.profiler` | `false` | Lets the [standalone server](../../apps/server/README.md) take CPU profiles of this instance ([remote profiling](#remote-profiling-from-the-standalone-server)). Needs a base endpoint: `export.otlp.endpoint` or `OTEL_EXPORTER_OTLP_ENDPOINT` (a full `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` alone is not enough), and `export.otlp` not `false`; otherwise one line says it is off. Sends the same headers as the trace export. A non-boolean throws. |
+| `export.profiler` | `false` | Lets the [standalone server](../../apps/server/README.md) take CPU profiles of this instance ([remote profiling](#remote-profiling-from-the-standalone-server)). Needs a base endpoint: `export.otlp.endpoint` or `OTEL_EXPORTER_OTLP_ENDPOINT` (a full `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` alone is not enough), and `export.otlp` not `false`; otherwise one line says it is off. With a base from `export.otlp.endpoint` it sends the same headers as the trace export. With a base from `OTEL_EXPORTER_OTLP_ENDPOINT` it sends only `OTEL_EXPORTER_OTLP_HEADERS` and `export.otlp.headers`, never `OTEL_EXPORTER_OTLP_TRACES_HEADERS`, because that variable belongs to the traces URL (which may be your Nestrix server, with a Collector as the generic endpoint) and the ingest key must not reach another host. To check in with a server, set `export.otlp.endpoint`. A non-boolean throws. |
 
 ### `ignore`
 

@@ -157,7 +157,7 @@ NestrixModule.forRoot({
 
 What happens:
 
-1. The instance checks in (`POST /v1/nestrix/check-in`). It appears in `GET /api/v1/instances` while its last check-in is less than 2 minutes old. The ingest key of an instance's first check-in owns it: a check-in for the same instance id with another key answers 409.
+1. The instance checks in (`POST /v1/nestrix/check-in`). It appears in `GET /api/v1/instances` while its last check-in is less than 2 minutes old. The ingest key of an instance's first check-in owns it (by a fingerprint of the key, so reordering or rotating `NESTRIX_INGEST_KEYS` keeps it): a check-in for the same instance id with another key answers 409.
 2. An admin starts a capture for that instance, 1 to 120 s, default 30 (`POST /api/v1/remote-profiles` with `{"service", "instanceId", "durationSeconds"}`; admin session only, from the dashboard page: it needs `Sec-Fetch-Site: same-origin` and a same-origin `Origin`, so a browser sends it only over HTTPS or to localhost). It is `pending`; 404 if the instance has not checked in for 2 minutes, 409 while one is pending or running for it, 429 with `Retry-After` within 10 s of its previous capture.
 3. The instance's next check-in receives it (`running`), captures with the same limits as the embedded profiler, and uploads the `.cpuprofile` (`POST /v1/nestrix/profiles/:id`, gzip allowed, at most 20 MiB) or reports why it could not (`POST /v1/nestrix/profiles/:id/failed`). Only the key that received the order may do either.
 4. `GET /api/v1/remote-profiles` lists captures (newest 50); `GET /api/v1/remote-profiles/:id` shows one, with its top functions and flame graph once `done`; `/download` returns the `.cpuprofile` for Chrome DevTools or speedscope.

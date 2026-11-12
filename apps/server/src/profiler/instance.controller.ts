@@ -225,7 +225,8 @@ export class InstanceController {
         });
         return;
       }
-      const reply = await work(admitted.principal);
+      // Ownership follows the key's fingerprint, not its place in the list (`owner` is unset with auth off).
+      const reply = await work(admitted.owner ?? admitted.principal);
       if (reply === undefined) return; // The client went away.
       this.reply(req, res, reply);
     } catch (failure) {

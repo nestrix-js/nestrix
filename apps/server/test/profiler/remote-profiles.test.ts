@@ -6,6 +6,7 @@
  * unknown instance, duplicates, cool-down); the instances window; retention; a failing store.
  */
 import "reflect-metadata";
+import { createHash } from "node:crypto";
 import type {
   CheckInResponse,
   InstanceListResponse,
@@ -36,6 +37,10 @@ import {
   startCapture,
   upload,
 } from "./helpers.js";
+
+/** The ownership principal of an ingest key: the first 16 hex characters of its SHA-256. */
+const fingerprint = (key: string) =>
+  createHash("sha256").update(key, "utf8").digest("hex").slice(0, 16);
 
 describe.skipIf(noDatabase)(`remote profiling ${skipReason}`, () => {
   let db: TestDb;
@@ -130,7 +135,7 @@ describe.skipIf(noDatabase)(`remote profiling ${skipReason}`, () => {
         version: "1.0.1",
         host: "web-1",
         pid: null,
-        principal: "key:0",
+        principal: fingerprint(KEY),
       });
       expect(rows[0].last_seen.getTime()).toBeGreaterThanOrEqual(
         rows[0].first_seen.getTime(),
@@ -203,7 +208,111 @@ describe.skipIf(noDatabase)(`remote profiling ${skipReason}`, () => {
         "SELECT principal FROM instances WHERE instance_id = $1",
         [instance.instanceId],
       );
-      expect(rows[0].principal).toBe("key:0");
+      expect(rows[0].principal).toBe(fingerprint(KEY));
+    });
+
+    it("keeps an instance across a key rotation that moves its key to another index", async () => {
+      // Keys `KEY,OTHER_KEY` become `OTHER_KEY,THIRD`: OTHER_KEY goes from index 1 to 0.
+      const THIRD = "q".repeat(40);
+      const instance = newInstance("checkin-rotation");
+      await checkInOk(instance, {}, OTHER_KEY);
+      const rotated = await startAlertsServer(db.url, {
+        NESTRIX_INGEST_KEYS: `${OTHER_KEY},${THIRD}`,
+      });
+      try {
+        const capture = await started(instance);
+        const answer = await checkIn(rotated.baseUrl, instance, OTHER_KEY);
+        expect(answer.status).toBe(200);
+        expect(((await answer.json()) as CheckInResponse).capture?.id).toBe(
+          capture.id,
+        );
+        expect(
+          (
+            await upload(
+              rotated.baseUrl,
+              capture.id,
+              sampleProfile(),
+              OTHER_KEY,
+            )
+          ).status,
+        ).toBe(204);
+        // The key that took index 1 is not the owner.
+        expect((await checkIn(rotated.baseUrl, instance, THIRD)).status).toBe(
+          409,
+        );
+      } finally {
+        await rotated.close();
+      }
+    });
+
+    it("an instance registered before fingerprints (principal key:<n>) is not locked out", async () => {
+      const instance = newInstance("checkin-legacy");
+      await db.pool.query(
+        "INSERT INTO instances (service, instance_id, principal) VALUES ($1, $2, 'key:5')",
+        [instance.service, instance.instanceId],
+      );
+      await checkInOk(instance);
+      const capture = await started(instance);
+      // A capture handed out under the old principal: the first check-in carries it over too.
+      await db.pool.query(
+        "UPDATE remote_profiles SET state = 'running', started_at = now(), principal = 'key:5' WHERE id = $1",
+        [capture.id],
+      );
+      await checkInOk(instance, { runningCaptureId: capture.id });
+      const { rows } = await db.pool.query(
+        "SELECT principal FROM instances WHERE instance_id = $1",
+        [instance.instanceId],
+      );
+      expect(rows[0].principal).toBe(fingerprint(KEY));
+      expect(
+        (await upload(server.baseUrl, capture.id, sampleProfile())).status,
+      ).toBe(204);
+    });
+  });
+
+  describe("a lost order", () => {
+    const age = (id: string, seconds: number) =>
+      db.pool.query(
+        "UPDATE remote_profiles SET started_at = now() - make_interval(secs => $2) WHERE id = $1",
+        [id, seconds],
+      );
+
+    it("fails a capture running over 20 s that the instance does not report, then hands out the next", async () => {
+      const instance = newInstance("lost-order");
+      const id = await running(instance);
+      await age(id, 25);
+      await checkInOk(instance);
+      const lost = await detail(id);
+      expect(lost.state).toBe("failed");
+      expect(lost.error).toBe("the instance did not receive the order");
+      // The cool-down of a failed capture still applies to a new start; lift it, as time would.
+      await db.pool.query(
+        "UPDATE remote_profiles SET finished_at = now() - interval '11 seconds' WHERE id = $1",
+        [id],
+      );
+      const next = await started(instance);
+      expect((await checkInOk(instance)).capture?.id).toBe(next.id);
+    });
+
+    it("fails it also when the instance reports a different capture", async () => {
+      const instance = newInstance("lost-order-other");
+      const id = await running(instance);
+      await age(id, 25);
+      await checkInOk(instance, { runningCaptureId: "0123456789abcdef" });
+      expect((await detail(id)).state).toBe("failed");
+    });
+
+    it("keeps one the instance reports, and one younger than 20 s", async () => {
+      const reported = await running(newInstance("lost-order-kept"));
+      const instance = newInstance("lost-order-kept");
+      const young = await running(instance);
+      await age(young, 15);
+      await checkInOk(instance);
+      expect((await detail(young)).state).toBe("running");
+      await age(young, 25);
+      await checkInOk(instance, { runningCaptureId: young });
+      expect((await detail(young)).state).toBe("running");
+      expect((await detail(reported)).state).toBe("running");
     });
   });
 

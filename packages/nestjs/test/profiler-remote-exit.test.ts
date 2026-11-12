@@ -15,6 +15,9 @@ import {
 const CHILD = fileURLToPath(
   new URL("./fixtures/remote-profiler-child.mjs", import.meta.url),
 );
+const NOCLOSE_CHILD = fileURLToPath(
+  new URL("./fixtures/remote-profiler-noclose-child.mjs", import.meta.url),
+);
 const DIST = fileURLToPath(
   new URL("../dist/profiler/remote.js", import.meta.url),
 );
@@ -32,10 +35,10 @@ afterAll(async () => {
   await server.close();
 });
 
-async function runChild(waitMs: number) {
+async function runChild(waitMs: number, script = CHILD) {
   const child = spawn(
     process.execPath,
-    ["--no-warnings", CHILD, server.url, String(waitMs)],
+    ["--no-warnings", script, server.url, String(waitMs)],
     { stdio: ["ignore", "pipe", "pipe"] },
   );
   let stdout = "";
@@ -107,5 +110,18 @@ describe("the process exits after app.close()", () => {
     expect(
       server.hits.some((h) => h.path.startsWith("/v1/nestrix/profiles")),
     ).toBe(false);
+  }, 20_000);
+});
+
+describe("the process exits without app.close()", () => {
+  it("with a check-in in flight to a server that never answers", async () => {
+    server.hits.length = 0;
+    server.respond = () => "hang";
+    const run = await runChild(300, NOCLOSE_CHILD);
+    expect(run.stderr).toBe("");
+    expect(run.code).toBe(0);
+    // The request was really in flight when the host finished its work.
+    expect(server.checkIns()).toHaveLength(1);
+    expect(run.lingerMs).toBeLessThan(1000);
   }, 20_000);
 });
