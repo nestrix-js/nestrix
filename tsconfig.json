@@ -11,6 +11,12 @@
       "path": "packages/nestjs/test"
     },
     {
+      "path": "packages/mcp"
+    },
+    {
+      "path": "packages/mcp/test"
+    },
+    {
       "path": "packages/ui"
     },
     {

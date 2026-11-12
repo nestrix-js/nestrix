@@ -34,6 +34,10 @@ With `@nestrix-js/ui` installed, start the app in development and open the link 
 
 Spans for your own controllers, services, repositories and jobs: `NestFactory.create(AppModule, { instrument: NestrixInstrument })`. `pg` queries are traced automatically; `mysql2`, `ioredis`, BullMQ and Nest microservices are covered too ([package README](packages/nestjs/README.md)).
 
+## Ask an AI assistant about your app: MCP
+
+`@nestrix-js/mcp` is an MCP server (stdio) that lets Claude Code, Claude Desktop, Cursor and other assistants read your traces, errors, route and class statistics, and start a CPU capture, from an embedded dashboard or the standalone server. It runs outside your app and reads only what the dashboard shows. See the [package README](packages/mcp/README.md).
+
 ## Self-hosted server: several services and replicas
 
 The embedded dashboard shows the traces of the process it runs in. For several services, or several replicas of one, run the standalone server and point every process at it:
