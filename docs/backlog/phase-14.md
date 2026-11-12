@@ -7,7 +7,7 @@ Owner, 2026-11-12: "why you only fix the overview ui, the rest still plain, ugly
 | ID | Task | Tier | Depends | Status |
 |---|---|---|---|---|
 | P14-01 | Shared kit + shell + Requests (reference page) | sonnet | — | done (branch `p14-01-kit`, not merged) |
-| P14-02 | Errors (canvas design) + Queries | sonnet | P14-01 | todo |
+| P14-02 | Errors (canvas design) + Queries | sonnet | P14-01 | done (branch `p14-02-errors-queries`, not merged) |
 | P14-03 | Routes + Classes + Map | sonnet | P14-01 | todo |
 | P14-04 | Dependencies + Runtime + Profiler (embedded and standalone; canvas design) | sonnet | P14-01 | todo |
 | P14-05 | Trace view + SLOs + Settings + login and empty/error states | sonnet | P14-01 | todo |
@@ -67,6 +67,12 @@ Tests added: `kit/format.test.ts`, `requests/requests-stats.test.ts`, `e2e/p14-k
 
 - **Errors** (canvas artboard "Error insights"): KPI strip (events, requests with an error, groups new in the window, groups resolved/quiet — only what the API supports; otherwise "—"); errors over time stacked by exception type; donut by type; groups table with state chips (New / Regressed / Ongoing derived from first/last seen and releases where the API allows; if not derivable, show first/last seen clearly instead), event counts, sparklines, share of requests; a weekday × hour heatmap if the stored data allows it from the groups' occurrences, else leave it out and note it; errors per release if the data allows. Keep the Grouped / Every event views and the `route`/`type` filters (phase 12).
 - **Queries:** KPI strip (statements, total time, likely N+1 count, slowest mean); "Slowest" and "Most frequent" as horizontal bar charts; table with `BarCell` for total time and mean, calls per trace, an N+1 badge, example trace links; keep the `q` and `nplus` filters.
+
+### P14-02 as built
+
+Errors (grouped): `PageHeader` with the view toggle ("Grouped" / "Every event", `SegmentedControl`), window toggle and Reload; four tiles (error events with a per-bucket trend, groups, new groups, gone quiet; changes are "—" because the API has no previous window); stacked `AreaChart` of events per bucket by exception type (top 5 types, rest as "Other"); `Donut` by type; "Where it happens" `BarChart` by route; groups table with a state chip, `BarCell` events, sparkline, route, first/last seen, whole row opens the occurrences, plus a link "Every event of this type" (`/errors?view=all&type=`). Every event: the same header, a filter toolbar (route select, type chip, Reset), three tiles and a type ranking (bars link to the `type` filter) over the loaded events, table with the row opening its trace. Queries: header with N+1 toggle, window and Reload; tiles (statements, total time, likely N+1, slowest mean); "Slowest" (mean) and "Most frequent" horizontal bars; table with `BarCell` for total and mean, calls per trace, N+1 chip, row opens the slowest example trace. Sort, `q`, `nplus` and `windowMinutes` stay in the URL.
+
+Data gaps: no New/Regressed from releases (no release in the groups API), so the state is derived from the series (`errors-stats.ts` `groupState`: Quiet = nothing in the last two buckets, New = nothing in the window's first half, else Ongoing; no "Regressed"); no "share of requests" (the response has no request counts), so the events bar is a share of the window's errors; no weekday x hour heatmap (a group holds at most 10 occurrences and the window is at most 60 minutes) and no errors-per-release (no release field): both left out. Kit change: `DonutLegend` labels truncate with a tooltip (long exception names broke phone width). Tests: `errors/errors-stats.test.ts`, new cases in `queries/queries.test.ts`, `e2e/p14-errors-queries.pw.ts` (screenshots `p14-errors-*` and `p14-queries-*`, dark, light, phone). `e2e/errors.pw.ts` fixes the browser clock next to the fixture's fixed times (it failed once they aged to "yesterday").
 
 ## P14-03 Routes, Classes and Map
 

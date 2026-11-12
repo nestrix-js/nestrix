@@ -40,7 +40,9 @@ test("renders statements by total time, says it is built from sampled traces", a
   await expect(cells.nth(3)).toHaveText("500 ms");
   await expect(cells.nth(5)).toHaveText("9.0 ms");
   await expect(cells.nth(7)).toHaveText("2");
-  await expect(cells.nth(9)).toHaveText("6");
+  // Calls per trace (100 calls in 8 traces) and the N+1 badge (6 traces repeated it).
+  await expect(cells.nth(8)).toHaveText("13");
+  await expect(cells.nth(9)).toHaveText("6 traces");
   await expect(page.getByTestId("sampled-note")).toContainText(
     "sampled traces",
   );

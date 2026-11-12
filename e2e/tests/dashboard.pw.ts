@@ -115,7 +115,7 @@ async function mainFlow(
   await expect(page.getByTestId("error-group-row")).toHaveCount(1);
   await expect(page.getByTestId("group-count")).toHaveText("1");
   // The flat list still shows the error itself.
-  await page.getByRole("button", { name: "All", exact: true }).click();
+  await page.getByRole("button", { name: "Every event" }).click();
   await expect(page.getByTestId("error-row")).toHaveCount(1);
   await expect(page.getByTestId("error-message")).toHaveText("boom");
 
