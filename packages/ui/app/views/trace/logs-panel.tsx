@@ -1,5 +1,6 @@
 import type { TraceLogRecord } from "@nestrix-js/protocol";
 
+import { Section } from "@/components/kit";
 import { formatDuration } from "@/lib/format";
 import {
   logLevelLabel,
@@ -36,15 +37,13 @@ export function LogsPanel({
   onSelectSpan: (spanId: string) => void;
 }) {
   return (
-    <section
-      data-testid="logs-panel"
-      aria-label="Logs"
-      className="space-y-2 rounded-lg border p-3"
+    <Section
+      testId="logs-panel"
+      title={`Logs (${logs.length})`}
+      description="Log lines written while this request ran; pick one to show its span"
+      source="from this trace's logs"
     >
-      <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Logs ({logs.length})
-      </h3>
-      <ol className="max-h-80 space-y-px overflow-auto font-mono text-xs">
+      <ol className="max-h-80 space-y-px overflow-auto rounded-md bg-muted/30 p-1 font-mono text-xs">
         {logs.map((line, i) => {
           const tone = logTone(line.severity);
           const linked =
@@ -123,6 +122,6 @@ export function LogsPanel({
           More lines were written for this trace than are kept (200 at most).
         </p>
       ) : null}
-    </section>
+    </Section>
   );
 }

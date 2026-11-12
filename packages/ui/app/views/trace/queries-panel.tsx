@@ -1,3 +1,4 @@
+import { Section } from "@/components/kit";
 import { formatDuration } from "@/lib/format";
 import type { RepeatedQuery } from "@/lib/trace-insights";
 import { cn } from "@/lib/utils";
@@ -16,14 +17,12 @@ export function QueriesPanel({
   onPick: (text: string) => void;
 }) {
   return (
-    <section
-      data-testid="queries-panel"
-      aria-label="Repeated queries"
-      className="space-y-2 rounded-lg border p-3"
+    <Section
+      testId="queries-panel"
+      title={`Queries (${queries.length} repeated)`}
+      description="Statements that ran three or more times; pick one to highlight its spans"
+      source="from this trace's spans"
     >
-      <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Queries ({queries.length} repeated)
-      </h3>
       <ul className="space-y-1">
         {queries.map((query) => (
           <li key={query.text}>
@@ -44,12 +43,15 @@ export function QueriesPanel({
               >
                 {query.text}
               </span>
-              <span data-testid="query-count" className="shrink-0 tabular-nums">
+              <span
+                data-testid="query-count"
+                className="shrink-0 font-mono tabular-nums"
+              >
                 {query.count}x
               </span>
               <span
                 data-testid="query-total"
-                className="shrink-0 tabular-nums text-muted-foreground"
+                className="shrink-0 font-mono tabular-nums text-muted-foreground"
               >
                 {formatDuration(query.totalMs)}
               </span>
@@ -57,6 +59,6 @@ export function QueriesPanel({
           </li>
         ))}
       </ul>
-    </section>
+    </Section>
   );
 }

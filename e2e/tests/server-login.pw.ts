@@ -54,6 +54,52 @@ test("signing in through the login form reaches the dashboard", async ({
   expect(await index.text()).not.toContain('name="password"');
 });
 
+// P14-05: the login page in the dashboard's style, in both colour schemes (looked at by the owner).
+for (const scheme of ["light", "dark"] as const) {
+  test(`the login page renders in ${scheme} mode (screenshot)`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.setViewportSize({ width: 1000, height: 640 });
+    await page.goto(`${base}/login`);
+    await expect(page.getByLabel("Admin password")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+    // The stylesheet applied: the page takes the dashboard's background, not the browser's.
+    expect(
+      await page.evaluate(
+        () => getComputedStyle(document.body).backgroundColor,
+      ),
+    ).toBe(scheme === "dark" ? "oklch(0.145 0 0)" : "oklch(1 0 0)");
+    const shot = fileURLToPath(
+      new URL(
+        `../../packages/ui/test-results/p14-login${scheme === "dark" ? "-dark" : ""}.png`,
+        import.meta.url,
+      ),
+    );
+    await page.screenshot({ path: shot });
+  });
+}
+
+test("a wrong password shows the notice in the page's own style", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto(`${base}/login`);
+  await page.fill('input[type="password"]', "not-the-password-x");
+  await page.press('input[type="password"]', "Enter");
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText("Incorrect password.");
+  await page.setViewportSize({ width: 1000, height: 640 });
+  await page.screenshot({
+    path: fileURLToPath(
+      new URL(
+        "../../packages/ui/test-results/p14-login-error.png",
+        import.meta.url,
+      ),
+    ),
+  });
+});
+
 test("a wrong password still fails, from the same form", async ({ page }) => {
   await page.goto(`${base}/login`);
   await page.fill('input[type="password"]', "not-the-password-x");

@@ -40,6 +40,58 @@ export function budgetBarPercent(remainingFraction: number | null): number {
   return Math.round(Math.min(1, Math.max(0, remainingFraction)) * 100);
 }
 
+/** The CSS custom property of the budget ring in each state. */
+export function budgetColor(state: BudgetState): string {
+  switch (state) {
+    case "ok":
+      return "--success";
+    case "low":
+      return "--warning";
+    case "spent":
+      return "--destructive";
+    case "none":
+      return "--muted-foreground";
+  }
+}
+
+/**
+ * Length of a burn-rate bar, 0 to 100, against `max` (the scale's end, at least the largest rate
+ * shown). No data is an empty bar.
+ */
+export function burnBarPercent(rate: number | null, max: number): number {
+  if (rate === null || !Number.isFinite(rate) || rate <= 0 || max <= 0)
+    return 0;
+  return Math.round(Math.min(1, rate / max) * 1000) / 10;
+}
+
+export interface SloSummary {
+  count: number;
+  breached: number;
+  /** The smallest remaining budget fraction among SLOs with data; null without any. */
+  lowestBudget: number | null;
+  /** The highest 1 h burn rate; null when no SLO has one. */
+  worstBurn1h: number | null;
+}
+
+/** The numbers of the KPI strip. */
+export function summarizeSlos(
+  slos: readonly Pick<Slo, "status">[],
+): SloSummary {
+  let lowestBudget: number | null = null;
+  let worstBurn1h: number | null = null;
+  let breached = 0;
+  for (const { status } of slos) {
+    if (status.breached) breached += 1;
+    const left = status.errorBudget.remainingFraction;
+    if (left !== null && (lowestBudget === null || left < lowestBudget))
+      lowestBudget = left;
+    const burn = status.burnRate["1h"];
+    if (burn !== null && (worstBurn1h === null || burn > worstBurn1h))
+      worstBurn1h = burn;
+  }
+  return { count: slos.length, breached, lowestBudget, worstBurn1h };
+}
+
 /** "98.4% of the budget left", "budget overspent by 40%", or "no requests yet". */
 export function describeBudget(remainingFraction: number | null): string {
   if (remainingFraction === null) return "no requests in the window";

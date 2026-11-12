@@ -1,22 +1,31 @@
-import type { SpanRecord, TraceResponse } from "@nestrix-js/protocol";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { ArrowLeft } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Chip,
+  EmptyState,
+  ErrorState,
+  SkeletonChart,
+  SkeletonKpiStrip,
+  SourceLabel,
+} from "@/components/kit";
 import { ApiRequestError, getTrace, getTraceLogs } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
 import { summarizeDropped } from "@/lib/trace-omitted";
-import { buildTree, isErrorSpan } from "@/lib/trace-tree";
 import { routeDetailHref } from "@/views/route/route-detail";
 import { CopyButton } from "@/views/trace/copy-button";
 import { OmittedBanner } from "@/views/trace/omitted-banner";
+import { summarizeTrace } from "@/views/trace/trace-summary";
 import { Waterfall } from "@/views/trace/waterfall";
 
 function BackLink() {
   return (
-    <Link to="/requests" className="text-sm underline">
+    <Link
+      to="/requests"
+      className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+    >
+      <ArrowLeft className="size-3.5" aria-hidden />
       Back to requests
     </Link>
   );
@@ -25,7 +34,7 @@ function BackLink() {
 function TraceId({ id }: { id: string }) {
   return (
     <span className="inline-flex items-center gap-1">
-      <span className="font-mono text-sm" data-testid="trace-id">
+      <span className="break-all font-mono text-sm" data-testid="trace-id">
         {id}
       </span>
       <CopyButton label="Copy trace id" text={id} />
@@ -33,29 +42,24 @@ function TraceId({ id }: { id: string }) {
   );
 }
 
-/** Route, status and root duration come from the trace's local root span. */
-function summarize(trace: TraceResponse) {
-  const root: SpanRecord | undefined =
-    trace.spans.find((s) => s.spanId === trace.rootSpanId) ?? trace.spans[0];
-  const attrs = root?.attributes ?? {};
-  const method = attrs["http.request.method"];
-  const route = attrs["http.route"];
-  const code = attrs["http.response.status_code"];
-  const { totalMs } = buildTree(trace.spans, trace.rootSpanId);
-  return {
-    // The root's route (and method), for the link to the route detail page.
-    route: typeof route === "string" ? route : undefined,
-    method: typeof method === "string" ? method : undefined,
-    title:
-      typeof route === "string"
-        ? `${typeof method === "string" ? `${method} ` : ""}${route}`
-        : (root?.name ?? "Trace"),
-    statusCode: typeof code === "number" ? code : undefined,
-    error: root
-      ? isErrorSpan(root) || (typeof code === "number" && code >= 500)
-      : false,
-    durationMs: root?.durationMs ?? totalMs,
-  };
+/** One labelled fact of the summary header; the value is monospace when it is an id or a number. */
+function Fact({
+  label,
+  testId,
+  children,
+}: {
+  label: string;
+  testId?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="min-w-0 space-y-0.5">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd data-testid={testId} className="break-words font-mono text-sm">
+        {children}
+      </dd>
+    </div>
+  );
 }
 
 export function TracePage({ traceId }: { traceId: string }) {
@@ -73,10 +77,10 @@ export function TracePage({ traceId }: { traceId: string }) {
 
   if (query.isPending)
     return (
-      <div className="space-y-4" data-testid="trace-loading">
+      <div className="space-y-6" data-testid="trace-loading">
         <BackLink />
-        <Skeleton className="h-6 w-80" />
-        <Skeleton className="h-64 w-full" />
+        <SkeletonKpiStrip count={4} />
+        <SkeletonChart heightClass="h-64" />
       </div>
     );
 
@@ -84,58 +88,86 @@ export function TracePage({ traceId }: { traceId: string }) {
     const evicted =
       query.error instanceof ApiRequestError && query.error.status === 404;
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
         <BackLink />
-        <div
-          role="alert"
-          data-testid={evicted ? "trace-evicted" : "trace-error"}
-          className="space-y-2 rounded-lg border p-4"
-        >
-          <h2 className="text-lg font-semibold">
-            {evicted ? "Trace not found" : "Could not load the trace"}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {evicted
-              ? "This trace is no longer in memory. Nestrix keeps a bounded number of recent traces, and older ones are evicted."
-              : query.error.message}
-          </p>
-          <div className="flex items-center gap-3">
-            <TraceId id={traceId} />
-          </div>
+        {evicted ? (
+          <EmptyState
+            testId="trace-evicted"
+            title="Trace not found"
+            action={
+              <p className="text-sm">
+                <Link
+                  to="/requests"
+                  className="underline underline-offset-4"
+                  data-testid="back-to-list"
+                >
+                  Back to the request list
+                </Link>
+              </p>
+            }
+          >
+            This trace is no longer in memory. Nestrix keeps a bounded number of
+            recent traces, and older ones are evicted.
+          </EmptyState>
+        ) : (
+          <ErrorState
+            testId="trace-error"
+            title="Could not load the trace"
+            message={query.error.message}
+            onRetry={() => query.refetch()}
+            retryLabel="Retry"
+          />
+        )}
+        <div className="flex flex-wrap items-center gap-3">
+          <TraceId id={traceId} />
           {evicted ? null : (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => query.refetch()}
-            >
-              Retry
-            </Button>
-          )}
-          <p className="text-sm">
             <Link
               to="/requests"
-              className="underline"
+              className="text-sm underline underline-offset-4"
               data-testid="back-to-list"
             >
               Back to the request list
             </Link>
-          </p>
+          )}
         </div>
       </div>
     );
   }
 
   const trace = query.data;
-  const summary = summarize(trace);
+  const summary = summarizeTrace(trace);
   const omitted = summarizeDropped(trace.droppedSpans);
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <BackLink />
-      <header data-testid="trace-header" className="space-y-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-lg font-semibold" data-testid="trace-title">
-            {summary.title}
-          </h2>
+      <header data-testid="trace-header" className="space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+          <div className="min-w-0 space-y-0.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2
+                className="break-all text-xl font-semibold tracking-tight"
+                data-testid="trace-title"
+              >
+                {summary.title}
+              </h2>
+              {summary.statusCode !== undefined ? (
+                <Chip
+                  tone={summary.error ? "worse" : "better"}
+                  data-testid="trace-status"
+                >
+                  {summary.statusCode}
+                </Chip>
+              ) : summary.error ? (
+                <Chip tone="worse" data-testid="trace-status">
+                  error
+                </Chip>
+              ) : null}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              One request and everything it called <span aria-hidden>·</span>{" "}
+              <SourceLabel kind="traces" className="text-sm" />
+            </p>
+          </div>
           {summary.route !== undefined && (
             <Link
               to={routeDetailHref(summary.method, summary.route) as "/"}
@@ -145,27 +177,47 @@ export function TracePage({ traceId }: { traceId: string }) {
               Route details
             </Link>
           )}
-          {summary.statusCode !== undefined ? (
-            <Badge
-              variant={summary.error ? "destructive" : "secondary"}
-              data-testid="trace-status"
-            >
-              {summary.statusCode}
-            </Badge>
-          ) : summary.error ? (
-            <Badge variant="destructive" data-testid="trace-status">
-              error
-            </Badge>
-          ) : null}
         </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-          <span data-testid="trace-duration">
-            {formatDuration(summary.durationMs)}
-          </span>
-          <span data-testid="trace-span-count">
-            {trace.spans.length} {trace.spans.length === 1 ? "span" : "spans"}
-          </span>
-          <TraceId id={trace.traceId} />
+        <div className="space-y-3 rounded-lg border border-border p-4">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="min-w-0 space-y-0.5">
+              <dt className="text-xs text-muted-foreground">Duration</dt>
+              <dd
+                data-testid="trace-duration"
+                className="font-mono text-2xl font-semibold leading-tight tabular-nums"
+              >
+                {formatDuration(summary.durationMs)}
+              </dd>
+            </div>
+            <Fact label="Spans" testId="trace-span-count">
+              {trace.spans.length} {trace.spans.length === 1 ? "span" : "spans"}
+            </Fact>
+            <Fact label="Started">
+              <time
+                dateTime={new Date(summary.startMs).toISOString()}
+                title={new Date(summary.startMs).toISOString()}
+              >
+                {new Date(summary.startMs).toLocaleString()}
+              </time>
+            </Fact>
+            <Fact label="Service" testId="trace-service">
+              {summary.service ?? "—"}
+            </Fact>
+            <Fact label="Release" testId="trace-release">
+              {summary.release ?? "—"}
+            </Fact>
+            <Fact label="User" testId="trace-user">
+              {summary.user ?? "—"}
+            </Fact>
+          </dl>
+          <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+            {omitted ? (
+              <Chip tone="warn" data-testid="trace-omitted-chip">
+                {omitted.total} omitted
+              </Chip>
+            ) : null}
+            <TraceId id={trace.traceId} />
+          </div>
         </div>
       </header>
       {omitted ? <OmittedBanner summary={omitted} /> : null}

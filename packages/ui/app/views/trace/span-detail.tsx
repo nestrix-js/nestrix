@@ -9,7 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { X } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
+import { Chip } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { getTrace } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
@@ -160,7 +160,7 @@ export function SpanDetail({
     <aside
       data-testid="span-detail"
       aria-label="Span detail"
-      className="w-full shrink-0 space-y-4 rounded-lg border p-4 lg:w-96"
+      className="w-full shrink-0 space-y-4 rounded-lg border border-border p-4 lg:w-96"
     >
       <div className="flex items-start justify-between gap-2">
         <h3
@@ -181,11 +181,9 @@ export function SpanDetail({
       </div>
 
       <div className="flex flex-wrap gap-1.5">
-        <Badge variant="outline">{span.kind}</Badge>
-        <Badge variant={error ? "destructive" : "secondary"}>
-          {span.status.code}
-        </Badge>
-        {orphan ? <Badge variant="outline">parent not in trace</Badge> : null}
+        <Chip tone="info">{span.kind}</Chip>
+        <Chip tone={error ? "worse" : "neutral"}>{span.status.code}</Chip>
+        {orphan ? <Chip tone="warn">parent not in trace</Chip> : null}
       </div>
       {span.status.message ? (
         <p className="break-words text-xs">{span.status.message}</p>

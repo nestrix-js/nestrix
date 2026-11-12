@@ -10,7 +10,7 @@ Owner, 2026-11-12: "why you only fix the overview ui, the rest still plain, ugly
 | P14-02 | Errors (canvas design) + Queries | sonnet | P14-01 | todo |
 | P14-03 | Routes + Classes + Map | sonnet | P14-01 | todo |
 | P14-04 | Dependencies + Runtime + Profiler (embedded and standalone; canvas design) | sonnet | P14-01 | todo |
-| P14-05 | Trace view + SLOs + Settings + login and empty/error states | sonnet | P14-01 | todo |
+| P14-05 | Trace view + SLOs + Settings + login and empty/error states | sonnet | P14-01 | done (branch `p14-05-trace-slos-settings`, not merged) |
 | P14-06 | Screenshot review with the owner, fixes, changeset, release | lead | P14-02..05 | todo |
 
 ## Design rules (every page)
@@ -86,3 +86,12 @@ Tests added: `kit/format.test.ts`, `requests/requests-stats.test.ts`, `e2e/p14-k
 - **SLOs:** budget rings (as on the Overview) per SLO, burn-rate chart over time, status chips, consistent forms.
 - **Settings:** API tokens in cards with clear create/revoke flows and copy-once token display.
 - **Login page and every empty/error state** on the standalone server and embedded dashboard: consistent with the kit.
+
+### P14-05 as built
+
+- **Trace view** (`app/views/trace/`): `trace-summary.ts` (`summarizeTrace`: route, status, duration, start, service, release, user; unit tests) feeds a summary card under the header (duration, spans, started, service, release, user, omitted-spans chip, trace id with copy; a dash where the API has no value). `TimeSummary`, `QueriesPanel`, `LogsPanel` and the waterfall are kit `Section`s with the same testids. Waterfall bars are coloured by time category (`category-style.ts`, shared with the time bar; a slow database call stays `bg-warning`, an error `bg-destructive`), with a legend, nesting guides (`nest-guide`, one per level), faint time-axis lines, and the duration label inside the bar when the bar fills the row. Span detail uses `Chip`. Evicted trace is an `EmptyState` (`trace-evicted`), a failed load an `ErrorState` with Retry (`trace-error`), loading is a skeleton. `styles.css` gained `--color-chart-4/5` in `@theme` (the tokens existed, the utility classes did not).
+- **SLOs**: header with New SLO, KPI strip (SLOs, breached, lowest budget left, fastest 1 h burn), each SLO a card with a `ScoreRing` budget ring (inside the `budget-bar` progressbar), objective and attainment, and a burn-rate bar pair (1 h, 6 h) against a 1x marker. Empty, error (with retry), unavailable and loading states use the kit. New helpers `budgetColor`, `burnBarPercent`, `summarizeSlos` (`slo-summary.test.ts`). Data gap: the API returns the current 1 h and 6 h burn rates only, not a series, so there is no burn-rate-over-time chart.
+- **Settings**: header, an "API tokens" `Section`, the copy-once token in a warning-toned card (says only a hash is stored), tokens table with `Chip` for revoked, kit empty, error and loading states.
+- **Login** (`apps/server/src/auth/pages.ts`, presentation only): card with an inline-SVG mark, the dashboard's tokens as CSS custom properties with light and dark by `prefers-color-scheme`, notice with icon. Still no script, no inline style, same CSP and form; the `<form method="post" action="/login">` and every message are unchanged.
+- **Ad-hoc empty or error states still on other pages** (their owners move them to `EmptyState`/`ErrorState`): route detail ("Could not explain this route"), classes, queries, dependencies, map ("Could not load ..." blocks and `map-empty`, `dependencies-empty`), runtime (`runtime-unavailable`, `runtime-empty`, a bare red "Could not load runtime data"), the standalone profiler (red one-line errors, `instances-empty`, `profiles-empty`), and in Requests the "Could not load older requests" and "Could not load the timeline" one-liners.
+- Tests: `e2e/p14-trace-slos-settings.pw.ts` (screenshots `p14-trace-*`, `p14-slos-*`, `p14-settings-*` in dark and light; states; phone overflow) and, in `e2e/tests/server-login.pw.ts`, `p14-login.png`, `p14-login-dark.png`, `p14-login-error.png`, all written to `packages/ui/test-results/`. Known unrelated failure: `e2e/errors.pw.ts` "renders the protocol fixture" expects "ago" but the relative time now reads "yesterday" (fixture age), a date-dependent test on the Errors page.
