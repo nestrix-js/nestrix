@@ -155,7 +155,7 @@ export class ApiTokenStore implements ApiTokenVerifier {
 
   async list(): Promise<ApiToken[]> {
     const { rows } = await this.pool.query<TokenRow>(
-      `SELECT ${COLUMNS} FROM api_tokens ORDER BY id DESC LIMIT $1`,
+      `SELECT ${COLUMNS} FROM api_tokens ORDER BY (revoked_at IS NULL) DESC, id DESC LIMIT $1`,
       [MAX_LISTED_TOKENS],
     );
     return rows.map(toApiToken);

@@ -5,7 +5,8 @@
  */
 import "reflect-metadata";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { ExecutionContext } from "@nestjs/common";
+import { type ExecutionContext, RequestMethod } from "@nestjs/common";
+import { METHOD_METADATA, PATH_METADATA } from "@nestjs/common/constants";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AlertsController } from "../../src/alerts/alerts.controller.js";
 import {
@@ -142,6 +143,12 @@ describe("read routes open to tokens", () => {
     "/api/v1/map",
     "/api/v1/map/",
     "/Api/V1/Meta",
+    "/api/v1/traces/timeline",
+    "/api/v1/errors/groups",
+    "/api/v1/routes/histogram",
+    "/api/v1/routes/compare",
+    "/api/v1/queries",
+    "/api/v1/dependencies",
   ])("%s is a read route", (path) =>
     expect(TOKEN_READ_ROUTE.test(path)).toBe(true),
   );
@@ -152,12 +159,44 @@ describe("read routes open to tokens", () => {
     "/api/v1/slos",
     "/api/v1/profiles",
     "/api/v1/meta/x",
+    "/api/v1/dependencies/x",
+    "/api/v1/traces/other",
+    "/api/v1/errors/groups/x",
     "/api/v1/metax",
     "/api/v1",
     "/v1/traces",
     "/",
     "/login",
   ])("%s is not", (path) => expect(TOKEN_READ_ROUTE.test(path)).toBe(false));
+});
+
+describe("every QueryController read route is open to tokens", () => {
+  const proto = QueryController.prototype as unknown as Record<string, unknown>;
+  const handlers = Object.getOwnPropertyNames(proto).filter(
+    (name) => name !== "constructor" && typeof proto[name] === "function",
+  );
+  const routes = handlers.map((name) => ({
+    method: Reflect.getMetadata(METHOD_METADATA, proto[name] as object) as
+      | RequestMethod
+      | undefined,
+    path: Reflect.getMetadata(PATH_METADATA, proto[name] as object) as
+      | string
+      | undefined,
+  }));
+
+  it("finds the controller's routes, all GET", () => {
+    expect(routes.length).toBeGreaterThanOrEqual(13);
+    expect(routes.every((r) => r.method === RequestMethod.GET)).toBe(true);
+  });
+
+  it("a token reads each @Get route (a new query route must be added to TOKEN_READ_ROUTE)", () => {
+    for (const r of routes) {
+      expect(
+        TOKEN_READ_ROUTE.test(`/api/v1/${r.path}`),
+        `/api/v1/${r.path}`,
+      ).toBe(true);
+    }
+  });
 });
 
 describe("guards and the token stamp", () => {

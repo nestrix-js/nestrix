@@ -79,6 +79,7 @@ describe.skipIf(noDatabase)(`API tokens ${skipReason}`, () => {
 
   beforeEach(() => {
     auth.limiter = new LoginRateLimiter();
+    auth.tokenLimiter = new LoginRateLimiter();
   });
 
   describe("management (session only)", () => {
@@ -128,6 +129,26 @@ describe.skipIf(noDatabase)(`API tokens ${skipReason}`, () => {
       const list = JSON.parse(text) as ApiTokenListResponse;
       const ids = list.tokens.map((t) => t.id);
       expect(ids.indexOf(b.token.id)).toBeLessThan(ids.indexOf(a.token.id));
+    });
+
+    it("lists every active token before any revoked one", async () => {
+      const keep = await create("list keeps active");
+      for (let i = 0; i < 3; i++) {
+        const t = await create(`list revoked ${i}`);
+        await server.call("DELETE", `/api/v1/tokens/${t.token.id}`);
+      }
+      const stored = await db.pool.query(
+        "SELECT id::text AS id FROM api_tokens WHERE revoked_at IS NULL",
+      );
+      const active = new Set(stored.rows.map((r: { id: string }) => r.id));
+      const list = (await store.list()).map((t) => t.id);
+      expect(list).toContain(keep.token.id);
+      const firstRevoked = list.findIndex((id) => !active.has(id));
+      const lastActive = list.reduce(
+        (acc, id, i) => (active.has(id) ? i : acc),
+        -1,
+      );
+      expect(firstRevoked === -1 || lastActive < firstRevoked).toBe(true);
     });
 
     it("revokes a token (204), again (204, first time kept), and 404 for an unknown id", async () => {
@@ -463,18 +484,21 @@ describe.skipIf(noDatabase)(`API tokens ${skipReason}`, () => {
       expect((await read("/api/v1/traces", bearer(token))).status).toBe(200);
     });
 
-    it("failures share the login's global budget: once spent, tokens and logins answer 429", async () => {
+    it("failures share the login's global budget: once spent, misses and logins answer 429 but a valid token still works", async () => {
       let now = 1_000_000;
       auth.limiter = new LoginRateLimiter(5, 60_000, () => now, 10_000, 3);
+      auth.tokenLimiter = new LoginRateLimiter(100, 60_000, () => now);
       for (let i = 0; i < 3; i++) {
         expect(
           (await read("/api/v1/meta", bearer(wellFormedUnknown()))).status,
         ).toBe(401);
       }
-      const limited = await read("/api/v1/meta", bearer(token));
+      const limited = await read("/api/v1/meta", bearer(wellFormedUnknown()));
       expect(limited.status).toBe(429);
       expect(limited.headers.get("retry-after")).toBe("60");
       expect((await limited.json()).error.code).toBe("too_many_requests");
+      // A valid token is not refused by the lockout.
+      expect((await read("/api/v1/meta", bearer(token))).status).toBe(200);
       // The password login draws on the same budget.
       expect((await postLogin(server.baseUrl, ADMIN_PW)).status).toBe(429);
       // A signed-in session is not affected.
@@ -492,7 +516,10 @@ describe.skipIf(noDatabase)(`API tokens ${skipReason}`, () => {
       expect((await postLogin(server.baseUrl, "wrong-password-2")).status).toBe(
         401,
       );
-      expect((await read("/api/v1/meta", bearer(token))).status).toBe(429);
+      expect(
+        (await read("/api/v1/meta", bearer(wellFormedUnknown()))).status,
+      ).toBe(429);
+      expect((await read("/api/v1/meta", bearer(token))).status).toBe(200);
     });
   });
 

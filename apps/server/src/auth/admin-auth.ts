@@ -22,7 +22,8 @@
  * read route (`TOKEN_READ_ROUTE`) with a stored, unrevoked token, stamped `token`; everything else
  * with such a header (the UI, `/login`, token, alert and SLO routes, any write) answers 401. Ingest
  * is decided first and never looks at API tokens. Refused tokens count toward the login rate
- * limiter's global failure budget, and while it is spent token requests answer 429.
+ * limiter's global failure budget (within a per-client allowance), and while either is spent
+ * further misses answer 429; valid tokens are never refused by it.
  */
 
 import { timingSafeEqual } from "node:crypto";
@@ -96,7 +97,7 @@ const SAFE_METHODS = new Set(["GET", "HEAD"]);
  * routes, not the UI, not ingest.
  */
 export const TOKEN_READ_ROUTE =
-  /^\/api\/v1\/(?:meta|traces|trace|errors|routes|classes|map)\/?$/i;
+  /^\/api\/v1\/(?:meta|traces(?:\/timeline)?|trace|errors(?:\/groups)?|routes(?:\/histogram|\/compare)?|classes|queries|map|dependencies)\/?$/i;
 /** `Authorization: Bearer nxt_…`: the scheme case-insensitive (RFC 9110), the prefix exact. */
 const BEARER_API_TOKEN = /^bearer +(nxt_\S*) *$/i;
 const TOKEN_ONLY_READS = "API tokens can only read the query API.";
@@ -181,6 +182,11 @@ export class AdminAuth implements OnModuleInit {
   private tokenVerifier: ApiTokenVerifier | undefined;
   /** Replaceable in tests. */
   limiter = new LoginRateLimiter();
+  /**
+   * Per-client allowance of refused API tokens (5 a minute, like `/login`). Only misses are
+   * taken from it, so a client's valid token is never counted. Replaceable in tests.
+   */
+  tokenLimiter = new LoginRateLimiter();
   /** Seconds since the epoch. Replaceable in tests. */
   nowSeconds: () => number = () => Math.floor(Date.now() / 1000);
 
@@ -373,11 +379,38 @@ export class AdminAuth implements OnModuleInit {
   }
 
   /**
+   * A token that is not valid: over this client's allowance of misses or with the global failure
+   * budget spent -> 429 with `Retry-After` (neither counts again); otherwise 401, counted toward
+   * the global budget. Valid tokens never reach here, so a lockout cannot refuse one.
+   */
+  private tokenMiss(req: IncomingMessage, res: ServerResponse, api: boolean) {
+    const client = this.tokenLimiter.take(clientKey(req.socket?.remoteAddress));
+    const decision = client.ok ? this.limiter.checkFailureBudget() : client;
+    if (!decision.ok) {
+      writeRaw(res, {
+        status: 429,
+        csp: UI_CSP,
+        contentType: JSON_TYPE,
+        headers: { "retry-after": String(decision.retryAfterSeconds) },
+        body: apiErrorBody(
+          "too_many_requests",
+          "Too many failed sign-in or token attempts. Try again later.",
+        ),
+      });
+      return;
+    }
+    this.limiter.recordFailure();
+    this.refuseToken(res, api, TOKEN_REFUSED);
+  }
+
+  /**
    * A request carrying `Authorization: Bearer nxt_…` (P8-01). Order: admin password configured
    * (503; tokens are managed by the admin, so they work only while the admin login does) →
    * `GET`/`HEAD` on a query-API read route (401 otherwise; nothing is looked up or counted) →
-   * global failure budget of the login rate limiter (429) → token shape and a stored, unrevoked
-   * token with that hash (401, counted as a failure) → stamp `token` with the token's id.
+   * token shape and a stored, unrevoked token with that hash → stamp `token` with the token's id.
+   * A miss is counted against the client's own allowance and the login limiter's global failure
+   * budget (401; 429 once either is spent). A valid token is checked first and never refused by
+   * either limit.
    * A database failure answers 503 and counts nothing.
    */
   private decideToken(
@@ -396,28 +429,13 @@ export class AdminAuth implements OnModuleInit {
       this.refuseToken(res, api, TOKEN_ONLY_READS);
       return false;
     }
-    const budget = this.limiter.checkFailureBudget();
-    if (!budget.ok) {
-      writeRaw(res, {
-        status: 429,
-        csp: UI_CSP,
-        contentType: JSON_TYPE,
-        headers: { "retry-after": String(budget.retryAfterSeconds) },
-        body: apiErrorBody(
-          "too_many_requests",
-          "Too many failed sign-in or token attempts. Try again later.",
-        ),
-      });
-      return false;
-    }
     const verifier = this.tokenVerifier;
     if (
       bearer.kind !== "token" ||
       !isApiTokenShape(bearer.value) ||
       verifier === undefined
     ) {
-      this.limiter.recordFailure();
-      this.refuseToken(res, api, TOKEN_REFUSED);
+      this.tokenMiss(req, res, api);
       return false;
     }
     let lookup: Promise<VerifiedApiToken | undefined>;
@@ -429,8 +447,7 @@ export class AdminAuth implements OnModuleInit {
     return lookup.then(
       (found) => {
         if (found === undefined) {
-          this.limiter.recordFailure();
-          this.refuseToken(res, api, TOKEN_REFUSED);
+          this.tokenMiss(req, res, api);
           return false;
         }
         stamp(req, "token");
