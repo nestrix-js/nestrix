@@ -10,8 +10,8 @@ The wire contract is `packages/protocol/src/overview.ts` (`overviewParams`, `Ove
 |---|---|---|---|---|
 | P11-00 | Protocol, this backlog | lead | — | done |
 | P11-01 | `GET api/v1/overview` on the embedded dashboard and the standalone server, one shared computation | sonnet | P11-00 | done (local checks; see "As built (P11-01)") |
-| P11-02 | UI: Overview page as the new home | sonnet | P11-00 | todo |
-| P11-03 | Review, docs, changeset | lead | P11-01, P11-02 | todo |
+| P11-02 | UI: Overview page as the new home | sonnet | P11-00 | done (local checks; Chromium e2e 150 passed) |
+| P11-03 | Review, docs, changeset | lead | P11-01, P11-02 | done (README views table, changeset; fixed on merge: API tokens may read `overview`, KPI arrows follow the sign) |
 
 Not in this phase (later, listed so nobody builds them by accident): the route "what changed" explanation card, per-instance runtime in the standalone server (needs a metrics receiver), the redesigned Route detail, Errors and Profiler screens beyond what phase 10 builds.
 
