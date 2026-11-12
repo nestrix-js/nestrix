@@ -106,7 +106,23 @@ export class LoginRateLimiter {
     return { ok: true };
   }
 
-  /** Records a failed login (wrong password) against the global budget. */
+  /**
+   * Whether the global failure budget has room, without recording an attempt. API token requests
+   * (P8-01) check this before verifying a token, and `recordFailure` when one is refused, so
+   * guessing tokens and guessing the password draw on the same budget.
+   */
+  checkFailureBudget(): LoginRateDecision {
+    const now = this.now();
+    this.failures = this.failures.filter(
+      (t) => now - t < this.windowMs && t <= now,
+    );
+    if (this.failures.length >= this.globalFailureLimit) {
+      return this.retryAfter(this.failures[0] as number, now);
+    }
+    return { ok: true };
+  }
+
+  /** Records a failed login (wrong password) or a refused API token against the global budget. */
   recordFailure(): void {
     this.failures.push(this.now());
   }

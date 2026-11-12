@@ -5,8 +5,11 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { IngestController } from "../ingest/ingest.controller.js";
+import { QueryController } from "../query/query.controller.js";
 import { stampOf } from "./admin-auth.js";
 import { AuthController } from "./auth.controller.js";
+
+const SAFE_METHODS = new Set(["GET", "HEAD"]);
 
 /**
  * Second layer behind `AdminAuth.middleware()`, registered with `APP_GUARD`, so it covers every
@@ -14,6 +17,8 @@ import { AuthController } from "./auth.controller.js";
  * runs only when the middleware stamped the request:
  *
  * - `session`: a valid admin session; any controller.
+ * - `token`: a valid API token (P8-01); only `QueryController` (the read routes of the query API),
+ *   and only for `GET`/`HEAD`. Never the alert, SLO or token controllers.
  * - `ingest`: only `IngestController`.
  * - `login`: only `AuthController`.
  *
@@ -26,10 +31,15 @@ export class AdminAuthGuard implements CanActivate {
     let allowed = false;
     try {
       if (context.getType() !== "http") return true;
-      const stamp = stampOf(context.switchToHttp().getRequest());
+      const req = context.switchToHttp().getRequest<{ method?: unknown }>();
+      const stamp = stampOf(req);
       const target = context.getClass();
       allowed =
         stamp === "session" ||
+        (stamp === "token" &&
+          target === QueryController &&
+          typeof req.method === "string" &&
+          SAFE_METHODS.has(req.method.toUpperCase())) ||
         (stamp === "ingest" && target === IngestController) ||
         (stamp === "login" && target === AuthController);
     } catch {

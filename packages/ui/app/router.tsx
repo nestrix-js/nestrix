@@ -14,6 +14,7 @@ import { MapPage } from "@/views/map/map-page";
 import { ProfilerPage } from "@/views/profiler/profiler-page";
 import { RequestsPage } from "@/views/requests/requests-page";
 import { RoutesPage } from "@/views/routes/routes-page";
+import { SettingsPage } from "@/views/settings/settings-page";
 import { SlosPage } from "@/views/slos/slos-page";
 import { TracePage } from "@/views/trace/trace-page";
 
@@ -62,6 +63,11 @@ const slosRoute = createRoute({
   path: "/slos",
   component: SlosPage,
 });
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings",
+  component: SettingsPage,
+});
 const traceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/traces/$traceId",
@@ -79,6 +85,7 @@ export const router = createRouter({
     mapRoute,
     profilerRoute,
     slosRoute,
+    settingsRoute,
     traceRoute,
   ]),
   history: createHashHistory(),

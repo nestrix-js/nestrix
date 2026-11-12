@@ -3,6 +3,7 @@
 // overlapping polls, a new epoch (`reset`), failures and delays. Not the P2-03 store.
 
 import type {
+  ApiToken,
   AppMapResponse,
   ClassStatsResponse,
   MetaResponse,
@@ -59,6 +60,10 @@ export class MockApi {
   sloRefusal: string | null = null;
   /** Write requests to `slos` seen: method, path after `slos`, parsed body. */
   sloWrites: { method: string; id: string | null; body: unknown }[] = [];
+  /** The standalone server's API tokens (`tokens` endpoint), newest first. */
+  tokens: ApiToken[] = [];
+  /** Write requests to `tokens` seen: method, id, parsed body. */
+  tokenWrites: { method: string; id: string | null; body: unknown }[] = [];
   /** `meta.profiler.available` (the embedded profiler, P7-02). */
   profilerAvailable = true;
   /** The running capture, finished profiles (newest first) and their details. */
@@ -108,6 +113,8 @@ export class MockApi {
     this.slos = [];
     this.sloRefusal = null;
     this.sloWrites = [];
+    this.tokens = [];
+    this.tokenWrites = [];
     this.profilerAvailable = true;
     this.profileRunning = null;
     this.profiles = [];
@@ -296,6 +303,41 @@ export class MockApi {
     };
     this.slos[at] = updated;
     return { status: 200, body: updated };
+  }
+
+  /** `tokens` and `tokens/<id>`: list, create (answers a fixed secret), revoke. */
+  handleTokens(
+    method: string,
+    id: string | null,
+    body: unknown,
+  ): { status: number; body: unknown } {
+    this.requests.push(id === null ? "tokens" : `tokens/${id}`);
+    if (method === "GET" && id === null)
+      return { status: 200, body: { tokens: this.tokens } };
+    this.tokenWrites.push({ method, id, body });
+    if (method === "POST" && id === null) {
+      const name = String((body as { name?: unknown } | undefined)?.name);
+      const secret = `nxt_${"A".repeat(4)}${"b".repeat(39)}`;
+      const token: ApiToken = {
+        id: String(this.tokens.length + 1),
+        name,
+        prefix: secret.slice(0, 8),
+        createdAtUnixMs: Date.now(),
+        lastUsedAtUnixMs: null,
+        revokedAtUnixMs: null,
+      };
+      this.tokens.unshift(token);
+      return { status: 201, body: { token, secret } };
+    }
+    const found = this.tokens.find((t) => t.id === id);
+    if (method === "DELETE" && found) {
+      found.revokedAtUnixMs ??= Date.now();
+      return { status: 204, body: undefined };
+    }
+    return {
+      status: 404,
+      body: { error: { code: "not_found", message: "No such token." } },
+    };
   }
 
   /**

@@ -1,5 +1,8 @@
 import type {
   ApiError,
+  ApiTokenCreate,
+  ApiTokenCreateResponse,
+  ApiTokenListResponse,
   AppMapResponse,
   ClassStatsResponse,
   ErrorListResponse,
@@ -174,3 +177,12 @@ export const updateSlo = (id: string, body: SloUpdate) =>
   requestJson<Slo>("PATCH", `slos/${encodeURIComponent(id)}`, undefined, body);
 export const deleteSlo = (id: string) =>
   requestJson<undefined>("DELETE", `slos/${encodeURIComponent(id)}`);
+
+// API tokens: the standalone server only (`/api/v1/tokens`), managed from a signed-in session.
+export const getTokens = () => getJson<ApiTokenListResponse>("tokens");
+export const createToken = (name: string) =>
+  requestJson<ApiTokenCreateResponse>("POST", "tokens", undefined, {
+    name,
+  } satisfies ApiTokenCreate);
+export const revokeToken = (id: string) =>
+  requestJson<undefined>("DELETE", `tokens/${encodeURIComponent(id)}`);

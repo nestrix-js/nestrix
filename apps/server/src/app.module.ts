@@ -2,7 +2,8 @@ import { type DynamicModule, Module } from "@nestjs/common";
 import { NestrixModule } from "@nestrix-js/nestjs";
 import { AlertsModule } from "./alerts/alerts.module.js";
 import { AuthModule } from "./auth/auth.module.js";
-import { SessionQueryGuard } from "./auth/query-guard.js";
+import { ReadQueryGuard } from "./auth/query-guard.js";
+import { TokensModule } from "./auth/tokens.module.js";
 import type { ServerConfig } from "./config.js";
 import { ServerConfigModule } from "./config.module.js";
 import { IngestModule } from "./ingest/ingest.module.js";
@@ -58,8 +59,11 @@ export class AppModule {
               IngestModule.forRoot({
                 sink: { useExisting: PostgresIngestSink },
               }),
-              // Opened only for requests the admin login's middleware stamped as a session.
-              QueryModule.forRoot({ guard: { useClass: SessionQueryGuard } }),
+              // Opened only for requests the admin login's middleware stamped as a session, or as
+              // a valid API token on a read route (P8-01).
+              QueryModule.forRoot({ guard: { useClass: ReadQueryGuard } }),
+              // API tokens (P8-01): `/api/v1/tokens` is admin-only; tokens only read the query API.
+              TokensModule,
               // Alert rules, evaluator and webhooks (P7-03); `/api/v1/alerts` is admin-only.
               AlertsModule.forRoot(),
               // SLOs over the rollups (P7-04); `/api/v1/slos` is admin-only.
