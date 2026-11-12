@@ -17,9 +17,18 @@ import type {
   TraceSummary,
 } from "@nestrix-js/protocol";
 import { generatedClasses, generatedMap } from "./mock-classes-map.ts";
+import { generatedDependencies, generatedTimeline } from "./mock-insights.ts";
 import { ErrorStore } from "./mock-stats.ts";
 
-type Endpoint = "meta" | "traces" | "routes" | "errors" | "classes" | "map";
+type Endpoint =
+  | "meta"
+  | "traces"
+  | "routes"
+  | "errors"
+  | "classes"
+  | "map"
+  | "dependencies"
+  | "traces/timeline";
 
 const ROUTES = ["/orders", "/orders/:id", "/users", "/health"];
 const METHODS = ["GET", "POST", "GET", "PUT"];
@@ -163,7 +172,7 @@ export class MockApi {
   /** Requests to `traces` carrying the given parameter, as parsed query strings. */
   traceRequests(): URLSearchParams[] {
     return this.requests
-      .filter((r) => r.startsWith("traces"))
+      .filter((r) => r.startsWith("traces") && !r.startsWith("traces/"))
       .map((r) => new URLSearchParams(r.split("?")[1] ?? ""));
   }
 
@@ -212,6 +221,13 @@ export class MockApi {
           status: 200,
           body: (this.appMap ?? generatedMap)(windowOf(query)),
         };
+      case "dependencies":
+        return {
+          status: 200,
+          body: generatedDependencies(windowOf(query)),
+        };
+      case "traces/timeline":
+        return { status: 200, body: generatedTimeline(windowOf(query)) };
       case "traces":
         return this.traces(query);
       case "trace":
@@ -591,6 +607,9 @@ export class MockApi {
         (status === "4xx" && code >= 400 && code < 500) ||
         (status === "5xx" && code >= 500)) &&
       item.durationMs >= Number(q.get("minDurationMs") ?? 0) &&
+      item.startTimeUnixMs >= Number(q.get("fromUnixMs") ?? 0) &&
+      item.startTimeUnixMs <=
+        Number(q.get("toUnixMs") ?? Number.MAX_SAFE_INTEGER) &&
       (!q.get("type") ||
         (q.get("type") === "job"
           ? item.hasJob
@@ -617,6 +636,8 @@ export class MockApi {
       "release",
       "user",
       "service",
+      "fromUnixMs",
+      "toUnixMs",
     ]);
     for (const key of q.keys())
       if (!known.has(key))

@@ -9,12 +9,14 @@
 import type {
   AppMapParamsSpec,
   ClassStatsParamsSpec,
+  DependencyParamsSpec,
   ErrorListParamsSpec,
   MetaParamsSpec,
   ParamSpec,
   RouteStatsParamsSpec,
   TraceListParamsSpec,
   TraceParamsSpec,
+  TraceTimelineParamsSpec,
 } from "@nestrix-js/protocol";
 
 export const traceListSpec: TraceListParamsSpec = {
@@ -25,6 +27,37 @@ export const traceListSpec: TraceListParamsSpec = {
   method: { kind: "string", maxLength: 16 },
   status: { kind: "enum", values: ["ok", "error", "4xx", "5xx"] },
   minDurationMs: { kind: "number", min: 0, max: 86_400_000 },
+  search: { kind: "string", maxLength: 200 },
+  type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
+  release: { kind: "string", maxLength: 255 },
+  user: { kind: "string", maxLength: 256 },
+  service: { kind: "string", maxLength: 256 },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+};
+
+export const dependencySpec: DependencyParamsSpec = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+  service: { kind: "string", maxLength: 256 },
+};
+
+export const traceTimelineSpec: TraceTimelineParamsSpec = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+  route: { kind: "string", maxLength: 512 },
+  method: { kind: "string", maxLength: 16 },
+  status: { kind: "enum", values: ["ok", "error", "4xx", "5xx"] },
   search: { kind: "string", maxLength: 200 },
   type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
   release: { kind: "string", maxLength: 255 },

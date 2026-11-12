@@ -25,6 +25,8 @@ import type {
   ClassKind,
   ClassStats,
   ClassStatsResponse,
+  DependenciesResponse,
+  DependencyStats,
   ErrorItem,
   ErrorListResponse,
   MapEdge,
@@ -40,6 +42,7 @@ import type {
   TraceListResponse,
   TraceResponse,
   TraceSummary,
+  TraceTimelineResponse,
   TraceType,
 } from "@nestrix-js/protocol";
 import type pg from "pg";
@@ -63,6 +66,12 @@ export const PROTOCOL_VERSION: MetaResponse["protocolVersion"] = 1;
 export const MAX_MAP_NODES = 200;
 const OVERFLOW_ID = "other:overflow";
 const MINUTE_MS = 60_000;
+/** Targets in one dependencies response; those with the least total time are left out. */
+export const MAX_DEPENDENCIES = 200;
+
+/** Bucket width of a window: 1 minute for 15 minutes, 5 minutes for 60. */
+const bucketMsFor = (windowMinutes: number): number =>
+  (windowMinutes <= 15 ? 1 : 5) * MINUTE_MS;
 /** Clock skew allowed between a calling span and its remote child when joining them. */
 const SKEW_MS = MINUTE_MS;
 const CLASS_KINDS: ReadonlySet<string> = new Set<ClassKind>([
@@ -371,9 +380,8 @@ export class QueryService {
 
   // ---- traces ----------------------------------------------------------------------------------
 
-  async listTraces(v: Values): Promise<TraceListResponse> {
-    const limit = v.limit as number;
-    const params = new Params();
+  /** The `WHERE` conditions of the trace list's filters, shared by the list and the timeline. */
+  private traceWhere(v: Values, params: Params): string[] {
     const where: string[] = [];
     if (v.route !== undefined)
       where.push(`http_route = ${params.add(v.route)}`);
@@ -419,7 +427,19 @@ export class QueryService {
           OR EXISTS (SELECT 1 FROM unnest(span_names) AS n WHERE position(${needle} in lower(n)) > 0))`,
       );
     }
+    if (v.fromUnixMs !== undefined) {
+      where.push(`start_time >= ${params.add(new Date(Number(v.fromUnixMs)))}`);
+    }
+    if (v.toUnixMs !== undefined) {
+      where.push(`start_time <= ${params.add(new Date(Number(v.toUnixMs)))}`);
+    }
+    return where;
+  }
 
+  async listTraces(v: Values): Promise<TraceListResponse> {
+    const limit = v.limit as number;
+    const params = new Params();
+    const where = this.traceWhere(v, params);
     let reset = false;
     let cursorCondition: string | undefined;
     if (v.before !== undefined) {
@@ -876,6 +896,191 @@ export class QueryService {
       // Method spans are on when any service recorded a method in the window.
       methodsEnabled: rows.length > 0,
       classes,
+    };
+  }
+
+  // ---- timeline and dependencies (P9-05) ------------------------------------------------------
+
+  /** Sampled traces per bucket by outcome of their root; the trace list's filters apply. */
+  async timeline(v: Values): Promise<TraceTimelineResponse> {
+    const windowMinutes = v.windowMinutes as number;
+    const bucketMs = bucketMsFor(windowMinutes);
+    const count = (windowMinutes * MINUTE_MS) / bucketMs;
+    const now = Date.now();
+    const first = Math.floor(now / bucketMs) - count + 1;
+    const params = new Params();
+    const where = this.traceWhere(v, params);
+    where.push(`start_time >= ${params.add(new Date(first * bucketMs))}`);
+    where.push(`start_time <= ${params.add(new Date(now))}`);
+    const rows = await this.rows<{
+      b: string;
+      ok: number;
+      client_error: number;
+      server_error: number;
+    }>(
+      `SELECT floor(extract(epoch FROM start_time) * 1000 / ${bucketMs})::bigint AS b,
+              count(*) FILTER (WHERE NOT is_error AND coalesce(http_status, 0) < 400)::int AS ok,
+              count(*) FILTER (WHERE NOT is_error AND http_status BETWEEN 400 AND 499)::int AS client_error,
+              count(*) FILTER (WHERE is_error OR coalesce(http_status, 0) >= 500)::int AS server_error
+         FROM traces
+        WHERE ${where.join(" AND ")}
+        GROUP BY b`,
+      params.values,
+    );
+    const buckets = Array.from({ length: count }, (_, i) => ({
+      startUnixMs: (first + i) * bucketMs,
+      ok: 0,
+      clientError: 0,
+      serverError: 0,
+    }));
+    for (const r of rows) {
+      const bucket = buckets[Number(r.b) - first];
+      if (bucket === undefined) continue;
+      bucket.ok += Number(r.ok);
+      bucket.clientError += Number(r.client_error);
+      bucket.serverError += Number(r.server_error);
+    }
+    return {
+      windowMinutes,
+      fromUnixMs: first * bucketMs,
+      toUnixMs: now,
+      bucketMs,
+      buckets,
+    };
+  }
+
+  /**
+   * Outbound targets (the map's rule: client and producer spans that do not call into another
+   * service) with totals and a per-bucket series, from the stored spans.
+   */
+  async dependencies(
+    windowMinutes: number,
+    service: string | undefined,
+    now: number = Date.now(),
+  ): Promise<DependenciesResponse> {
+    const bucketMs = bucketMsFor(windowMinutes);
+    const count = (windowMinutes * MINUTE_MS) / bucketMs;
+    const first = Math.floor(now / bucketMs) - count + 1;
+    const from = new Date(first * bucketMs);
+    const to = new Date(now);
+    const t = new Params();
+    const fromParam = t.add(from);
+    const toParam = t.add(to);
+    const where = [
+      "s.kind IN ('client', 'producer')",
+      `s.start_time >= ${fromParam}`,
+      `s.start_time <= ${toParam}`,
+      `NOT EXISTS (SELECT 1 FROM spans c
+                   WHERE c.trace_id = s.trace_id AND c.parent_span_id = s.span_id
+                     AND c.kind IN ('server', 'consumer') AND c.service_name <> s.service_name
+                     AND c.start_time >= ${fromParam}::timestamptz - interval '${SKEW_MS / 1000} seconds'
+                     AND c.start_time <= ${toParam}::timestamptz + interval '${SKEW_MS / 1000} seconds')`,
+    ];
+    if (service !== undefined) where.push(`s.service_name = ${t.add(service)}`);
+    const attributes = TARGET_KEYS.map((key) =>
+      key === "url.full"
+        ? `'url.full', to_jsonb(substring(s.attributes->>'url.full' from '^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*'))`
+        : `'${key}', s.attributes->'${key}'`,
+    ).join(", ");
+    const rows = await this.rows<Record<string, unknown>>(
+      `SELECT floor(extract(epoch FROM s.start_time) * 1000 / ${bucketMs})::bigint AS b,
+              jsonb_strip_nulls(jsonb_build_object(${attributes})) AS a,
+              count(*)::int AS calls,
+              count(*) FILTER (WHERE s.status_code = 'error')::int AS errors,
+              sum(s.duration_ns)::text AS sum_ns,
+              max(s.duration_ns)::text AS max_ns,
+              (array_agg(s.trace_id ORDER BY s.duration_ns DESC))[1] AS example,
+              ${histogramColumns("s.duration_ns")}
+         FROM spans s
+        WHERE ${where.join(" AND ")}
+        GROUP BY b, a`,
+      t.values,
+    );
+
+    interface Part {
+      calls: number;
+      maxMs: number;
+      hist: number[];
+    }
+    interface Acc extends Part {
+      node: MapNode;
+      errors: number;
+      totalMs: number;
+      example: string | undefined;
+      perBucket: Part[];
+    }
+    const targets = new Map<string, Acc>();
+    for (const r of rows) {
+      const node = targetOf(r.a as Record<string, unknown>);
+      let acc = targets.get(node.id);
+      if (acc === undefined) {
+        acc = {
+          node,
+          calls: 0,
+          errors: 0,
+          totalMs: 0,
+          maxMs: -1,
+          hist: emptyHistogram(),
+          example: undefined,
+          perBucket: Array.from({ length: count }, () => ({
+            calls: 0,
+            maxMs: 0,
+            hist: emptyHistogram(),
+          })),
+        };
+        targets.set(node.id, acc);
+      }
+      const calls = Number(r.calls);
+      const maxMs = msOf(String(r.max_ns));
+      const hist = histogramOf(r);
+      acc.calls += calls;
+      acc.errors += Number(r.errors);
+      acc.totalMs += msOf(String(r.sum_ns));
+      if (maxMs > acc.maxMs) {
+        acc.maxMs = maxMs;
+        acc.example = typeof r.example === "string" ? r.example : undefined;
+      }
+      addHistograms(acc.hist, hist);
+      const bucket = acc.perBucket[Number(r.b) - first];
+      if (bucket !== undefined) {
+        bucket.calls += calls;
+        bucket.maxMs = Math.max(bucket.maxMs, maxMs);
+        addHistograms(bucket.hist, hist);
+      }
+    }
+    const dependencies: DependencyStats[] = [...targets.values()]
+      .sort((a, b) => b.totalMs - a.totalMs || (a.node.id < b.node.id ? -1 : 1))
+      .slice(0, MAX_DEPENDENCIES)
+      .map((acc) => {
+        const item: DependencyStats = {
+          id: acc.node.id,
+          kind: acc.node.kind,
+          name: acc.node.name,
+          calls: acc.calls,
+          errors: acc.errors,
+          errorRate: acc.calls === 0 ? 0 : acc.errors / acc.calls,
+          totalMs: round(acc.totalMs),
+          p50Ms: estimateQuantile(acc.hist, acc.calls, 0.5, acc.maxMs),
+          p95Ms: estimateQuantile(acc.hist, acc.calls, 0.95, acc.maxMs),
+          series: acc.perBucket.map((p, i) => ({
+            startUnixMs: (first + i) * bucketMs,
+            calls: p.calls,
+            p95Ms:
+              p.calls === 0
+                ? 0
+                : estimateQuantile(p.hist, p.calls, 0.95, p.maxMs),
+          })),
+        };
+        if (acc.node.system !== undefined) item.system = acc.node.system;
+        if (acc.example !== undefined) item.exampleTraceId = acc.example;
+        return item;
+      });
+    return {
+      windowMinutes,
+      fromUnixMs: first * bucketMs,
+      toUnixMs: now,
+      bucketMs,
+      dependencies,
     };
   }
 

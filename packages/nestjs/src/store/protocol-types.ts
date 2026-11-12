@@ -176,3 +176,48 @@ export interface AppMapResponse {
   nodes: MapNode[];
   edges: MapEdge[];
 }
+
+// Mirror of `packages/protocol/src/dependencies.ts` (P9-05).
+export interface DependencyPoint {
+  startUnixMs: number;
+  calls: number;
+  p95Ms: number;
+}
+
+export interface DependencyStats {
+  id: string;
+  kind: MapNodeKind;
+  name: string;
+  system?: string;
+  calls: number;
+  errors: number;
+  errorRate: number;
+  totalMs: number;
+  p50Ms: number;
+  p95Ms: number;
+  exampleTraceId?: string;
+  series: DependencyPoint[];
+}
+
+export interface DependenciesResponse {
+  windowMinutes: number;
+  fromUnixMs: number;
+  toUnixMs: number;
+  bucketMs: number;
+  dependencies: DependencyStats[];
+}
+
+export interface TimelineBucket {
+  startUnixMs: number;
+  ok: number;
+  clientError: number;
+  serverError: number;
+}
+
+export interface TraceTimelineResponse {
+  windowMinutes: number;
+  fromUnixMs: number;
+  toUnixMs: number;
+  bucketMs: number;
+  buckets: TimelineBucket[];
+}

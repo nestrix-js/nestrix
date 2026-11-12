@@ -48,12 +48,14 @@ import {
   type ApiSources,
   apiError,
   classesHandler,
+  dependenciesHandler,
   errorsHandler,
   mapHandler,
   metaHandler,
   PROTOCOL_VERSION,
   parseQuery,
   routesHandler,
+  timelineHandler,
   traceHandler,
   tracesHandler,
 } from "./api.js";
@@ -406,6 +408,14 @@ export class Dashboard {
         this.handler("api", (t) => classesHandler(t, sources())),
       ],
       [`${api}/map`, this.handler("api", (t) => mapHandler(t, sources()))],
+      [
+        `${api}/dependencies`,
+        this.handler("api", (t) => dependenciesHandler(t, sources())),
+      ],
+      [
+        `${api}/traces/timeline`,
+        this.handler("api", (t) => timelineHandler(t, sources())),
+      ],
     );
     // The profiler (P7-02): registered only where it is offered, so `ui.profiler: false` or an
     // unauthenticated dashboard has no such route at all.

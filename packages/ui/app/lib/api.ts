@@ -2,6 +2,7 @@ import type {
   ApiError,
   AppMapResponse,
   ClassStatsResponse,
+  DependenciesResponse,
   ErrorListResponse,
   MetaResponse,
   ProfileDetail,
@@ -15,6 +16,7 @@ import type {
   SloUpdate,
   TraceListResponse,
   TraceResponse,
+  TraceTimelineResponse,
 } from "@nestrix-js/protocol";
 
 import { readConfig } from "@/lib/config";
@@ -152,6 +154,10 @@ export const getClasses = (params: QueryParams = {}) =>
   getJson<ClassStatsResponse>("classes", params);
 export const getMap = (params: QueryParams = {}) =>
   getJson<AppMapResponse>("map", params);
+export const getDependencies = (params: QueryParams = {}) =>
+  getJson<DependenciesResponse>("dependencies", params);
+export const getTimeline = (params: QueryParams = {}) =>
+  getJson<TraceTimelineResponse>("traces/timeline", params);
 
 // CPU profiler: the embedded dashboard only, when `meta.profiler.available` (`/api/v1/profiles`).
 export const getProfiles = () => getJson<ProfileListResponse>("profiles");

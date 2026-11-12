@@ -21,6 +21,7 @@ describe("package entry", () => {
         "PROTOCOL_VERSION",
         "appMapParams",
         "classStatsParams",
+        "dependencyParams",
         "errorListParams",
         "metaParams",
         "profileIdParams",
@@ -28,6 +29,7 @@ describe("package entry", () => {
         "routeStatsParams",
         "traceListParams",
         "traceParams",
+        "traceTimelineParams",
       ].sort(),
     );
   });

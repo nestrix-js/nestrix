@@ -1,4 +1,5 @@
 export type * from "./alerts.js";
+export type * from "./dependencies.js";
 export * from "./params.js";
 export type * from "./profiles.js";
 export type * from "./slos.js";
