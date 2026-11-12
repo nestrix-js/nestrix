@@ -168,6 +168,40 @@ describe("receiver with API keys", () => {
       );
     });
 
+    it("reports spans the sink did not store over the per-trace cap as rejected, after the invalid ones", async () => {
+      const body = json();
+      const spans = body.resourceSpans[0].scopeSpans[0].spans;
+      spans[0].spanId = "zz"; // invalid: rejected by the receiver
+      server.sink.result = { droppedSpans: 2 };
+      try {
+        const res = await post(server.url, JSON.stringify(body), {
+          ...auth(),
+          "content-type": JSON_TYPE,
+        });
+        expect(res.status).toBe(200);
+        const answer = await res.json();
+        expect(answer.partialSuccess.rejectedSpans).toBe("3");
+        expect(answer.partialSuccess.errorMessage).toBe(
+          "Rejected 1 of 4 spans: invalid span id (1). 2 spans not stored: their trace is over the per-trace span limit (NESTRIX_MAX_SPANS_PER_TRACE).",
+        );
+      } finally {
+        server.sink.result = undefined;
+      }
+    });
+
+    it("answers a plain success when the cap dropped nothing", async () => {
+      server.sink.result = { droppedSpans: 0 };
+      try {
+        const res = await post(server.url, JSON.stringify(json()), {
+          ...auth(),
+          "content-type": JSON_TYPE,
+        });
+        expect((await res.json()).partialSuccess).toBeUndefined();
+      } finally {
+        server.sink.result = undefined;
+      }
+    });
+
     it("answers 200 with every span rejected, without calling the sink", async () => {
       const body = json();
       for (const s of body.resourceSpans[0].scopeSpans[0].spans) s.spanId = "";

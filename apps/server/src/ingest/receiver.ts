@@ -338,9 +338,12 @@ export class IngestReceiver implements OnApplicationBootstrap {
     batch: IngestBatch,
     format: BodyFormat,
   ): Promise<Outcome> {
+    let capped = 0;
     if (batch.resourceSpans.length > 0) {
       try {
-        await this.sink.write(batch);
+        const written = await this.sink.write(batch);
+        const dropped = written?.droppedSpans;
+        if (typeof dropped === "number" && dropped > 0) capped = dropped;
       } catch (error) {
         if (error instanceof IngestBusyError) {
           return {
@@ -358,13 +361,22 @@ export class IngestReceiver implements OnApplicationBootstrap {
       }
     }
 
+    const rejected = batch.rejectedSpans + capped;
+    const message = [
+      batch.errorMessage ?? "",
+      capped > 0
+        ? `${capped} span${capped === 1 ? "" : "s"} not stored: their trace is over the per-trace span limit (NESTRIX_MAX_SPANS_PER_TRACE).`
+        : "",
+    ]
+      .filter((m) => m !== "")
+      .join(" ");
     const response = create(
       ExportTraceServiceResponseSchema,
-      batch.rejectedSpans > 0
+      rejected > 0
         ? {
             partialSuccess: {
-              rejectedSpans: BigInt(batch.rejectedSpans),
-              errorMessage: batch.errorMessage ?? "",
+              rejectedSpans: BigInt(rejected),
+              errorMessage: message,
             },
           }
         : {},

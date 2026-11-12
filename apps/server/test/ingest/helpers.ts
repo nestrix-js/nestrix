@@ -16,6 +16,7 @@ import type {
   IngestBatch,
   IngestLogBatch,
   IngestSink,
+  IngestWriteResult,
 } from "../../src/ingest/model.js";
 import { INGEST_SINK } from "../../src/ingest/tokens.js";
 
@@ -32,9 +33,12 @@ export class RecordingSink implements IngestSink {
   readonly batches: IngestBatch[] = [];
   /** Replace to make `write` fail or wait. */
   behaviour: (batch: IngestBatch) => Promise<void> = async () => {};
-  async write(batch: IngestBatch): Promise<void> {
+  /** What `write` answers (e.g. `{ droppedSpans }` to play a sink with a per-trace cap). */
+  result: IngestWriteResult | undefined;
+  async write(batch: IngestBatch): Promise<IngestWriteResult | undefined> {
     await this.behaviour(batch);
     this.batches.push(batch);
+    return this.result;
   }
   spans() {
     return this.batches.flatMap((b) => b.resourceSpans.flatMap((r) => r.spans));

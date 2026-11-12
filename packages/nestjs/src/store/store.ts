@@ -40,6 +40,7 @@ import type { TelemetryDiagnostics } from "../otel/types.js";
 import { SUPPRESS_TRACING_KEY } from "../outbound/rules.js";
 import { buildRedactedQueryKeys, scrubSpanAttributes } from "../privacy.js";
 import { type CursorKind, decodeCursor, encodeCursor } from "./cursor.js";
+import { droppedSpansOf } from "./dropped-spans.js";
 import { type ErrorOccurrence, groupErrors } from "./error-groups.js";
 import {
   DEFAULT_STORE_LIMITS,
@@ -1153,12 +1154,16 @@ class Store implements TraceStore {
         // is not among the stored spans stands in.
         root = spans.find((s) => depths.get(s) === 0) ?? spans[0];
       }
-      return {
+      const response: TraceResponse = {
         traceId: entry.traceId,
         rootSpanId: root?.spanId ?? "",
         resource: entry.resource,
         spans,
       };
+      // The store has no per-trace span cap, so only the app's own counts (D-78) are reported.
+      const droppedSpans = droppedSpansOf(spans, 0);
+      if (droppedSpans !== undefined) response.droppedSpans = droppedSpans;
+      return response;
     } catch (error) {
       this.diagnostics.countFailure("store.query", error);
       return undefined;

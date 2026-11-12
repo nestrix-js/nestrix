@@ -503,7 +503,11 @@ describe.skipIf(noDatabase)(`ingest writer ${skipReason}`, () => {
           attributes: { "http.request.method": "GET", "http.route": "/c" },
         }),
       );
-      writes.push((i % 2 === 0 ? a : b).write(batch(service, spans)));
+      writes.push(
+        (i % 2 === 0 ? a : b)
+          .write(batch(service, spans))
+          .then(() => undefined),
+      );
     }
     await Promise.all(writes);
     const { rows: counts } = await db.pool.query(

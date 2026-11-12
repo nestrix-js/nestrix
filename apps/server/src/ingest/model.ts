@@ -98,13 +98,20 @@ export interface IngestLogBatch {
   errorMessage?: string;
 }
 
+/** What a sink reports about a stored batch. */
+export interface IngestWriteResult {
+  /** Spans not stored because their trace is over the per-trace cap (D-78); reported as partial success. */
+  droppedSpans?: number;
+}
+
 /** What the receiver hands a batch to. Implemented by the storage writer (P5-02). */
 export interface IngestSink {
   /**
    * Stores a batch. Resolves when it is durable. Rejects with `IngestBusyError` when the writer
-   * is over capacity (the receiver answers 503 with `Retry-After`).
+   * is over capacity (the receiver answers 503 with `Retry-After`). May answer with the spans it
+   * did not store because of a per-trace cap.
    */
-  write(batch: IngestBatch): Promise<void>;
+  write(batch: IngestBatch): Promise<void | IngestWriteResult>;
   /**
    * Stores log records next to their traces (P9-07), with the same contract as `write`. A sink
    * without it accepts log exports and keeps nothing.

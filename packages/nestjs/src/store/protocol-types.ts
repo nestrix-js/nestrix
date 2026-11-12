@@ -84,6 +84,13 @@ export interface TraceResponse {
   rootSpanId: string;
   resource: Attributes;
   spans: SpanRecord[];
+  droppedSpans?: DroppedSpans;
+}
+
+export interface DroppedSpans {
+  total: number;
+  byKind: Record<string, number>;
+  byServer: number;
 }
 
 export interface ErrorItem {

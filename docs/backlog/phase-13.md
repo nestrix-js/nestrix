@@ -10,7 +10,7 @@ Wire contract: `TraceResponse.droppedSpans` and `DroppedSpans` in `packages/prot
 |---|---|---|---|---|
 | P13-00 | D-78, protocol, this backlog | lead | — | done |
 | P13-01 | SDK: `maxSpansPerTrace` and dropped-span counting | opus | P13-00 | todo |
-| P13-02 | Server: per-trace cap at ingest, dropped count stored, `droppedSpans` in `trace`; embedded store reads the attributes | sonnet | P13-00 | todo |
+| P13-02 | Server: per-trace cap at ingest, dropped count stored, `droppedSpans` in `trace`; embedded store reads the attributes | sonnet | P13-00 | done |
 | P13-03 | UI: "omitted N spans" in the trace view | sonnet | P13-00 | done |
 | P13-04 | Review, docs, changeset | lead + reviewer | P13-01..03 | todo |
 
@@ -32,6 +32,14 @@ Wire contract: `TraceResponse.droppedSpans` and `DroppedSpans` in `packages/prot
 - **`trace` response.** Fill `droppedSpans` from the root's `nestrix.trace.spans_dropped*` attributes (sum over the trace's spans, since each service reports its own) plus the server's count. Absent when both are 0.
 - **Embedded store.** The in-memory store already caps spans per trace? Check; if it has a cap, count what it drops; fill `droppedSpans` the same way from the attributes.
 - **Tests.** Ingest 60,000 spans of one trace with cap 50,000: 50,000 stored, `droppedSpans.byServer` = 10,000; attributes from the app summed into `total` and `byKind`; the cap does not affect other traces; partial-success message.
+
+- **As built (P13-02).**
+  - Config: `maxSpansPerTrace` in `ServerConfig`, passed to the writer by `app.module.ts`.
+  - Counting design: no new counter table. `traces.span_count` already counts the spans stored per trace, so inside the transaction, under the existing traces advisory lock (taken before the span insert instead of after, so every writer orders lock then insert), one `SELECT trace_id, max(span_count) FROM traces WHERE trace_id = ANY(...)` gives what is stored. A trace over the cap keeps `cap - stored` spans (earliest start first); the rest are not inserted. Exempt from the cap (always stored, not counted against other spans, but counted in `span_count`): spans with no parent, and spans carrying any `nestrix.trace.spans_dropped*` attribute (a local root in another service has a remote parent but carries the app's counts). A local root ends last, so it arrives after the trace is at the cap (`isCapExempt` in `writer.ts`). Cost per transaction: that one indexed SELECT, plus one `UPDATE traces SET dropped_spans = dropped_spans + n` only when something was dropped. No per-span work beyond a Map grouping.
+  - Storage: migration `0010_traces_dropped_spans.sql` (`traces.dropped_spans bigint NOT NULL DEFAULT 0`), `schema.ts`, migrations test list.
+  - Reporting: `IngestSink.write` may resolve with `{ droppedSpans }` (per batch, also in a group commit); the receiver adds it to `rejectedSpans` and appends a message to `partial_success.error_message`.
+  - `trace`: `query/dropped-spans.ts` (`droppedSpansOf`) sums `nestrix.trace.spans_dropped` and `.<kind>` over the trace's stored spans and adds `traces.dropped_spans`. The embedded store has no per-trace span cap (it evicts whole traces), so it reports only the attributes (`byServer` 0), with a copy of the helper in `packages/nestjs/src/store/dropped-spans.ts` and the type added to the store's protocol mirror.
+  - Known limits: a client with an ingest key can bypass the cap by sending spans with no parent or with a `nestrix.trace.spans_dropped` attribute (the key is trusted; the cap protects against runaway traces, not hostile ones). A retried export of already stored spans counts as dropped once the trace is at the cap.
 
 ### P13-03 UI
 

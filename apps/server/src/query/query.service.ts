@@ -62,6 +62,7 @@ import {
   HISTOGRAM_UPPER_BOUNDS_MS,
 } from "../storage/histogram.js";
 import { STORAGE_POOL } from "../storage/storage.module.js";
+import { droppedSpansOf } from "./dropped-spans.js";
 import { type ErrorOccurrence, groupErrors } from "./error-groups.js";
 import { QUERY_OPTIONS, type ResolvedQueryOptions } from "./options.js";
 import { routeStatsSpec, type Values } from "./params.js";
@@ -537,8 +538,9 @@ export class QueryService {
     const [summary] = await this.rows<{
       root_span_id: string;
       resource_id: string;
+      dropped_spans: string;
     }>(
-      "SELECT root_span_id, resource_id::text AS resource_id FROM traces WHERE trace_id = $1 LIMIT 1",
+      "SELECT root_span_id, resource_id::text AS resource_id, dropped_spans::text AS dropped_spans FROM traces WHERE trace_id = $1 LIMIT 1",
       [traceId],
     );
     let rootSpanId = summary?.root_span_id;
@@ -553,12 +555,18 @@ export class QueryService {
       "SELECT attributes FROM resources WHERE id = $1",
       [resourceId],
     );
-    return {
+    const response: TraceResponse = {
       traceId,
       rootSpanId: rootSpanId ?? "",
       resource: resource?.attributes ?? {},
       spans,
     };
+    const droppedSpans = droppedSpansOf(
+      spans,
+      Number(summary?.dropped_spans ?? 0),
+    );
+    if (droppedSpans !== undefined) response.droppedSpans = droppedSpans;
+    return response;
   }
 
   // ---- errors ----------------------------------------------------------------------------------
