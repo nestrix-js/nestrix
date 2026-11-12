@@ -121,10 +121,32 @@ export function runningCapture(): ProfileRunning | null {
   return running === undefined ? null : running;
 }
 
+/**
+ * How a started capture ended, for the caller that passed `onEnd` to `start` (the remote poller,
+ * P10-01). `done` carries the normalised `.cpuprofile` JSON, the same string `download` returns.
+ */
+export type CaptureEnd =
+  | {
+      readonly outcome: "done";
+      readonly id: string;
+      readonly json: string;
+      readonly summary: ProfileSummary;
+    }
+  | {
+      readonly outcome: "failed";
+      readonly id: string;
+      readonly message: string;
+    }
+  | { readonly outcome: "discarded"; readonly id: string };
+
+export type CaptureEndListener = (end: CaptureEnd) => void;
+
 interface Capture {
   readonly info: ProfileRunning;
   readonly handle: CpuProfileHandleLike;
   readonly owner: object;
+  /** Cleared once called, so it runs at most once. */
+  onEnd: CaptureEndListener | undefined;
   timer: ReturnType<typeof setTimeout> | undefined;
 }
 
@@ -170,9 +192,15 @@ export class Profiler {
 
   /**
    * Starts a capture of `durationMs` (1 s to the maximum, whole seconds) owned by `owner` (the
-   * dashboard that asked). Never throws.
+   * dashboard or the remote poller that asked). `onEnd`, when given, is called once when a
+   * started capture ends: normalised, failed, or discarded. It is not called when the start
+   * itself is refused (the result says why). A throwing `onEnd` is counted. Never throws.
    */
-  start(durationMs: number, owner: object): StartResult {
+  start(
+    durationMs: number,
+    owner: object,
+    onEnd?: CaptureEndListener,
+  ): StartResult {
     try {
       if (
         !Number.isInteger(durationMs) ||
@@ -227,7 +255,13 @@ export class Profiler {
         endsAtUnixMs: startedAtUnixMs + durationMs,
         startPauseMs,
       });
-      const capture: Capture = { info, handle, owner, timer: undefined };
+      const capture: Capture = {
+        info,
+        handle,
+        owner,
+        onEnd,
+        timer: undefined,
+      };
       this.capture = capture;
       s.running = info;
       this.lastPauseMs = startPauseMs;
@@ -235,7 +269,8 @@ export class Profiler {
         capture.timer = setTimeout(() => this.finish(capture), durationMs);
         capture.timer.unref?.();
       } catch (error) {
-        // Without an end timer the capture would run unbounded: discard it now.
+        // Without an end timer the capture would run unbounded: discard it now. The start is
+        // reported as failed, so `onEnd` is not called.
         this.release(capture);
         this.dispose(capture);
         return this.fail(error);
@@ -253,6 +288,7 @@ export class Profiler {
       if (capture === undefined || capture.owner !== owner) return;
       this.release(capture);
       this.dispose(capture);
+      this.notify(capture, { outcome: "discarded", id: capture.info.id });
     } catch (error) {
       this.diagnostics.countFailure("profiler.discard", error);
     }
@@ -316,23 +352,25 @@ export class Profiler {
       try {
         raw = capture.handle.stop();
       } catch (error) {
-        this.fail(error);
+        this.failCapture(capture, error);
         return;
       }
       if (typeof raw !== "string") {
-        this.fail(
+        this.failCapture(
+          capture,
           new Error("V8 returned no profile (the capture was already stopped)"),
         );
         return;
       }
       const json = raw;
-      profilerRuntime.defer(() => this.keep(capture.info, json));
+      profilerRuntime.defer(() => this.keep(capture, json));
     } catch (error) {
-      this.fail(error);
+      this.failCapture(capture, error);
     }
   }
 
-  private keep(info: ProfileRunning, raw: string): void {
+  private keep(capture: Capture, raw: string): void {
+    const info = capture.info;
     try {
       const n = normalizeProfile(raw);
       const summary: ProfileSummary = {
@@ -354,8 +392,38 @@ export class Profiler {
         this.profiles.length,
         PROFILE_LIMITS.kept,
       );
+      this.notify(capture, {
+        outcome: "done",
+        id: info.id,
+        json: n.json,
+        summary,
+      });
     } catch (error) {
-      this.fail(error);
+      this.failCapture(capture, error);
+    }
+  }
+
+  /** `fail`, then tells the capture's `onEnd`. Never throws. */
+  private failCapture(capture: Capture, error: unknown): void {
+    const result = this.fail(error);
+    if (result.outcome === "failed") {
+      this.notify(capture, {
+        outcome: "failed",
+        id: capture.info.id,
+        message: result.message,
+      });
+    }
+  }
+
+  /** Calls the capture's `onEnd` at most once. Never throws. */
+  private notify(capture: Capture, end: CaptureEnd): void {
+    const listener = capture.onEnd;
+    if (listener === undefined) return;
+    capture.onEnd = undefined;
+    try {
+      listener(end);
+    } catch (error) {
+      this.diagnostics.countFailure("profiler.on-end", error);
     }
   }
 

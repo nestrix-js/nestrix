@@ -9,7 +9,7 @@ The wire contract is fixed in `packages/protocol/src/remote-profiles.ts` (and `M
 | ID | Task | Tier | Depends | Status |
 |---|---|---|---|---|
 | P10-00 | D-76, protocol types, this backlog | lead | — | done |
-| P10-01 | SDK: `export.profiler` option and the check-in poller | opus | P10-00 | todo |
+| P10-01 | SDK: `export.profiler` option and the check-in poller | opus | P10-00 | done (review pending in P10-04) |
 | P10-02 | Server: check-in, upload, instances, remote-profiles routes and storage | opus | P10-00 | todo |
 | P10-03 | UI: standalone Profiler page (instances, capture, history, detail) | sonnet | P10-00 | todo |
 | P10-04 | End-to-end check, security review, docs, changeset | lead + reviewer | P10-01..03 | todo |
@@ -26,6 +26,7 @@ The wire contract is fixed in `packages/protocol/src/remote-profiles.ts` (and `M
   - **Never change the host's behaviour (rule 1).** Every callback, promise and timer body catches everything; nothing throws into the app or leaves an unhandled rejection. No spans for the poller's own requests: check how the existing OTLP export avoids tracing itself (`ignore.outgoing`, the exporter's own suppression) and do the same; a check-in must not show up as a trace or in route stats.
   - Imports `@opentelemetry/api` only (rule 5). No new runtime dependency (rule 10). No top-level `await` (rule 4).
 - **Tests** (`packages/nestjs/test/`): a fake server (plain `node:http`) that asserts the check-in body and headers; returns an order; receives a gzip upload that parses as a `.cpuprofile` (`nodes`, `samples`, `timeDeltas`); 404 stops polling; 401 backs off; a refused start sends `failed`; shutdown stops the timer and the process exits; the poller's requests produce no spans; option off sends nothing. Use fake timers or short intervals through a test seam so the suite stays fast.
+- **As built.** `src/profiler/remote.ts`; `Profiler.start(durationMs, owner, onEnd?)` gained an optional completion callback (`done` with the normalised JSON, `failed`, `discarded`), existing callers unchanged. `ResolvedOptions.export.profiler` is `false` or `{ target }`, `target` undefined when no base endpoint resolves (one log line). `TelemetryHandle.resourceAttributes` exposes the owned provider's resource for the identity (`otel/resource.ts` `instanceIdentity`). Failure messages sent to `…/failed`: `busy`, `cooldown`, `invalid capture duration`, `upload refused: HTTP <n>`, or the profiler's error message. Redirects are not followed. Tests: `profiler-remote.test.ts` (poller), `-spans` (no spans, poller started inside a sampled parent; fails when the suppress key is removed), `-nest` (module, no HTTP adapter, `@nestjs/testing`), `-options`, `-exit` (child process on `dist`, needs `pnpm build`). Protocol: unchanged, except that `remote-profiles.ts` was reformatted by Biome (the `RemoteProfileState` union split over lines) so `pnpm lint` passes.
 
 ### P10-02 Server (`apps/server`)
 

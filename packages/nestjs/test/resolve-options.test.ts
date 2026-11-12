@@ -18,6 +18,7 @@ describe("resolveOptions defaults", () => {
           maxExportBatchSize: 512,
           scheduledDelayMillis: 5000,
         },
+        profiler: false,
       },
       ignore: { paths: [], outgoing: [] },
       http: { requestHeaders: [], responseHeaders: [], redactQueryKeys: [] },

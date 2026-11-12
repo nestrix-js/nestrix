@@ -50,6 +50,8 @@ export interface ResolvedOptions {
       readonly maxExportBatchSize: number;
       readonly scheduledDelayMillis: number;
     };
+    /** `export.profiler` (P10-01, D-76). `false` when the option is off. */
+    readonly profiler: ResolvedRemoteProfiler | false;
   };
   readonly ignore: {
     readonly paths: readonly UrlMatcher[];
@@ -78,6 +80,50 @@ export interface ResolvedOptions {
   readonly metrics: ResolvedMetrics | false;
   /** Level 3 integrations (P3-01): `pg` on, `mysql2` and `ioredis` off by default (D-49). */
   readonly integrations: ResolvedIntegrations;
+}
+
+/** `export.profiler: true`, resolved (P10-01, D-76). */
+export interface ResolvedRemoteProfiler {
+  /**
+   * Where the instance checks in, or `undefined` when no base endpoint resolves (trace export
+   * off, or only `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` set). The core logs that once.
+   */
+  readonly target: ResolvedRemoteProfilerTarget | undefined;
+}
+
+export interface ResolvedRemoteProfilerTarget {
+  /** Base endpoint, no trailing slash: `/v1/nestrix/check-in` is appended. */
+  readonly baseUrl: string;
+  /** The traces export headers (they carry the ingest key). */
+  readonly headers: Readonly<Record<string, string>>;
+  /** Per check-in request: `export.otlp.timeoutMillis`, default 10000. */
+  readonly timeoutMillis: number;
+}
+
+/**
+ * `export.profiler` (P10-01, D-76). A boolean or absent; anything else throws. On only when trace
+ * export resolves; the base is `export.otlp.endpoint`, else `OTEL_EXPORTER_OTLP_ENDPOINT` (a full
+ * traces URL set alone gives no base, as for metrics). The headers are the traces export's.
+ */
+export function resolveRemoteProfiler(
+  options: NestrixModuleOptions,
+  env: Environment,
+): ResolvedRemoteProfiler | false {
+  const on: unknown = options.export?.profiler;
+  checkBoolean("export.profiler", on);
+  if (on !== true) return false;
+  const traces = resolveOtlp(options, env);
+  if (traces === false) return Object.freeze({ target: undefined });
+  const otlp = options.export?.otlp || undefined;
+  const base = blank(otlp?.endpoint) ?? blank(env.OTEL_EXPORTER_OTLP_ENDPOINT);
+  if (base === undefined) return Object.freeze({ target: undefined });
+  return Object.freeze({
+    target: Object.freeze({
+      baseUrl: base.replace(/\/+$/, ""),
+      headers: traces.headers,
+      timeoutMillis: traces.timeoutMillis,
+    }),
+  });
 }
 
 /** Resolved `metrics` option (P6-02, D-66). */
@@ -667,6 +713,7 @@ export function resolveOptions(
     export: Object.freeze({
       otlp: resolveOtlp(o, env),
       queue: Object.freeze(queue),
+      profiler: resolveRemoteProfiler(o, env),
     }),
     ignore: Object.freeze({
       paths: Object.freeze([...(o.ignore?.paths ?? [])]),

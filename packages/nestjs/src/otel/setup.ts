@@ -45,6 +45,8 @@ interface Owned {
   /** The dashboard store fed by this provider's store processor, when the first app had the dashboard on. */
   store: TraceStore | undefined;
   counters: PipelineCounters;
+  /** The provider's resource attributes, read once at setup (remote profiler identity, P10-01). */
+  resourceAttributes: Readonly<Record<string, unknown>>;
   contextManagerRegistered: boolean;
   propagatorRegistered: boolean;
   timeoutMillis: number;
@@ -130,6 +132,17 @@ function attachStore(
   }
 }
 
+/** A frozen copy of a resource's attributes; empty when they cannot be read. Never throws. */
+function readAttributes(resource: {
+  readonly attributes: Readonly<Record<string, unknown>>;
+}): Readonly<Record<string, unknown>> {
+  try {
+    return Object.freeze({ ...resource.attributes });
+  } catch {
+    return Object.freeze({});
+  }
+}
+
 /** Resolves after `ms` without keeping the process alive. */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -207,13 +220,14 @@ function setup(
   } catch (error) {
     diagnostics.countFailure("store.setup", error);
   }
-  const provider = new TracerProvider({
-    resource: buildResource(config, () =>
-      diagnostics.logOnce(
-        "otel.resource-env-invalid",
-        "OTEL_RESOURCE_ATTRIBUTES is malformed and was ignored as a whole (expected key=value pairs separated by commas, with ',' and '=' percent-encoded).",
-      ),
+  const resource = buildResource(config, () =>
+    diagnostics.logOnce(
+      "otel.resource-env-invalid",
+      "OTEL_RESOURCE_ATTRIBUTES is malformed and was ignored as a whole (expected key=value pairs separated by commas, with ',' and '=' percent-encoded).",
     ),
+  );
+  const provider = new TracerProvider({
+    resource,
     sampler: new ParentBasedSampler({
       root: new TraceIdRatioBasedSampler(config.sampleRate),
     }),
@@ -268,6 +282,7 @@ function setup(
     pipeline,
     store,
     counters,
+    resourceAttributes: readAttributes(resource),
     contextManagerRegistered,
     propagatorRegistered,
     timeoutMillis:
@@ -331,6 +346,7 @@ function ownedHandle(
     );
   return {
     ownsProvider: true,
+    resourceAttributes: state.resourceAttributes,
     registered: {
       tracerProvider: first,
       contextManager: first && state.contextManagerRegistered,

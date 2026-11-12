@@ -25,11 +25,13 @@ import {
 import { type LogExportHandle, setupLogExport } from "./logs/export.js";
 import { configureMethods, markNestrixInternal } from "./methods/registry.js";
 import { type NestrixMetrics, startMetrics } from "./metrics/index.js";
+import { instanceIdentity } from "./otel/resource.js";
 import { setupTelemetry } from "./otel/setup.js";
 import type { TelemetryHandle } from "./otel/types.js";
 import { installOutbound } from "./outbound/index.js";
 import { buildRedactedQueryKeys, scrubSpanAttributes } from "./privacy.js";
 import { installProcessErrorMonitor } from "./process-errors.js";
+import { RemoteProfilerPoller } from "./profiler/remote.js";
 import type { ResolvedOptions } from "./resolve-options.js";
 import { NESTRIX_OPTIONS } from "./tokens.js";
 
@@ -57,6 +59,8 @@ export class NestrixCore
   private readonly adapterHost: HttpAdapterHost | undefined;
   /** Set when `logs.export` is on (P6-01). */
   private readonly logExport: LogExportHandle | undefined;
+  /** P10-01: set with `export.profiler: true` and a base endpoint; started at bootstrap. */
+  private readonly remoteProfiler: RemoteProfilerPoller | undefined;
   private readonly logger: DashboardLogger;
 
   constructor(
@@ -131,6 +135,31 @@ export class NestrixCore
     } catch (error) {
       diagnostics.countFailure("core.methods", error);
     }
+    let remoteProfiler: RemoteProfilerPoller | undefined;
+    try {
+      // P10-01 (D-76): built now, started at `onApplicationBootstrap`. Independent of the
+      // dashboard and of who owns the trace provider.
+      const remote = options.enabled ? options.export.profiler : false;
+      if (remote !== false) {
+        if (remote.target === undefined) {
+          diagnostics.logOnce(
+            "profiler.remote-no-endpoint",
+            "export.profiler is on, but no export endpoint is set (export.otlp.endpoint or OTEL_EXPORTER_OTLP_ENDPOINT; a traces URL alone is not enough), or export.otlp is false. Remote profiling is off.",
+          );
+        } else {
+          const logger = this.logger;
+          remoteProfiler = new RemoteProfilerPoller({
+            target: remote.target,
+            identity: instanceIdentity(options, telemetry),
+            diagnostics,
+            log: (message) => logger.log(message),
+          });
+        }
+      }
+    } catch (error) {
+      diagnostics.countFailure("core.remote-profiler", error);
+    }
+    this.remoteProfiler = remoteProfiler;
     this.telemetry = telemetry;
     this.logExport = logExport;
     this.metrics = metrics;
@@ -178,10 +207,22 @@ export class NestrixCore
     } catch (error) {
       diagnostics.countFailure("core.bootstrap", error);
     }
+    // P10-01: the first check-in is a few seconds from now, never inside bootstrap.
+    try {
+      this.remoteProfiler?.start();
+    } catch (error) {
+      diagnostics.countFailure("core.bootstrap", error);
+    }
   }
 
   /** Runs on `app.close()`; on SIGTERM/SIGINT only with `app.enableShutdownHooks()`. Never rejects. */
   async onApplicationShutdown(): Promise<void> {
+    // First: no check-in or upload may start while the rest shuts down.
+    try {
+      this.remoteProfiler?.stop();
+    } catch (error) {
+      diagnostics.countFailure("core.shutdown", error);
+    }
     try {
       this.dashboard?.dispose();
     } catch (error) {
