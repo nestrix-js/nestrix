@@ -1,6 +1,6 @@
 {
   "name": "@nestrix-js/mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server that lets an AI assistant read Nestrix traces, errors and statistics from an app's dashboard or the standalone server",
   "license": "Apache-2.0",
   "type": "module",

@@ -1,5 +1,12 @@
 # @nestrix-js/nestjs
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @nestrix-js/ui@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes
