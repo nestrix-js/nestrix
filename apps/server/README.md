@@ -9,11 +9,26 @@ The standalone Nestrix server. One process, one port (default `4318`), backed by
 | `/` | The dashboard (the `@nestrix-js/ui` build) |
 | `/login`, `/logout` | Admin sign-in |
 
-Use it when you want history beyond one process's memory, several services in one place, or a dashboard that is not inside your app. It is private (not on npm) and distributed as a Docker image built from this repository. Pre-release: the image is not published to a registry yet.
+Use it when you want history beyond one process's memory, several services in one place, or a dashboard that is not inside your app. It is private (not on npm) and distributed as a Docker image on GHCR (`linux/amd64` and `linux/arm64`, with build provenance and an SBOM). Pre-release: tags are `<version>` (for example `0.1.0-alpha.0`) and `alpha`, the latest prerelease; `latest` appears with the first stable release.
 
 ## Run with Docker
 
-`docker-compose.yml` starts PostgreSQL 18 and the server:
+Without cloning the repository:
+
+```bash
+docker pull ghcr.io/nestrix-js/nestrix-server:alpha
+docker run -p 4318:4318 -e DATABASE_URL=postgres://… -e NESTRIX_INGEST_KEYS=… -e NESTRIX_ADMIN_PASSWORD=… ghcr.io/nestrix-js/nestrix-server:alpha
+```
+
+`examples/standalone/` has a compose file with PostgreSQL, this image and two services (one with two replicas), and a snippet for adding the server to an existing compose project.
+
+### Several services and replicas
+
+Point every service at the server with `OTEL_EXPORTER_OTLP_ENDPOINT` (and the ingest key in `OTEL_EXPORTER_OTLP_HEADERS`). Services are grouped by `service.name`, so replicas of one service show up as one service. Nestrix gives each process a random `service.instance.id` resource attribute, visible in the trace's resource; set it yourself (for example `OTEL_RESOURCE_ATTRIBUTES=service.instance.id=$HOSTNAME`) for stable names.
+
+### Build from source
+
+`docker-compose.yml` in this directory builds the image and starts it with PostgreSQL 18:
 
 ```bash
 cd apps/server

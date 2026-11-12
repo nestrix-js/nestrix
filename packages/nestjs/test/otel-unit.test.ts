@@ -85,6 +85,35 @@ describe("parseResourceAttributesEnv", () => {
   });
 });
 
+describe("service.instance.id", () => {
+  const base = {
+    serviceName: "svc",
+    serviceVersion: undefined,
+    resourceAttributes: {},
+    otelResourceAttributes: undefined,
+  };
+  it("is a random UUID per resource", () => {
+    const a = buildResource(base).attributes["service.instance.id"];
+    const b = buildResource(base).attributes["service.instance.id"];
+    expect(String(a)).toMatch(/^[0-9a-f-]{36}$/);
+    expect(a).not.toBe(b);
+  });
+  it("yields to resourceAttributes and OTEL_RESOURCE_ATTRIBUTES", () => {
+    expect(
+      buildResource({
+        ...base,
+        resourceAttributes: { "service.instance.id": "mine" },
+      }).attributes["service.instance.id"],
+    ).toBe("mine");
+    expect(
+      buildResource({
+        ...base,
+        otelResourceAttributes: "service.instance.id=pod-7",
+      }).attributes["service.instance.id"],
+    ).toBe("pod-7");
+  });
+});
+
 describe("describeForeignRouteHook", () => {
   const ours = () => {};
   it("finds nothing on non-adapters and empty slots", () => {

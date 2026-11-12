@@ -1,6 +1,7 @@
 // End to end against the real image: `docker compose up --build`, two example services
 // (examples/jaeger: service-a calls service-b) with only OTEL_EXPORTER_OTLP_ENDPOINT set, one
-// request, then one trace across both services through the query API.
+// request, then one trace across both services through the query API. service-b runs as two
+// replicas: they must appear as one service, with a distinct service.instance.id each.
 //
 //   NESTRIX_E2E_DOCKER=1 pnpm exec vitest run --project @nestrix-js/server test/e2e
 //
@@ -110,6 +111,8 @@ describe.skipIf(!enabled)(
   () => {
     let cookie = "";
     let portA = 0;
+    let portB1 = 0;
+    let portB2 = 0;
 
     beforeAll(async () => {
       const build = spawnSync("pnpm", ["--filter", "jaeger-example", "build"], {
@@ -129,10 +132,12 @@ describe.skipIf(!enabled)(
       expect(up.status, up.stdout + up.stderr).toBe(0);
 
       portA = await freePort();
-      const portB = await freePort();
-      startApp("service-b", portB, {});
+      portB1 = await freePort();
+      portB2 = await freePort();
+      startApp("service-b", portB1, {});
+      startApp("service-b", portB2, {});
       startApp("service-a", portA, {
-        SERVICE_B_URL: `http://127.0.0.1:${portB}`,
+        SERVICE_B_URL: `http://127.0.0.1:${portB1}`,
       });
       await waitFor(
         "service-a",
@@ -161,6 +166,10 @@ describe.skipIf(!enabled)(
     it("stores one trace across both services and draws the edge between them", async () => {
       const res = await fetch(`http://127.0.0.1:${portA}/call/42`);
       expect(res.status).toBe(200);
+      for (let i = 0; i < 4; i++)
+        expect((await fetch(`http://127.0.0.1:${portA}/call/${i}`)).ok).toBe(
+          true,
+        );
 
       // Wait for the exporters' batches (about 5 s) to be ingested.
       const trace = await waitFor(
@@ -197,6 +206,10 @@ describe.skipIf(!enabled)(
       expect(meta.services).toEqual(
         expect.arrayContaining(["service-a", "service-b"]),
       );
+      // Two replicas of service-b are one service.
+      expect(
+        (meta.services as string[]).filter((n) => n === "service-b"),
+      ).toHaveLength(1);
 
       const map = await api("/api/v1/map");
       const ids = (map.nodes as { id: string }[]).map((n) => n.id);
@@ -211,6 +224,33 @@ describe.skipIf(!enabled)(
           }),
         ]),
       );
+    }, 120_000);
+
+    it("tells the replicas of one service apart by service.instance.id", async () => {
+      // Direct requests make service-b's server span the root, so the trace's resource is that
+      // replica's own. Several per replica: both must show up.
+      for (const port of [portB1, portB2])
+        for (let i = 0; i < 3; i++)
+          expect((await fetch(`http://127.0.0.1:${port}/items/${i}`)).ok).toBe(
+            true,
+          );
+
+      const ids = await waitFor(
+        "traces from both replicas",
+        async () => {
+          const list = await api("/api/v1/traces?service=service-b");
+          const found = new Set<string>();
+          for (const item of list.items as { traceId: string }[]) {
+            const t = await api(`/api/v1/trace?id=${item.traceId}`);
+            const id = t.resource["service.instance.id"];
+            if (typeof id === "string") found.add(id);
+          }
+          return found.size >= 2 ? found : undefined;
+        },
+        60_000,
+      );
+      expect(ids.size).toBe(2);
+      for (const id of ids) expect(id).toMatch(/^[0-9a-f-]{36}$/);
     }, 120_000);
   },
 );

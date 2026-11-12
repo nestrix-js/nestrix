@@ -119,6 +119,10 @@ If your app registers its own tracer provider before Nestrix starts (that is, be
 
 Nestrix registers its OpenTelemetry globals during `NestFactory.create`, never at import time or when `forRoot()` runs. If you start your SDK in the body of `main.ts` after importing `AppModule`, start it before `NestFactory.create`.
 
+### Several services or replicas: use the standalone server
+
+The embedded dashboard shows one process. For several services, or several replicas of one service, run the standalone server (`ghcr.io/nestrix-js/nestrix-server`) and set only `OTEL_EXPORTER_OTLP_ENDPOINT` on each service. Nestrix adds a random `service.instance.id` resource attribute per process (override it with `resourceAttributes` or `OTEL_RESOURCE_ATTRIBUTES`) so replicas stay distinguishable. See `examples/standalone` in the repository.
+
 ## Dashboard
 
 With `@nestrix-js/ui` installed, `NestrixModule` serves a dashboard from inside your app, at `/_nestrix` by default: recent requests, one request's spans as a waterfall, errors, per-route request counts, error rates and latency percentiles, a [classes view and an app map](#classes-view-and-app-map), and an on-demand CPU [profiler](#profiler). Apart from starting a profiler capture it is read-only. It polls for new data every two seconds. It works on Express, Fastify and `@nestjs/platform-node`. It shows only what this process has seen since it started; nothing is written to disk and nothing is sent anywhere.

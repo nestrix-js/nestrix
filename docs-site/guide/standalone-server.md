@@ -3,12 +3,26 @@
 `@nestrix-js/server` is a separate process that receives OTLP/HTTP traces from one or more services, stores them in PostgreSQL 18 and serves the same dashboard. Use it when you want history beyond one process's memory, several services in one place, or a dashboard that is not inside your app.
 
 ::: warning Status
-The server is built and tested in the repository. It is private (not on npm) and the Docker image is built from the repository, not yet published to a registry.
+The server is built and tested in the repository. It is private (not on npm). The Docker image is published to GHCR by the release workflow (`linux/amd64` and `linux/arm64`, with provenance and an SBOM), tagged `<version>` and `alpha` while releases are prereleases.
 :::
 
 ## Run it
 
-The quickest way is the compose file, which starts PostgreSQL 18 and the server on `http://localhost:4318`:
+Without cloning the repository:
+
+```bash
+docker pull ghcr.io/nestrix-js/nestrix-server:alpha
+```
+
+`examples/standalone/` in the repository has a compose file with PostgreSQL, this image and two services (one running two replicas), and a snippet for adding the server to an existing compose project.
+
+## Several services and replicas
+
+Every service sends to the server with `OTEL_EXPORTER_OTLP_ENDPOINT` (and the ingest key in `OTEL_EXPORTER_OTLP_HEADERS`). The server groups by `service.name`, so replicas of one service are one service in the list and the map. Nestrix gives each process a random `service.instance.id` resource attribute, shown in a trace's resource; set it yourself for stable names, for example `OTEL_RESOURCE_ATTRIBUTES=service.instance.id=$HOSTNAME`.
+
+## Build and run from source
+
+The compose file in `apps/server` builds the image and starts PostgreSQL 18 and the server on `http://localhost:4318`:
 
 ```bash
 cd apps/server

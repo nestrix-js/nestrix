@@ -41,6 +41,30 @@ pnpm changeset status --since=origin/main
 
 Before merging the version PR, check that the changelogs read well and that CI is green.
 
+## The server image
+
+The standalone server (`apps/server`, private, not on npm) ships as a Docker image on GHCR:
+`ghcr.io/nestrix-js/nestrix-server`. The `server-image` job in `release.yml` builds
+`apps/server/Dockerfile` for `linux/amd64` and `linux/arm64` (arm64 under QEMU, so it is slow) and
+pushes two tags: the version (`0.1.0-alpha.0`) and the npm dist-tag (`alpha` while
+`.changeset/pre.json` exists, `latest` for a stable version). The image carries OCI labels (source,
+version, revision, licence `Apache-2.0`, description) and BuildKit provenance (`mode=max`) and SBOM
+attestations, stored in the registry beside it. The job is the only one with `packages: write`; it
+needs no `id-token` or `attestations` permission. It is gated on `NPM_PUBLISH_ENABLED` like the others.
+
+It runs after the `publish` job when that job published something. To publish the image for an
+existing release (a failed run, or a release made before this job existed), run the workflow by hand
+from `main`: Actions, Release, Run workflow, with `version` set (for example `0.1.0-alpha.0`; empty
+means the version in `packages/nestjs/package.json`). With a version set, the job builds from that
+release's git tag `@nestrix-js/nestjs@<version>`, not from the tip of `main`. Re-running for a
+version overwrites its tags.
+
+**Owner, once:** GHCR may create the package private on the first push. Pulling without logging in
+needs it public: open <https://github.com/orgs/nestrix-js/packages/container/nestrix-server/settings>,
+Danger Zone, Change visibility, Public. Also check that the package is linked to the repository
+(the `org.opencontainers.image.source` label does that) so the workflow's `GITHUB_TOKEN` can keep
+pushing. The repository itself must be public for the provenance to be verifiable by others.
+
 ## Keeping publishing off
 
 Four independent layers, so a single mistake cannot publish:

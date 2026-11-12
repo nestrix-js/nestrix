@@ -1,0 +1,65 @@
+# Nestrix standalone server with two services, one of them running two replicas.
+#   export NESTRIX_ADMIN_PASSWORD='at-least-12-characters'
+#   docker compose up --build
+#   curl localhost:3001/call/1      # service-a calls service-b
+#   open http://localhost:4318      # sign in with NESTRIX_ADMIN_PASSWORD
+#
+# DEMO ONLY: NESTRIX_INGEST_AUTH=none lets any client on the network send telemetry without a
+# key. For anything else remove it and set NESTRIX_INGEST_KEYS (see apps/server/README.md).
+x-service: &service
+  build:
+    context: ../..
+    dockerfile: examples/standalone/Dockerfile
+  depends_on:
+    nestrix-server:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: nestrix
+      POSTGRES_DB: nestrix
+      POSTGRES_HOST_AUTH_METHOD: trust # demo only
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nestrix -d nestrix"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  nestrix-server:
+    image: ghcr.io/nestrix-js/nestrix-server:alpha
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://nestrix@postgres:5432/nestrix
+      NESTRIX_INGEST_AUTH: none # demo only
+      NESTRIX_ADMIN_PASSWORD: ${NESTRIX_ADMIN_PASSWORD:?set NESTRIX_ADMIN_PASSWORD (at least 12 characters)}
+    ports:
+      - "4318:4318"
+
+  service-b:
+    <<: *service
+    command: ["node", "dist/service-b.js"]
+    environment:
+      PORT: "3002"
+      # The only Nestrix setting a service needs.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://nestrix-server:4318
+    deploy:
+      replicas: 2 # two instances of one service: they appear as one service-b in the dashboard
+
+  service-a:
+    <<: *service
+    command: ["node", "dist/service-a.js"]
+    environment:
+      PORT: "3001"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://nestrix-server:4318
+      SERVICE_B_URL: http://service-b:3002 # compose DNS round-robins across the replicas
+    ports:
+      - "3001:3001"
+
+volumes:
+  pgdata:
