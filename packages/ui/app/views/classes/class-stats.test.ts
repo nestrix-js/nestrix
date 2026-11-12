@@ -2,6 +2,7 @@ import type { ClassStats, MethodStats } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 
 import {
+  filterByClass,
   formatOwn,
   methodOwnMs,
   sortClasses,
@@ -30,6 +31,17 @@ const meth = (over: Partial<MethodStats>): MethodStats => ({
   ...over,
 });
 const names = (c: ClassStats[]) => c.map((x) => x.className);
+
+describe("filterByClass", () => {
+  const list = [cls({ className: "A" }), cls({ className: "B" })];
+  it("keeps only the named class, exactly", () => {
+    expect(filterByClass(list, "A")).toEqual([list[0]]);
+    expect(filterByClass(list, "a")).toEqual([]);
+  });
+  it("keeps every class without a filter", () => {
+    expect(filterByClass(list, null)).toHaveLength(2);
+  });
+});
 
 describe("sortClasses", () => {
   const input = [

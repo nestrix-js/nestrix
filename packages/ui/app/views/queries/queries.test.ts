@@ -1,7 +1,13 @@
 import type { QueryStatement } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 
-import { isTruncated, onlyRepeated, PREVIEW_CHARS, preview } from "./queries";
+import {
+  filterByText,
+  isTruncated,
+  onlyRepeated,
+  PREVIEW_CHARS,
+  preview,
+} from "./queries";
 
 const q = (repeatedTraces: number): QueryStatement => ({
   statement: "SELECT 1",
@@ -28,6 +34,24 @@ describe("preview", () => {
     const long = "x".repeat(PREVIEW_CHARS + 30);
     expect(preview(long)).toBe(`${"x".repeat(PREVIEW_CHARS)}…`);
     expect(isTruncated(long)).toBe(true);
+  });
+});
+
+describe("filterByText", () => {
+  const a = {
+    ...q(0),
+    statement: "SELECT *\n  FROM order_items WHERE id = $1",
+  };
+  const b = { ...q(0), statement: "INSERT INTO orders VALUES ($1)" };
+  it("matches case-insensitively with whitespace folded", () => {
+    expect(filterByText([a, b], "select * from ORDER_ITEMS")).toEqual([a]);
+  });
+  it("keeps everything without a filter", () => {
+    expect(filterByText([a, b], null)).toHaveLength(2);
+    expect(filterByText([a, b], "  ")).toHaveLength(2);
+  });
+  it("finds nothing for text no statement holds", () => {
+    expect(filterByText([a, b], "DELETE")).toEqual([]);
   });
 });
 

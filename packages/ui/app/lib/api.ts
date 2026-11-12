@@ -21,6 +21,7 @@ import type {
   RemoteProfileStartRequest,
   RemoteProfileSummary,
   RouteCompareResponse,
+  RouteExplainResponse,
   RouteHistogramResponse,
   RouteStatsResponse,
   RuntimeResponse,
@@ -170,6 +171,9 @@ export const getRouteHistogram = (params: QueryParams) =>
   getJson<RouteHistogramResponse>("routes/histogram", params);
 export const getRouteCompare = (params: QueryParams) =>
   getJson<RouteCompareResponse>("routes/compare", params);
+/** P12-01: why one route changed, window against window or release against release. */
+export const getRouteExplain = (params: QueryParams) =>
+  getJson<RouteExplainResponse>("routes/explain", params);
 export const getTrace = (id: string) => getJson<TraceResponse>("trace", { id });
 /** P9-07: the log lines kept next to a trace (both backends). */
 export const getTraceLogs = (id: string) =>

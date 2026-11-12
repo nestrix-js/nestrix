@@ -2,6 +2,7 @@ import { traceListParams } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 
 import {
+  filterErrorsByType,
   isRequestListLink,
   numberParser,
   requestFilterParsers,
@@ -60,6 +61,22 @@ describe("parsers built from the protocol specs", () => {
     expect(Object.keys(traceListParams)).toContain("service");
     expect(serviceParser.parse("orders")).toBe("orders");
     expect(serviceParser.parse("x".repeat(257))).toBeNull();
+  });
+});
+
+describe("filterErrorsByType", () => {
+  const items = [
+    { errorType: "A" },
+    { errorType: "B" },
+    { errorType: null },
+    {},
+  ];
+  it("keeps the errors of the type, exactly", () => {
+    expect(filterErrorsByType(items, "A")).toEqual([{ errorType: "A" }]);
+    expect(filterErrorsByType(items, "a")).toEqual([]);
+  });
+  it("keeps all of them without a type", () => {
+    expect(filterErrorsByType(items, null)).toHaveLength(4);
   });
 });
 

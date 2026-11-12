@@ -24,11 +24,14 @@ export function RouteHistogram({
   windowMinutes,
   service,
   label,
+  showTitle = true,
 }: {
   stats: Pick<RouteStats, "method" | "route">;
   windowMinutes: number;
   service: string | undefined;
   label: string;
+  /** False when a card around it already has the heading. */
+  showTitle?: boolean;
 }) {
   const [paused] = usePaused();
   const navigate = useNavigate();
@@ -84,7 +87,9 @@ export function RouteHistogram({
 
   return (
     <div className="space-y-2" data-testid="route-histogram">
-      <h4 className="text-sm font-medium">Latency distribution</h4>
+      {showTitle && (
+        <h4 className="text-sm font-medium">Latency distribution</h4>
+      )}
       {query.isError && h === undefined && (
         <p role="alert" className="text-sm text-muted-foreground">
           Could not load the histogram: {query.error?.message}

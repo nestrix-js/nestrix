@@ -17,13 +17,14 @@ import {
 import { getClasses, getMeta } from "@/lib/api";
 import { formatDuration, STANDALONE_STATISTICS_NOTE } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
-import { routeWindowParser } from "@/lib/params";
+import { routeWindowParser, stringParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
 import {
   DEFAULT_DIR,
   DEFAULT_SORT,
   ENABLE_LINE,
+  filterByClass,
   formatOwn,
   methodOwnMs,
   SORT_KEYS,
@@ -40,6 +41,8 @@ const parsers = {
   windowMinutes: routeWindowParser,
   sort: parseAsStringLiteral(SORT_KEYS),
   dir: parseAsStringLiteral(["asc", "desc"] as const),
+  // From a finding on the route page: the class part of `Class.method`.
+  class: stringParser({ maxLength: 256 }),
 };
 
 const COLUMNS: { key: SortKey; label: string; numeric: boolean }[] = [
@@ -72,8 +75,13 @@ export function ClassesPage() {
   });
 
   const classes = useMemo(
-    () => sortClasses(stats.data?.classes ?? [], sort, dir),
-    [stats.data, sort, dir],
+    () =>
+      sortClasses(
+        filterByClass(stats.data?.classes ?? [], query.class),
+        sort,
+        dir,
+      ),
+    [stats.data, sort, dir, query.class],
   );
   const shownWindow = stats.data?.windowMinutes ?? windowMinutes;
 
@@ -135,6 +143,25 @@ export function ClassesPage() {
         </div>
       </div>
 
+      {query.class !== null && (
+        <div
+          data-testid="class-filter"
+          className="flex flex-wrap items-center gap-2 text-sm"
+        >
+          <span className="text-muted-foreground">Filtered by class</span>
+          <code className="rounded bg-secondary px-2 py-0.5 text-xs">
+            {query.class}
+          </code>
+          <Button
+            size="sm"
+            variant="outline"
+            data-testid="clear-class-filter"
+            onClick={() => void setQuery({ class: null })}
+          >
+            Clear
+          </Button>
+        </div>
+      )}
       {stats.isPending && <DataTableSkeleton columnCount={8} />}
       {stats.isError && stats.data === undefined && (
         <div
@@ -331,7 +358,9 @@ export function ClassesPage() {
                       colSpan={COLUMNS.length}
                       className="h-24 text-center text-muted-foreground"
                     >
-                      No method calls in the last {shownWindow} minutes.
+                      {query.class !== null
+                        ? `No calls of ${query.class} in the last ${shownWindow} minutes.`
+                        : `No method calls in the last ${shownWindow} minutes.`}
                     </TableCell>
                   </TableRow>
                 )}

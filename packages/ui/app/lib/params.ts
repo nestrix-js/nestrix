@@ -74,7 +74,18 @@ export function isRequestListLink(search: Record<string, unknown>): boolean {
 /** For P2-10: the error list filters by route only. */
 export const errorFilterParsers = {
   route: stringParser(errorListParams.route),
+  // P12-02: the exception type. The list API has no such parameter, so the page filters the
+  // errors it has loaded.
+  type: stringParser({ maxLength: 256 }),
 };
+
+/** Errors of one exception type; all of them for none. */
+export function filterErrorsByType<T extends { errorType?: string | null }>(
+  items: readonly T[],
+  type: string | null,
+): T[] {
+  return type === null ? [...items] : items.filter((i) => i.errorType === type);
+}
 
 /** P9-04: the errors page shows groups (default) or every occurrence. */
 export const viewParser = parseAsStringLiteral([

@@ -27,3 +27,15 @@ export function onlyRepeated(
 ): QueryStatement[] {
   return enabled ? queries.filter((q) => q.repeatedTraces > 0) : [...queries];
 }
+
+const flat = (text: string) => text.replace(/\s+/g, " ").trim().toLowerCase();
+
+/** Statements whose text contains `text` (whitespace folded, case-insensitive); all for none. */
+export function filterByText(
+  queries: readonly QueryStatement[],
+  text: string | null,
+): QueryStatement[] {
+  if (text === null || flat(text) === "") return [...queries];
+  const needle = flat(text);
+  return queries.filter((q) => flat(q.statement).includes(needle));
+}

@@ -18,7 +18,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getErrors, getRoutes } from "@/lib/api";
-import { errorFilterParsers, viewParser } from "@/lib/params";
+import {
+  errorFilterParsers,
+  filterErrorsByType,
+  viewParser,
+} from "@/lib/params";
 import { useService } from "@/lib/service";
 import { useCursorList } from "@/lib/use-cursor-list";
 import { ErrorGroups } from "@/views/errors/error-groups";
@@ -138,7 +142,11 @@ function AllErrors() {
     return [...names].sort();
   }, [routeStats.data, filters.route]);
 
-  const filtered = filters.route !== null;
+  const filtered = filters.route !== null || filters.type !== null;
+  const shown = useMemo(
+    () => filterErrorsByType(list.items, filters.type),
+    [list.items, filters.type],
+  );
   return (
     <div className="space-y-4" data-testid="errors-all">
       <div className="flex flex-wrap items-center gap-2">
@@ -157,6 +165,25 @@ function AllErrors() {
             ))}
           </select>
         </label>
+        {filters.type !== null && (
+          <span
+            data-testid="type-filter"
+            className="flex items-center gap-2 text-sm"
+          >
+            <span className="text-muted-foreground">Type</span>
+            <code className="rounded bg-secondary px-2 py-0.5 text-xs">
+              {filters.type}
+            </code>
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="clear-type-filter"
+              onClick={() => void setFilters({ type: null })}
+            >
+              Clear
+            </Button>
+          </span>
+        )}
         {filtered && (
           <Button
             variant="ghost"
@@ -205,8 +232,8 @@ function AllErrors() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {list.items.length > 0 ? (
-                  list.items.map((item) => (
+                {shown.length > 0 ? (
+                  shown.map((item) => (
                     <ErrorRow key={item.cursor} item={item} />
                   ))
                 ) : (
@@ -215,9 +242,11 @@ function AllErrors() {
                       colSpan={COLUMNS}
                       className="h-24 text-center text-muted-foreground"
                     >
-                      {filtered
-                        ? "No errors for this route."
-                        : "No errors yet. Failed requests and spans appear here."}
+                      {filters.type !== null
+                        ? "No loaded errors of this type."
+                        : filtered
+                          ? "No errors for this route."
+                          : "No errors yet. Failed requests and spans appear here."}
                     </TableCell>
                   </TableRow>
                 )}

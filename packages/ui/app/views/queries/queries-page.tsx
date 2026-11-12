@@ -18,11 +18,12 @@ import {
 import { getMeta, getQueries } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
-import { routeWindowParser } from "@/lib/params";
+import { routeWindowParser, stringParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
 import {
   DEFAULT_SORT,
+  filterByText,
   isTruncated,
   onlyRepeated,
   preview,
@@ -38,6 +39,8 @@ const parsers = {
   windowMinutes: routeWindowParser,
   sort: parseAsStringLiteral(SORT_KEYS),
   nplus: parseAsBoolean,
+  // From a finding on the route page: the first characters of one statement.
+  q: stringParser({ maxLength: 200 }),
 };
 
 const SORTABLE: Record<string, SortKey> = {
@@ -79,7 +82,10 @@ export function QueriesPage() {
     placeholderData: keepPreviousData,
   });
 
-  const rows = onlyRepeated(stats.data?.queries ?? [], nplus);
+  const rows = filterByText(
+    onlyRepeated(stats.data?.queries ?? [], nplus),
+    query.q,
+  );
   const shownWindow = stats.data?.windowMinutes ?? windowMinutes;
   const rowKey = (q: { system: string; statement: string }) =>
     `${q.system}\u0000${q.statement}`;
@@ -136,6 +142,25 @@ export function QueriesPage() {
         </div>
       </div>
 
+      {query.q !== null && (
+        <div
+          data-testid="statement-filter"
+          className="flex flex-wrap items-center gap-2 text-sm"
+        >
+          <span className="text-muted-foreground">Filtered by statement</span>
+          <code className="max-w-full truncate rounded bg-secondary px-2 py-0.5 text-xs">
+            {query.q}
+          </code>
+          <Button
+            size="sm"
+            variant="outline"
+            data-testid="clear-statement-filter"
+            onClick={() => void setQuery({ q: null })}
+          >
+            Clear
+          </Button>
+        </div>
+      )}
       {stats.isPending && <DataTableSkeleton columnCount={COLUMNS.length} />}
       {stats.isError && stats.data === undefined && (
         <div
@@ -316,9 +341,11 @@ export function QueriesPage() {
                       colSpan={COLUMNS.length}
                       className="h-24 text-center text-muted-foreground"
                     >
-                      {nplus
-                        ? `No statement ran 3 or more times in one trace in the last ${shownWindow} minutes.`
-                        : `No database or cache queries in the last ${shownWindow} minutes.`}
+                      {query.q !== null
+                        ? "No statement in this window contains that text."
+                        : nplus
+                          ? `No statement ran 3 or more times in one trace in the last ${shownWindow} minutes.`
+                          : `No database or cache queries in the last ${shownWindow} minutes.`}
                     </TableCell>
                   </TableRow>
                 )}
