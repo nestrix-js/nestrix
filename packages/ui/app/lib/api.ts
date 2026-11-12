@@ -8,12 +8,17 @@ import type {
   DependenciesResponse,
   ErrorGroupsResponse,
   ErrorListResponse,
+  InstanceListResponse,
   MetaResponse,
   ProfileDetail,
   ProfileListResponse,
   ProfileStartRequest,
   ProfileStartResponse,
   QueryStatsResponse,
+  RemoteProfileDetail,
+  RemoteProfileListResponse,
+  RemoteProfileStartRequest,
+  RemoteProfileSummary,
   RouteCompareResponse,
   RouteHistogramResponse,
   RouteStatsResponse,
@@ -191,6 +196,19 @@ export const startProfile = (durationSeconds: number) =>
 /** The `.cpuprofile` download, a plain link: the session cookie authenticates it. */
 export const profileDownloadUrl = (id: string) =>
   apiUrl(`profiles/${encodeURIComponent(id)}/download`);
+
+// Remote CPU profiler: the standalone server only, when `meta.profiler.remote` (D-76).
+export const getInstances = (service?: string) =>
+  getJson<InstanceListResponse>("instances", { service });
+export const getRemoteProfiles = (service?: string) =>
+  getJson<RemoteProfileListResponse>("remote-profiles", { service });
+export const getRemoteProfile = (id: string) =>
+  getJson<RemoteProfileDetail>(`remote-profiles/${encodeURIComponent(id)}`);
+/** Orders a capture on one instance; it is picked up on the instance's next check-in. */
+export const startRemoteProfile = (body: RemoteProfileStartRequest) =>
+  requestJson<RemoteProfileSummary>("POST", "remote-profiles", undefined, body);
+export const remoteProfileDownloadUrl = (id: string) =>
+  apiUrl(`remote-profiles/${encodeURIComponent(id)}/download`);
 
 // Process runtime samples: the embedded dashboard only, when `meta.runtime.available`.
 export const getRuntime = () => getJson<RuntimeResponse>("runtime");

@@ -24,7 +24,7 @@ const nav = [
 const sloNav = { to: "/slos", label: "SLOs" } as const;
 // The standalone server's settings (API tokens).
 const settingsNav = { to: "/settings", label: "Settings" } as const;
-// Embedded dashboard only, when `meta.profiler.available`.
+// Embedded dashboard when `meta.profiler.available`; standalone server when `meta.profiler.remote`.
 const profilerNav = { to: "/profiler", label: "Profiler" } as const;
 
 // Embedded dashboard only, when `meta.runtime.available`.
@@ -58,7 +58,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const serviceName = meta.data?.service.name ?? readConfig().service;
   const notice = meta.data ? samplingNotice(meta.data.sampling) : null;
   const standalone = meta.data?.mode === "standalone";
-  const profilerOn = meta.data?.profiler?.available === true;
+  const profilerOn =
+    meta.data?.profiler?.available === true ||
+    (standalone && meta.data?.profiler?.remote === true);
   const runtimeOn = meta.data?.runtime?.available === true;
   const services = meta.data?.services ?? [];
   const [selected, setSelected] = useService();
