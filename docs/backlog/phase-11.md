@@ -1,0 +1,46 @@
+# Phase 11 backlog: the Overview page
+
+Owner, 2026-11-12: build the Overview from the design canvas (https://claude.ai/artifact/XSyY3dCaUsnSyys8ud8216, artboard "Overview (new home)"). Goal: the dashboard says what is better and what needs attention, with charts and donuts, instead of leaving the user to read tables. Delivery mode (AGENTS.md): functional tests, local checks, runs under about 3 minutes. Design sources: our own needs and that canvas; nothing from `@nestjs/observe` (rule 8).
+
+The wire contract is `packages/protocol/src/overview.ts` (`overviewParams`, `OverviewResponse`). Both backends implement it. Every figure keeps saying whether it is counted before sampling (`stats`) or built from sampled traces (`traces`), as D-61 requires.
+
+## Status
+
+| ID | Task | Tier | Depends | Status |
+|---|---|---|---|---|
+| P11-00 | Protocol, this backlog | lead | — | done |
+| P11-01 | `GET api/v1/overview` on the embedded dashboard and the standalone server, one shared computation | sonnet | P11-00 | todo |
+| P11-02 | UI: Overview page as the new home | sonnet | P11-00 | todo |
+| P11-03 | Review, docs, changeset | lead | P11-01, P11-02 | todo |
+
+Not in this phase (later, listed so nobody builds them by accident): the route "what changed" explanation card, per-instance runtime in the standalone server (needs a metrics receiver), the redesigned Route detail, Errors and Profiler screens beyond what phase 10 builds.
+
+## Settled design
+
+### Computation (P11-01)
+
+Put the pure computation in one module that takes plain inputs (route statistics for both windows with their histograms, sampled-trace aggregates, error groups, dependencies, SLO statuses when present) and returns `OverviewResponse`. Each backend gathers the inputs from its own existing query code (the same code behind `routes`, `routes/compare`, `routes/histogram`, `traces/timeline`, `errors/groups`, `dependencies`, `slos`) and calls it. The module lives in `packages/nestjs` (the server already depends on it through the workspace); reach it from the server the way the server already reaches other internal code of that package, without widening the public entry point if avoidable. Say what you chose.
+
+- **Windows.** `current` = the last `windowMinutes`; `previous` = the `windowMinutes` before it, exactly as `routes/compare` computes them, including `previousCovered` and `note`. When the previous window is not covered, `previousTotals` is `null`, `previousSeries` empty, and no insight that needs a "before" is produced (new error groups still are).
+- **Totals and series.** Merge the route histograms (same bucket edges) to get overall p50/p95/p99 and Apdex counts; `perMinute = count / windowMinutes`. Series buckets: the route statistics' bucket width, at most 30 points (merge neighbours if there are more). Apdex: satisfied ≤ T, tolerating ≤ 4T, frustrated otherwise; requests counted as errors are frustrated whatever their duration. With histograms, a request is satisfied when its bucket's upper edge ≤ T, tolerating when ≤ 4T (state this approximation in a code comment).
+- **Status mix, time by kind, releases.** From sampled traces in the current window: root outcome classes; own time of spans grouped into `db` (`db.system.name` or `db.system`), `http-out` (client HTTP spans), `redis`, `messaging` (producer/consumer), `app` (Nest handler, method, enhancer spans), `other`; releases whose first trace falls inside the window.
+- **Insight rules.** Only routes with at least 20 requests in each compared window. Thresholds:
+  - `route-latency` worse: p95 after ≥ 1.2 × before and at least +50 ms. `high` when after ≥ 1.5 × before and the route had ≥ 100 requests, else `medium`. Better: p95 after ≤ 0.8 × before and at least −30 ms (`low`).
+  - `route-errors` worse: error rate up ≥ 1 percentage point and ≥ 5 errors now; `high` when up ≥ 5 points. Better: down ≥ 1 point (`low`).
+  - `error-group-new`: a group whose first occurrence is in the current window with ≥ 3 events; `high` at ≥ 50 events. `error-group-spike`: events now ≥ 3 × before and ≥ 10 now (`medium`; `high` at ≥ 10 ×). A group with events before and none in the last half of the current window: better (`low`, "cleared").
+  - `dependency-latency` worse: p95 ≥ 1.3 × before and +50 ms (`medium`; `high` at ≥ 2 ×); better: ≤ 0.75 × and −30 ms. `dependency-errors` worse: error rate up ≥ 2 points with ≥ 5 errors (`medium`; `high` at ≥ 10 points).
+  - `slo-burn` (standalone only, when SLOs exist): burn rate > 1 → `medium`, > 2 → `high`.
+  - `impact` = affected requests or events in the current window × min(|change|, 10); new things use × 1. Sort by `impact` descending; at most 6 in `attention` and 6 in `better`. `series` is the metric per bucket over the current window (≤ 30 points). Titles are short and concrete, e.g. `POST /orders p95 412 ms → 680 ms`, `PaymentGatewayError is new (214 events)`, `api.stripe.com p95 640 ms → 1.1 s`; durations formatted like the UI does (ms below 1 s, then seconds with one decimal).
+- **Health.** `score = clamp(0, 100, round(100 − Σ(attention: high 12, medium 6) − min(30, errorRate × 1000) − (apdex === null ? 0 : (1 − apdex) × 40)))`. Level: ≥ 90 `healthy`, ≥ 70 `degraded`, else `critical`. `summary`: with attention items, `N thing(s) need(s) attention: <first title>, and <second title>.` (at most two named); without, `No problems found.` plus ` N thing(s) got better.` when there are better items; with no traffic, `No requests in the last <window>.`
+- **Embedded vs standalone.** Same shape. Embedded has no SLOs (no `slo-burn`). `service` filters on the standalone server as elsewhere.
+- **Tests.** Unit tests of the pure module with hand-built inputs for every rule (fires, does not fire just under each threshold, severity boundaries), health formula and summary wording, Apdex from histograms, uncovered previous window. One route test per backend that the endpoint answers with a valid shape (and honours `service` on the server). Add the endpoint to both backends' API docs (architecture §4.6 routes list and the standalone query routes) and to the protocol drift check in `packages/nestjs/src/store/protocol-types.ts`.
+
+### UI (P11-02)
+
+- The Overview becomes the home page: route `/`. The request list moves to `/requests` and its nav label stays "Requests". Any link or deep link that points at `/` with request-list search params (filters, time range, trace selection) is redirected to `/requests` with the same params, so old bookmarks keep working. Update the existing e2e tests that assume `/` is the request list.
+- Layout follows the canvas artboard: health verdict card (score ring, level chip, `summary`, a button to the top attention item's link); **Needs attention** and **Getting better** lists (severity chip, title, detail, sparkline from `series`, change); KPI tiles (throughput per minute, error rate, p95, Apdex, plus one of: slowest dependency p95) each with its change against `previousTotals` and a sparkline from `series`; latency percentiles chart (p50, p95, p99 from `series`, previous p95 from `previousSeries` as a grey line, release markers from `releases`); donuts for `status` and `timeByKind` (with previous-share change); throughput-and-errors stacked bars from `series`; Apdex bar (satisfied / tolerating / frustrated); the top routes (reuse the routes query, sorted by impact = count × p95 change, with p95 bars and sparklines); and on the standalone server the SLO budget rings when SLOs exist, on the embedded dashboard the runtime card when `meta.runtime.available`.
+- A window toggle 15 min / 60 min (the API's two windows) and an Apdex T shown in the Apdex card (not editable in this phase).
+- Every card labels its source: "before sampling" or "from sampled traces".
+- Charts: build with what the UI already uses for charts (check `packages/ui` before adding anything; no new dependency without saying so in the report). Donuts can be SVG arcs. Colours: the existing tokens in `app/styles.css`; worse = red/amber, better = green, and never colour alone: chips carry words and arrows. Both light and dark themes must read well.
+- Empty and uncovered states: no traffic → a friendly empty state; `previousCovered: false` → changes shown as "—" with the `note` as a tooltip and the lists say comparisons start once a full previous window is kept.
+- **Tests:** unit tests for formatting helpers; Playwright (Chromium) against the mock API with fixtures for degraded, healthy, empty and uncovered responses: the verdict, both lists, the KPI deltas and the donuts render; the `/` → `/requests` redirect of an old deep link.
