@@ -61,7 +61,7 @@ pnpm typecheck      # tsc -b --noEmit over the references in the root tsconfig.j
 pnpm check:packages # publint + attw --pack --profile esm-only on each published package (their check:package script)
 pnpm check:tla      # scripts/check-no-tla.mjs: require() every published entry and every built file from CommonJS and fail on a top-level await (ERR_REQUIRE_ASYNC_MODULE); needs `pnpm build` first
 pnpm verify         # build, check:packages, check:tla, test, lint, typecheck in that order, stopping at the first failure
-pnpm changeset      # add a changeset (needed for changes to a published package; @nestrix-js/nestjs and @nestrix-js/ui share one version)
+pnpm changeset      # add a changeset (needed for changes to a published package; @nestrix-js/nestjs, @nestrix-js/ui and @nestrix-js/mcp share one version)
 pnpm changeset status --since=origin/main  # what the PR check runs; exits non-zero if a published package changed without a changeset
 pnpm version-packages # changeset version: CI runs it for the version PR; do not run it locally and commit the result
 pnpm release        # refuses to run outside .github/workflows/release.yml on main; never publish from a laptop (RELEASING.md)
@@ -85,6 +85,7 @@ TypeScript config: every package has its own `tsconfig.json` that extends `tscon
 ```
 packages/nestjs/      @nestrix-js/nestjs
 packages/ui/          @nestrix-js/ui
+packages/mcp/         @nestrix-js/mcp, stdio MCP server over the query API (phase 8)
 packages/testing/     @nestrix-js/testing, private test harness (bootApp, in-memory spans)
 packages/protocol/    private query-API types
 apps/server/          phase 5

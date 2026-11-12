@@ -1,6 +1,6 @@
 # Releasing
 
-`@nestrix-js/nestjs` and `@nestrix-js/ui` are released together, always at the same version, with
+`@nestrix-js/nestjs`, `@nestrix-js/ui` and `@nestrix-js/mcp` are released together, always at the same version, with
 [Changesets](https://github.com/changesets/changesets) and the
 [`release.yml`](./.github/workflows/release.yml) workflow. `@nestrix-js/protocol` and
 `@nestrix-js/testing` are private and are never versioned, tagged or published.
@@ -64,6 +64,17 @@ needs it public: open <https://github.com/orgs/nestrix-js/packages/container/nes
 Danger Zone, Change visibility, Public. Also check that the package is linked to the repository
 (the `org.opencontainers.image.source` label does that) so the workflow's `GITHUB_TOKEN` can keep
 pushing. The repository itself must be public for the provenance to be verifiable by others.
+
+## Adding a package after the first release: `@nestrix-js/mcp`
+
+`@nestrix-js/mcp` joined the fixed group after `@nestrix-js/nestjs` and `@nestrix-js/ui` were already published, so its first publish needs the same hand steps: npm only allows a trusted publisher on a package that exists, and the workflow's `changeset publish` has no token to create one. The release workflow publishes every non-private workspace package, so until these are done the first release that includes it fails for that package.
+
+**Owner, once**, from a clean `main` that carries the version of the version PR:
+
+1. Run `pnpm install --frozen-lockfile` and `pnpm verify`, then `pnpm --filter @nestrix-js/mcp pack --dry-run` and check that only `dist`, `README.md` and `package.json` ship.
+2. Log in with `npm login`, then publish the package by hand with the `alpha` tag (`npx @nestrix-js/mcp@alpha` resolves that tag), approving the 2FA prompt in the browser. Never bypass pnpm's clean-tree check.
+3. On npmjs.com, package `@nestrix-js/mcp`, Settings, Trusted publishing, GitHub Actions: owner `nestrix-js`, repository `nestrix`, workflow `release.yml`, environment empty, with **Allow direct `npm publish`**; then require 2FA and disallow tokens (or use `npm trust github`, npm 11.15 or later), as for the other two packages above.
+4. The next release through CI publishes it with provenance.
 
 ## Keeping publishing off
 

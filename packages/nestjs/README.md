@@ -295,6 +295,10 @@ What to expect:
 
 Starting a capture is the dashboard's only request that changes anything, so besides dashboard access it needs a same-origin request from the dashboard page itself: `Sec-Fetch-Site: same-origin`, an `Origin` equal to the server's own origin, a JSON body with `Content-Type: application/json` and a `Content-Length` of at most 1 KB. Browsers send all of this; another site cannot. **Starting a capture needs HTTPS or localhost:** browsers send `Sec-Fetch-Site` only to HTTPS and localhost origins, so over plain HTTP to another host every start is refused with `403` even though the dashboard shows the button (the dashboard then says so). Open the dashboard over HTTPS, or through `localhost` or an SSH tunnel. Behind a reverse proxy, the proxy must pass the original `Host` header (nginx: `proxy_set_header Host $host;`), or the `Origin` check refuses the start. Reading profiles and downloading them follow the same rules as the rest of the dashboard.
 
+### Letting an AI assistant read the dashboard
+
+`@nestrix-js/mcp` is an MCP server that lets Claude Code, Claude Desktop, Cursor and other assistants query this dashboard's API (traces, errors, statistics) and start a profiler capture. It needs `ui: { enabled: true, auth: { token } }`: the `'auto'` startup token is a browser cookie flow a tool cannot use. See the [package README](../mcp/README.md).
+
 ### When something else answers first (shadowing)
 
 A host route can answer a request under the dashboard path before Nestrix's route sees it: a catch-all route on Express, or `@nestjs/serve-static`'s fallback on Express and platform-node. Nest has no public route table, so Nestrix detects it passively: the first time a `GET` or `HEAD` under the dashboard path is answered, with a status other than 404, without a dashboard handler having run, it logs one line per process.

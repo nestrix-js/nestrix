@@ -1,0 +1,50 @@
+{
+  "name": "@nestrix-js/mcp",
+  "version": "0.1.0-alpha.2",
+  "description": "MCP server that lets an AI assistant read Nestrix traces, errors and statistics from an app's dashboard or the standalone server",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nestrix-js/nestrix.git",
+    "directory": "packages/mcp"
+  },
+  "sideEffects": false,
+  "bin": {
+    "nestrix-mcp": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=26.13.0"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "check:package": "publint && attw --pack . --profile esm-only"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@nestjs/common": "^12.4.2",
+    "@nestjs/core": "^12.4.2",
+    "@nestjs/platform-express": "^12.4.2",
+    "@nestrix-js/nestjs": "workspace:*",
+    "@nestrix-js/protocol": "workspace:*",
+    "@types/node": "^26.6.6",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  }
+}
