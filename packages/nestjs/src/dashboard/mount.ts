@@ -58,6 +58,7 @@ import {
   parseQuery,
   queriesHandler,
   routeCompareHandler,
+  routeExplainHandler,
   routeHistogramHandler,
   routesHandler,
   timelineHandler,
@@ -434,6 +435,10 @@ export class Dashboard {
       [
         `${api}/routes/compare`,
         this.handler("api", (t) => routeCompareHandler(t, sources())),
+      ],
+      [
+        `${api}/routes/explain`,
+        this.handler("api", (t) => routeExplainHandler(t, sources())),
       ],
       [
         `${api}/classes`,

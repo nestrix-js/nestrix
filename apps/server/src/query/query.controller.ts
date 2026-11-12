@@ -11,6 +11,7 @@ import {
 } from "@nestjs/common";
 import type { ApiError, QuerySort } from "@nestrix-js/protocol";
 import { QUERY_HEADERS, QueryExceptionFilter } from "./exception.filter.js";
+import { ExplainService } from "./explain.service.js";
 import { QueryGuardGate } from "./guard.js";
 import { OverviewService } from "./overview.service.js";
 import {
@@ -25,6 +26,7 @@ import {
   parseQuery,
   queryStatsSpec,
   routeCompareSpec,
+  routeExplainSpec,
   routeHistogramSpec,
   routeStatsSpec,
   traceListSpec,
@@ -73,6 +75,7 @@ export class QueryController {
   constructor(
     private readonly query: QueryService,
     private readonly overviewService: OverviewService,
+    private readonly explainService: ExplainService,
   ) {}
 
   @Inject(TraceLogsService)
@@ -205,6 +208,30 @@ export class QueryController {
       return this.query.releaseCompare(a, b, service);
     }
     return this.query.windowCompare(v.windowMinutes as number, service);
+  }
+
+  @Get("routes/explain")
+  @Headers()
+  routeExplain(@Req() req: RequestLike) {
+    const v = parse(req, routeExplainSpec);
+    const bad = (message: string): never => {
+      const body: ApiError = { error: { code: "bad_request", message } };
+      throw new HttpException(body, 400);
+    };
+    if (typeof v.route !== "string") {
+      bad('Query parameter "route" is required.');
+    }
+    if ((v.releaseA === undefined) !== (v.releaseB === undefined)) {
+      bad('Query parameters "releaseA" and "releaseB" must be given together.');
+    }
+    return this.explainService.explain({
+      method: v.method as string | undefined,
+      route: v.route as string,
+      windowMinutes: v.windowMinutes as number,
+      releaseA: v.releaseA as string | undefined,
+      releaseB: v.releaseB as string | undefined,
+      service: v.service as string | undefined,
+    });
   }
 
   @Get("overview")

@@ -30,6 +30,7 @@ import type {
   QueryStatsParamsSpec,
   QueryStatsResponse,
   RouteCompareParamsSpec,
+  RouteExplainParamsSpec,
   RouteHistogramParamsSpec,
   RouteStatsParamsSpec,
   RouteStatsResponse,
@@ -41,6 +42,7 @@ import type {
   TraceTimelineParamsSpec,
   TraceType,
 } from "@nestrix-js/protocol";
+import { buildEmbeddedExplain } from "../explain/embedded.js";
 import { methodsEnabled } from "../methods/registry.js";
 import { buildEmbeddedOverview } from "../overview/embedded.js";
 import { type ClassStatistics, ownAverages } from "../stats/class-stats.js";
@@ -171,6 +173,21 @@ export const routeCompareSpec: RouteCompareParamsSpec = {
     default: 15,
   },
   previous: { kind: "int", min: 1, max: 1, default: 1 },
+  releaseA: { kind: "string", maxLength: 255 },
+  releaseB: { kind: "string", maxLength: 255 },
+  service: { kind: "string", maxLength: 256 },
+};
+
+export const routeExplainSpec: RouteExplainParamsSpec = {
+  method: { kind: "string", maxLength: 16 },
+  route: { kind: "string", maxLength: 512 },
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 60,
+  },
   releaseA: { kind: "string", maxLength: 255 },
   releaseB: { kind: "string", maxLength: 255 },
   service: { kind: "string", maxLength: 256 },
@@ -649,6 +666,42 @@ export function routeCompareHandler(
     now,
   );
   return ok(other ? { ...body, routes: [] } : body);
+}
+
+export function routeExplainHandler(
+  target: unknown,
+  sources: ApiSources,
+  now: number = Date.now(),
+): DashboardResponse {
+  const parsed = parseQuery(target, routeExplainSpec);
+  if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
+  const v = parsed.values;
+  if (typeof v.route !== "string") {
+    return apiError(400, "bad_request", 'Query parameter "route" is required.');
+  }
+  const a = v.releaseA;
+  const b = v.releaseB;
+  if ((a === undefined) !== (b === undefined)) {
+    return apiError(
+      400,
+      "bad_request",
+      'Query parameters "releaseA" and "releaseB" must be given together.',
+    );
+  }
+  return ok(
+    buildEmbeddedExplain(
+      sources.store,
+      {
+        method: v.method as string | undefined,
+        route: v.route,
+        windowMinutes: v.windowMinutes as number,
+        releaseA: a as string | undefined,
+        releaseB: b as string | undefined,
+      },
+      now,
+      otherService(v, sources),
+    ),
+  );
 }
 
 export function classesHandler(
