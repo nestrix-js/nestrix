@@ -10,7 +10,7 @@ Owner, 2026-11-12: "worth adding MCP so an AI model can easily understand the ap
 | P8-01 | Standalone server: read-only API tokens | opus | P8-00 | done | Security fix round applied: valid tokens checked before the lockout, per-client (5/min) limit on refused tokens, tokens read every query route, list shows active tokens first. |
 | P8-02 | `@nestrix-js/mcp`: stdio MCP server over the query API | sonnet | P8-00 | done | Security-reviewed; fixes: access value never in output, bounded iterative get_trace (200 KB cap, cycles), one-line telemetry text, data-not-instructions note, 403 explains proxy Host. |
 | P8-03 | Reviews of P8-01 and P8-02 | opus reviewer | each | done | Both found real issues (token lockout from one client; secret in error text, unbounded get_trace); fixed. |
-| P8-04 | Docs (README, docs site), release | sonnet + lead | all | done | READMEs and docs site updated; release with phase 9. First publish of `@nestrix-js/mcp` is by hand (RELEASING.md). |
+| P8-04 | Docs (README, docs site), release | sonnet + lead | all | done | READMEs and docs site updated; released with phase 9 as `0.1.0-alpha.3` (the first publish of `@nestrix-js/mcp` needed the hand steps in RELEASING.md). Overall docs sweep and the report: [phase-8-report.md](../phase-8-report.md). |
 
 ## Settled design
 

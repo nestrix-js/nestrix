@@ -2,7 +2,7 @@
 
 Each phase is a vertical slice that ends with something a user can run. A phase is done when its acceptance criteria pass in CI, not when the code is written. Under delivery mode (owner, 2026-11-11) phases no longer stop for review; each ends with a phase report.
 
-All phases (0 to 7) are complete. Phases 3 to 7 ran under delivery mode (owner, 2026-11-11), each with a report: [phase-3-report.md](phase-3-report.md) to [phase-7-report.md](phase-7-report.md). Phases 1 and 2 were approved by the owner on 2026-11-11; phase 0 is complete ([phase-0-report.md](phase-0-report.md)). Next: the first published pre-release (`RELEASING.md`) and the optimisation pass (deferred benchmarks listed in the reports).
+All phases (0 to 9) are complete. Phases 3 to 9 ran under delivery mode (owner, 2026-11-11), each with a report: [phase-3-report.md](phase-3-report.md) to [phase-9-report.md](phase-9-report.md). `@nestrix-js/nestjs`, `@nestrix-js/ui` and `@nestrix-js/mcp` are published at `0.1.0-alpha.3` and the server image is on GHCR. Phases 1 and 2 were approved by the owner on 2026-11-11; phase 0 is complete ([phase-0-report.md](phase-0-report.md)). Next: the optimisation pass (deferred benchmarks listed in the reports) and the road to 1.0.
 
 ## Phase 0: foundations and spikes
 
@@ -151,4 +151,24 @@ Attribute names follow the OpenTelemetry HTTP semantic conventions current at im
 
 **Depends on.** Phase 5 (stored history); the profiler spike.
 
-**Acceptance and validation.** Written when the phase starts, from the spike result.
+**Acceptance and validation.** In [backlog/phase-7.md](backlog/phase-7.md); results in [phase-7-report.md](phase-7-report.md).
+
+## Phase 8: MCP server and server API tokens
+
+**Objective.** An AI assistant can read what a Nest app is doing, from any mode (D-73, D-74).
+
+**Deliverables.** `@nestrix-js/mcp`, a stdio MCP server over the query API with nine tools (`overview`, `find_traces`, `get_trace`, `list_errors`, `route_stats`, `class_stats`, `app_map`, `explain_slowness`, `start_profile`) that reads an embedded dashboard or the standalone server; read-only, revocable API tokens in the standalone server (`/api/v1/tokens`, Settings page). Both security-reviewed.
+
+**Depends on.** Phases 2, 5 and 7.
+
+**Acceptance and validation.** In [backlog/phase-8.md](backlog/phase-8.md) ("Acceptance"); results in [phase-8-report.md](phase-8-report.md).
+
+## Phase 9: dashboard insights
+
+**Objective.** The dashboard explains a slow or failing request instead of only listing it, and shows log lines next to the trace (D-75).
+
+**Deliverables.** Trace diagnosis (time by kind and class, critical path), duration bars, saved filters; route latency histogram and window and release comparison; Queries, error groups and Dependencies pages; a request timeline chart; an embedded Runtime view; logs next to the trace in both modes. Released as `0.1.0-alpha.3`.
+
+**Depends on.** Phases 2 and 5.
+
+**Acceptance and validation.** In [backlog/phase-9.md](backlog/phase-9.md) (its delivery rule: local per-task checks, CI on `main` as the safety net); results in [phase-9-report.md](phase-9-report.md).

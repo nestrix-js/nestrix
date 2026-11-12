@@ -56,7 +56,7 @@ The dashboard never sends CORS allow headers, whatever your CORS setup, and remo
 
 ## Starting a CPU capture
 
-Starting a [profiler](/guide/dashboard#profiler) capture (`POST <path>/api/v1/profiles`) is the dashboard's only request that changes anything. It must first pass the same access rules as every other dashboard request (a refusal there is the bare `404`), and then all of these, or it is refused before any capture starts:
+Starting a [profiler](/guide/dashboard#profiler) capture (`POST <path>/api/v1/profiles`) is the dashboard's only request that changes anything. The [MCP server](/guide/mcp) can start one too: it sends the same-origin headers itself, alongside the token. It must first pass the same access rules as every other dashboard request (a refusal there is the bare `404`), and then all of these, or it is refused before any capture starts:
 
 - `Sec-Fetch-Site: same-origin`, sent exactly once. Browsers set this header and pages cannot; a page on another port of the same host is `same-site` and is refused. Browsers send it only to HTTPS or localhost origins, so **starting a capture needs HTTPS or localhost**: over plain HTTP to another host every start gets `403` although the dashboard shows the button (the dashboard explains this). Use HTTPS, `localhost` or an SSH tunnel.
 - Exactly one `Origin` header, equal to the server's own origin: the request's `Host` with `http` or `https` (on a TLS socket, `https` only). Behind a reverse proxy, pass the original `Host` (nginx: `proxy_set_header Host $host;`), or starts are refused.
@@ -67,6 +67,12 @@ Refusals are `403`, `415`, `411`, `413` or `400` with a JSON error, never with C
 
 One exception to "never with CORS headers": a body parser of your host can answer first. Express, Fastify and `@nestjs/platform-node` answer malformed JSON, and Fastify answers an unsupported content type (`415`), on the start route with your CORS headers before the dashboard's access check runs. The body is the host's generic parser message, and a path that is not registered at all answers identically, so nothing about the dashboard leaks. The profiler is only offered where the dashboard is authenticated (`enabled: true` with `auth`, or `'auto'` with the startup token or `auth`), and `ui.profiler: false` removes the route.
 
+## Standalone server API tokens
+
+The [standalone server](/guide/standalone-server#api-tokens) can issue named API tokens for tools such as the [MCP server](/guide/mcp). A token is **read-only**: it works as `Authorization: Bearer nxt_...` on `GET` and `HEAD` of the query API's read routes (`/api/v1/meta`, `traces`, `traces/timeline`, `trace`, `trace/logs`, `errors`, `errors/groups`, `routes`, `routes/histogram`, `routes/compare`, `classes`, `queries`, `map`, `dependencies`) and is refused (401) on everything else: the dashboard pages, token management, alert and SLO routes (reads too, because alert rules hold webhook URLs), every write, and ingest. Ingest keys and API tokens never stand in for each other. Only the SHA-256 hash is stored, the secret is shown once, revoking takes effect on the next request, and tokens are never logged or accepted in a URL or cookie. Refused tokens count toward the login's failed-attempt budget, but each client may use only 5 of those a minute, so one client guessing tokens cannot lock out the others. Send tokens over HTTPS.
+
+In an embedded dashboard the equivalent for tools is `ui.auth.token` sent as a bearer header.
+
 ## Where it sits
 
 The dashboard's routes are registered with the HTTP adapter's own `get`, so they sit **outside the global prefix, URI versioning, guards, pipes and interceptors**. Host middleware, `helmet`, `compression` and `enableCors()` still apply. The dashboard sets its own `Content-Security-Policy` and other security headers, replacing the host's values.
@@ -74,3 +80,7 @@ The dashboard's routes are registered with the HTTP adapter's own `get`, so they
 ## What the dashboard exposes
 
 Only what is stored, after redaction: no request or response bodies, no bind parameters, no unlisted headers. See [Privacy](/faq#privacy).
+
+**Log lines are free text.** The [logs shown next to a trace](/guide/dashboard#logs-next-to-the-trace) are what your code logged, after the logger's `redact` option and without stack traces. Nestrix cannot know which words in a message are secret, so do not log secrets, and use `redact` for structured values. In the standalone server, only records that carry a trace id are kept, with their body cut to 8,192 characters and every attribute except `nestrix.log.context` dropped. `ui: { logs: false }` keeps no lines in an embedded dashboard.
+
+**The profiler and the runtime view.** A CPU profile contains function names and file paths of your running code, not request data. Both are offered only where the dashboard is authenticated (the runtime view follows the dashboard; the profiler also needs `ui.profiler` not `false`).

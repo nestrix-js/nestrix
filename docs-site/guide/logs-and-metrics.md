@@ -14,6 +14,10 @@ While a span is active, text lines end with ` trace_id=… span_id=…`. In JSON
 
 A failure in correlation or export never changes what the log call prints or throws.
 
+### Logs next to the trace
+
+With the dashboard on, `NestrixLogger` lines written under a recording span are also kept with their trace and shown beside the waterfall; the standalone server does the same for records sent to its `/v1/logs`. This is context for a trace, not log storage or search. See [Dashboard](/guide/dashboard#logs-next-to-the-trace) for the limits and `ui.logs` to switch it off.
+
 ### Exporting logs
 
 Set `logs: { export: true }` to also send every `NestrixLogger` record over OTLP/HTTP to `/v1/logs` of the configured endpoint (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is used as given once trace export is on; it does not turn export on by itself). Like metrics, this runs only when Nestrix owns the tracer provider: with a host-owned SDK Nestrix registers no `LoggerProvider` and logs one line saying so. Records carry Nest's level as OpenTelemetry severity, the logger context as `nestrix.log.context`, and the active span's context.

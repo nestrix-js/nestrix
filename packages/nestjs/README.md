@@ -125,7 +125,7 @@ The embedded dashboard shows one process. For several services, or several repli
 
 ## Dashboard
 
-With `@nestrix-js/ui` installed, `NestrixModule` serves a dashboard from inside your app, at `/_nestrix` by default: recent requests, one request's spans as a waterfall, errors, per-route request counts, error rates and latency percentiles, a [classes view and an app map](#classes-view-and-app-map), and an on-demand CPU [profiler](#profiler). Apart from starting a profiler capture it is read-only. It polls for new data every two seconds. It works on Express, Fastify and `@nestjs/platform-node`. It shows only what this process has seen since it started; nothing is written to disk and nothing is sent anywhere.
+With `@nestrix-js/ui` installed, `NestrixModule` serves a dashboard from inside your app, at `/_nestrix` by default: recent requests, one request's spans as a waterfall with its [log lines](#logs-next-to-the-trace), error groups, per-route statistics and latency histograms, a [classes view and an app map](#classes-view-and-app-map), dependencies, slow queries, the process [runtime](#runtime-view), and an on-demand CPU [profiler](#profiler); [every view is listed below](#the-views). Apart from starting a profiler capture it is read-only. It polls for new data every two seconds. It works on Express, Fastify and `@nestjs/platform-node`. It shows only what this process has seen since it started; nothing is written to disk and nothing is sent anywhere.
 
 ```bash
 pnpm add @nestrix-js/ui
@@ -272,11 +272,34 @@ The request list and the error list come from stored spans, so they **are sample
 
 **What is an error.** A span is an error when its status code is `error`. For a server span that means a 5xx response, or a handler exception that maps to 5xx. A thrown `NotFoundException` (404) keeps its exception event in the trace detail but counts as no error in route statistics, the error list or the error filter. The error list holds every stored span with error status, client spans and your own spans included.
 
+### The views
+
+The navigation lists these tabs. Each says whether its numbers are counted before sampling or built from the stored, sampled traces.
+
+| Tab | What it shows | Numbers |
+|---|---|---|
+| Requests | Recent traces, newest first, with filters (status, error, route, release, user, type: HTTP, job, scheduled, text) that can be saved by name in the browser. A request timeline chart sits above the list (drag to narrow the range), and each row has a duration bar. | Stored, sampled |
+| Trace (click a row) | The span waterfall, a summary of time by span kind and by class, a critical-path toggle (highlights the spans on the critical path), exception events and the [log lines](#logs-next-to-the-trace) written during the request. | Stored, sampled |
+| Errors | **Grouped** (the default): errors grouped by type, message and route, with counts, first and last seen and a sparkline; **All**: the flat list of every stored span with error status. | Stored, sampled |
+| Routes | Per-route requests, error rate and p50/p95/p99 over 15 or 60 minutes; selecting a route shows its latency histogram, and clicking a bar opens the request list for that latency range. **Compare** sets the last window against the one before it, or two releases, sorted by change. | Counted before sampling, except the release comparison and the histogram links into the list (stored traces) |
+| [Classes](#classes-view-and-app-map) | Calls, errors, total and own time per class and method. | Calls, errors, total time counted before sampling; own time sampled |
+| [Map](#classes-view-and-app-map) | The app and what it called. | Stored, sampled |
+| Queries | The slowest and most frequent database statements across stored traces (statement text without bind values), with the number of traces where a statement ran three or more times (a likely N+1) and links to example traces. | Stored, sampled |
+| Dependencies | One row per host, database or Redis the app called: calls, p95, errors and a trend line, with links to example traces. | Stored, sampled |
+| [Runtime](#runtime-view) | Event loop delay, heap, RSS and CPU. | Sampled every 10 s from the process |
+| [Profiler](#profiler) | An on-demand CPU profile. | Not applicable |
+
+Settings and SLOs exist only in the [standalone server](../../apps/server/README.md); in an embedded dashboard they are not shown, and the Profiler and Runtime tabs are shown only when the app offers them (`meta.profiler.available`, `meta.runtime.available`).
+
+### Runtime view
+
+While the dashboard is on, a timer (every 10 seconds, `unref`'d, stopped at shutdown) records event loop delay (p50, p99 and max, from `perf_hooks.monitorEventLoopDelay`), heap used and total, RSS, and CPU use, and keeps the last 60 minutes. It reads `process` directly, so it needs no MeterProvider and does nothing per request. Nothing is recorded while the dashboard is off, and the standalone server has no runtime view (it cannot see your processes; export the [metrics](#metrics) to a backend instead).
+
 ### Classes view and app map
 
 Both depend on other parts of Nestrix and say so when their data is missing.
 
-**Classes.** One row per class (controller, service, repository, processor, and guards and the like when `methods.enhancers` is on), expandable to its methods: calls, errors, average time, total time and **own time** (time not spent in the method's children), over the last 15 or 60 minutes. Calls, errors and total time are counted for every call **before sampling**, like the Routes view, so they are right at any `sampleRate`. Own time is estimated from the sampled spans in the store, and the view says so. The view is empty, with the line to add to `main.ts`, until [method spans](#method-spans-level-2) are on. A method called outside a trace is counted here although it gets no span.
+**Classes.** One row per class (controller, service, repository, processor, and guards and the like when `methods.enhancers` is on), expandable to its methods: calls, errors, average time, total time and **own time** (time not spent in the method's children), over the last 15 or 60 minutes. Calls, errors and total time are counted for every call **before sampling**, like the Routes view, so they are right at any `sampleRate`. Own time is estimated from the sampled spans in the store, and the view says so. The view says so, with the line to add to `main.ts`, until [method spans](#method-spans-level-2) are on; when spans are on but the chosen window holds no method call, it says there is no data in that range rather than that spans are off. A method called outside a trace is counted here although it gets no span.
 
 **Map.** The app in the centre and what it called: databases (by system, host and database name), Redis as a cache, HTTP hosts and message queues, each with calls, errors, p50 and p95 over the last 15 or 60 minutes. It is built from the **sampled** traces in the store, so its counts are proportional to `sampleRate` (the dashboard says so). It shows at most 200 targets; the rest are folded into one `other` node.
 
@@ -297,7 +320,7 @@ Starting a capture is the dashboard's only request that changes anything, so bes
 
 ### Letting an AI assistant read the dashboard
 
-`@nestrix-js/mcp` is an MCP server that lets Claude Code, Claude Desktop, Cursor and other assistants query this dashboard's API (traces, errors, statistics) and start a profiler capture. It needs `ui: { enabled: true, auth: { token } }`: the `'auto'` startup token is a browser cookie flow a tool cannot use. See the [package README](../mcp/README.md).
+`@nestrix-js/mcp` is an MCP server that lets Claude Code, Claude Desktop, Cursor and other assistants query this dashboard's API (traces, errors, statistics) and start a profiler capture. It needs `ui: { enabled: true, auth: { token } }`: the `'auto'` startup token is a browser cookie flow a tool cannot use. Against the standalone server it uses a read-only [API token](../../apps/server/README.md#api-tokens). See the [package README](../mcp/README.md).
 
 ### When something else answers first (shadowing)
 
@@ -946,7 +969,9 @@ npm install @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http
 
 If your app already registered a `LoggerProvider`, the records go to it and Nestrix registers nothing. With a host-owned tracer provider Nestrix registers no `LoggerProvider` at all and logs one line saying so. Records logged before the packages finish loading at startup are printed but not exported. A failure in correlation or export never changes what the log call prints or throws.
 
-**Logs next to the trace.** With the dashboard on, a `NestrixLogger` line written while a recording span is active is also kept in the dashboard's store with its trace, and the trace view lists it beside the waterfall (click a line to select its span). This needs no package; `ui: { logs: false }` stops keeping lines (the logger still prints and the correlation ids are unchanged). Lines whose trace has no span yet are held apart, at most a tenth of `store.maxTraces` of them, oldest dropped first, so a burst of logs cannot push out real traces. What is kept: time, level, logger context and the message after the logger's own `redact` option, cut to 8,192 characters (no stack traces). At most 200 lines per trace; they count toward `store.maxBytes` and leave with their trace. Lines outside a span, or under a span that is not sampled, are not kept. The dashboard is not a log viewer: there is no search across lines. The standalone server does the same for log records sent to its `/v1/logs` (point `logs.export` at it). Log messages are free text, so the advice in [What the dashboard shows](#what-the-dashboard-shows) applies: use the logger's `redact` option for structured values you do not want shown, and do not log secrets.
+### Logs next to the trace
+
+With the dashboard on, a `NestrixLogger` line written while a recording span is active is also kept in the dashboard's store with its trace, and the trace view lists it beside the waterfall (click a line to select its span). This needs no package; `ui: { logs: false }` stops keeping lines (the logger still prints and the correlation ids are unchanged). Lines whose trace has no span yet are held apart, at most a tenth of `store.maxTraces` of them, oldest dropped first, so a burst of logs cannot push out real traces. What is kept: time, level, logger context and the message after the logger's own `redact` option, cut to 8,192 characters (no stack traces). At most 200 lines per trace; they count toward `store.maxBytes` and leave with their trace. Lines outside a span, or under a span that is not sampled, are not kept. The dashboard is not a log viewer: there is no search across lines. The standalone server does the same for log records sent to its `/v1/logs` (point `logs.export` at it). Log messages are free text, so the advice in [What the dashboard shows](#what-the-dashboard-shows) applies: use the logger's `redact` option for structured values you do not want shown, and do not log secrets.
 
 ## Privacy
 

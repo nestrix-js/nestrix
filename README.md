@@ -2,12 +2,21 @@
 
 Open-source observability for NestJS 12+: Nest-aware OpenTelemetry traces, in a dashboard served by your own app or in the backend you already run.
 
-> **Status: pre-release.** `@nestrix-js/nestjs` 0.1.0-alpha (tracing, OTLP export and the embedded dashboard) is the first thing to ship. The sections marked "planned" below are not available yet.
+> **Status: pre-release.** `@nestrix-js/nestjs`, `@nestrix-js/ui` and `@nestrix-js/mcp` are published at `0.1.0-alpha.3` under the `alpha` npm tag, and the standalone server image is on GHCR. Everything described below is built (phases 0 to 9); the API can still change before 1.0.
 
 ## What it is for
 
-- **A local dashboard with nothing else to run.** Import one module, install `@nestrix-js/ui` and open `/_nestrix`: recent requests, their trace waterfall, errors, slow routes. No account, no collector, no database. Served by your own app, closed unless you open it: in development to your own machine, elsewhere behind a token or your own check.
-- **Standard OpenTelemetry out.** OTLP to Jaeger, Tempo, Grafana, Datadog or an OpenTelemetry Collector, with spans that understand NestJS: route templates and controller handlers now; guards and message patterns are planned.
+- **A local dashboard with nothing else to run.** Import one module, install `@nestrix-js/ui` and open `/_nestrix`. No account, no collector, no database. Served by your own app, closed unless you open it: in development to your own machine, elsewhere behind a token or your own check. It has these views:
+  - **Requests**: recent traces with filters, a request timeline chart, duration bars and saved filters; each opens a **trace waterfall** with a time-by-kind summary, a critical-path toggle and the app's log lines next to the spans.
+  - **Errors**: grouped by type, message and route (the default) or as a flat list.
+  - **Routes**: counts, error rates and p50/p95/p99 per route, a latency histogram that links to the matching traces, and a Compare tab (last window against the one before, or two releases).
+  - **Classes**: calls, errors and own time per class and method (needs method spans).
+  - **Map** and **Dependencies**: what the app talks to (databases, Redis, HTTP hosts, queues), with calls, p95, errors and trend.
+  - **Queries**: the slowest and most frequent SQL statements across stored traces.
+  - **Runtime** (embedded): event loop delay, heap, RSS and CPU over the last hour.
+  - **Profiler** (embedded): an on-demand CPU profile with a flame graph.
+  - **SLOs** and **Settings** (API tokens), in the standalone server only.
+- **Standard OpenTelemetry out.** OTLP to Jaeger, Tempo, Grafana, Datadog or an OpenTelemetry Collector, with spans that understand NestJS: route templates, controller handlers, your services and repositories, guards and other enhancers (opt-in), BullMQ jobs and microservice message patterns, plus `pg`, `mysql2` and `ioredis` calls. Logs and metrics go out over OTLP too, and `NestrixLogger` puts trace ids on your log lines.
 - **No loader flags.** Built on NestJS 12's own instrumentation hooks and on the tracing events libraries now publish, so there is no `node --import` or `--experimental-loader` step.
 - **Yours to run.** Apache-2.0. Send the telemetry wherever you like.
 
@@ -36,7 +45,13 @@ Spans for your own controllers, services, repositories and jobs: `NestFactory.cr
 
 ## Ask an AI assistant about your app: MCP
 
-`@nestrix-js/mcp` is an MCP server (stdio) that lets Claude Code, Claude Desktop, Cursor and other assistants read your traces, errors, route and class statistics, and start a CPU capture, from an embedded dashboard or the standalone server. It runs outside your app and reads only what the dashboard shows. See the [package README](packages/mcp/README.md).
+`@nestrix-js/mcp` is an MCP server (stdio) that lets Claude Code, Claude Desktop, Cursor and other assistants read your traces, errors, route and class statistics, and start a CPU capture, from an embedded dashboard or the standalone server. It runs outside your app and reads only what the dashboard shows.
+
+```bash
+claude mcp add nestrix --env NESTRIX_URL=http://localhost:3000/_nestrix --env NESTRIX_TOKEN="$NESTRIX_UI_TOKEN" -- npx -y @nestrix-js/mcp@alpha
+```
+
+See the [package README](packages/mcp/README.md) and the [docs site page](docs-site/guide/mcp.md).
 
 ## Self-hosted server: several services and replicas
 
@@ -59,7 +74,7 @@ services:
       OTEL_EXPORTER_OTLP_HEADERS: authorization=Bearer ${NESTRIX_INGEST_KEY}
 ```
 
-Open `http://localhost:4318`, sign in with the admin password, and pick a service. Replicas appear as one service; each trace records the instance that served it. The Postgres service above needs its own credentials or `POSTGRES_HOST_AUTH_METHOD=trust` for a local demo. Full guide: [apps/server/README.md](apps/server/README.md); a runnable multi-service, multi-replica setup: [examples/standalone](examples/standalone).
+Open `http://localhost:4318`, sign in with the admin password, and pick a service. The server also keeps the log lines your apps send to `/v1/logs` next to their traces (set `logs: { export: true }`), evaluates alert rules and SLOs, and issues read-only API tokens for tools such as the MCP server. Replicas appear as one service; each trace records the instance that served it. The Postgres service above needs its own credentials or `POSTGRES_HOST_AUTH_METHOD=trust` for a local demo. Full guide: [apps/server/README.md](apps/server/README.md); a runnable multi-service, multi-replica setup: [examples/standalone](examples/standalone).
 
 ## Support
 
@@ -77,6 +92,8 @@ Open `http://localhost:4318`, sign in with the admin password, and pick a servic
 | [Compatibility](docs/compatibility.md) | What is tested and supported: Node, Nest, adapters, libraries, transports, browsers |
 | [Upgrading from 0.x](docs/upgrading.md) | Every rename and default change before 1.0, with before and after code |
 | [1.0 readiness](docs/backlog/phase-6.md#10-readiness) | Phase 6 acceptance status and the owner steps before release |
+| [Documentation site guides](docs-site/guide/getting-started.md) | Dashboard, security model, standalone server, MCP, logs and metrics |
+| [Package READMEs](packages/nestjs/README.md) | [`@nestrix-js/nestjs`](packages/nestjs/README.md), [`@nestrix-js/mcp`](packages/mcp/README.md), [`@nestrix-js/ui`](packages/ui/README.md), [standalone server](apps/server/README.md) |
 | [Architecture](docs/architecture.md) | What is being built and why |
 | [Roadmap](docs/roadmap.md) | Phases and what each must prove |
 | [Decisions](docs/decisions.md) | What has been decided, and what is still open |

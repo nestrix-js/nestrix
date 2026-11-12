@@ -4,7 +4,7 @@ Instructions for AI coding agents working on this repository. This is the one sh
 
 Open-source observability for NestJS 12+: Nest-aware OpenTelemetry tracing, with an optional dashboard served by the host application. Apache-2.0. Pre-release.
 
-**Current state:** phase 0 is complete and its gate is passed. The repository holds the workspace toolchain, package skeletons (placeholder exports only), example apps, the test harness, CI and release plumbing, and six spike results in `docs/spikes/`. The owner decided the phase 0 questions (D-40 to D-51 in `docs/decisions.md`; evidence in `docs/phase-0-report.md`). Phase 1 (headless tracing) is complete and the owner approved it on 2026-11-11 (`docs/phase-1-report.md`). Phase 2 (embedded dashboard) is complete and the owner approved it on 2026-11-11 (`docs/phase-2-report.md`; task list and settled public API in `docs/backlog/phase-2.md`). All phases (0 to 7) are complete; phases 3 to 7 ran under delivery mode (reports `docs/phase-3-report.md` to `phase-7-report.md`). Packages are published under the `@nestrix-js` npm scope (D-71). Next: the first pre-release (`RELEASING.md`) and the optimisation pass.
+**Current state:** all phases (0 to 9) are complete. Phases 0 to 2 were approved by the owner (reports `docs/phase-0-report.md` to `phase-2-report.md`; the phase 0 questions are D-40 to D-51 in `docs/decisions.md`); phases 3 to 9 ran under delivery mode (reports `docs/phase-3-report.md` to `phase-9-report.md`). Phase 8 added the MCP server and standalone API tokens, phase 9 the dashboard insights and logs next to the trace. `@nestrix-js/nestjs`, `@nestrix-js/ui` and `@nestrix-js/mcp` are published under the `@nestrix-js` npm scope (D-71) at `0.1.0-alpha.3` (the `alpha` tag), and the standalone server image is on GHCR (`ghcr.io/nestrix-js/nestrix-server`). Next: the optimisation pass (deferred benchmarks listed in the reports) and the road to 1.0.
 
 **Remote:** `github.com/nestrix-js/nestrix`, private, already configured (`docs/decisions.md`, "GitHub: what is set up"). There is nothing left to set up on GitHub before implementing.
 
@@ -17,7 +17,7 @@ Open-source observability for NestJS 12+: Nest-aware OpenTelemetry tracing, with
 | `docs/nest-hooks.md` | The NestJS 12 extension points the design rests on, per adapter. |
 | `docs/research.md` | Facts verified against primary sources, with dates. |
 | `docs/roadmap.md` | Phases and their acceptance criteria. |
-| `docs/backlog/phase-7.md` | The current task list. Earlier phases' lists (`phase-1.md` to `phase-6.md`) hold their settled APIs and "as built" notes; phase 3's has the rules for every task. |
+| `docs/backlog/phase-9.md` | The latest task list (`phase-8.md` before it). Earlier lists (`phase-1.md` to `phase-7.md`) hold their settled APIs and "as built" notes: `phase-2.md` the dashboard API, `phase-1.md` the headless API, and phase 3's the rules for every task. |
 | `docs/ai/orchestration.md` | For the lead agent: which model does which work, how to brief and check subagents. |
 | `docs/ai/owner-brief.md` | The owner's original brief. Background on intent; the decision log wins where they differ. |
 

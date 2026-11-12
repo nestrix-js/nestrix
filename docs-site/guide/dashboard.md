@@ -8,23 +8,37 @@ How it is opened and secured is on the [Security model](/guide/security) page. T
 
 ## Views
 
-The dashboard polls for new data every two seconds.
+The dashboard polls for new data every two seconds. The tabs, in order:
 
-**Requests.** Recent traces, newest first, with filters for status, error, route, release, user and trace type (HTTP, jobs, scheduled). Release and user columns appear when any stored trace has them (see `serviceVersion` and `user` in the [reference](/reference/configuration)).
+**Requests.** Recent traces, newest first, with filters for status, error, route, release, user, trace type (HTTP, jobs, scheduled) and text. A request timeline chart sits above the list (drag across it to narrow the time range), each row has a duration bar, and a filter set can be saved by name in your browser. Release and user columns appear when any stored trace has them (see `serviceVersion` and `user` in the [reference](/reference/configuration)).
 
-**Trace waterfall.** One request's spans as a waterfall: server span, method spans, database and cache spans, outgoing HTTP calls and exception events.
+**Trace waterfall.** One request's spans as a waterfall: server span, method spans, database and cache spans, outgoing HTTP calls and exception events. Above it, a summary of where the time went by span kind and by class, and a critical-path toggle that highlights the spans on the critical path. The [log lines](#logs-next-to-the-trace) written during the request are listed beside it.
 
-**Errors.** Every stored span with error status, client spans and your own spans included. A span is an error when its status code is `error`: for a server span, a 5xx response or a handler exception that maps to 5xx. A thrown `NotFoundException` (404) keeps its exception event in the trace detail but counts as no error.
+**Errors.** Opens **Grouped**: errors grouped by type, message and route, each with a count, first and last seen and a sparkline; **All** switches to the flat list. Both come from every stored span with error status, client spans and your own spans included. A span is an error when its status code is `error`: for a server span, a 5xx response or a handler exception that maps to 5xx. A thrown `NotFoundException` (404) keeps its exception event in the trace detail but counts as no error.
 
-**Routes.** Per-route request counts, error rates and latency percentiles (p50, p95 and p99), for the last 60 minutes in one-minute buckets. A route is keyed by `METHOD route-template`, for example `GET /users/:id`; a request no route matched is `METHOD (unmatched)`. At most 500 keys are tracked; further routes are counted together under `* (other)`. Percentiles come from 30 log-spaced buckets from 1 ms to 60 s, so they are accurate to a bucket, not exact.
+**Routes.** Per-route request counts, error rates and latency percentiles (p50, p95 and p99) over the last 15 or 60 minutes, kept in one-minute buckets. Selecting a route shows its **latency histogram**; a click on a bar opens the request list narrowed to that latency range. The **Compare** tab sets the last window against the one before it, or one release against another, with the biggest regressions first. A route is keyed by `METHOD route-template`, for example `GET /users/:id`; a request no route matched is `METHOD (unmatched)`. At most 500 keys are tracked; further routes are counted together under `* (other)`. Percentiles come from 30 log-spaced buckets from 1 ms to 60 s, so they are accurate to a bucket, not exact.
 
-**Classes.** One row per class, expandable to its methods: calls, errors, average time, total time and own time (time not spent in the method's children), over the last 15 or 60 minutes. The view is empty until [method spans](/guide/levels#level-2-method-spans) are on, and says so.
+**Classes.** One row per class, expandable to its methods: calls, errors, average time, total time and own time (time not spent in the method's children), over the last 15 or 60 minutes. The view explains itself when [method spans](/guide/levels#level-2-method-spans) are off, and says "no data in this range" when they are on but the chosen window holds no method call.
 
 **Map.** The app in the centre and what it called: databases (by system, host and database name), Redis as a cache, HTTP hosts and message queues, each with calls, errors, p50 and p95. At most 200 targets are shown; the rest are folded into one `other` node.
 
+**Queries.** The slowest and the most frequent database statements across the stored traces: the sanitised statement text (never bind values), calls, total, average and maximum time, errors, and in how many traces a statement ran three or more times (a likely N+1), with links to example traces. Cache commands (Redis and the like) are listed too.
+
+**Dependencies.** One row per host, database or Redis the app called, with calls, p95, errors and a trend line, and links to example traces.
+
+**Runtime.** Event loop delay (p50, p99, max), heap used and total, RSS and CPU over the last hour, sampled every 10 seconds by a small timer that runs only while the dashboard is on. It needs no metrics setup. The standalone server has no such tab: it does not see your processes.
+
+**Profiler.** An on-demand [CPU profile](#profiler), when the dashboard is authenticated.
+
+The [standalone server](/guide/standalone-server) adds **SLOs** (error budgets and burn rates) and **Settings** (read-only API tokens). The Profiler and Runtime tabs belong to the embedded dashboard only.
+
+## Logs next to the trace
+
+With the dashboard on, a [`NestrixLogger`](/guide/logs-and-metrics) line written while a recording span is active is also kept in the store with its trace, and the trace view lists it beside the waterfall (click a line to select its span). It needs no extra package. What is kept: time, level, logger context and the message after the logger's own `redact` option, cut to 8,192 characters, with no stack traces; at most 200 lines per trace, counted in `store.maxBytes` and evicted with the trace. Lines outside a span, or under a span that is not sampled, are not kept, and there is no search across lines: the dashboard is not a log viewer. `ui: { logs: false }` keeps none (the logger still prints and the trace ids stay on your lines). The standalone server does the same with records sent to its `/v1/logs`. Log messages are free text, so do not log secrets.
+
 ## Profiler
 
-The **Profiler** tab takes an on-demand CPU profile of the running process. Pick a duration (the API accepts 1 to 120 seconds, default 30) and start; when the capture ends the dashboard shows a flame graph, the top functions by self time and a `.cpuprofile` download for Chrome DevTools or speedscope. Nothing runs between captures, and nothing is loaded before the first one. One capture runs at a time per process (a second start gets `409`, and one within 10 seconds of the previous capture's end gets `429`); the last three are kept in memory until the app restarts, and a running capture is discarded when the app closes.
+The **Profiler** tab takes an on-demand CPU profile of the running process. Pick a duration (10 seconds to 2 minutes in the page; the API accepts 1 to 120 seconds, default 30) and start; when the capture ends the dashboard shows a flame graph, the top functions by self time and a `.cpuprofile` download for Chrome DevTools or speedscope. Nothing runs between captures, and nothing is loaded before the first one. One capture runs at a time per process (a second start gets `409`, and one within 10 seconds of the previous capture's end gets `429`); the last three are kept in memory until the app restarts, and a running capture is discarded when the app closes.
 
 It is offered only where the dashboard is authenticated: `ui: { enabled: true, auth }`, or `'auto'` with the startup token or `auth`. `ui.profiler: false` removes it and its routes. Starting a capture needs HTTPS or localhost: browsers send the `Sec-Fetch-Site` header the start requires only to those origins, so over plain HTTP to another host the start is refused with `403` and the dashboard says why. How a start is protected is on the [Security model](/guide/security#starting-a-cpu-capture) page.
 
@@ -38,8 +52,8 @@ It is offered only where the dashboard is authenticated: `ui: { enabled: true, a
 
 ## Sampling notes
 
-- **Routes and classes count every request**, whatever the sample rate and whether Nestrix or your own SDK does the sampling. Calls, errors and total time for classes are counted before sampling too.
-- **The request list, error list, map and own time come from stored spans, so they are sampled.** At `sampleRate: 0.1` the Routes view shows every request and the list shows about one in ten. The dashboard says so when `sampleRate` is below 1, and says they may be when your SDK owns the sampler.
+- **Routes and classes count every request**, whatever the sample rate and whether Nestrix or your own SDK does the sampling. Calls, errors and total time for classes are counted before sampling too. The runtime view is process facts, not spans.
+- **The request list, error list and groups, histogram, release comparison, queries, dependencies, map, trace summaries and own time come from stored spans, so they are sampled.** At `sampleRate: 0.1` the Routes statistics show every request and the list shows about one in ten. The dashboard says so when `sampleRate` is below 1, and says they may be when your SDK owns the sampler.
 - Requests excluded by `ignore.paths` and requests to the dashboard itself are not counted or traced.
 
 ## Memory

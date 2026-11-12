@@ -158,7 +158,7 @@ Preliminary, from one run (`benchmarks/results/server-ingest.md`): on a laptop (
 
 Alert rules are managed through the API (`/api/v1/alerts`, admin session required); the dashboard has no alerts page yet. A rule watches one service, optionally one route, over a window of 5 to 60 minutes:
 
-- `metric`: `error_rate` (a fraction; 0.05 is 5%) or `p95_ms`, compared with `>` to a `threshold`.
+- `metric`: `error_rate` (a fraction; 0.05 is 5%), `p95_ms`, or `slo_burn_rate` (give `sloId`; the rule takes its service and route from that [SLO](#slos) and fires when the SLO's burn rate over the rule's window is above `threshold`), compared with `>` to a `threshold`.
 - `forMinutes` (0 to 60, default 2): how long the condition must hold before the alert fires.
 - `minRequests` (default 10): fewer requests in the window is "no data", which changes nothing, so a dead service does not resolve a firing alert.
 - States: `ok`, `pending`, `firing`. A notification is sent when a rule starts firing and when it resolves. Rules are evaluated every 60 seconds by one instance at a time.
@@ -199,6 +199,15 @@ function verify(secret, headers, rawBody) {
 ```
 
 **Private addresses are refused.** The server resolves the webhook host and refuses the delivery if any address is loopback, private, link-local or otherwise not public (this also covers IPv4 addresses embedded in IPv6). To send to an internal receiver, list its host name in `NESTRIX_WEBHOOK_ALLOWED_HOSTS` (exact host names or IP addresses, no ports). Only hosts you trust belong there, because the check is the protection against a rule being used to reach internal services. Alert events are deleted after `NESTRIX_RETENTION_DAYS`.
+
+## SLOs
+
+Service level objectives are managed on the dashboard's **SLOs** page or through the API (`/api/v1/slos`: `GET`, `POST`, `GET/PATCH/DELETE /:id`; admin session required, a write needs a same-origin `Origin`; an API token cannot reach them). An SLO watches one service, optionally one route:
+
+- `kind`: `availability` (the share of requests that are not errors) or `latency` (the share faster than `latencyThresholdMs`, up to one hour).
+- `objective`: the target share of good requests, strictly between 0 and 1 (`0.999`); `windowDays`: 7 or 30.
+- Its status, computed from the per-minute rollups (so counted at the server, after the services' own sampling): attainment, the error budget (allowed, remaining requests, remaining fraction), burn rates over the last 1 and 6 hours, and whether it is breached. A 30-day SLO reads up to 43,200 minute rows per query.
+- An alert rule with `metric: "slo_burn_rate"` takes its service and route from an SLO and fires on its burn rate (see Alerting).
 
 ## Upgrading
 

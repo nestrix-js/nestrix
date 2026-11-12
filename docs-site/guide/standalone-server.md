@@ -42,14 +42,17 @@ The server listens on one port (default `4318`):
 
 | Path | What |
 |---|---|
-| `POST /v1/traces` | OTLP/HTTP receiver |
-| `GET /api/v1/*` | Query API, same shapes as the embedded dashboard |
+| `POST /v1/traces` | OTLP/HTTP trace receiver (ingest key) |
+| `POST /v1/logs` | OTLP/HTTP log receiver: records with a trace id are kept next to the trace (ingest key) |
+| `GET /api/v1/*` | Query API, same shapes as the embedded dashboard (`meta`, `traces`, `traces/timeline`, `trace`, `trace/logs`, `errors`, `errors/groups`, `routes`, `routes/histogram`, `routes/compare`, `classes`, `queries`, `map`, `dependencies`); session or API token |
+| `/api/v1/tokens` | Create, list and revoke API tokens (session only) |
+| `/api/v1/alerts`, `/api/v1/slos` | Alert rules and SLOs (session only) |
 | `/` | The dashboard (from `@nestrix-js/ui`) |
 | `/login`, `/logout` | Admin sign-in |
 
 Point each service at it with `OTEL_EXPORTER_OTLP_ENDPOINT` set to the server's address (for example `http://nestrix:4318`). When ingest keys are set, services also send a key in the `Authorization` header: use `OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer <key>` or `export.otlp.headers` in the module options.
 
-Only traces are accepted: the server has no `/v1/metrics` or `/v1/logs`, so send those signals to an OpenTelemetry Collector (an app exporting them to the server gets errors back).
+Traces and logs are accepted: set `logs: { export: true }` in the module options and the same endpoint receives the app's `NestrixLogger` records. Only records that carry a trace id are kept ([as context for the trace](/guide/dashboard#logs-next-to-the-trace): at most 200 per trace, body cut to 8,192 characters, partitioned by day and dropped with the spans). There is no `/v1/metrics`: send metrics to an OpenTelemetry Collector or a metrics backend (an app exporting them to the server gets errors back), and use a log backend for logs you want to search.
 
 ## Configuration
 
@@ -76,7 +79,7 @@ The receiver accepts `application/x-protobuf` and `application/json`, with optio
 
 ## Login
 
-`/login` serves a small form. `POST /login` checks the password in constant time, is limited to 5 attempts per minute per client address, and requires a same-origin `Origin` header. It sets an `HttpOnly`, `SameSite=Strict` session cookie (8 hours, `Secure` unless the request is plain HTTP to a loopback host) signed with HMAC. Changing the admin password ends every session, and so does restarting the server. Everything except `/v1/traces`, `/login` and `/logout` needs a session, including paths added later (the query API's read routes also accept an [API token](#api-tokens)), and the API never emits CORS headers.
+`/login` serves a small form. `POST /login` checks the password in constant time, is limited to 5 attempts per minute per client address, and requires a same-origin `Origin` header. It sets an `HttpOnly`, `SameSite=Strict` session cookie (8 hours, `Secure` unless the request is plain HTTP to a loopback host) signed with HMAC. Changing the admin password ends every session, and so does restarting the server. Everything except `/v1/traces`, `/v1/logs`, `/login` and `/logout` needs a session, including paths added later (the query API's read routes also accept an [API token](#api-tokens)), and the API never emits CORS headers.
 
 Behind a reverse proxy, pass the `Host` header through or the `Origin` check fails. All visitors then share the proxy's login rate limit.
 
@@ -88,7 +91,7 @@ For tools that read the server without a browser, such as the Nestrix MCP server
 curl -H "Authorization: Bearer $NESTRIX_TOKEN" https://nestrix.example.com/api/v1/traces?limit=10
 ```
 
-A token reads `GET`/`HEAD` on `/api/v1/meta`, `traces`, `trace`, `errors`, `routes`, `classes` and `map`, and nothing else: not the dashboard, not the token, alert or SLO routes, never a write, and never ingest (ingest keys and API tokens are separate). Revoking a token on the Settings page stops it at the next request. Refused tokens count toward the login's global budget of failed attempts; while it is spent, token requests answer 429.
+A token reads `GET`/`HEAD` on every route of the query API (`/api/v1/meta`, `traces`, `traces/timeline`, `trace`, `trace/logs`, `errors`, `errors/groups`, `routes`, `routes/histogram`, `routes/compare`, `classes`, `queries`, `map`, `dependencies`), and nothing else: not the dashboard, not the token, alert or SLO routes, never a write, and never ingest (ingest keys and API tokens are separate). Revoking a token on the Settings page stops it at the next request. Refused tokens count toward the login's global budget of failed attempts, within an allowance of 5 refused tokens a minute per client, so one client guessing tokens cannot lock the others out; a valid token is never refused by either limit. At most 100 tokens can be active. The [Security model](/guide/security#standalone-server-api-tokens) page has the rules.
 
 ## Retention and storage
 
@@ -100,7 +103,15 @@ When more than one service name has been seen, the dashboard shows a service sel
 
 ## Alerting
 
-Alert rules (error rate or p95 over a window, for one service or route) are managed through `/api/v1/alerts` and notify a webhook when they fire and when they resolve. The dashboard has no alerts page yet. Webhooks are signed (`x-nestrix-signature`, HMAC-SHA256 of the timestamp and body) and refused when the host resolves to a private address, unless it is in `NESTRIX_WEBHOOK_ALLOWED_HOSTS`. The server's README has the rule fields and a verification example.
+Alert rules (error rate, p95 or an SLO's burn rate over a window, for one service or route) are managed through `/api/v1/alerts` and notify a webhook when they fire and when they resolve. The dashboard has no alerts page yet. Webhooks are signed (`x-nestrix-signature`, HMAC-SHA256 of the timestamp and body) and refused when the host resolves to a private address, unless it is in `NESTRIX_WEBHOOK_ALLOWED_HOSTS`. The server's README has the rule fields and a verification example.
+
+## SLOs
+
+The **SLOs** page lists availability and latency objectives per service or route, over 7 or 30 days, with attainment, error budget and 1 h and 6 h burn rates. You create, edit and delete them on the page (or through `/api/v1/slos`), and they can drive an alert rule with the `slo_burn_rate` metric. Like the route statistics they are computed from the minute rollups, so they reflect what services chose to export.
+
+## Settings
+
+The **Settings** page creates, lists and revokes the read-only [API tokens](#api-tokens). It exists only in the standalone server.
 
 ## Capacity
 
