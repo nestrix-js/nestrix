@@ -4,7 +4,7 @@ import { TIME_KINDS } from "@/views/overview/overview-format";
 
 /** Where the `maxSpansPerTrace` option is documented (the README's Options section). */
 export const MAX_SPANS_DOCS_URL =
-  "https://github.com/nestrix-js/nestrix/blob/main/packages/nestjs/README.md#options";
+  "https://github.com/nestrix-js/nestrix/blob/main/packages/nestjs/README.md#large-traces-maxspanspertrace";
 
 /** The kinds in the order the Overview lists them. */
 const KIND_ORDER = Object.keys(TIME_KINDS);
