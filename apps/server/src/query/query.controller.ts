@@ -249,7 +249,7 @@ export class QueryController {
   @Headers()
   classes(@Req() req: RequestLike) {
     const v = parse(req, classStatsSpec);
-    return this.query.classes(
+    return this.query.classesWithPrevious(
       v.windowMinutes as number,
       v.service as string | undefined,
     );
@@ -271,7 +271,7 @@ export class QueryController {
   @Headers()
   map(@Req() req: RequestLike) {
     const v = parse(req, appMapSpec);
-    return this.query.map(
+    return this.query.mapWithPrevious(
       v.windowMinutes as number,
       v.service as string | undefined,
     );
@@ -281,7 +281,7 @@ export class QueryController {
   @Headers()
   dependencies(@Req() req: RequestLike) {
     const v = parse(req, dependencySpec);
-    return this.query.dependencies(
+    return this.query.dependenciesWithPrevious(
       v.windowMinutes as number,
       v.service as string | undefined,
     );

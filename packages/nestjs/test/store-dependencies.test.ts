@@ -2,7 +2,11 @@
 // `buildDependencies` / `buildTimeline`.
 import type { ReadableSpan } from "@opentelemetry/sdk-trace";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildDependencies, buildTimeline } from "../src/store/dependencies.js";
+import {
+  buildDependencies,
+  buildDependenciesWithPrevious,
+  buildTimeline,
+} from "../src/store/dependencies.js";
 import { createStoreProcessor } from "../src/store/processor.js";
 import {
   getOrCreateStore,
@@ -186,5 +190,84 @@ describe("trace list time range", () => {
       toUnixMs: NOW - 4 * MIN,
     });
     expect(page.items.map((i) => i.traceId)).toEqual([mid]);
+  });
+});
+
+describe("buildDependenciesWithPrevious", () => {
+  it("attaches the previous window's numbers per target and the totals", () => {
+    // Previous window: 30 to 15 minutes ago. PG: 2 calls (1 error); redis only then; stripe not.
+    request(NOW - 20 * MIN, {
+      calls: [
+        { attributes: PG, ms: 100 },
+        { attributes: PG, ms: 400, error: true },
+        { attributes: REDIS, ms: 5 },
+      ],
+    });
+    // Current window: PG once, and a target that is new.
+    request(NOW - 2 * MIN, {
+      calls: [
+        { attributes: PG, ms: 50 },
+        {
+          attributes: {
+            "server.address": "api.stripe.com",
+            "http.request.method": "GET",
+          },
+          ms: 10,
+        },
+      ],
+    });
+    const r = buildDependenciesWithPrevious(store, 15, NOW, 0);
+    expect(r.previousCovered).toBe(true);
+    expect(r.note).toBeNull();
+    const pg = r.dependencies.find((d) => d.id.startsWith("db:"));
+    expect(pg?.calls).toBe(1);
+    expect(pg?.previous).toEqual({
+      calls: 2,
+      errors: 1,
+      errorRate: 0.5,
+      totalMs: 500,
+      p50Ms: 100,
+      p95Ms: 400,
+    });
+    // New in this window: no `previous`. Gone: counted in the totals only.
+    expect(
+      r.dependencies.find((d) => d.id === "http:api.stripe.com")?.previous,
+    ).toBeUndefined();
+    expect(r.dependencies.map((d) => d.id)).not.toContain(
+      "cache:redis:cache.local",
+    );
+    expect(r.previousTotals).toEqual({
+      dependencies: 2,
+      calls: 3,
+      errors: 1,
+      slowestP95Ms: 400,
+    });
+    // The current numbers are those of buildDependencies.
+    expect(r.dependencies.map((d) => ({ ...d, previous: undefined }))).toEqual(
+      buildDependencies(store, 15, NOW).dependencies.map((d) => ({
+        ...d,
+        previous: undefined,
+      })),
+    );
+  });
+
+  it("says the previous window is not covered when statistics began later", () => {
+    request(NOW - 20 * MIN, { calls: [{ attributes: PG, ms: 100 }] });
+    request(NOW - 2 * MIN, { calls: [{ attributes: PG, ms: 50 }] });
+    const r = buildDependenciesWithPrevious(store, 15, NOW, NOW - 10 * MIN);
+    expect(r.previousCovered).toBe(false);
+    expect(r.note).toMatch(/less than two windows/);
+    expect(r.previousTotals).toBeUndefined();
+    expect(r.dependencies[0]?.previous).toBeUndefined();
+    expect(r.dependencies[0]?.calls).toBe(1);
+  });
+
+  it("works without a store", () => {
+    const r = buildDependenciesWithPrevious(undefined, 15, NOW, 0);
+    expect(r).toMatchObject({
+      previousCovered: true,
+      dependencies: [],
+      previousTotals: { dependencies: 0, calls: 0, errors: 0, slowestP95Ms: 0 },
+    });
   });
 });

@@ -67,6 +67,8 @@ describe("dependencies and timeline (express)", () => {
       dependencies: { id: string; calls: number; series: unknown[] }[];
     };
     expect(body.bucketMs).toBe(60_000);
+    // A process that just started has no previous window to compare with.
+    expect(deps.json()).toMatchObject({ previousCovered: false });
     expect(body.dependencies).toMatchObject([
       { id: "http:api.stripe.com", calls: 1 },
     ]);

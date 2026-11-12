@@ -66,6 +66,7 @@ describe.each(ADAPTERS)("%s", (adapter) => {
       edges: { to: string; calls: number; errors: number }[];
     };
     expect(body.windowMinutes).toBe(15);
+    expect(body).toMatchObject({ previousCovered: false });
     expect(body.nodes.map((n) => [n.id, n.kind])).toEqual([
       ["app", "app"],
       ["db:postgresql:db.local:5432/shop", "database"],

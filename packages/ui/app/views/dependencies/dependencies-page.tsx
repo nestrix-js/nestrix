@@ -15,6 +15,7 @@ import { useMemo } from "react";
 import { AreaChart } from "@/components/kit/area-chart";
 import { BarCell } from "@/components/kit/bar-cell";
 import { Chip } from "@/components/kit/chip";
+import { Delta } from "@/components/kit/delta";
 import { Swatch } from "@/components/kit/donut";
 import { compactNumber } from "@/components/kit/format";
 import { PageHeader } from "@/components/kit/page-header";
@@ -43,6 +44,10 @@ import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser, stringParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
+import {
+  dependencyChanges,
+  rowP95Change,
+} from "@/views/dependencies/dependency-changes";
 import { filterByName } from "@/views/dependencies/dependency-filter";
 import {
   callsSeries,
@@ -257,8 +262,7 @@ export function DependenciesPage() {
   }, [rows]);
   const chartSeries = useMemo(() => callsSeries(rows, CHART_TOP), [rows]);
   const maxTotal = Math.max(1, ...rows.map((d) => d.totalMs));
-  const noPrevious =
-    "The dependencies answer carries no previous window to compare with";
+  const changes = dependencyChanges(deps.data, rows, query.name !== null);
 
   return (
     <section className="space-y-6" aria-label="Dependencies">
@@ -349,16 +353,18 @@ export function DependenciesPage() {
                 label="Dependencies"
                 value={String(rows.length)}
                 unit={`in ${shownWindow} min`}
-                delta="—"
-                deltaTitle={noPrevious}
+                delta={changes.dependencies.text}
+                deltaTone={changes.dependencies.tone}
+                deltaTitle={changes.dependencies.title}
                 source="from sampled traces"
               />
               <StatTile
                 testId="kpi-calls"
                 label="Outbound calls"
                 value={compactNumber(totals.calls)}
-                delta="—"
-                deltaTitle={noPrevious}
+                delta={changes.calls.text}
+                deltaTone={changes.calls.tone}
+                deltaTitle={changes.calls.title}
                 series={totals.perBucket}
                 seriesColor="--chart-1"
                 seriesLabel={`Calls per ${bucketMinutes} min across all dependencies`}
@@ -376,8 +382,9 @@ export function DependenciesPage() {
                     : "—"
                 }
                 unit={`${totals.errors.toLocaleString("en")} of ${totals.calls.toLocaleString("en")}`}
-                delta="—"
-                deltaTitle={noPrevious}
+                delta={changes.errorRate.text}
+                deltaTone={changes.errorRate.tone}
+                deltaTitle={changes.errorRate.title}
                 source="from sampled traces"
               />
               <StatTile
@@ -386,8 +393,9 @@ export function DependenciesPage() {
                 value={
                   totals.slowest ? formatDuration(totals.slowest.p95Ms) : "—"
                 }
-                delta="—"
-                deltaTitle={noPrevious}
+                delta={changes.slowest.text}
+                deltaTone={changes.slowest.tone}
+                deltaTitle={changes.slowest.title}
                 footer={
                   totals.slowest && (
                     <span className="truncate font-mono text-xs">
@@ -467,6 +475,7 @@ export function DependenciesPage() {
                     <TableHead className="text-right">Total time</TableHead>
                     <TableHead>Calls trend</TableHead>
                     <TableHead>p95 trend</TableHead>
+                    <TableHead className="text-right">p95 change</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -545,6 +554,18 @@ export function DependenciesPage() {
                             label={`p95 per ${bucketMinutes} min for ${d.name}`}
                             color="--warning"
                           />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {(() => {
+                            const c = rowP95Change(d, deps.data);
+                            return (
+                              <Delta
+                                text={c.text}
+                                tone={c.tone}
+                                title={c.title}
+                              />
+                            );
+                          })()}
                         </TableCell>
                       </TableRow>
                     );

@@ -189,6 +189,23 @@ export interface ClassStats {
   avgMs: number;
   ownMs: number | null;
   methods: MethodStats[];
+  previous?: ClassStatsPrevious;
+}
+
+export interface ClassStatsPrevious {
+  calls: number;
+  errors: number;
+  totalMs: number;
+  avgMs: number;
+  ownMs: number | null;
+}
+
+export interface ClassStatsPreviousTotals {
+  classes: number;
+  calls: number;
+  errors: number;
+  totalMs: number;
+  ownMs: number | null;
 }
 
 export interface ClassStatsResponse {
@@ -198,6 +215,9 @@ export interface ClassStatsResponse {
   methodsState: "on" | "off" | "no-data-in-range";
   methodsEnabled: boolean;
   classes: ClassStats[];
+  previousCovered?: boolean;
+  note?: string | null;
+  previousTotals?: ClassStatsPreviousTotals;
 }
 
 export type MapNodeKind =
@@ -222,6 +242,21 @@ export interface MapEdge {
   errors: number;
   p50Ms: number;
   p95Ms: number;
+  previous?: MapEdgePrevious;
+}
+
+export interface MapEdgePrevious {
+  calls: number;
+  errors: number;
+  p50Ms: number;
+  p95Ms: number;
+}
+
+export interface AppMapPreviousTotals {
+  targets: number;
+  calls: number;
+  errors: number;
+  slowestP95Ms: number;
 }
 
 export interface AppMapResponse {
@@ -230,6 +265,9 @@ export interface AppMapResponse {
   toUnixMs: number;
   nodes: MapNode[];
   edges: MapEdge[];
+  previousCovered?: boolean;
+  note?: string | null;
+  previousTotals?: AppMapPreviousTotals;
 }
 
 export interface QueryStatement {
@@ -278,6 +316,23 @@ export interface DependencyStats {
   p95Ms: number;
   exampleTraceId?: string;
   series: DependencyPoint[];
+  previous?: DependencyPrevious;
+}
+
+export interface DependencyPrevious {
+  calls: number;
+  errors: number;
+  errorRate: number;
+  totalMs: number;
+  p50Ms: number;
+  p95Ms: number;
+}
+
+export interface DependencyPreviousTotals {
+  dependencies: number;
+  calls: number;
+  errors: number;
+  slowestP95Ms: number;
 }
 
 export interface DependenciesResponse {
@@ -286,6 +341,9 @@ export interface DependenciesResponse {
   toUnixMs: number;
   bucketMs: number;
   dependencies: DependencyStats[];
+  previousCovered?: boolean;
+  note?: string | null;
+  previousTotals?: DependencyPreviousTotals;
 }
 
 export interface TimelineBucket {

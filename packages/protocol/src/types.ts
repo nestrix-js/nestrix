@@ -279,6 +279,30 @@ export interface ClassStats {
   /** Own time in ms over the window, estimated as the sum over methods of `ownAvgMs * calls`; `null` when no method has an estimate. */
   ownMs: number | null;
   methods: MethodStats[];
+  /**
+   * The same sums for the previous window, counted the same way. Absent when the previous window
+   * is not covered, or when the class had no calls in it.
+   */
+  previous?: ClassStatsPrevious;
+}
+
+/** The previous window's sums of one class (`ClassStats`). */
+export interface ClassStatsPrevious {
+  calls: number;
+  errors: number;
+  totalMs: number;
+  avgMs: number;
+  ownMs: number | null;
+}
+
+/** Sums over every class of the previous window, including classes with no calls now. */
+export interface ClassStatsPreviousTotals {
+  classes: number;
+  calls: number;
+  errors: number;
+  totalMs: number;
+  /** `null` when no class had an own-time estimate. */
+  ownMs: number | null;
 }
 
 /** `GET api/v1/classes` */
@@ -295,6 +319,15 @@ export interface ClassStatsResponse {
   /** Kept for compatibility: true unless `methodsState` is `off`. `classes` is empty when false. */
   methodsEnabled: boolean;
   classes: ClassStats[];
+  /**
+   * Whether statistics cover the whole previous window (the same length, just before this one),
+   * as `RouteWindowCompareResponse.previousCovered`. Absent from older servers: show no change.
+   */
+  previousCovered?: boolean;
+  /** Why `previousCovered` is false, otherwise `null`. */
+  note?: string | null;
+  /** Present when `previousCovered` is true. */
+  previousTotals?: ClassStatsPreviousTotals;
 }
 
 export type MapNodeKind =
@@ -324,6 +357,26 @@ export interface MapEdge {
   errors: number;
   p50Ms: number;
   p95Ms: number;
+  /** The same numbers for the previous window; absent when it is not covered or had no such calls. */
+  previous?: MapEdgePrevious;
+}
+
+/** The previous window's numbers of one edge (`MapEdge`). */
+export interface MapEdgePrevious {
+  calls: number;
+  errors: number;
+  p50Ms: number;
+  p95Ms: number;
+}
+
+/** Totals over every edge of the previous window, including edges with no calls now. */
+export interface AppMapPreviousTotals {
+  /** Nodes other than the app(s) that had calls. */
+  targets: number;
+  calls: number;
+  errors: number;
+  /** Highest edge p95; 0 without calls. */
+  slowestP95Ms: number;
 }
 
 /** `GET api/v1/map`: the app and what it calls (D-56), built from the traces in the store, so it reflects sampling. */
@@ -333,6 +386,15 @@ export interface AppMapResponse {
   toUnixMs: number;
   nodes: MapNode[];
   edges: MapEdge[];
+  /**
+   * Whether statistics cover the whole previous window (the same length, just before this one),
+   * as `RouteWindowCompareResponse.previousCovered`. Absent from older servers: show no change.
+   */
+  previousCovered?: boolean;
+  /** Why `previousCovered` is false, otherwise `null`. */
+  note?: string | null;
+  /** Present when `previousCovered` is true. */
+  previousTotals?: AppMapPreviousTotals;
 }
 
 export type ApiErrorCode =

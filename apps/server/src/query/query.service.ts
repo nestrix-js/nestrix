@@ -66,6 +66,12 @@ import { droppedSpansOf } from "./dropped-spans.js";
 import { type ErrorOccurrence, groupErrors } from "./error-groups.js";
 import { QUERY_OPTIONS, type ResolvedQueryOptions } from "./options.js";
 import { routeStatsSpec, type Values } from "./params.js";
+import {
+  uncovered,
+  withPreviousClasses,
+  withPreviousDependencies,
+  withPreviousMap,
+} from "./previous-window.js";
 import { queriesSql } from "./queries-sql.js";
 import {
   bucketsOf,
@@ -1020,12 +1026,95 @@ export class QueryService {
     return rows.map((r) => r.release);
   }
 
+  // ---- previous windows (P15-01) ---------------------------------------------------------------
+
+  /** When the first route statistics of the service were kept; `undefined` without any. */
+  private async statisticsSince(
+    service: string | undefined,
+  ): Promise<number | undefined> {
+    const p = new Params();
+    const where =
+      service === undefined ? "" : `WHERE service_name = ${p.add(service)}`;
+    const [row] = await this.rows<{ since: string | null }>(
+      `SELECT (extract(epoch FROM min(minute)) * 1000)::bigint AS since FROM route_minutes ${where}`,
+      p.values,
+    );
+    return row?.since == null ? undefined : Number(row.since);
+  }
+
+  /** Whether statistics reach back to the start of the window before the one starting at `fromMs`. */
+  private async coversPrevious(
+    windowMinutes: number,
+    fromMs: number,
+    service: string | undefined,
+  ): Promise<boolean> {
+    const since = await this.statisticsSince(service);
+    return since !== undefined && since <= fromMs - windowMinutes * MINUTE_MS;
+  }
+
+  /** `classes` with the previous window (the same query for the window before), or why not. */
+  async classesWithPrevious(
+    windowMinutes: number,
+    service: string | undefined,
+    now: number = Date.now(),
+  ): Promise<ClassStatsResponse> {
+    const current = await this.classes(windowMinutes, service, now);
+    if (
+      !(await this.coversPrevious(windowMinutes, current.fromUnixMs, service))
+    ) {
+      return uncovered(current);
+    }
+    const before = current.fromUnixMs - 1;
+    return withPreviousClasses(
+      current,
+      await this.classes(windowMinutes, service, before, before),
+    );
+  }
+
+  /** `dependencies` with the previous window, or why not. */
+  async dependenciesWithPrevious(
+    windowMinutes: number,
+    service: string | undefined,
+    now: number = Date.now(),
+  ): Promise<DependenciesResponse> {
+    const current = await this.dependencies(windowMinutes, service, now);
+    if (
+      !(await this.coversPrevious(windowMinutes, current.fromUnixMs, service))
+    ) {
+      return uncovered(current);
+    }
+    return withPreviousDependencies(
+      current,
+      await this.dependencies(windowMinutes, service, current.fromUnixMs - 1),
+    );
+  }
+
+  /** `map` with the previous window, or why not. */
+  async mapWithPrevious(
+    windowMinutes: number,
+    service: string | undefined,
+    now: number = Date.now(),
+  ): Promise<AppMapResponse> {
+    const current = await this.map(windowMinutes, service, now);
+    if (
+      !(await this.coversPrevious(windowMinutes, current.fromUnixMs, service))
+    ) {
+      return uncovered(current);
+    }
+    return withPreviousMap(
+      current,
+      await this.map(windowMinutes, service, current.fromUnixMs - 1),
+    );
+  }
+
   // ---- class statistics ------------------------------------------------------------------------
 
   async classes(
     windowMinutes: number,
     service: string | undefined,
     now: number = Date.now(),
+    /** Count own time only from spans that started by then (the previous window's end). */
+    ownUntilMs?: number,
   ): Promise<ClassStatsResponse> {
     const w = windowOf(windowMinutes, now);
     const params = new Params();
@@ -1058,6 +1147,9 @@ export class QueryService {
         "s.class_name IS NOT NULL",
         `s.start_time >= ${p.add(new Date(w.fromMs))}`,
       ];
+      if (ownUntilMs !== undefined) {
+        spanWhere.push(`s.start_time <= ${p.add(new Date(ownUntilMs))}`);
+      }
       if (service !== undefined) {
         spanWhere.push(`s.service_name = ${p.add(service)}`);
       }

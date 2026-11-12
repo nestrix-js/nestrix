@@ -2,7 +2,11 @@
 // than the store singleton, which each test resets.
 import type { ReadableSpan } from "@opentelemetry/sdk-trace";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildAppMap, MAX_MAP_NODES } from "../src/store/app-map.js";
+import {
+  buildAppMap,
+  buildAppMapWithPrevious,
+  MAX_MAP_NODES,
+} from "../src/store/app-map.js";
 import { createStoreProcessor } from "../src/store/processor.js";
 import {
   getOrCreateStore,
@@ -313,5 +317,61 @@ describe("bounds", () => {
 
   it("no store gives the app node alone", () => {
     expect(buildAppMap(undefined, 15, NOW).nodes).toHaveLength(1);
+  });
+});
+
+describe("buildAppMapWithPrevious", () => {
+  const PG = {
+    "db.system.name": "postgresql",
+    "server.address": "db.local",
+    "server.port": 5432,
+    "db.namespace": "shop",
+  };
+
+  it("attaches the previous window's edge numbers and totals", () => {
+    request([{ attributes: PG, durationMs: 40 }], NOW - 20 * MIN);
+    request([{ attributes: PG, durationMs: 80, error: true }], NOW - 19 * MIN);
+    request(
+      [{ attributes: { "db.system": "redis" }, durationMs: 1 }],
+      NOW - 18 * MIN,
+    );
+    request([{ attributes: PG, durationMs: 10 }], NOW - 2 * MIN);
+    const m = buildAppMapWithPrevious(store, 15, NOW, 0);
+    expect(m.previousCovered).toBe(true);
+    expect(m.note).toBeNull();
+    expect(m.edges).toHaveLength(1);
+    expect(m.edges[0]).toMatchObject({
+      calls: 1,
+      previous: { calls: 2, errors: 1, p50Ms: 40, p95Ms: 80 },
+    });
+    expect(m.previousTotals).toEqual({
+      targets: 2,
+      calls: 3,
+      errors: 1,
+      slowestP95Ms: 80,
+    });
+  });
+
+  it("an edge with no calls before has no previous", () => {
+    request([{ attributes: PG, durationMs: 10 }], NOW - 2 * MIN);
+    const m = buildAppMapWithPrevious(store, 15, NOW, 0);
+    expect(m.previousCovered).toBe(true);
+    expect(m.edges[0]?.previous).toBeUndefined();
+    expect(m.previousTotals).toEqual({
+      targets: 0,
+      calls: 0,
+      errors: 0,
+      slowestP95Ms: 0,
+    });
+  });
+
+  it("is not covered when statistics began less than two windows ago", () => {
+    request([{ attributes: PG, durationMs: 10 }], NOW - 2 * MIN);
+    const m = buildAppMapWithPrevious(store, 15, NOW, NOW - 10 * MIN);
+    expect(m.previousCovered).toBe(false);
+    expect(m.note).toMatch(/less than two windows/);
+    expect(m.previousTotals).toBeUndefined();
+    expect(m.edges[0]?.previous).toBeUndefined();
+    expect(m.edges).toHaveLength(1);
   });
 });
