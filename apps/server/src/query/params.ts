@@ -13,6 +13,7 @@ import type {
   ErrorGroupParamsSpec,
   ErrorListParamsSpec,
   MetaParamsSpec,
+  OverviewParamsSpec,
   ParamSpec,
   QueryStatsParamsSpec,
   RouteCompareParamsSpec,
@@ -86,6 +87,18 @@ export const errorGroupSpec: ErrorGroupParamsSpec = {
     oneOf: [15, 60],
     default: 15,
   },
+  service: { kind: "string", maxLength: 256 },
+};
+
+export const overviewSpec: OverviewParamsSpec = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+  apdexMs: { kind: "int", min: 10, max: 10000, default: 300 },
   service: { kind: "string", maxLength: 256 },
 };
 

@@ -6,12 +6,14 @@ import {
   Module,
   type ValueProvider,
 } from "@nestjs/common";
+import { SlosService } from "../slos/slos.service.js";
 import { DenyQueryGuard, QUERY_GUARD, QueryGuardGate } from "./guard.js";
 import {
   QUERY_OPTIONS,
   type QueryModuleOptions,
   type ResolvedQueryOptions,
 } from "./options.js";
+import { OverviewService } from "./overview.service.js";
 import { QueryController } from "./query.controller.js";
 import { QueryService } from "./query.service.js";
 import { TraceLogsService } from "./trace-logs.service.js";
@@ -39,6 +41,9 @@ export class QueryModule {
         { provide: QUERY_OPTIONS, useValue: resolved },
         QueryGuardGate,
         QueryService,
+        OverviewService,
+        // Stateless (needs only STORAGE_POOL): the overview reads SLO burn rates through it.
+        SlosService,
         TraceLogsService,
       ],
     };

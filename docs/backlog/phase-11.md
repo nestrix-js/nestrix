@@ -9,7 +9,7 @@ The wire contract is `packages/protocol/src/overview.ts` (`overviewParams`, `Ove
 | ID | Task | Tier | Depends | Status |
 |---|---|---|---|---|
 | P11-00 | Protocol, this backlog | lead | — | done |
-| P11-01 | `GET api/v1/overview` on the embedded dashboard and the standalone server, one shared computation | sonnet | P11-00 | todo |
+| P11-01 | `GET api/v1/overview` on the embedded dashboard and the standalone server, one shared computation | sonnet | P11-00 | done (local checks; see "As built (P11-01)") |
 | P11-02 | UI: Overview page as the new home | sonnet | P11-00 | todo |
 | P11-03 | Review, docs, changeset | lead | P11-01, P11-02 | todo |
 
@@ -34,6 +34,13 @@ Put the pure computation in one module that takes plain inputs (route statistics
 - **Health.** `score = clamp(0, 100, round(100 − Σ(attention: high 12, medium 6) − min(30, errorRate × 1000) − (apdex === null ? 0 : (1 − apdex) × 40)))`. Level: ≥ 90 `healthy`, ≥ 70 `degraded`, else `critical`. `summary`: with attention items, `N thing(s) need(s) attention: <first title>, and <second title>.` (at most two named); without, `No problems found.` plus ` N thing(s) got better.` when there are better items; with no traffic, `No requests in the last <window>.`
 - **Embedded vs standalone.** Same shape. Embedded has no SLOs (no `slo-burn`). `service` filters on the standalone server as elsewhere.
 - **Tests.** Unit tests of the pure module with hand-built inputs for every rule (fires, does not fire just under each threshold, severity boundaries), health formula and summary wording, Apdex from histograms, uncovered previous window. One route test per backend that the endpoint answers with a valid shape (and honours `service` on the server). Add the endpoint to both backends' API docs (architecture §4.6 routes list and the standalone query routes) and to the protocol drift check in `packages/nestjs/src/store/protocol-types.ts`.
+
+### As built (P11-01)
+
+- **Where the computation lives.** `packages/nestjs/src/overview/compute.ts` (pure, types-only import of `@nestrix-js/protocol`). The server cannot import that package's internals (it only reaches the public entry, and the package exports nothing else), so `apps/server/src/query/overview-compute.ts` is a byte-identical copy, the arrangement `store/error-groups.ts` already uses; `apps/server/test/query/overview.test.ts` fails when they differ. No public entry point was widened. The rules are exported as one function each (`latencyVerdict`, `errorRateVerdict`, `spikeSeverity`, ...) so the boundaries are tested exactly.
+- **Inputs.** `MinuteRow`s (route, minute, count, errors, max, 30-bucket histogram) for both windows, from `RouteStatistics.minuteRows` (embedded) or `route_minutes` (server); status mix, own time by span facts and new releases from the sampled traces; error groups and dependencies for both windows (the previous one by asking for the window ending just before the current one starts); SLO burn rates (server). Coverage of the previous window is `windowCoverage` (embedded, shared with `routes/compare`) or the `route_minutes` minimum (server, as `routes/compare`).
+- **Judgement calls the backlog did not settle.** Dependencies need 10 sampled calls in each window and a cleared error group needs 3 events before (`MIN_DEPENDENCY_CALLS`, `MIN_CLEARED_EVENTS`); `slo-burn` uses the 1 h burn rate; `route-errors` impact counts the failing requests (now for worse, before for better); a cleared group uses kind `error-group-spike` with direction `better`; `dependency-errors` and `slo-burn` have an empty `series`; Apdex takes errors out of satisfied and tolerating in proportion (their durations are not in the histogram); "new" error groups are judged against the previous window's groups from the store or database, whether or not statistics cover that window.
+- **Drift check.** `compute.ts` imports the response types straight from `@nestrix-js/protocol` (as `stats/route-insights.ts` does), so a drift is a `tsc` error and no mirror was added to `store/protocol-types.ts`.
 
 ### UI (P11-02)
 
