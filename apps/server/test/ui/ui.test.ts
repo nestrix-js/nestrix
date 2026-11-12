@@ -55,7 +55,7 @@ describe("GET /", () => {
     expect(res.headers.get("content-security-policy")).toBe(UI_CSP);
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(res.headers.get("x-frame-options")).toBe("DENY");
-    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(res.headers.get("referrer-policy")).toBe("same-origin");
     const html = await res.text();
     expect(html).toContain('<base href="/"');
     expect(html).toContain(

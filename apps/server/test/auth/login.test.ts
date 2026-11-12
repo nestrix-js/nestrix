@@ -188,6 +188,49 @@ describe("POST /login", () => {
     }
   });
 
+  it("accepts a missing or null Origin only with exactly one Sec-Fetch-Site: same-origin (a browser form under a strict referrer policy)", async () => {
+    const base = server.baseUrl;
+    const send = async (
+      headers: Record<string, string>,
+      password = ADMIN_PW,
+    ) => {
+      auth.limiter = new LoginRateLimiter();
+      return rawRequest(
+        base,
+        "POST",
+        "/login",
+        {
+          "content-type": "application/x-www-form-urlencoded",
+          ...headers,
+        },
+        new URLSearchParams({ password }).toString(),
+      );
+    };
+    for (const origin of [undefined, "null"]) {
+      const h = (fetchSite: string) =>
+        origin === undefined
+          ? { "sec-fetch-site": fetchSite }
+          : { origin, "sec-fetch-site": fetchSite };
+      const ok = await send(h("same-origin"));
+      expect(ok.status, `${origin} same-origin`).toBe(303);
+      expect(ok.headers["set-cookie"], `${origin} same-origin`).toBeDefined();
+      expect((await send(h("same-origin"), "wrong-password-x")).status).toBe(
+        401,
+      );
+      for (const site of [
+        "same-site",
+        "cross-site",
+        "none",
+        "same-origin, same-origin",
+        "SAME-ORIGIN",
+      ]) {
+        const res = await send(h(site));
+        expect(res.status, `${origin} ${site}`).toBe(403);
+        expect(res.headers["set-cookie"], `${origin} ${site}`).toBeUndefined();
+      }
+    }
+  });
+
   it("refuses two Host headers even when the first matches Origin", async () => {
     const res = await rawRequest(
       server.baseUrl,

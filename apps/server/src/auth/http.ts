@@ -27,7 +27,7 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = Object.freeze(
   {
     "x-content-type-options": "nosniff",
     "x-frame-options": "DENY",
-    "referrer-policy": "no-referrer",
+    "referrer-policy": "same-origin",
     "x-robots-tag": "noindex",
     "cross-origin-resource-policy": "same-origin",
   },
@@ -101,12 +101,20 @@ export function singleHost(req: IncomingMessage): string | undefined {
  * Whether `Origin` names this server as the request addressed it: one `Origin` header, in its
  * serialized form (`http(s)://host[:port]`, no path, no userinfo), whose host and port equal the
  * single `Host` header's (default ports normalized for the origin's scheme). The scheme itself is
- * not compared with the connection, so a TLS-terminating proxy that keeps `Host` works. A missing
- * `Origin`, `Origin: null` or anything unparseable is a mismatch. Never throws.
+ * not compared with the connection, so a TLS-terminating proxy that keeps `Host` works.
+ *
+ * A missing `Origin` or `Origin: null` passes only with exactly one `Sec-Fetch-Site: same-origin`:
+ * browsers send `Origin: null` for a plain HTML form POST under some referrer policies, and they set
+ * `Sec-Fetch-Site` themselves (pages cannot), so the server's own login form keeps working while
+ * cross-site and same-site requests stay refused. Anything else unparseable is a mismatch. Never throws.
  */
 export function originMatchesHost(req: IncomingMessage): boolean {
   try {
     const origin = req.headers.origin;
+    if (origin === undefined || origin === "null") {
+      // Node joins repeated headers with ", ", so equality also means a single header.
+      return req.headers["sec-fetch-site"] === "same-origin";
+    }
     if (typeof origin !== "string") return false;
     const host = singleHost(req);
     if (host === undefined) return false;
