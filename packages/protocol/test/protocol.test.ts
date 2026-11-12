@@ -25,6 +25,7 @@ describe("package entry", () => {
         "dependencyParams",
         "errorListParams",
         "metaParams",
+        "overviewParams",
         "profileIdParams",
         "profileStartBody",
         "queryStatsParams",
