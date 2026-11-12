@@ -19,6 +19,7 @@ import {
   type SpanLogSummary,
   toneClass,
 } from "@/lib/trace-logs";
+import { omittedLabel } from "@/lib/trace-omitted";
 import { criticalPath, timeBreakdown } from "@/lib/trace-time";
 import {
   barLayout,
@@ -72,9 +73,12 @@ const MAX_LOG_TICKS = 50;
 export function Waterfall({
   trace,
   logs,
+  omitted,
 }: {
   trace: TraceResponse;
   logs?: TraceLogsResponse | undefined;
+  /** Spans counted but not recorded (`droppedSpans.total`): adds the "(omitted N spans)" row under the root. */
+  omitted?: number | undefined;
 }) {
   const tree = useMemo(
     () => buildTree(trace.spans, trace.rootSpanId),
@@ -104,8 +108,20 @@ export function Waterfall({
     [trace.spans],
   );
 
+  // The "(omitted N spans)" row sits right after the root row: virtual index = row index + 1 past it.
+  const omittedAfter =
+    omitted !== undefined && omitted > 0 && rows.length > 0
+      ? Math.max(
+          0,
+          rows.findIndex((r) => r.node.span.spanId === trace.rootSpanId),
+        )
+      : -1;
+  const omittedAt = omittedAfter + 1;
+  const toVirtual = (i: number) =>
+    omittedAfter >= 0 && i > omittedAfter ? i + 1 : i;
+
   const virtualizer = useVirtualizer({
-    count: rows.length,
+    count: rows.length + (omittedAfter >= 0 ? 1 : 0),
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 10,
@@ -115,12 +131,15 @@ export function Waterfall({
 
   const ticks = useMemo(() => scaleTicks(tree.totalMs), [tree.totalMs]);
   const selected = selectedId ? tree.byId.get(selectedId) : undefined;
-  const viewport = Math.min(rows.length * ROW_HEIGHT + ROW_HEIGHT, MAX_HEIGHT);
+  const viewport = Math.min(
+    (rows.length + (omittedAfter >= 0 ? 1 : 0)) * ROW_HEIGHT + ROW_HEIGHT,
+    MAX_HEIGHT,
+  );
 
   const select = (id: string) => {
     setSelectedId(id);
     const index = rows.findIndex((r) => r.node.span.spanId === id);
-    if (index >= 0) virtualizer.scrollToIndex(index);
+    if (index >= 0) virtualizer.scrollToIndex(toVirtual(index));
   };
 
   /** Highlights the spans of one statement and shows the first of them; again clears it. */
@@ -147,7 +166,7 @@ export function Waterfall({
     const index = flattenRows(tree, open).findIndex(
       (r) => r.node.span.spanId === first,
     );
-    if (index >= 0) virtualizer.scrollToIndex(index);
+    if (index >= 0) virtualizer.scrollToIndex(toVirtual(index));
   };
 
   /** Selects a span from outside the tree (a log line): opens its ancestors and shows it. */
@@ -166,7 +185,7 @@ export function Waterfall({
     const index = flattenRows(tree, open).findIndex(
       (r) => r.node.span.spanId === id,
     );
-    if (index >= 0) virtualizer.scrollToIndex(index);
+    if (index >= 0) virtualizer.scrollToIndex(toVirtual(index));
   };
 
   const toggle = (id: string) =>
@@ -191,7 +210,7 @@ export function Waterfall({
           (r) => r.node.span.spanId === result.selectedId,
         );
         setSelectedId(result.selectedId);
-        if (index >= 0) virtualizer.scrollToIndex(index);
+        if (index >= 0) virtualizer.scrollToIndex(toVirtual(index));
       }
     } else if (event.key === "Enter" && selectedId !== null) {
       event.preventDefault();
@@ -264,7 +283,39 @@ export function Waterfall({
                 style={{ height: virtualizer.getTotalSize() }}
               >
                 {virtualizer.getVirtualItems().map((item) => {
-                  const row = rows[item.index] as Row;
+                  if (omittedAfter >= 0 && item.index === omittedAt) {
+                    const parent = rows[omittedAfter] as Row;
+                    return (
+                      <div
+                        key="omitted-spans"
+                        role="row"
+                        data-testid="omitted-row"
+                        aria-rowindex={item.index + 1}
+                        className="absolute inset-x-0 flex items-center border-b border-border/40 text-sm italic text-muted-foreground"
+                        style={{ top: item.start, height: ROW_HEIGHT }}
+                      >
+                        <div
+                          role="gridcell"
+                          className="w-72 shrink-0 truncate px-2"
+                          style={{
+                            paddingLeft:
+                              8 +
+                              Math.min(parent.depth + 1, MAX_INDENT_LEVELS) *
+                                INDENT_PX +
+                              20,
+                          }}
+                        >
+                          {omittedLabel(omitted as number)}
+                        </div>
+                        <div role="gridcell" className="flex-1" />
+                      </div>
+                    );
+                  }
+                  const rowIndex =
+                    omittedAfter >= 0 && item.index > omittedAt
+                      ? item.index - 1
+                      : item.index;
+                  const row = rows[rowIndex] as Row;
                   return (
                     <WaterfallRow
                       key={row.node.span.spanId}

@@ -11,7 +11,7 @@ Wire contract: `TraceResponse.droppedSpans` and `DroppedSpans` in `packages/prot
 | P13-00 | D-78, protocol, this backlog | lead | — | done |
 | P13-01 | SDK: `maxSpansPerTrace` and dropped-span counting | opus | P13-00 | todo |
 | P13-02 | Server: per-trace cap at ingest, dropped count stored, `droppedSpans` in `trace`; embedded store reads the attributes | sonnet | P13-00 | todo |
-| P13-03 | UI: "omitted N spans" in the trace view | sonnet | P13-00 | todo |
+| P13-03 | UI: "omitted N spans" in the trace view | sonnet | P13-00 | done |
 | P13-04 | Review, docs, changeset | lead + reviewer | P13-01..03 | todo |
 
 ## Settled design
@@ -38,3 +38,12 @@ Wire contract: `TraceResponse.droppedSpans` and `DroppedSpans` in `packages/prot
 - Trace view: when `droppedSpans` is present, a banner above the waterfall: "This trace has N more spans that were counted but not recorded (limit: … in the app, … in the server)", with the per-kind counts, and a link to the docs section on `maxSpansPerTrace`. Under the root span row, an "(omitted N spans)" row in the waterfall.
 - Trace list: an indicator on rows whose trace was capped if the list API already carries it; otherwise skip (do not change other API shapes).
 - Tests: unit and Playwright against the mock API.
+
+**As built (P13-03).**
+
+- `packages/ui/app/lib/trace-omitted.ts` (helpers, unit-tested) and `views/trace/omitted-banner.tsx`. The banner (`data-testid="omitted-banner"`) sits above the waterfall: headline, app/server split (only the non-zero side is named; app = `total - byServer`), the app-side per-kind counts with the Overview's labels (`TIME_KINDS`), and a docs link.
+- The "(omitted N spans)" row (`data-testid="omitted-row"`) is a synthetic row in the virtualised list right after the root row: italic, muted, not selectable, outside keyboard navigation. It stays when the root is collapsed.
+- Docs link: `packages/nestjs/README.md#options`, because the README has no `maxSpansPerTrace` heading yet (P13-01). Point it at the option's own anchor once that lands.
+- The banner does not print the configured limits (the API carries counts, not limits), so the split line says "over the app's span limit" / "over the server's".
+- Trace list: no indicator; `TraceSummary` does not carry the dropped count and API shapes stay unchanged.
+- Tests: `app/lib/trace-omitted.test.ts`; `e2e/omitted-spans.pw.ts` (app-only, server-only, both, absent, light and dark screenshots).
