@@ -24,6 +24,8 @@ import type {
   ClassStatsResponse,
   ErrorListResponse,
   MetaResponse,
+  RouteCompareResponse,
+  RouteHistogramResponse,
   RouteStatsResponse,
   TraceListResponse,
   TraceResponse,
@@ -697,6 +699,85 @@ describe.skipIf(noDatabase)(`query API ${skipReason}`, () => {
           query,
         ).toBe(400);
       }
+    });
+  });
+
+  describe("route insights (P9-02)", () => {
+    it("serves the histogram of one route from the rollups", async () => {
+      const h = await server.json<RouteHistogramResponse>(
+        "/api/v1/routes/histogram?route=/orders/:id&method=GET",
+      );
+      expect(h).toMatchObject({
+        method: "GET",
+        route: "/orders/:id",
+        count: 2,
+      });
+      expect(h.buckets).toHaveLength(30);
+      expect(h.buckets[0]).toMatchObject({ fromMs: 0, toMs: 1 });
+      expect(h.buckets.at(-1)?.toMs).toBeNull();
+      expect(h.buckets.reduce((n, b) => n + b.count, 0)).toBe(2);
+      expect(h.p50Ms).toBeGreaterThan(0);
+      expect(h.p99Ms).toBeGreaterThanOrEqual(h.p95Ms);
+      expect(h.p99Ms).toBeLessThanOrEqual(h.maxMs);
+      const none = await server.json<RouteHistogramResponse>(
+        "/api/v1/routes/histogram?route=/orders/:id&service=worker",
+      );
+      expect(none.count).toBe(0);
+      expect(
+        (await server.get("/api/v1/routes/histogram?method=GET")).status,
+      ).toBe(400);
+    });
+
+    it("compares the window with the previous one", async () => {
+      const c = await server.json<RouteCompareResponse>(
+        "/api/v1/routes/compare?windowMinutes=15",
+      );
+      if (c.mode !== "window") throw new Error("expected window mode");
+      expect(c.current.fromUnixMs - c.previous.fromUnixMs).toBe(15 * 60_000);
+      // The data is minutes old, so nothing was counted before it.
+      expect(c.previousCovered).toBe(false);
+      expect(c.note).toMatch(/previous window/);
+      expect(c.releases).toEqual(expect.arrayContaining(["1.2.0", "1.1.0"]));
+      const orders = c.routes.find((r) => r.route === "/orders/:id");
+      expect(orders?.after).toMatchObject({ count: 2, errors: 1 });
+      expect(orders?.before.count).toBe(0);
+      expect(orders?.delta).toMatchObject({ count: 2, p95Ms: null });
+    });
+
+    it("compares two releases from the stored traces", async () => {
+      const c = await server.json<RouteCompareResponse>(
+        "/api/v1/routes/compare?releaseA=1.1.0&releaseB=1.2.0",
+      );
+      if (c.mode !== "release") throw new Error("expected release mode");
+      const orders = c.routes.find((r) => r.route === "/orders/:id");
+      expect(orders?.method).toBe("GET");
+      expect(orders?.before.count).toBe(0);
+      expect(orders?.after).toMatchObject({ count: 2, errors: 1 });
+      expect(orders?.after.p95Ms).toBeGreaterThan(0);
+      expect(orders?.delta.errorRate).toBeCloseTo(0.5);
+      const post = c.routes.find((r) => r.route === "/orders");
+      expect(post?.before.count).toBe(1);
+      expect(post?.after.count).toBe(0);
+      const other = await server.json<RouteCompareResponse>(
+        "/api/v1/routes/compare?releaseA=1.1.0&releaseB=1.2.0&service=worker",
+      );
+      expect(other.routes).toEqual([]);
+      expect(
+        (await server.get("/api/v1/routes/compare?releaseA=1.1.0")).status,
+      ).toBe(400);
+    });
+
+    it("limits the trace list by maxDurationMs", async () => {
+      const ids = async (q: string) =>
+        (await server.json<TraceListResponse>(`/api/v1/traces?${q}`)).items.map(
+          (i) => i.traceId,
+        );
+      expect(await ids("minDurationMs=500")).toContain(E);
+      expect(await ids("maxDurationMs=500")).not.toContain(E);
+      expect(await ids("minDurationMs=500&maxDurationMs=1000")).toEqual([E]);
+      expect((await server.get("/api/v1/traces?maxDurationMs=-1")).status).toBe(
+        400,
+      );
     });
   });
 

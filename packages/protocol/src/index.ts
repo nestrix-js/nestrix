@@ -1,6 +1,7 @@
 export type * from "./alerts.js";
 export * from "./params.js";
 export type * from "./profiles.js";
+export * from "./route-insights.js";
 export type * from "./slos.js";
 export * from "./types.js";
 

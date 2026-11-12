@@ -74,6 +74,7 @@ export const traceListParams = {
   method: { kind: "string", maxLength: 16 },
   status: { kind: "enum", values: ["ok", "error", "4xx", "5xx"] },
   minDurationMs: { kind: "number", min: 0, max: 86_400_000 },
+  maxDurationMs: { kind: "number", min: 0, max: 86_400_000 },
   search: { kind: "string", maxLength: 200 },
   /**
    * `http`, `scheduled` and `other` match the trace's root (`TraceSummary.type`). `job` matches

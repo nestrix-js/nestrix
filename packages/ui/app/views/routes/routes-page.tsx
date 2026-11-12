@@ -1,7 +1,7 @@
 import type { RouteStats } from "@nestrix-js/protocol";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
-import { useQueryStates } from "nuqs";
+import { parseAsStringLiteral, useQueryStates } from "nuqs";
 import { useMemo } from "react";
 
 import { Chart } from "@/components/chart";
@@ -22,6 +22,8 @@ import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser, stringParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
+import { ComparePanel } from "@/views/routes/compare-panel";
+import { RouteHistogram } from "@/views/routes/route-histogram";
 import {
   chartData,
   describeMethod,
@@ -40,6 +42,11 @@ const parsers = {
   windowMinutes: routeWindowParser,
   method: stringParser({ maxLength: 16 }),
   route: stringParser({ maxLength: 512 }),
+  // The Compare tab (P9-02): what is compared and which releases.
+  view: parseAsStringLiteral(["routes", "compare"] as const),
+  compare: parseAsStringLiteral(["window", "release"] as const),
+  releaseA: stringParser({ maxLength: 255 }),
+  releaseB: stringParser({ maxLength: 255 }),
 };
 
 const integer = (v: number) => String(Math.round(v));
@@ -47,9 +54,11 @@ const integer = (v: number) => String(Math.round(v));
 function RouteCharts({
   stats,
   windowMinutes,
+  service,
 }: {
   stats: RouteStats;
   windowMinutes: number;
+  service: string | undefined;
 }) {
   const data = useMemo(() => chartData(stats), [stats]);
   const { label, note } = describeRoute(stats);
@@ -91,6 +100,12 @@ function RouteCharts({
           />
         </div>
       </div>
+      <RouteHistogram
+        stats={stats}
+        windowMinutes={windowMinutes}
+        service={service}
+        label={label}
+      />
     </div>
   );
 }
@@ -98,6 +113,7 @@ function RouteCharts({
 export function RoutesPage() {
   const [query, setQuery] = useQueryStates(parsers);
   const windowMinutes = query.windowMinutes ?? DEFAULT_WINDOW;
+  const view = query.view ?? "routes";
   const [paused] = usePaused();
 
   const [service] = useService();
@@ -174,8 +190,43 @@ export function RoutesPage() {
         </p>
       )}
 
-      {stats.isPending && <DataTableSkeleton columnCount={7} />}
-      {stats.isError && stats.data === undefined && (
+      <div role="tablist" aria-label="Routes view" className="flex gap-1">
+        {(
+          [
+            ["routes", "Routes"],
+            ["compare", "Compare"],
+          ] as const
+        ).map(([id, name]) => (
+          <Button
+            key={id}
+            role="tab"
+            size="sm"
+            variant={view === id ? "default" : "outline"}
+            aria-selected={view === id}
+            onClick={() => void setQuery({ view: id === "routes" ? null : id })}
+          >
+            {name}
+          </Button>
+        ))}
+      </div>
+      {view === "compare" && (
+        <ComparePanel
+          mode={query.compare ?? "window"}
+          onMode={(mode) =>
+            void setQuery({ compare: mode === "window" ? null : mode })
+          }
+          windowMinutes={windowMinutes}
+          releaseA={query.releaseA}
+          releaseB={query.releaseB}
+          onReleases={(a, b) => void setQuery({ releaseA: a, releaseB: b })}
+          service={service}
+        />
+      )}
+
+      {view === "routes" && stats.isPending && (
+        <DataTableSkeleton columnCount={7} />
+      )}
+      {view === "routes" && stats.isError && stats.data === undefined && (
         <div
           role="alert"
           className="space-y-3 rounded-lg border border-border p-6 text-center"
@@ -189,7 +240,7 @@ export function RoutesPage() {
           </Button>
         </div>
       )}
-      {stats.data !== undefined && (
+      {view === "routes" && stats.data !== undefined && (
         <>
           <div className="rounded-lg border border-border">
             <Table data-testid="routes">
@@ -283,7 +334,11 @@ export function RoutesPage() {
             </Table>
           </div>
           {selected ? (
-            <RouteCharts stats={selected} windowMinutes={shownWindow} />
+            <RouteCharts
+              stats={selected}
+              windowMinutes={shownWindow}
+              service={service}
+            />
           ) : (
             routes.length > 0 && (
               <p className="text-sm text-muted-foreground">

@@ -10,6 +10,8 @@ import type {
   ProfileListResponse,
   ProfileRunning,
   ProfileSummary,
+  RouteCompareResponse,
+  RouteHistogramResponse,
   RouteStatsResponse,
   Slo,
   TraceListResponse,
@@ -23,6 +25,40 @@ type Endpoint = "meta" | "traces" | "routes" | "errors" | "classes" | "map";
 
 const ROUTES = ["/orders", "/orders/:id", "/users", "/health"];
 const METHODS = ["GET", "POST", "GET", "PUT"];
+
+const emptyHistogram = (q: URLSearchParams): RouteHistogramResponse => ({
+  method: q.get("method"),
+  route: q.get("route") ?? "",
+  windowMinutes: Number(q.get("windowMinutes") ?? 15),
+  fromUnixMs: 0,
+  toUnixMs: 0,
+  count: 0,
+  p50Ms: 0,
+  p95Ms: 0,
+  p99Ms: 0,
+  maxMs: 0,
+  buckets: [],
+});
+
+const emptyCompare = (q: URLSearchParams): RouteCompareResponse =>
+  q.has("releaseA")
+    ? {
+        mode: "release",
+        releaseA: q.get("releaseA") ?? "",
+        releaseB: q.get("releaseB") ?? "",
+        releases: [],
+        routes: [],
+      }
+    : {
+        mode: "window",
+        windowMinutes: Number(q.get("windowMinutes") ?? 15),
+        previous: { fromUnixMs: 0, toUnixMs: 0 },
+        current: { fromUnixMs: 0, toUnixMs: 0 },
+        previousCovered: true,
+        note: null,
+        releases: [],
+        routes: [],
+      };
 
 const windowOf = (q: URLSearchParams) => Number(q.get("windowMinutes") ?? 15);
 
@@ -43,6 +79,11 @@ export class MockApi {
   errors = new ErrorStore(() => this.epoch);
   /** When set, `routes` answers with this for the asked window instead of the stub. */
   routeStats: ((windowMinutes: number) => RouteStatsResponse) | null = null;
+  /** When set, `routes/histogram` / `routes/compare` answer with these (P9-02). */
+  routeHistogram: ((query: URLSearchParams) => RouteHistogramResponse) | null =
+    null;
+  routeCompare: ((query: URLSearchParams) => RouteCompareResponse) | null =
+    null;
   /** When set, `classes` / `map` answer with this for the asked window instead of the generated data. */
   classStats: ((windowMinutes: number) => ClassStatsResponse) | null = null;
   appMap: ((windowMinutes: number) => AppMapResponse) | null = null;
@@ -99,6 +140,8 @@ export class MockApi {
     this.overlap = false;
     this.requests = [];
     this.routeStats = null;
+    this.routeHistogram = null;
+    this.routeCompare = null;
     this.classStats = null;
     this.appMap = null;
     this.mode = "embedded";
@@ -202,6 +245,16 @@ export class MockApi {
         return { status: 200, body: this.meta() };
       case "routes":
         return { status: 200, body: this.routes(query) };
+      case "routes/histogram":
+        return {
+          status: 200,
+          body: (this.routeHistogram ?? emptyHistogram)(query),
+        };
+      case "routes/compare":
+        return {
+          status: 200,
+          body: (this.routeCompare ?? emptyCompare)(query),
+        };
       case "classes":
         return {
           status: 200,
@@ -591,6 +644,7 @@ export class MockApi {
         (status === "4xx" && code >= 400 && code < 500) ||
         (status === "5xx" && code >= 500)) &&
       item.durationMs >= Number(q.get("minDurationMs") ?? 0) &&
+      item.durationMs <= Number(q.get("maxDurationMs") ?? Number.MAX_VALUE) &&
       (!q.get("type") ||
         (q.get("type") === "job"
           ? item.hasJob
@@ -612,6 +666,7 @@ export class MockApi {
       "method",
       "status",
       "minDurationMs",
+      "maxDurationMs",
       "search",
       "type",
       "release",

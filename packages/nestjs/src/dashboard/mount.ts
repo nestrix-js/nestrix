@@ -53,6 +53,8 @@ import {
   metaHandler,
   PROTOCOL_VERSION,
   parseQuery,
+  routeCompareHandler,
+  routeHistogramHandler,
   routesHandler,
   traceHandler,
   tracesHandler,
@@ -400,6 +402,14 @@ export class Dashboard {
       [
         `${api}/routes`,
         this.handler("api", (t) => routesHandler(t, sources())),
+      ],
+      [
+        `${api}/routes/histogram`,
+        this.handler("api", (t) => routeHistogramHandler(t, sources())),
+      ],
+      [
+        `${api}/routes/compare`,
+        this.handler("api", (t) => routeCompareHandler(t, sources())),
       ],
       [
         `${api}/classes`,

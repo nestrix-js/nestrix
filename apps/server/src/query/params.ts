@@ -12,6 +12,8 @@ import type {
   ErrorListParamsSpec,
   MetaParamsSpec,
   ParamSpec,
+  RouteCompareParamsSpec,
+  RouteHistogramParamsSpec,
   RouteStatsParamsSpec,
   TraceListParamsSpec,
   TraceParamsSpec,
@@ -25,6 +27,7 @@ export const traceListSpec: TraceListParamsSpec = {
   method: { kind: "string", maxLength: 16 },
   status: { kind: "enum", values: ["ok", "error", "4xx", "5xx"] },
   minDurationMs: { kind: "number", min: 0, max: 86_400_000 },
+  maxDurationMs: { kind: "number", min: 0, max: 86_400_000 },
   search: { kind: "string", maxLength: 200 },
   type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
   release: { kind: "string", maxLength: 255 },
@@ -48,6 +51,33 @@ export const routeStatsSpec: RouteStatsParamsSpec = {
     oneOf: [15, 60],
     default: 15,
   },
+  service: { kind: "string", maxLength: 256 },
+};
+
+export const routeHistogramSpec: RouteHistogramParamsSpec = {
+  method: { kind: "string", maxLength: 16 },
+  route: { kind: "string", maxLength: 512 },
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+  service: { kind: "string", maxLength: 256 },
+};
+
+export const routeCompareSpec: RouteCompareParamsSpec = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+  previous: { kind: "int", min: 1, max: 1, default: 1 },
+  releaseA: { kind: "string", maxLength: 255 },
+  releaseB: { kind: "string", maxLength: 255 },
   service: { kind: "string", maxLength: 256 },
 };
 

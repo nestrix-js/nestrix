@@ -18,6 +18,8 @@ import {
   metaSpec,
   type Parsed,
   parseQuery,
+  routeCompareSpec,
+  routeHistogramSpec,
   routeStatsSpec,
   traceListSpec,
   traceSpec,
@@ -112,6 +114,50 @@ export class QueryController {
       v.windowMinutes as number,
       v.service as string | undefined,
     );
+  }
+
+  @Get("routes/histogram")
+  @Headers()
+  routeHistogram(@Req() req: RequestLike) {
+    const v = parse(req, routeHistogramSpec);
+    if (typeof v.route !== "string") {
+      const body: ApiError = {
+        error: {
+          code: "bad_request",
+          message: 'Query parameter "route" is required.',
+        },
+      };
+      throw new HttpException(body, 400);
+    }
+    return this.query.routeHistogram(
+      v.route,
+      typeof v.method === "string" ? v.method.toUpperCase() : undefined,
+      v.windowMinutes as number,
+      v.service as string | undefined,
+    );
+  }
+
+  @Get("routes/compare")
+  @Headers()
+  routeCompare(@Req() req: RequestLike) {
+    const v = parse(req, routeCompareSpec);
+    const a = v.releaseA;
+    const b = v.releaseB;
+    if ((a === undefined) !== (b === undefined)) {
+      const body: ApiError = {
+        error: {
+          code: "bad_request",
+          message:
+            'Query parameters "releaseA" and "releaseB" must be given together.',
+        },
+      };
+      throw new HttpException(body, 400);
+    }
+    const service = v.service as string | undefined;
+    if (typeof a === "string" && typeof b === "string") {
+      return this.query.releaseCompare(a, b, service);
+    }
+    return this.query.windowCompare(v.windowMinutes as number, service);
   }
 
   @Get("classes")

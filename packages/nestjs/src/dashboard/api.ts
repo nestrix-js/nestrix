@@ -22,6 +22,8 @@ import type {
   ErrorListResponse,
   MetaResponse,
   ParamSpec,
+  RouteCompareParamsSpec,
+  RouteHistogramParamsSpec,
   RouteStatsParamsSpec,
   RouteStatsResponse,
   TraceListParamsSpec,
@@ -32,6 +34,11 @@ import type {
 } from "@nestrix-js/protocol";
 import { methodsEnabled } from "../methods/registry.js";
 import { type ClassStatistics, ownAverages } from "../stats/class-stats.js";
+import {
+  releaseCompare,
+  routeHistogram,
+  windowCompare,
+} from "../stats/route-insights.js";
 import type { RouteStatistics } from "../stats/route-stats.js";
 import { buildAppMap } from "../store/app-map.js";
 import type { StoreStats, TraceStore } from "../store/store.js";
@@ -48,6 +55,7 @@ export const traceListSpec: TraceListParamsSpec = {
   method: { kind: "string", maxLength: 16 },
   status: { kind: "enum", values: ["ok", "error", "4xx", "5xx"] },
   minDurationMs: { kind: "number", min: 0, max: 86_400_000 },
+  maxDurationMs: { kind: "number", min: 0, max: 86_400_000 },
   search: { kind: "string", maxLength: 200 },
   type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
   release: { kind: "string", maxLength: 255 },
@@ -71,6 +79,33 @@ export const routeStatsSpec: RouteStatsParamsSpec = {
     oneOf: [15, 60],
     default: 15,
   },
+  service: { kind: "string", maxLength: 256 },
+};
+
+export const routeHistogramSpec: RouteHistogramParamsSpec = {
+  method: { kind: "string", maxLength: 16 },
+  route: { kind: "string", maxLength: 512 },
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+  service: { kind: "string", maxLength: 256 },
+};
+
+export const routeCompareSpec: RouteCompareParamsSpec = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+  previous: { kind: "int", min: 1, max: 1, default: 1 },
+  releaseA: { kind: "string", maxLength: 255 },
+  releaseB: { kind: "string", maxLength: 255 },
   service: { kind: "string", maxLength: 256 },
 };
 
@@ -373,6 +408,7 @@ export function tracesHandler(
           method: v.method as string | undefined,
           status: v.status as "ok" | "error" | "4xx" | "5xx" | undefined,
           minDurationMs: v.minDurationMs as number | undefined,
+          maxDurationMs: v.maxDurationMs as number | undefined,
           search: v.search as string | undefined,
           type: v.type as TraceType | undefined,
           release: v.release as string | undefined,
@@ -432,6 +468,66 @@ export function routesHandler(
     ? { ...result, routes: [] }
     : result;
   return ok(body);
+}
+
+export function routeHistogramHandler(
+  target: unknown,
+  sources: ApiSources,
+  now: number = Date.now(),
+): DashboardResponse {
+  const parsed = parseQuery(target, routeHistogramSpec);
+  if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
+  const v = parsed.values;
+  if (typeof v.route !== "string") {
+    return apiError(400, "bad_request", 'Query parameter "route" is required.');
+  }
+  const body = routeHistogram(
+    sources.stats,
+    v.route,
+    typeof v.method === "string" ? v.method.toUpperCase() : undefined,
+    v.windowMinutes as number,
+    now,
+  );
+  return ok(
+    otherService(v, sources)
+      ? {
+          ...body,
+          count: 0,
+          buckets: body.buckets.map((b) => ({ ...b, count: 0 })),
+        }
+      : body,
+  );
+}
+
+export function routeCompareHandler(
+  target: unknown,
+  sources: ApiSources,
+  now: number = Date.now(),
+): DashboardResponse {
+  const parsed = parseQuery(target, routeCompareSpec);
+  if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
+  const v = parsed.values;
+  const a = v.releaseA;
+  const b = v.releaseB;
+  if ((a === undefined) !== (b === undefined)) {
+    return apiError(
+      400,
+      "bad_request",
+      'Query parameters "releaseA" and "releaseB" must be given together.',
+    );
+  }
+  const other = otherService(v, sources);
+  if (typeof a === "string" && typeof b === "string") {
+    const body = releaseCompare(other ? undefined : sources.store, a, b);
+    return ok(body);
+  }
+  const body = windowCompare(
+    sources.stats,
+    other ? undefined : sources.store,
+    v.windowMinutes as number,
+    now,
+  );
+  return ok(other ? { ...body, routes: [] } : body);
 }
 
 export function classesHandler(

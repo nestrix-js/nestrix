@@ -8,6 +8,8 @@ import type {
   ProfileListResponse,
   ProfileStartRequest,
   ProfileStartResponse,
+  RouteCompareResponse,
+  RouteHistogramResponse,
   RouteStatsResponse,
   Slo,
   SloCreate,
@@ -147,6 +149,10 @@ export const getErrors = (params: QueryParams) =>
   getJson<ErrorListResponse>("errors", params);
 export const getRoutes = (params: QueryParams = {}) =>
   getJson<RouteStatsResponse>("routes", params);
+export const getRouteHistogram = (params: QueryParams) =>
+  getJson<RouteHistogramResponse>("routes/histogram", params);
+export const getRouteCompare = (params: QueryParams) =>
+  getJson<RouteCompareResponse>("routes/compare", params);
 export const getTrace = (id: string) => getJson<TraceResponse>("trace", { id });
 export const getClasses = (params: QueryParams = {}) =>
   getJson<ClassStatsResponse>("classes", params);

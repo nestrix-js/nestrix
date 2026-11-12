@@ -64,6 +64,16 @@ export function bucketIndex(ms: number): number {
   return i;
 }
 
+/** Totals of one route over a range of minutes (`RouteStatistics.aggregate`). */
+export interface RouteAggregate {
+  method: string;
+  route: string;
+  count: number;
+  errors: number;
+  max: number;
+  hist: Uint32Array;
+}
+
 export interface RouteSeriesPointResult {
   /** Start of the bucket, Unix ms. */
   timeUnixMs: number;
@@ -245,6 +255,48 @@ export class RouteStatistics {
       toUnixMs: now,
       routes,
     };
+  }
+
+  /**
+   * Per-route totals over the minutes `firstMinute..lastMinute` (minute indexes, Unix ms / 60 000,
+   * inclusive). Minutes no longer kept (older than the last 60) count as empty. Routes with no
+   * request in the range are left out. Never throws.
+   */
+  aggregate(firstMinute: number, lastMinute: number): RouteAggregate[] {
+    const out: RouteAggregate[] = [];
+    try {
+      const all: Series[] = [];
+      for (const byRoute of this.byMethod.values()) {
+        for (const s of byRoute.values()) all.push(s);
+      }
+      if (this.other) all.push(this.other);
+      for (const s of all) {
+        const agg: RouteAggregate = {
+          method: s.method,
+          route: s.route,
+          count: 0,
+          errors: 0,
+          max: 0,
+          hist: new Uint32Array(HISTOGRAM_BUCKETS),
+        };
+        for (let m = firstMinute; m <= lastMinute; m++) {
+          const slot = ((m % WINDOW_BUCKETS) + WINDOW_BUCKETS) % WINDOW_BUCKETS;
+          if (s.minute[slot] !== m || (s.count[slot] as number) === 0) continue;
+          agg.count += s.count[slot] as number;
+          agg.errors += s.errors[slot] as number;
+          if ((s.max[slot] as number) > agg.max)
+            agg.max = s.max[slot] as number;
+          const start = slot * HISTOGRAM_BUCKETS;
+          for (let i = 0; i < HISTOGRAM_BUCKETS; i++) {
+            (agg.hist[i] as number) += s.hist[start + i] as number;
+          }
+        }
+        if (agg.count > 0) out.push(agg);
+      }
+    } catch {
+      // Statistics never throw into a request.
+    }
+    return out;
   }
 
   private seriesFor(method: string, route: string): Series {

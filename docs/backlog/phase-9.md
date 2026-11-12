@@ -9,7 +9,7 @@ Every new number shown in the UI says whether it is counted before sampling (rou
 | ID | Task | Tier | Status |
 |---|---|---|---|
 | P9-01 | Trace diagnosis (time by kind/class bar, critical path), duration bars in the request list, saved filters | sonnet | todo |
-| P9-02 | Latency histogram per route with click-to-traces; compare two windows and two releases | sonnet | todo |
+| P9-02 | Latency histogram per route with click-to-traces; compare two windows and two releases | sonnet | done (local checks; see report) |
 | P9-03 | Queries page: slowest and most frequent statements across traces | sonnet | todo |
 | P9-04 | Error groups (type + message + route) with counts, first/last seen, sparkline | sonnet | todo |
 | P9-05 | Dependencies page (hosts, databases, Redis: calls, p95, errors, trend); request timeline chart above the list | sonnet | todo |

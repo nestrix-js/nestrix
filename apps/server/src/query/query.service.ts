@@ -31,9 +31,12 @@ import type {
   MapNode,
   MetaResponse,
   MethodStats,
+  RouteHistogramResponse,
+  RouteReleaseCompareResponse,
   RouteSeriesPoint,
   RouteStats,
   RouteStatsResponse,
+  RouteWindowCompareResponse,
   SpanKind,
   SpanRecord,
   StatusCode,
@@ -55,6 +58,15 @@ import {
 import { STORAGE_POOL } from "../storage/storage.module.js";
 import { QUERY_OPTIONS, type ResolvedQueryOptions } from "./options.js";
 import { routeStatsSpec, type Values } from "./params.js";
+import {
+  bucketsOf,
+  compareRows,
+  type ReleaseRow,
+  releaseCompareSql,
+  releaseSides,
+  releasesSql,
+  type SideRow,
+} from "./route-insights.js";
 import { TARGET_KEYS, targetOf } from "./targets.js";
 
 export const PROTOCOL_VERSION: MetaResponse["protocolVersion"] = 1;
@@ -396,6 +408,11 @@ export class QueryService {
         `duration_ns::float8 >= ${params.add(Number(v.minDurationMs) * 1e6)}::float8`,
       );
     }
+    if (v.maxDurationMs !== undefined) {
+      where.push(
+        `duration_ns::float8 <= ${params.add(Number(v.maxDurationMs) * 1e6)}::float8`,
+      );
+    }
     switch (v.status) {
       case "error":
         where.push("is_error");
@@ -717,6 +734,186 @@ export class QueryService {
       toUnixMs: now,
       routes,
     };
+  }
+
+  // ---- route insights (P9-02) ------------------------------------------------------------------
+
+  async routeHistogram(
+    route: string,
+    method: string | undefined,
+    windowMinutes: number,
+    service: string | undefined,
+    now: number = Date.now(),
+  ): Promise<RouteHistogramResponse> {
+    const w = windowOf(windowMinutes, now);
+    const params = new Params();
+    const where = [
+      `minute >= ${params.add(new Date(w.first * MINUTE_MS))}`,
+      `minute <= ${params.add(new Date(w.last * MINUTE_MS))}`,
+      `route = ${params.add(route)}`,
+    ];
+    if (method !== undefined) where.push(`method = ${params.add(method)}`);
+    if (service !== undefined) {
+      where.push(`service_name = ${params.add(service)}`);
+    }
+    const rows = await this.rows<{
+      count: number;
+      max_ms: number;
+      hist: number[];
+    }>(
+      `SELECT count, max_ms, hist FROM route_minutes WHERE ${where.join(" AND ")}`,
+      params.values,
+    );
+    const hist = emptyHistogram();
+    let count = 0;
+    let max = 0;
+    for (const r of rows) {
+      count += Number(r.count);
+      if (Number(r.max_ms) > max) max = Number(r.max_ms);
+      addHistograms(hist, r.hist);
+    }
+    return {
+      method: method ?? null,
+      route,
+      windowMinutes,
+      fromUnixMs: w.fromMs,
+      toUnixMs: now,
+      count,
+      p50Ms: estimateQuantile(hist, count, 0.5, max),
+      p95Ms: estimateQuantile(hist, count, 0.95, max),
+      p99Ms: estimateQuantile(hist, count, 0.99, max),
+      maxMs: round(max),
+      buckets: bucketsOf(hist),
+    };
+  }
+
+  async windowCompare(
+    windowMinutes: number,
+    service: string | undefined,
+    now: number = Date.now(),
+  ): Promise<RouteWindowCompareResponse> {
+    const last = Math.floor(now / MINUTE_MS);
+    const curFirst = last - windowMinutes + 1;
+    const prevLast = curFirst - 1;
+    const prevFirst = prevLast - windowMinutes + 1;
+    const params = new Params();
+    const where = [
+      `minute >= ${params.add(new Date(prevFirst * MINUTE_MS))}`,
+      `minute <= ${params.add(new Date(last * MINUTE_MS))}`,
+    ];
+    if (service !== undefined) {
+      where.push(`service_name = ${params.add(service)}`);
+    }
+    const rows = await this.rows<{
+      minute_ms: string;
+      method: string;
+      route: string;
+      count: number;
+      errors: number;
+      max_ms: number;
+      hist: number[];
+    }>(
+      `SELECT (extract(epoch FROM minute) * 1000)::bigint AS minute_ms, method, route, count, errors, max_ms, hist
+         FROM route_minutes WHERE ${where.join(" AND ")}`,
+      params.values,
+    );
+    interface Acc {
+      method: string;
+      route: string;
+      count: number;
+      errors: number;
+      max: number;
+      hist: number[];
+    }
+    const before = new Map<string, Acc>();
+    const after = new Map<string, Acc>();
+    for (const r of rows) {
+      const minute = Math.floor(Number(r.minute_ms) / MINUTE_MS);
+      const into = minute >= curFirst ? after : before;
+      const key = `${r.method}\u0000${r.route}`;
+      let a = into.get(key);
+      if (a === undefined) {
+        a = {
+          method: r.method,
+          route: r.route,
+          count: 0,
+          errors: 0,
+          max: 0,
+          hist: emptyHistogram(),
+        };
+        into.set(key, a);
+      }
+      a.count += Number(r.count);
+      a.errors += Number(r.errors);
+      if (Number(r.max_ms) > a.max) a.max = Number(r.max_ms);
+      addHistograms(a.hist, r.hist);
+    }
+    const sides = (m: Map<string, Acc>): SideRow[] =>
+      [...m.values()]
+        .filter((a) => a.count > 0)
+        .map((a) => ({
+          method: a.method,
+          route: a.route,
+          count: a.count,
+          errors: a.errors,
+          p50Ms: estimateQuantile(a.hist, a.count, 0.5, a.max),
+          p95Ms: estimateQuantile(a.hist, a.count, 0.95, a.max),
+        }));
+    const sinceParams = new Params();
+    const sinceWhere =
+      service === undefined
+        ? ""
+        : `WHERE service_name = ${sinceParams.add(service)}`;
+    const [since, releases] = await Promise.all([
+      this.rows<{ since: string | null }>(
+        `SELECT (extract(epoch FROM min(minute)) * 1000)::bigint AS since FROM route_minutes ${sinceWhere}`,
+        sinceParams.values,
+      ),
+      this.releases(service),
+    ]);
+    const sinceMs = since[0]?.since;
+    const covered = sinceMs != null && Number(sinceMs) <= prevFirst * MINUTE_MS;
+    return {
+      mode: "window",
+      windowMinutes,
+      previous: {
+        fromUnixMs: prevFirst * MINUTE_MS,
+        toUnixMs: curFirst * MINUTE_MS,
+      },
+      current: { fromUnixMs: curFirst * MINUTE_MS, toUnixMs: now },
+      previousCovered: covered,
+      note: covered
+        ? null
+        : "Statistics start less than two windows ago, so the previous window is only partly counted or empty.",
+      releases,
+      routes: compareRows(sides(before), sides(after)),
+    };
+  }
+
+  async releaseCompare(
+    releaseA: string,
+    releaseB: string,
+    service: string | undefined,
+  ): Promise<RouteReleaseCompareResponse> {
+    const q = releaseCompareSql(releaseA, releaseB, service);
+    const [rows, releases] = await Promise.all([
+      this.rows<ReleaseRow>(q.text, q.values),
+      this.releases(service),
+    ]);
+    const sides = releaseSides(rows, releaseA, releaseB);
+    return {
+      mode: "release",
+      releaseA,
+      releaseB,
+      releases,
+      routes: compareRows(sides.a, sides.b),
+    };
+  }
+
+  private async releases(service: string | undefined): Promise<string[]> {
+    const q = releasesSql(service);
+    const rows = await this.rows<{ release: string }>(q.text, q.values);
+    return rows.map((r) => r.release);
   }
 
   // ---- class statistics ------------------------------------------------------------------------
