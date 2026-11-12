@@ -76,9 +76,19 @@ The receiver accepts `application/x-protobuf` and `application/json`, with optio
 
 ## Login
 
-`/login` serves a small form. `POST /login` checks the password in constant time, is limited to 5 attempts per minute per client address, and requires a same-origin `Origin` header. It sets an `HttpOnly`, `SameSite=Strict` session cookie (8 hours, `Secure` unless the request is plain HTTP to a loopback host) signed with HMAC. Changing the admin password ends every session, and so does restarting the server. Everything except `/v1/traces`, `/login` and `/logout` needs a session, including paths added later, and the API never emits CORS headers.
+`/login` serves a small form. `POST /login` checks the password in constant time, is limited to 5 attempts per minute per client address, and requires a same-origin `Origin` header. It sets an `HttpOnly`, `SameSite=Strict` session cookie (8 hours, `Secure` unless the request is plain HTTP to a loopback host) signed with HMAC. Changing the admin password ends every session, and so does restarting the server. Everything except `/v1/traces`, `/login` and `/logout` needs a session, including paths added later (the query API's read routes also accept an [API token](#api-tokens)), and the API never emits CORS headers.
 
 Behind a reverse proxy, pass the `Host` header through or the `Origin` check fails. All visitors then share the proxy's login rate limit.
+
+## API tokens
+
+For tools that read the server without a browser, such as the Nestrix MCP server, create a read-only API token on the dashboard's **Settings** page (or `POST /api/v1/tokens` with `{"name": "..."}` from a signed-in session). The token, `nxt_` followed by 43 characters, is shown once; the server keeps only its SHA-256 hash. Send it as `Authorization: Bearer nxt_...`:
+
+```bash
+curl -H "Authorization: Bearer $NESTRIX_TOKEN" https://nestrix.example.com/api/v1/traces?limit=10
+```
+
+A token reads `GET`/`HEAD` on `/api/v1/meta`, `traces`, `trace`, `errors`, `routes`, `classes` and `map`, and nothing else: not the dashboard, not the token, alert or SLO routes, never a write, and never ingest (ingest keys and API tokens are separate). Revoking a token on the Settings page stops it at the next request. Refused tokens count toward the login's global budget of failed attempts; while it is spent, token requests answer 429.
 
 ## Retention and storage
 

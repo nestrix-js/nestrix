@@ -203,6 +203,17 @@ export const slos = pgTable("slos", {
   updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
 });
 
+/** API tokens (migrations/0006_api_tokens.sql, src/auth/api-tokens.ts). `hash` is hex SHA-256. */
+export const apiTokens = pgTable("api_tokens", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  prefix: text("prefix").notNull(),
+  hash: text("hash").notNull().unique(),
+  createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at", tz),
+  revokedAt: timestamp("revoked_at", tz),
+});
+
 export const alertState = pgTable("alert_state", {
   ruleId: bigint("rule_id", { mode: "number" }).primaryKey(),
   state: text("state").$type<"ok" | "pending" | "firing">().notNull(),
@@ -236,6 +247,7 @@ export const schema = {
   routeMinutes,
   classMinutes,
   slos,
+  apiTokens,
   alertRules,
   alertState,
   alertEvents,

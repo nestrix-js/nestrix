@@ -322,7 +322,10 @@ export type ApiErrorCode =
   | "internal"
   /** `409`: a profiler capture is already running. */
   | "conflict"
-  /** `429`: a profiler capture started within 10 s of the previous one's end. */
+  /**
+   * `429`: a profiler capture started within 10 s of the previous one's end; on the standalone
+   * server also an API token request while the global budget of failed sign-ins is spent.
+   */
   | "too_many_requests"
   /** `411`: a write without `Content-Length`. */
   | "length_required"

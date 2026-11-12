@@ -16,6 +16,13 @@
  * Without `NESTRIX_ADMIN_PASSWORD` every protected path answers 503 with a message saying how to
  * set it; ingest is unaffected. `Sec-Fetch-Site: cross-site` is refused on every path but ingest.
  * No response written here carries an `Access-Control-*` header.
+ *
+ * API tokens (P8-01, `decideToken`): a request with `Authorization: Bearer nxt_…` is judged by
+ * that token alone, whatever cookie it carries. It passes only as a `GET`/`HEAD` of a query-API
+ * read route (`TOKEN_READ_ROUTE`) with a stored, unrevoked token, stamped `token`; everything else
+ * with such a header (the UI, `/login`, token, alert and SLO routes, any write) answers 401. Ingest
+ * is decided first and never looks at API tokens. Refused tokens count toward the login rate
+ * limiter's global failure budget, and while it is spent token requests answer 429.
  */
 
 import { timingSafeEqual } from "node:crypto";
@@ -24,6 +31,11 @@ import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import type { ServerConfig } from "../config.js";
 import { SERVER_CONFIG } from "../config.module.js";
 import { INGEST_TRACES_PATH_PATTERN } from "../ingest/tokens.js";
+import {
+  type ApiTokenVerifier,
+  isApiTokenShape,
+  type VerifiedApiToken,
+} from "./api-tokens.js";
 import {
   apiErrorBody,
   getCookieValues,
@@ -61,10 +73,15 @@ import {
   verifySession,
 } from "./session.js";
 
-/** What the middleware decided for a request, read by `AdminAuthGuard`. */
-export type AuthStamp = "ingest" | "login" | "session";
+/**
+ * What the middleware decided for a request, read by `AdminAuthGuard` and the query guards.
+ * `token`: a valid API token on a `GET`/`HEAD` of one of the query API's read routes (P8-01).
+ */
+export type AuthStamp = "ingest" | "login" | "session" | "token";
 /** A private symbol: neither a client nor other code can forge the stamp by name. */
 export const AUTH_STAMP = Symbol("nestrix-server:auth-stamp");
+/** The id of the API token that authenticated a `token`-stamped request. */
+export const AUTH_TOKEN_ID = Symbol("nestrix-server:auth-token-id");
 /** Session cookies looked at per request (duplicates beyond this are ignored). */
 const MAX_SESSION_COOKIES = 8;
 
@@ -73,6 +90,17 @@ const LOGIN_CSS_ROUTE = /^\/login\.css$/i;
 const LOGOUT_ROUTE = /^\/logout\/?$/i;
 const API_PREFIX = /^\/api(?:\/|$)/i;
 const SAFE_METHODS = new Set(["GET", "HEAD"]);
+/**
+ * The only paths an API token may read (with `GET` or `HEAD`): the query API's read routes, as
+ * Express routes them (case-insensitive, optional trailing slash). Not the alert, SLO or token
+ * routes, not the UI, not ingest.
+ */
+export const TOKEN_READ_ROUTE =
+  /^\/api\/v1\/(?:meta|traces|trace|errors|routes|classes|map)\/?$/i;
+/** `Authorization: Bearer nxt_…`: the scheme case-insensitive (RFC 9110), the prefix exact. */
+const BEARER_API_TOKEN = /^bearer +(nxt_\S*) *$/i;
+const TOKEN_ONLY_READS = "API tokens can only read the query API.";
+const TOKEN_REFUSED = "Invalid or revoked API token.";
 
 type Next = (error?: unknown) => void;
 
@@ -81,8 +109,48 @@ export function stampOf(req: unknown): AuthStamp | undefined {
   return (req as Record<symbol, AuthStamp | undefined>)[AUTH_STAMP];
 }
 
+/** The id of the API token behind a `token` stamp. */
+export function tokenIdOf(req: unknown): string | undefined {
+  if (req === null || typeof req !== "object") return undefined;
+  const id = (req as Record<symbol, unknown>)[AUTH_TOKEN_ID];
+  return typeof id === "string" ? id : undefined;
+}
+
 function stamp(req: IncomingMessage, value: AuthStamp): void {
   (req as unknown as Record<symbol, AuthStamp>)[AUTH_STAMP] = value;
+}
+
+/**
+ * What the request's `Authorization` header says about API tokens:
+ * - `none`: no `Bearer nxt_…` credential (no header, or another scheme or credential, such as a
+ *   proxy's Basic auth). The request is judged by its session as before.
+ * - `token`: exactly one `Authorization` line, `Bearer nxt_…`. Judged by the token alone.
+ * - `malformed`: a `Bearer nxt_…` line among several `Authorization` lines. Refused.
+ *
+ * Read from `rawHeaders`, since Node keeps only the first `Authorization` in `headers`.
+ */
+export type BearerCredential =
+  | { kind: "none" }
+  | { kind: "token"; value: string }
+  | { kind: "malformed" };
+
+export function bearerCredentialOf(req: IncomingMessage): BearerCredential {
+  const lines: string[] = [];
+  const raw = req.rawHeaders;
+  if (Array.isArray(raw)) {
+    for (let i = 0; i + 1 < raw.length; i += 2) {
+      if (String(raw[i]).toLowerCase() === "authorization")
+        lines.push(String(raw[i + 1]));
+    }
+  }
+  let token: string | undefined;
+  for (const line of lines) {
+    const match = BEARER_API_TOKEN.exec(line.trim());
+    if (match) token = match[1] as string;
+  }
+  if (token === undefined) return { kind: "none" };
+  if (lines.length !== 1) return { kind: "malformed" };
+  return { kind: "token", value: token };
 }
 
 /** The start-up lines about the admin login (also used by tests). */
@@ -109,6 +177,8 @@ export class AdminAuth implements OnModuleInit {
   private readonly passwordDigest: Buffer | undefined;
   private readonly key: Buffer | undefined;
   readonly revoked = new RevokedSessions();
+  /** Set by `TokensModule`; without it every `Bearer nxt_…` request is refused. */
+  private tokenVerifier: ApiTokenVerifier | undefined;
   /** Replaceable in tests. */
   limiter = new LoginRateLimiter();
   /** Seconds since the epoch. Replaceable in tests. */
@@ -135,6 +205,11 @@ export class AdminAuth implements OnModuleInit {
 
   get passwordConfigured(): boolean {
     return this.key !== undefined;
+  }
+
+  /** Called once by `TokensModule` at start. */
+  useTokenVerifier(verifier: ApiTokenVerifier): void {
+    this.tokenVerifier = verifier;
   }
 
   /** The valid, unrevoked session among the request's session cookies, if any. Never throws. */
@@ -165,27 +240,51 @@ export class AdminAuth implements OnModuleInit {
     res: ServerResponse,
     next: Next,
   ) => void {
+    const internalError = (res: ServerResponse) =>
+      writeRaw(res, {
+        status: 500,
+        csp: UI_CSP,
+        contentType: TEXT_TYPE,
+        body: "Internal error.",
+      });
     return (req, res, next) => {
-      let pass = false;
+      let decision: boolean | Promise<boolean> = false;
       try {
-        pass = this.decide(req, res);
+        decision = this.decide(req, res);
       } catch {
-        pass = false;
-        writeRaw(res, {
-          status: 500,
-          csp: UI_CSP,
-          contentType: TEXT_TYPE,
-          body: "Internal error.",
-        });
+        decision = false;
+        internalError(res);
       }
-      if (pass) next();
+      if (decision === true) {
+        next();
+      } else if (decision !== false) {
+        // An API token is checked against the database: pass on only once it was found. Nothing
+        // here may leave a rejected promise unhandled (that would end the process).
+        decision
+          .then(
+            (pass) => {
+              if (!pass) return;
+              try {
+                next();
+              } catch (error) {
+                next(error);
+              }
+            },
+            () => internalError(res),
+          )
+          .catch(() => internalError(res));
+      }
     };
   }
 
   /** True to pass the request on; false when a response was written. */
-  private decide(req: IncomingMessage, res: ServerResponse): boolean {
+  private decide(
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): boolean | Promise<boolean> {
     const path = pathnameOf(req);
     if (INGEST_TRACES_PATH_PATTERN.test(path)) {
+      // Ingest keeps its own keys: an API token is not one (the receiver checks them).
       stamp(req, "ingest");
       return true;
     }
@@ -202,6 +301,11 @@ export class AdminAuth implements OnModuleInit {
       );
       return false;
     }
+    const bearer = bearerCredentialOf(req);
+    if (bearer.kind !== "none") {
+      // Judged by the token alone, before the login paths and whatever session cookie came along.
+      return this.decideToken(req, res, path, api, bearer);
+    }
     if (
       LOGIN_ROUTE.test(path) ||
       LOGIN_CSS_ROUTE.test(path) ||
@@ -211,21 +315,7 @@ export class AdminAuth implements OnModuleInit {
       return true;
     }
     if (!this.passwordConfigured) {
-      if (api) {
-        writeRaw(res, {
-          status: 503,
-          csp: UI_CSP,
-          contentType: JSON_TYPE,
-          body: apiErrorBody("unavailable", PASSWORD_NOT_SET_MESSAGE),
-        });
-      } else {
-        writeRaw(res, {
-          status: 503,
-          csp: LOGIN_CSP,
-          contentType: HTML_TYPE,
-          body: passwordNotSetPage(),
-        });
-      }
+      this.passwordNotSet(res, api);
       return false;
     }
     const method = (req.method ?? "").toUpperCase();
@@ -262,6 +352,136 @@ export class AdminAuth implements OnModuleInit {
       });
     }
     return false;
+  }
+
+  private passwordNotSet(res: ServerResponse, api: boolean): void {
+    if (api) {
+      writeRaw(res, {
+        status: 503,
+        csp: UI_CSP,
+        contentType: JSON_TYPE,
+        body: apiErrorBody("unavailable", PASSWORD_NOT_SET_MESSAGE),
+      });
+    } else {
+      writeRaw(res, {
+        status: 503,
+        csp: LOGIN_CSP,
+        contentType: HTML_TYPE,
+        body: passwordNotSetPage(),
+      });
+    }
+  }
+
+  /**
+   * A request carrying `Authorization: Bearer nxt_…` (P8-01). Order: admin password configured
+   * (503; tokens are managed by the admin, so they work only while the admin login does) →
+   * `GET`/`HEAD` on a query-API read route (401 otherwise; nothing is looked up or counted) →
+   * global failure budget of the login rate limiter (429) → token shape and a stored, unrevoked
+   * token with that hash (401, counted as a failure) → stamp `token` with the token's id.
+   * A database failure answers 503 and counts nothing.
+   */
+  private decideToken(
+    req: IncomingMessage,
+    res: ServerResponse,
+    path: string,
+    api: boolean,
+    bearer: Exclude<BearerCredential, { kind: "none" }>,
+  ): boolean | Promise<boolean> {
+    if (!this.passwordConfigured) {
+      this.passwordNotSet(res, api);
+      return false;
+    }
+    const method = (req.method ?? "").toUpperCase();
+    if (!SAFE_METHODS.has(method) || !TOKEN_READ_ROUTE.test(path)) {
+      this.refuseToken(res, api, TOKEN_ONLY_READS);
+      return false;
+    }
+    const budget = this.limiter.checkFailureBudget();
+    if (!budget.ok) {
+      writeRaw(res, {
+        status: 429,
+        csp: UI_CSP,
+        contentType: JSON_TYPE,
+        headers: { "retry-after": String(budget.retryAfterSeconds) },
+        body: apiErrorBody(
+          "too_many_requests",
+          "Too many failed sign-in or token attempts. Try again later.",
+        ),
+      });
+      return false;
+    }
+    const verifier = this.tokenVerifier;
+    if (
+      bearer.kind !== "token" ||
+      !isApiTokenShape(bearer.value) ||
+      verifier === undefined
+    ) {
+      this.limiter.recordFailure();
+      this.refuseToken(res, api, TOKEN_REFUSED);
+      return false;
+    }
+    let lookup: Promise<VerifiedApiToken | undefined>;
+    try {
+      lookup = verifier.verify(bearer.value);
+    } catch (error) {
+      lookup = Promise.reject(error);
+    }
+    return lookup.then(
+      (found) => {
+        if (found === undefined) {
+          this.limiter.recordFailure();
+          this.refuseToken(res, api, TOKEN_REFUSED);
+          return false;
+        }
+        stamp(req, "token");
+        (req as unknown as Record<symbol, string>)[AUTH_TOKEN_ID] = found.id;
+        return true;
+      },
+      () => {
+        this.throttledWarn("API token lookup failed (database unavailable?)");
+        writeRaw(res, {
+          status: 503,
+          csp: UI_CSP,
+          contentType: JSON_TYPE,
+          headers: { "retry-after": "5" },
+          body: apiErrorBody(
+            "unavailable",
+            "The token could not be checked. Try again later.",
+          ),
+        });
+        return false;
+      },
+    );
+  }
+
+  private lastWarnMs = 0;
+
+  /** At most one line a minute; never includes the token. */
+  private throttledWarn(message: string): void {
+    try {
+      const now = Date.now();
+      if (now - this.lastWarnMs < 60_000) return;
+      this.lastWarnMs = now;
+      this.logger.warn(message);
+    } catch {
+      // Logging must not affect the response.
+    }
+  }
+
+  private refuseToken(
+    res: ServerResponse,
+    api: boolean,
+    message: string,
+  ): void {
+    writeRaw(res, {
+      status: 401,
+      csp: UI_CSP,
+      contentType: api ? JSON_TYPE : TEXT_TYPE,
+      headers: {
+        "www-authenticate": 'Bearer realm="nestrix", error="invalid_token"',
+      },
+      body: api ? apiErrorBody("unauthorized", message) : message,
+    });
   }
 
   private refuse(

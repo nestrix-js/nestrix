@@ -77,6 +77,37 @@ export function startServer(): Promise<{
             protocolVersion: 1,
           }),
         );
+      } else if (path.startsWith(`${BASE_PATH}/api/v1/tokens`)) {
+        const rest = path.slice(`${BASE_PATH}/api/v1/tokens`.length);
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(chunk as Buffer);
+        const text = Buffer.concat(chunks).toString("utf8");
+        // Writes need the same-origin Origin and no token may manage tokens, as on the server.
+        const answer =
+          req.method !== "GET" &&
+          req.headers.origin !== `http://${req.headers.host}`
+            ? {
+                status: 403,
+                body: { error: { code: "forbidden", message: "Origin" } },
+              }
+            : req.headers.authorization !== undefined
+              ? {
+                  status: 401,
+                  body: { error: { code: "unauthorized", message: "Token" } },
+                }
+              : mock.handleTokens(
+                  req.method ?? "GET",
+                  rest.startsWith("/") ? rest.slice(1) : null,
+                  text === "" ? undefined : JSON.parse(text),
+                );
+        send(
+          answer.status,
+          {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+          },
+          answer.body === undefined ? "" : JSON.stringify(answer.body),
+        );
       } else if (path.startsWith(`${BASE_PATH}/api/v1/slos`)) {
         const rest = path.slice(`${BASE_PATH}/api/v1/slos`.length);
         const chunks: Buffer[] = [];

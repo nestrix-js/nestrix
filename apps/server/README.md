@@ -88,8 +88,25 @@ Not configurable by environment: the ingest limits and rate limit below, and the
 - **A restart signs everyone out**, even with a fixed `NESTRIX_SESSION_SECRET`, because sign-out revocations are held in memory and a per-process random value is part of the signing key. Changing the admin password also ends every session. Plan on signing in again after an upgrade.
 - The cookie name includes the port (`nestrix_admin_<port>`), because browsers share cookies across ports on one host.
 - Rate limits: 5 login attempts per minute per client address (IPv6 by /64), counted on every attempt, and a global budget of 60 failed logins a minute across all clients; once it is spent every `POST /login` answers 429 until the oldest failure leaves the minute.
-- Every request except `/v1/traces`, `/login` and `/logout` needs a session, including paths added later. A state-changing request needs a same-origin `Origin` header. The API never emits CORS headers, so a browser page on another origin cannot read it.
+- Every request except `/v1/traces`, `/login` and `/logout` needs a session, including paths added later; the query API's read routes also accept an API token (below). A state-changing request needs a same-origin `Origin` header. The API never emits CORS headers, so a browser page on another origin cannot read it.
 - **Behind a reverse proxy:** pass the `Host` header through (`proxy_set_header Host $host;` in nginx), or the `Origin` check fails and login answers 403. Serve it over HTTPS: on a non-loopback host the cookie is `Secure`, so a browser will not send it over plain HTTP. The limiter keys on the connection's address and never trusts `X-Forwarded-For`, so behind a proxy all visitors share one login limit.
+
+## API tokens
+
+Read-only, revocable tokens let tools such as the Nestrix MCP server (`@nestrix-js/mcp`) read the query API without a browser session.
+
+- **Create, list and revoke** them on the dashboard's **Settings** page, or with the API from a signed-in session: `POST /api/v1/tokens` with `{"name": "..."}` (answers the token once), `GET /api/v1/tokens` (names, display prefixes, created and last-used times; no secrets), `DELETE /api/v1/tokens/:id` (revoke). A token can never manage tokens. Writes need a same-origin `Origin`, like every write.
+- A token looks like `nxt_` followed by 43 characters. The server stores only its SHA-256 hash and its first 8 characters for display, so a lost token cannot be shown again: revoke it and create another. At most 100 tokens can be active.
+- **Use:** `Authorization: Bearer nxt_...`. Never in a query string or a cookie; those are ignored.
+- **What a token reads:** `GET` and `HEAD` on `/api/v1/meta`, `/api/v1/traces`, `/api/v1/trace`, `/api/v1/errors`, `/api/v1/routes`, `/api/v1/classes` and `/api/v1/map`. Nothing else: a request with a token on the dashboard, `/login`, `/logout`, the token routes, alerts or SLOs (reads included: alert rules hold webhook URLs) or any write answers 401, even if it also carries a session cookie. The ingest route `/v1/traces` takes only ingest keys; an API token is not an ingest key and an ingest key is not an API token.
+- **Revocation is immediate:** every request looks the token up in the database, so the next request after a revoke is refused.
+- **Failures share the login's budget:** each refused token counts toward the global budget of 60 failed logins a minute. While that budget is spent, token requests answer 429 with `Retry-After`, as `POST /login` does. Anyone who can reach the port can spend it, which also locks out sign-in for a minute; restrict who can reach the server if that matters.
+- Tokens work only while `NESTRIX_ADMIN_PASSWORD` is set (otherwise the API answers 503). `last_used_at` is updated at most once a minute. Tokens are never logged.
+- Only send tokens over HTTPS: on plain HTTP they cross the network in clear text.
+
+```bash
+curl -H "Authorization: Bearer $NESTRIX_TOKEN" https://nestrix.example.com/api/v1/routes
+```
 
 ## Ingest
 
@@ -184,7 +201,7 @@ Pull or rebuild the image and restart. Migrations are applied at start, in order
 ## Security notes
 
 - **The ingest port is the admin port.** Ingest, the login form, the dashboard and the API all share one port, so exposing it to your services exposes `/login` to them too. Login is rate limited and the password needs 12 characters, but put the server behind a TLS-terminating proxy and, where you can, restrict who can reach it.
-- Without TLS, ingest keys and the admin password cross the network in clear text.
+- Without TLS, ingest keys, API tokens and the admin password cross the network in clear text.
 - `NESTRIX_INGEST_AUTH=none` is for local demos. Anyone who can reach the port can write spans.
 - The server stores the span attributes services send it; it does not scrub them. Redaction happens in each service's `@nestrix-js/nestjs` configuration before export.
 - The alert signing secret is stored in clear in the database, because the server signs with it. Protect the database.
