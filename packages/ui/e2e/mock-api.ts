@@ -5,6 +5,7 @@
 import type {
   AppMapResponse,
   ClassStatsResponse,
+  ErrorGroupsResponse,
   MetaResponse,
   ProfileDetail,
   ProfileListResponse,
@@ -19,7 +20,14 @@ import type {
 import { generatedClasses, generatedMap } from "./mock-classes-map.ts";
 import { ErrorStore } from "./mock-stats.ts";
 
-type Endpoint = "meta" | "traces" | "routes" | "errors" | "classes" | "map";
+type Endpoint =
+  | "meta"
+  | "traces"
+  | "routes"
+  | "errors"
+  | "errors/groups"
+  | "classes"
+  | "map";
 
 const ROUTES = ["/orders", "/orders/:id", "/users", "/health"];
 const METHODS = ["GET", "POST", "GET", "PUT"];
@@ -41,6 +49,8 @@ export class MockApi {
   overlap = false;
   /** Error list store; empty until a test pushes into it. */
   errors = new ErrorStore(() => this.epoch);
+  /** When set, `errors/groups` answers with this for the asked window; empty groups otherwise. */
+  errorGroups: ((windowMinutes: number) => ErrorGroupsResponse) | null = null;
   /** When set, `routes` answers with this for the asked window instead of the stub. */
   routeStats: ((windowMinutes: number) => RouteStatsResponse) | null = null;
   /** When set, `classes` / `map` answer with this for the asked window instead of the generated data. */
@@ -99,6 +109,7 @@ export class MockApi {
     this.overlap = false;
     this.requests = [];
     this.routeStats = null;
+    this.errorGroups = null;
     this.classStats = null;
     this.appMap = null;
     this.mode = "embedded";
@@ -218,6 +229,21 @@ export class MockApi {
         return this.trace(query.get("id"));
       case "errors":
         return this.errors.answer(query);
+      case "errors/groups": {
+        const windowMinutes = windowOf(query);
+        const bucketMs = windowMinutes <= 15 ? 60_000 : 300_000;
+        const to = Date.now();
+        return {
+          status: 200,
+          body: this.errorGroups?.(windowMinutes) ?? {
+            windowMinutes,
+            bucketMs,
+            fromUnixMs: to - windowMinutes * 60_000,
+            toUnixMs: to,
+            groups: [],
+          },
+        };
+      }
       default:
         return {
           status: 404,

@@ -21,6 +21,7 @@ describe("package entry", () => {
         "PROTOCOL_VERSION",
         "appMapParams",
         "classStatsParams",
+        "errorGroupParams",
         "errorListParams",
         "metaParams",
         "profileIdParams",

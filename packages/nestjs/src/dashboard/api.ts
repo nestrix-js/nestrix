@@ -18,6 +18,8 @@ import type {
   AppMapResponse,
   ClassStatsParamsSpec,
   ClassStatsResponse,
+  ErrorGroupParamsSpec,
+  ErrorGroupsResponse,
   ErrorListParamsSpec,
   ErrorListResponse,
   MetaResponse,
@@ -34,6 +36,7 @@ import { methodsEnabled } from "../methods/registry.js";
 import { type ClassStatistics, ownAverages } from "../stats/class-stats.js";
 import type { RouteStatistics } from "../stats/route-stats.js";
 import { buildAppMap } from "../store/app-map.js";
+import { groupErrors } from "../store/error-groups.js";
 import type { StoreStats, TraceStore } from "../store/store.js";
 import { type DashboardResponse, JSON_TYPE } from "./respond.js";
 
@@ -60,6 +63,17 @@ export const errorListSpec: ErrorListParamsSpec = {
   before: { kind: "cursor", maxLength: 256 },
   after: { kind: "cursor", maxLength: 256 },
   route: { kind: "string", maxLength: 512 },
+  service: { kind: "string", maxLength: 256 },
+};
+
+export const errorGroupSpec: ErrorGroupParamsSpec = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
   service: { kind: "string", maxLength: 256 },
 };
 
@@ -414,6 +428,22 @@ export function errorsHandler(
           after: v.after as string | undefined,
           route: v.route as string | undefined,
         })) ?? EMPTY_PAGE;
+  return ok(body);
+}
+
+export function errorGroupsHandler(
+  target: unknown,
+  sources: ApiSources,
+  now?: number,
+): DashboardResponse {
+  const parsed = parseQuery(target, errorGroupSpec);
+  if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
+  const windowMinutes = parsed.values.windowMinutes as number;
+  const body: ErrorGroupsResponse =
+    (otherService(parsed.values, sources)
+      ? undefined
+      : sources.store?.groupErrors(windowMinutes, now)) ??
+    groupErrors([], windowMinutes, now ?? Date.now());
   return ok(body);
 }
 

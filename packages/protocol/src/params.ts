@@ -97,6 +97,19 @@ export const errorListParams = {
 } as const;
 export type ErrorListParamsSpec = typeof errorListParams;
 
+/** `GET <path>/api/v1/errors/groups` */
+export const errorGroupParams = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+  service: { kind: "string", maxLength: 256 },
+} as const;
+export type ErrorGroupParamsSpec = typeof errorGroupParams;
+
 /** `GET <path>/api/v1/routes` */
 export const routeStatsParams = {
   windowMinutes: {

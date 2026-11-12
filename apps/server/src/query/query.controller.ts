@@ -14,6 +14,7 @@ import { QueryGuardGate } from "./guard.js";
 import {
   appMapSpec,
   classStatsSpec,
+  errorGroupSpec,
   errorListSpec,
   metaSpec,
   type Parsed,
@@ -102,6 +103,16 @@ export class QueryController {
   @Headers()
   errors(@Req() req: RequestLike) {
     return this.query.listErrors(parse(req, errorListSpec));
+  }
+
+  @Get("errors/groups")
+  @Headers()
+  errorGroups(@Req() req: RequestLike) {
+    const v = parse(req, errorGroupSpec);
+    return this.query.errorGroups(
+      v.windowMinutes as number,
+      v.service as string | undefined,
+    );
   }
 
   @Get("routes")
