@@ -102,3 +102,90 @@ export function formatRate(errors: number, calls: number): string {
 export function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
+
+/** Thresholds of node health, from the calls into a node: the worst of its edges decides. */
+export const HEALTH = {
+  /** Error rate from which a node is failing (the same 5% as a "high" edge). */
+  failingErrorRate: 0.05,
+  /** Any error, or a p95 from this many ms, makes a node degraded. */
+  degradedP95Ms: 300,
+  /** A p95 from this many ms makes a node failing. */
+  failingP95Ms: 1000,
+} as const;
+
+export type Health = "ok" | "degraded" | "failing" | "idle";
+
+/** Words for a health state; colour is never the only signal. */
+export const HEALTH_LABEL: Record<Health, string> = {
+  ok: "healthy",
+  degraded: "degraded",
+  failing: "failing",
+  idle: "no calls",
+};
+
+export function healthOf(stats: {
+  calls: number;
+  errors: number;
+  p95Ms: number;
+}): Health {
+  if (stats.calls <= 0) return "idle";
+  if (
+    stats.errors / stats.calls >= HEALTH.failingErrorRate ||
+    stats.p95Ms >= HEALTH.failingP95Ms
+  )
+    return "failing";
+  if (stats.errors > 0 || stats.p95Ms >= HEALTH.degradedP95Ms)
+    return "degraded";
+  return "ok";
+}
+
+export interface NodeStats {
+  /** Calls into the node (calls out of it for a node nothing calls, such as the app). */
+  calls: number;
+  errors: number;
+  /** The highest p50 and p95 of those edges. */
+  p50Ms: number;
+  p95Ms: number;
+  direction: "in" | "out";
+  health: Health;
+}
+
+/** The numbers of one node, from the edges that end at it, or start at it when none end there. */
+export function nodeStats(
+  nodeId: string,
+  edges: readonly MapEdge[],
+): NodeStats {
+  const incoming = edges.filter((e) => e.to === nodeId);
+  const direction = incoming.length > 0 ? "in" : "out";
+  const used =
+    direction === "in" ? incoming : edges.filter((e) => e.from === nodeId);
+  const calls = used.reduce((n, e) => n + e.calls, 0);
+  const errors = used.reduce((n, e) => n + e.errors, 0);
+  const p50Ms = used.reduce((m, e) => Math.max(m, e.p50Ms), 0);
+  const p95Ms = used.reduce((m, e) => Math.max(m, e.p95Ms), 0);
+  return {
+    calls,
+    errors,
+    p50Ms,
+    p95Ms,
+    direction,
+    health: healthOf({ calls, errors, p95Ms }),
+  };
+}
+
+/** Stroke width of an edge by call volume: from 1.5 for a trickle to 6 for the busiest edge. */
+export function edgeWidth(calls: number, maxCalls: number): number {
+  if (maxCalls <= 0 || calls <= 0) return 1.5;
+  const share = Math.min(1, calls / maxCalls);
+  return Math.round((1.5 + 4.5 * Math.sqrt(share)) * 10) / 10;
+}
+
+/** The edges touching a node, busiest first: who it calls and who calls it. */
+export function edgesOf(
+  nodeId: string,
+  edges: readonly PlacedEdge[],
+): PlacedEdge[] {
+  return edges
+    .filter((e) => e.from === nodeId || e.to === nodeId)
+    .sort((a, b) => b.calls - a.calls);
+}

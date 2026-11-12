@@ -2,11 +2,16 @@ import type { MapEdge, MapNode } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 
 import {
+  edgesOf,
+  edgeWidth,
   errorLevel,
   formatRate,
+  HEALTH_LABEL,
+  healthOf,
   layoutMap,
   MAP_HEIGHT,
   MAP_WIDTH,
+  nodeStats,
   truncate,
 } from "@/views/map/map-layout";
 
@@ -145,5 +150,63 @@ describe("layoutMap with several services", () => {
       x: MAP_WIDTH / 2,
       y: MAP_HEIGHT / 2,
     });
+  });
+});
+
+describe("node health", () => {
+  it("is idle without calls, ok when quiet and fast, degraded on any error or a slow p95, failing from 5% errors or a p95 of a second", () => {
+    expect(healthOf({ calls: 0, errors: 0, p95Ms: 0 })).toBe("idle");
+    expect(healthOf({ calls: 100, errors: 0, p95Ms: 299 })).toBe("ok");
+    expect(healthOf({ calls: 100, errors: 1, p95Ms: 10 })).toBe("degraded");
+    expect(healthOf({ calls: 100, errors: 0, p95Ms: 300 })).toBe("degraded");
+    expect(healthOf({ calls: 100, errors: 5, p95Ms: 10 })).toBe("failing");
+    expect(healthOf({ calls: 100, errors: 0, p95Ms: 1000 })).toBe("failing");
+    expect(HEALTH_LABEL.failing).toBe("failing");
+  });
+
+  it("takes a node's numbers from the edges into it, and from its own edges when nothing calls it", () => {
+    const edges = [
+      edge("db", { calls: 120, p50Ms: 3, p95Ms: 21 }),
+      edge("stripe", { calls: 20, errors: 4, p50Ms: 180, p95Ms: 900 }),
+      edge("stripe", { calls: 5, p50Ms: 10, p95Ms: 50 }),
+    ];
+    expect(nodeStats("stripe", edges)).toEqual({
+      calls: 25,
+      errors: 4,
+      p50Ms: 180,
+      p95Ms: 900,
+      direction: "in",
+      health: "failing",
+    });
+    const app = nodeStats("app", edges);
+    expect(app.direction).toBe("out");
+    expect(app.calls).toBe(145);
+    expect(nodeStats("db", edges).health).toBe("ok");
+    expect(nodeStats("nowhere", edges).health).toBe("idle");
+  });
+});
+
+describe("edgeWidth", () => {
+  it("grows with call volume between 1.5 and 6", () => {
+    expect(edgeWidth(0, 100)).toBe(1.5);
+    expect(edgeWidth(5, 0)).toBe(1.5);
+    expect(edgeWidth(100, 100)).toBe(6);
+    expect(edgeWidth(1000, 100)).toBe(6);
+    const small = edgeWidth(4, 400);
+    const mid = edgeWidth(100, 400);
+    expect(small).toBeGreaterThan(1.5);
+    expect(mid).toBeGreaterThan(small);
+    expect(mid).toBeLessThan(6);
+  });
+});
+
+describe("edgesOf", () => {
+  it("lists the edges in or out of a node, busiest first", () => {
+    const layout = layoutMap(
+      [node("app", "app"), node("a"), node("b", "cache")],
+      [edge("a", { calls: 5 }), edge("b", { calls: 50 })],
+    );
+    expect(edgesOf("app", layout.edges).map((e) => e.to)).toEqual(["b", "a"]);
+    expect(edgesOf("a", layout.edges)).toHaveLength(1);
   });
 });
