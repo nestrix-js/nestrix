@@ -188,6 +188,7 @@ export interface ClassStatsResponse {
   windowMinutes: number;
   fromUnixMs: number;
   toUnixMs: number;
+  methodsState: "on" | "off" | "no-data-in-range";
   methodsEnabled: boolean;
   classes: ClassStats[];
 }

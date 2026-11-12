@@ -52,6 +52,7 @@ export function generatedClasses(windowMinutes: number): ClassStatsResponse {
     windowMinutes,
     fromUnixMs: 0,
     toUnixMs: 0,
+    methodsState: "on",
     methodsEnabled: true,
     classes: [
       cls("OrdersController", "controller", [
@@ -73,12 +74,22 @@ export const classesDisabled = (windowMinutes: number): ClassStatsResponse => ({
   windowMinutes,
   fromUnixMs: 0,
   toUnixMs: 0,
+  methodsState: "off",
   methodsEnabled: false,
   classes: [],
 });
 
+export const classesNoDataInRange = (
+  windowMinutes: number,
+): ClassStatsResponse => ({
+  ...classesDisabled(windowMinutes),
+  methodsState: "no-data-in-range",
+  methodsEnabled: true,
+});
+
 export const classesEmpty = (windowMinutes: number): ClassStatsResponse => ({
   ...classesDisabled(windowMinutes),
+  methodsState: "on",
   methodsEnabled: true,
 });
 

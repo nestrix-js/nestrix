@@ -1161,12 +1161,26 @@ export class QueryService {
         b.totalMs - a.totalMs ||
         (a.className < b.className ? -1 : a.className > b.className ? 1 : 0),
     );
+    // "off" only when no method span was ever kept (for this service, or for any service when
+    // unfiltered); data older than the window is "no-data-in-range", not "off". Partitions are
+    // dropped by retention, so the unbounded EXISTS is bounded by it.
+    let methodsState: ClassStatsResponse["methodsState"] = "on";
+    if (rows.length === 0) {
+      const p = new Params();
+      const any = await this.rows<{ found: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM class_minutes${
+          service === undefined ? "" : ` WHERE service_name = ${p.add(service)}`
+        }) AS found`,
+        p.values,
+      );
+      methodsState = any[0]?.found === true ? "no-data-in-range" : "off";
+    }
     return {
       windowMinutes,
       fromUnixMs: w.fromMs,
       toUnixMs: now,
-      // Method spans are on when any service recorded a method in the window.
-      methodsEnabled: rows.length > 0,
+      methodsEnabled: methodsState !== "off",
+      methodsState,
       classes,
     };
   }

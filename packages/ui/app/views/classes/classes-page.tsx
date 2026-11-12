@@ -151,7 +151,23 @@ export function ClassesPage() {
         </div>
       )}
 
-      {stats.data !== undefined && !stats.data.methodsEnabled && (
+      {stats.data?.methodsState === "no-data-in-range" && (
+        <div
+          data-testid="methods-no-data-in-range"
+          className="space-y-2 rounded-lg border border-border p-6"
+        >
+          <p className="font-medium">
+            No method spans from this service in the selected range.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            The service has sent method spans before, but none in the last{" "}
+            {shownWindow} minutes. Widen the range with the window buttons
+            above.
+          </p>
+        </div>
+      )}
+
+      {stats.data !== undefined && stats.data.methodsState === "off" && (
         <div
           data-testid="methods-disabled"
           className="space-y-2 rounded-lg border border-border p-6"
@@ -160,7 +176,14 @@ export function ClassesPage() {
           <p className="text-sm text-muted-foreground">
             Class statistics come from method spans. Turn them on by passing the
             instrument when the app is created, in{" "}
-            <code className="font-mono">main.ts</code>:
+            <code className="font-mono">main.ts</code>. The{" "}
+            <code className="font-mono">instrument</code> option works the same
+            with <code className="font-mono">NestFactory.create</code>,{" "}
+            <code className="font-mono">
+              NestFactory.createApplicationContext
+            </code>{" "}
+            and{" "}
+            <code className="font-mono">NestFactory.createMicroservice</code>:
           </p>
           <pre className="overflow-x-auto rounded-md bg-secondary px-3 py-2 text-sm">
             <code className="font-mono">{ENABLE_LINE}</code>
@@ -172,7 +195,7 @@ export function ClassesPage() {
         </div>
       )}
 
-      {stats.data?.methodsEnabled && (
+      {stats.data?.methodsState === "on" && (
         <>
           <p
             data-testid="own-note"

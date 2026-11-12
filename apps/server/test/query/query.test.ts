@@ -786,6 +786,7 @@ describe.skipIf(noDatabase)(`query API ${skipReason}`, () => {
     it("sums method spans, with own time from the stored spans", async () => {
       const r = await server.json<ClassStatsResponse>("/api/v1/classes");
       expect(r.methodsEnabled).toBe(true);
+      expect(r.methodsState).toBe("on");
       expect(r.windowMinutes).toBe(15);
       expect(r.classes).toHaveLength(1);
       const c = r.classes[0];
@@ -819,6 +820,7 @@ describe.skipIf(noDatabase)(`query API ${skipReason}`, () => {
       );
       expect(payments.classes).toEqual([]);
       expect(payments.methodsEnabled).toBe(false);
+      expect(payments.methodsState).toBe("off");
       expect(
         (
           await server.json<ClassStatsResponse>(
@@ -829,6 +831,47 @@ describe.skipIf(noDatabase)(`query API ${skipReason}`, () => {
       expect((await server.get("/api/v1/classes?windowMinutes=5")).status).toBe(
         400,
       );
+    });
+  });
+
+  describe("classes: methodsState", () => {
+    it("separates never-seen (off) from idle past the window (no-data-in-range) and in-window (on)", async () => {
+      // An older minute, still on today's partition unless this runs just after midnight UTC.
+      const old = new Date(
+        Math.floor((Date.now() - 20 * 60_000) / 60_000) * 60_000,
+      );
+      await db.pool.query(
+        `INSERT INTO class_minutes
+           (minute, service_name, class_name, method_name, class_kind, count, errors, total_ms, max_ms, hist)
+         VALUES ($1, 'idle-worker', 'MailService', 'send', 'service', 3, 0, 30, 15, '{}')`,
+        [old],
+      );
+      const get = (q: string) =>
+        server.json<ClassStatsResponse>(`/api/v1/classes${q}`);
+
+      // No class_minutes rows for this service at all, while others have data: off.
+      const never = await get("?service=payments");
+      expect([never.methodsState, never.methodsEnabled]).toEqual([
+        "off",
+        false,
+      ]);
+
+      // Rows exist, all older than the 15-minute window: not off.
+      const idle = await get("?service=idle-worker");
+      expect(idle.classes).toEqual([]);
+      expect([idle.methodsState, idle.methodsEnabled]).toEqual([
+        "no-data-in-range",
+        true,
+      ]);
+
+      // The wider window reaches them.
+      const wide = await get("?service=idle-worker&windowMinutes=60");
+      expect(wide.methodsState).toBe("on");
+      expect(wide.classes.map((c) => c.className)).toEqual(["MailService"]);
+
+      // Rows in the window: on, with and without the service filter.
+      expect((await get("?service=shop")).methodsState).toBe("on");
+      expect((await get("")).methodsState).toBe("on");
     });
   });
 

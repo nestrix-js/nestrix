@@ -3,7 +3,11 @@ import { expect, type Page, test } from "@playwright/test";
 
 import { recordViolations, violations, watch } from "./helpers.ts";
 import type { MockApi } from "./mock-api.ts";
-import { classesDisabled, classesEmpty } from "./mock-classes-map.ts";
+import {
+  classesDisabled,
+  classesEmpty,
+  classesNoDataInRange,
+} from "./mock-classes-map.ts";
 import { BASE_PATH, startServer } from "./serve.ts";
 
 let server: Server;
@@ -152,7 +156,26 @@ test("when method spans are off, the page shows the line for main.ts and no tabl
   await expect(box).toContainText(
     "NestFactory.create(AppModule, { instrument: NestrixInstrument })",
   );
+  await expect(box).toContainText("NestFactory.createApplicationContext");
+  await expect(box).toContainText("NestFactory.createMicroservice");
   await expect(page.getByTestId("classes")).toHaveCount(0);
+});
+
+test("idle longer than the window says no data in range, not off, and the window toggle still works", async ({
+  page,
+}) => {
+  mock.classStats = classesNoDataInRange;
+  await page.goto(url());
+  const box = page.getByTestId("methods-no-data-in-range");
+  await expect(box).toContainText(
+    "No method spans from this service in the selected range",
+  );
+  await expect(box).toContainText("Widen the range");
+  await expect(page.getByTestId("methods-disabled")).toHaveCount(0);
+  await expect(page.getByTestId("classes")).toHaveCount(0);
+  await windowButton(page, 60).click();
+  await expect(windowButton(page, 60)).toHaveAttribute("aria-pressed", "true");
+  await expect(box).toContainText("last 60 minutes");
 });
 
 test("methods on but nothing called says so", async ({ page }) => {

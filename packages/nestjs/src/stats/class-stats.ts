@@ -214,6 +214,8 @@ export class ClassStatistics implements MethodCallSink {
       windowMinutes: window,
       fromUnixMs: first * BUCKET_MS,
       toUnixMs: now,
+      // The in-process path knows exactly whether method spans are on; never "no-data-in-range".
+      methodsState: methodsEnabled ? "on" : "off",
       methodsEnabled,
       classes: out,
     };

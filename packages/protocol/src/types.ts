@@ -270,7 +270,13 @@ export interface ClassStatsResponse {
   windowMinutes: number;
   fromUnixMs: number;
   toUnixMs: number;
-  /** False when method spans are off (no `NestrixInstrument`, or under `@nestjs/testing`); `classes` is then empty. */
+  /**
+   * `off`: no method spans were ever seen (no `NestrixInstrument`, or under `@nestjs/testing`).
+   * `no-data-in-range`: they exist but none fall in the window (standalone server only; the
+   * embedded dashboard reports `on` or `off`). `on` otherwise.
+   */
+  methodsState: "on" | "off" | "no-data-in-range";
+  /** Kept for compatibility: true unless `methodsState` is `off`. `classes` is empty when false. */
   methodsEnabled: boolean;
   classes: ClassStats[];
 }

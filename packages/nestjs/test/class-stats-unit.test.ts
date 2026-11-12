@@ -44,6 +44,16 @@ describe("ClassStatistics", () => {
       ownAvgMs: null,
     });
     expect(r.methodsEnabled).toBe(true);
+    expect(r.methodsState).toBe("on");
+  });
+
+  it("maps the caller's methodsEnabled to on or off, never no-data-in-range", () => {
+    const stats = new ClassStatistics();
+    // Nothing recorded in the window: still "on" when method spans are on.
+    expect(stats.query(15, true).methodsState).toBe("on");
+    const off = stats.query(15, false);
+    expect(off.methodsState).toBe("off");
+    expect(off.methodsEnabled).toBe(false);
   });
 
   it("buckets by wall-clock minute and leaves out calls older than the window", () => {

@@ -274,6 +274,7 @@ export const classes: ClassStatsResponse = {
   windowMinutes: 15,
   fromUnixMs: T0 - 900_000,
   toUnixMs: T0,
+  methodsState: "on",
   methodsEnabled: true,
   classes: [
     {

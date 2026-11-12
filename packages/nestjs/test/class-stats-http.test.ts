@@ -42,6 +42,7 @@ describe.each(ADAPTERS)("GET api/v1/classes on %s", (adapter) => {
     expect(empty.json()).toMatchObject({
       windowMinutes: 15,
       methodsEnabled: false,
+      methodsState: "off",
       classes: [],
     });
 
@@ -58,6 +59,7 @@ describe.each(ADAPTERS)("GET api/v1/classes on %s", (adapter) => {
     expect(body.windowMinutes).toBe(60);
     // No NestrixInstrument in this app: the sink was fed directly, so method spans are off.
     expect(body.methodsEnabled).toBe(false);
+    expect(body.methodsState).toBe("off");
     expect(body.toUnixMs).toBeGreaterThan(body.fromUnixMs);
     expect(body.classes.map((c) => c.className)).toEqual([
       "OrdersRepository",
