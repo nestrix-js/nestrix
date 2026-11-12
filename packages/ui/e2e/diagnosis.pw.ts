@@ -119,7 +119,7 @@ test("critical path highlights the chain that ends the trace, and clears again",
 test("request rows carry a duration bar relative to the slowest row", async ({
   page,
 }) => {
-  await page.goto(`${origin}${BASE_PATH}/`);
+  await page.goto(`${origin}${BASE_PATH}/#/requests`);
   await expect(requestRows(page).first()).toBeVisible();
   const rows = await requestRows(page).evaluateAll((trs) =>
     trs.map((tr) => ({
@@ -155,7 +155,9 @@ test("saved filters: save, apply, survive a reload, delete; copy link", async ({
   );
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await recordViolations(page);
-  await page.goto(`${origin}${BASE_PATH}/#/?status=error&minDurationMs=100`);
+  await page.goto(
+    `${origin}${BASE_PATH}/#/requests?status=error&minDurationMs=100`,
+  );
   await expect(requestRows(page).first()).toBeVisible();
 
   // Nothing to save without a name; then save the current filters.
@@ -193,7 +195,7 @@ test("saved filters: save, apply, survive a reload, delete; copy link", async ({
   );
 
   // The saved filter is still there after a reload, and can be deleted.
-  await page.goto(`${origin}${BASE_PATH}/#/`);
+  await page.goto(`${origin}${BASE_PATH}/#/requests`);
   await page.reload();
   await expect(requestRows(page).first()).toBeVisible();
   await page.getByTestId("saved-filters-trigger").click();

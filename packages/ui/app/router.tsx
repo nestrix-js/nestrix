@@ -4,14 +4,17 @@ import {
   createRoute,
   createRouter,
   Outlet,
+  redirect,
 } from "@tanstack/react-router";
 
 import { AppShell } from "@/components/app-shell";
 import { NuqsHashAdapter } from "@/lib/nuqs-hash-adapter";
+import { isRequestListLink } from "@/lib/params";
 import { ClassesPage } from "@/views/classes/classes-page";
 import { DependenciesPage } from "@/views/dependencies/dependencies-page";
 import { ErrorsPage } from "@/views/errors/errors-page";
 import { MapPage } from "@/views/map/map-page";
+import { OverviewPage } from "@/views/overview/overview-page";
 import { ProfilerPage } from "@/views/profiler/profiler-page";
 import { QueriesPage } from "@/views/queries/queries-page";
 import { RequestsPage } from "@/views/requests/requests-page";
@@ -31,9 +34,25 @@ const rootRoute = createRootRoute({
     </NuqsHashAdapter>
   ),
 });
-const requestsRoute = createRoute({
+// The Overview is home. A link made before it existed (`#/?status=error`) pointed at the request
+// list, so a home URL that carries request-list parameters goes to `/requests` with the same ones.
+const overviewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
+  beforeLoad: ({ location }) => {
+    if (isRequestListLink(location.search)) {
+      throw redirect({
+        to: "/requests",
+        search: location.search as never,
+        replace: true,
+      });
+    }
+  },
+  component: OverviewPage,
+});
+const requestsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/requests",
   component: RequestsPage,
 });
 const errorsRoute = createRoute({
@@ -96,6 +115,7 @@ const traceRoute = createRoute({
 
 export const router = createRouter({
   routeTree: rootRoute.addChildren([
+    overviewRoute,
     requestsRoute,
     errorsRoute,
     routesRoute,

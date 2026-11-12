@@ -48,7 +48,7 @@ for (const entry of [`${BASE_PATH}/`, BASE_PATH]) {
   }) => {
     const problems = watch(page);
     await recordViolations(page);
-    const response = await page.goto(`${origin}${entry}`);
+    const response = await page.goto(`${origin}${entry}#/requests`);
 
     // The headers the harness sends are the contract; assert them as the browser saw them.
     const headers = response?.headers() ?? {};
@@ -105,7 +105,7 @@ test("nuqs reads and writes search params inside the hash URL", async ({
 }) => {
   const problems = watch(page);
   await recordViolations(page);
-  await page.goto(`${origin}${BASE_PATH}/`);
+  await page.goto(`${origin}${BASE_PATH}/#/requests`);
   const rows = requestRows(page);
   const search = page.getByLabel("Search", { exact: true });
   await expect(rows).toHaveCount(50);
@@ -118,7 +118,7 @@ test("nuqs reads and writes search params inside the hash URL", async ({
   await expect(rows).toHaveCount(30);
   await expect
     .poll(() => page.evaluate(() => location.hash))
-    .toBe("#/?search=users");
+    .toBe("#/requests?search=users");
   expect(await page.evaluate(() => location.search)).toBe("");
 
   // A second param next to it, set through the faceted filter.
@@ -128,7 +128,9 @@ test("nuqs reads and writes search params inside the hash URL", async ({
   await expect(rows).toHaveCount(6);
   await expect
     .poll(() => page.evaluate(() => location.hash))
-    .toMatch(/^#\/\?(search=users&status=error|status=error&search=users)$/);
+    .toMatch(
+      /^#\/requests\?(search=users&status=error|status=error&search=users)$/,
+    );
 
   // Read: reload restores both from the URL.
   await page.reload();
@@ -160,7 +162,9 @@ test("nuqs reads and writes search params inside the hash URL", async ({
   // Reset clears every param.
   await page.getByRole("button", { name: "Reset" }).click();
   await expect(rows).toHaveCount(50);
-  await expect.poll(() => page.evaluate(() => location.hash)).toBe("#/");
+  await expect
+    .poll(() => page.evaluate(() => location.hash))
+    .toBe("#/requests");
 
   // A deep link with a param opens already filtered; an invalid value is ignored.
   await page.goto(`${origin}${BASE_PATH}/#/?search=health&status=bogus`);

@@ -121,7 +121,7 @@ test("timeline: draws the buckets above the list and follows the list's filters"
 test("timeline: dragging over the chart sets a time range on the list, clear removes it", async ({
   page,
 }) => {
-  await page.goto(url());
+  await page.goto(url("requests"));
   await expect(page.getByTestId("timeline")).toHaveAttribute(
     "data-buckets",
     "15",
@@ -163,7 +163,7 @@ test("timeline: dragging over the chart sets a time range on the list, clear rem
 });
 
 test("timeline: clicking a bar selects its bucket", async ({ page }) => {
-  await page.goto(url());
+  await page.goto(url("requests"));
   await expect(page.getByTestId("timeline")).toHaveAttribute(
     "data-buckets",
     "15",

@@ -8,7 +8,8 @@ import { BASE_PATH, startServer } from "./serve.ts";
 let server: Server;
 let origin: string;
 let mock: MockApi;
-const url = (hash = "") => `${origin}${BASE_PATH}/${hash}`;
+// The request list lives at /requests since the Overview became home (P11-02).
+const url = (query = "") => `${origin}${BASE_PATH}/#/requests${query}`;
 
 test.beforeAll(async () => {
   ({ server, origin, mock } = await startServer());
@@ -147,7 +148,7 @@ test("release and user filters match exactly and live in the URL", async ({
 test("the filters are restored from the URL", async ({ page }) => {
   mock.push(2, { type: "job", release: "9.9.9", user: "alice" });
   mock.push(3);
-  await page.goto(url("#/?type=job&release=9.9.9&user=alice"));
+  await page.goto(url("?type=job&release=9.9.9&user=alice"));
   await expect(requestRows(page)).toHaveCount(2);
   await expect(page.getByTestId("type-filter")).toHaveValue("job");
   await expect(page.getByLabel("Release", { exact: true })).toHaveValue(

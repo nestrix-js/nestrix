@@ -9,6 +9,7 @@ import type {
   ErrorGroupsResponse,
   InstanceSummary,
   MetaResponse,
+  OverviewResponse,
   ProfileDetail,
   ProfileListResponse,
   ProfileRunning,
@@ -28,6 +29,7 @@ import type {
 } from "@nestrix-js/protocol";
 import { generatedClasses, generatedMap } from "./mock-classes-map.ts";
 import { generatedDependencies, generatedTimeline } from "./mock-insights.ts";
+import { empty as emptyOverview } from "./mock-overview.ts";
 import { generatedQueries } from "./mock-queries.ts";
 import { ErrorStore } from "./mock-stats.ts";
 
@@ -40,6 +42,7 @@ type Endpoint =
   | "classes"
   | "map"
   | "dependencies"
+  | "overview"
   | "traces/timeline";
 
 const ROUTES = ["/orders", "/orders/:id", "/users", "/health"];
@@ -197,6 +200,8 @@ export class MockApi {
     null;
   routeCompare: ((query: URLSearchParams) => RouteCompareResponse) | null =
     null;
+  /** When set, `overview` answers with this for the asked window; no traffic otherwise (P11-02). */
+  overview: ((windowMinutes: number) => OverviewResponse) | null = null;
   /** When set, `classes` / `map` answer with this for the asked window instead of the generated data. */
   classStats: ((windowMinutes: number) => ClassStatsResponse) | null = null;
   appMap: ((windowMinutes: number) => AppMapResponse) | null = null;
@@ -281,6 +286,7 @@ export class MockApi {
     this.errorGroups = null;
     this.routeHistogram = null;
     this.routeCompare = null;
+    this.overview = null;
     this.classStats = null;
     this.appMap = null;
     this.mode = "embedded";
@@ -402,6 +408,11 @@ export class MockApi {
         return {
           status: 200,
           body: (this.routeCompare ?? emptyCompare)(query),
+        };
+      case "overview":
+        return {
+          status: 200,
+          body: (this.overview ?? emptyOverview)(windowOf(query)),
         };
       case "classes":
         return {

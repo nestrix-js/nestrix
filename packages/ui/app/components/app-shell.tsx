@@ -12,7 +12,8 @@ import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
 
 const nav = [
-  { to: "/", label: "Requests" },
+  { to: "/", label: "Overview" },
+  { to: "/requests", label: "Requests" },
   { to: "/errors", label: "Errors" },
   { to: "/routes", label: "Routes" },
   { to: "/classes", label: "Classes" },

@@ -2,6 +2,7 @@ import { traceListParams } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 
 import {
+  isRequestListLink,
   numberParser,
   requestFilterParsers,
   serviceParser,
@@ -59,5 +60,24 @@ describe("parsers built from the protocol specs", () => {
     expect(Object.keys(traceListParams)).toContain("service");
     expect(serviceParser.parse("orders")).toBe("orders");
     expect(serviceParser.parse("x".repeat(257))).toBeNull();
+  });
+});
+
+describe("isRequestListLink", () => {
+  it("is true for any request-list parameter, whatever its value", () => {
+    expect(isRequestListLink({ status: "error" })).toBe(true);
+    expect(isRequestListLink({ minDurationMs: 100, windowMinutes: 15 })).toBe(
+      true,
+    );
+    expect(isRequestListLink({ search: "" })).toBe(true);
+    expect(isRequestListLink({ fromUnixMs: 1, toUnixMs: 2 })).toBe(true);
+  });
+
+  it("is false for the Overview's own parameters and for nothing", () => {
+    expect(isRequestListLink({})).toBe(false);
+    expect(isRequestListLink({ windowMinutes: 60, service: "orders" })).toBe(
+      false,
+    );
+    expect(isRequestListLink({ unknown: "x" })).toBe(false);
   });
 });

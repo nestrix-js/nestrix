@@ -19,12 +19,12 @@ export function bucketFilter(
   return filter;
 }
 
-/** `/?route=...` for the router: the request list with that filter. */
+/** `/requests?route=...` for the router: the request list with that filter. */
 export function requestsLink(filter: Record<string, string | number>): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filter))
     params.set(key, String(value));
-  return `/?${params.toString()}`;
+  return `/requests?${params.toString()}`;
 }
 
 /** "10 ms to 15 ms", "up to 1.0 ms", "over 60 s". */
