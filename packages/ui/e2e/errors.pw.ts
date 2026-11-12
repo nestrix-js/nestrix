@@ -1,4 +1,5 @@
 import type { Server } from "node:http";
+import type { ErrorGroupsResponse } from "@nestrix-js/protocol";
 import { expect, type Page, test } from "@playwright/test";
 
 import { loadFixtures } from "./fixtures.ts";
@@ -10,7 +11,9 @@ import { BASE_PATH, startServer } from "./serve.ts";
 let server: Server;
 let origin: string;
 let mock: MockApi;
-const url = (hash = "") => `${origin}${BASE_PATH}/#/errors${hash}`;
+// The grouped view is the default; the list tests ask for the other one.
+const url = (query = "") => `${origin}${BASE_PATH}/#/errors?view=all${query}`;
+const groupsUrl = (hash = "") => `${origin}${BASE_PATH}/#/errors${hash}`;
 const POLL = { timeout: 10_000 };
 const rows = (page: Page) =>
   page.getByTestId("errors").locator("tbody tr[data-testid=error-row]");
@@ -152,7 +155,7 @@ test("the route filter lives in the URL and filters the list", async ({
   await page.goto(url());
   await expect(rows(page)).toHaveCount(30);
   await page.getByLabel("Route").selectOption("/orders");
-  await expect(page).toHaveURL(/#\/errors\?route=\/orders$/);
+  await expect(page).toHaveURL(/#\/errors\?view=all&route=\/orders$/);
   await expect(rows(page)).toHaveCount(10);
   for (const cell of await rows(page)
     .locator("td:nth-child(4)")
@@ -177,6 +180,166 @@ test("the route filter lives in the URL and filters the list", async ({
 
 test("a route with no errors says so", async ({ page }) => {
   mock.errors.push(3);
-  await page.goto(url("?route=%2Fnothing"));
+  await page.goto(url("&route=%2Fnothing"));
   await expect(page.getByText("No errors for this route.")).toBeVisible();
+});
+
+// ---- grouped view (P9-04) ---------------------------------------------------------------------
+
+const groupRows = (page: Page) =>
+  page
+    .getByTestId("error-groups")
+    .locator("tbody tr[data-testid=error-group-row]");
+
+function twoGroups(windowMinutes: number): ErrorGroupsResponse {
+  const bucketMs = windowMinutes <= 15 ? 60_000 : 300_000;
+  const buckets = windowMinutes <= 15 ? 15 : 12;
+  const now = Date.now();
+  const series = (counts: Record<number, number>) =>
+    Array.from({ length: buckets }, (_, i) => counts[i] ?? 0);
+  const recent = (n: number, count: number) =>
+    Array.from({ length: Math.min(count, 10) }, (_, i) => ({
+      traceId: idOf(n * 100 + i),
+      spanId: idOf(n * 100 + i).slice(16),
+      timeUnixMs: now - (i + 1) * 5000,
+      message: `user ${n * 100 + i} not found`,
+      service: i % 2 === 0 ? "api" : "billing",
+    }));
+  return {
+    windowMinutes,
+    bucketMs,
+    fromUnixMs: now - windowMinutes * 60_000,
+    toUnixMs: now,
+    groups: [
+      {
+        key: "g1",
+        errorType: "NotFoundException",
+        pattern: "user <n> not found",
+        route: "/users/:id",
+        count: windowMinutes === 15 ? 12 : 40,
+        firstSeenUnixMs: now - 600_000,
+        lastSeenUnixMs: now - 5000,
+        series: series({ 0: 2, [buckets - 1]: 10 }),
+        services: ["api", "billing"],
+        exampleTraceId: idOf(100),
+        latestMessage: "user 100 not found",
+        recent: recent(1, 12),
+      },
+      {
+        key: "g2",
+        errorType: "TimeoutError",
+        pattern: "",
+        count: 1,
+        firstSeenUnixMs: now - 30_000,
+        lastSeenUnixMs: now - 30_000,
+        series: series({ [buckets - 1]: 1 }),
+        services: [],
+        exampleTraceId: idOf(200),
+        recent: recent(2, 1),
+      },
+    ],
+  };
+}
+
+test("grouped is the default view: counts, sparkline, times, route, sampled note", async ({
+  page,
+}) => {
+  mock.errorGroups = twoGroups;
+  const problems = watch(page);
+  await recordViolations(page);
+  await page.goto(groupsUrl());
+  await expect(page.getByRole("button", { name: "Grouped" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(groupRows(page)).toHaveCount(2);
+  const first = groupRows(page).nth(0).locator("td");
+  await expect(first.nth(0)).toHaveText("12");
+  await expect(first.nth(1)).toContainText("NotFoundException");
+  await expect(first.nth(1)).toContainText("user <n> not found");
+  await expect(first.nth(2).getByTestId("sparkline")).toHaveAttribute(
+    "aria-label",
+    "12 in the last 15 minutes",
+  );
+  // One bar per non-empty bucket, scaled to the largest.
+  await expect(first.nth(2).locator("rect")).toHaveCount(2);
+  await expect(first.nth(3)).toHaveText(/ago|now/);
+  await expect(first.nth(4)).toHaveText(/ago|now/);
+  await expect(first.nth(5)).toHaveText("/users/:id");
+  // A group without a route shows a dash.
+  const second = groupRows(page).nth(1).locator("td");
+  await expect(second.nth(5)).toHaveText("-");
+  await expect(page.getByTestId("groups-note")).toContainText("sampled");
+  expect(await violations(page)).toEqual([]);
+  expect(problems).toEqual([]);
+  // The list is not fetched while grouped.
+  expect(mock.requests.some((r) => /^errors(\?|$)/.test(r))).toBe(false);
+});
+
+test("a group expands to its recent occurrences, which link to traces", async ({
+  page,
+}) => {
+  mock.errorGroups = twoGroups;
+  await page.goto(groupsUrl());
+  const row = groupRows(page).first();
+  await expect(page.getByTestId("error-group-detail")).toHaveCount(0);
+  await row.getByRole("button").click();
+  await expect(row.getByRole("button")).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  const detail = page.getByTestId("error-group-detail");
+  await expect(detail).toContainText("Services: api, billing");
+  await expect(detail.getByTestId("group-occurrence")).toHaveCount(10);
+  await expect(detail.getByTestId("group-occurrence").first()).toContainText(
+    "user 100 not found",
+  );
+  await detail
+    .getByTestId("group-occurrence")
+    .first()
+    .getByRole("link", { name: "View trace" })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`#/traces/${idOf(100)}$`));
+});
+
+test("the window switches to 60 minutes and asks the server for it", async ({
+  page,
+}) => {
+  mock.errorGroups = twoGroups;
+  await page.goto(groupsUrl());
+  await expect(groupRows(page).first().locator("td").nth(0)).toHaveText("12");
+  await page.getByRole("button", { name: "60 min" }).click();
+  await expect(groupRows(page).first().locator("td").nth(0)).toHaveText("40");
+  await expect(
+    groupRows(page).first().getByTestId("sparkline"),
+  ).toHaveAttribute("aria-label", "40 in the last 60 minutes");
+  expect(
+    mock.requests.some((r) => /^errors\/groups\?windowMinutes=60/.test(r)),
+  ).toBe(true);
+});
+
+test("the All toggle shows the list and back; an empty window says so; a failure can be retried", async ({
+  page,
+}) => {
+  mock.errors.push(2);
+  await page.goto(groupsUrl());
+  await expect(
+    page.getByText("No errors in the last 15 minutes."),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "All", exact: true }).click();
+  await expect(page).toHaveURL(/#\/errors\?view=all$/);
+  await expect(rows(page)).toHaveCount(2);
+  await page.getByRole("button", { name: "Grouped" }).click();
+  await expect(page).not.toHaveURL(/view=/);
+  await expect(page.getByTestId("error-groups")).toBeVisible();
+
+  mock.failing.add("errors/groups");
+  await page.reload();
+  await expect(page.getByRole("alert")).toContainText(
+    "Could not load error groups.",
+  );
+  mock.failing.clear();
+  mock.errorGroups = twoGroups;
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(groupRows(page)).toHaveCount(2);
 });

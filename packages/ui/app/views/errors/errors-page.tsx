@@ -2,7 +2,7 @@ import type { ErrorItem } from "@nestrix-js/protocol";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
-import { useQueryStates } from "nuqs";
+import { useQueryState, useQueryStates } from "nuqs";
 import { useMemo, useState } from "react";
 
 import { DataTableSkeleton } from "@/components/data-table/data-table-skeleton";
@@ -18,9 +18,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getErrors, getRoutes } from "@/lib/api";
-import { errorFilterParsers } from "@/lib/params";
+import { errorFilterParsers, viewParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { useCursorList } from "@/lib/use-cursor-list";
+import { ErrorGroups } from "@/views/errors/error-groups";
 import { OTHER_ROUTE, UNMATCHED_ROUTE } from "@/views/routes/route-stats";
 
 const COLUMNS = 5;
@@ -111,7 +112,7 @@ function ErrorRow({ item }: { item: ErrorItem }) {
   );
 }
 
-export function ErrorsPage() {
+function AllErrors() {
   const [filters, setFilters] = useQueryStates(errorFilterParsers);
   const [service] = useService();
   const params = useMemo(
@@ -139,19 +140,7 @@ export function ErrorsPage() {
 
   const filtered = filters.route !== null;
   return (
-    <section className="space-y-4" aria-label="Errors">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Errors</h2>
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label="Reload"
-          onClick={list.reload}
-        >
-          <RefreshCw />
-          Reload
-        </Button>
-      </div>
+    <div className="space-y-4" data-testid="errors-all">
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-2 text-sm">
           <span className="text-muted-foreground">Route</span>
@@ -177,6 +166,16 @@ export function ErrorsPage() {
             Reset
           </Button>
         )}
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="Reload"
+          className="ml-auto"
+          onClick={list.reload}
+        >
+          <RefreshCw />
+          Reload
+        </Button>
       </div>
 
       {list.status === "loading" && <DataTableSkeleton columnCount={COLUMNS} />}
@@ -249,6 +248,36 @@ export function ErrorsPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const VIEWS = [
+  ["grouped", "Grouped"],
+  ["all", "All"],
+] as const;
+
+export function ErrorsPage() {
+  const [view, setView] = useQueryState("view", viewParser);
+  return (
+    <section className="space-y-4" aria-label="Errors">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold">Errors</h2>
+        <fieldset className="flex items-center gap-1" aria-label="Error view">
+          {VIEWS.map(([value, label]) => (
+            <Button
+              key={value}
+              size="sm"
+              variant={view === value ? "default" : "outline"}
+              aria-pressed={view === value}
+              onClick={() => void setView(value)}
+            >
+              {label}
+            </Button>
+          ))}
+        </fieldset>
+      </div>
+      {view === "grouped" ? <ErrorGroups /> : <AllErrors />}
     </section>
   );
 }

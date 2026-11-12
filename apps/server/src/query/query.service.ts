@@ -25,6 +25,7 @@ import type {
   ClassKind,
   ClassStats,
   ClassStatsResponse,
+  ErrorGroupsResponse,
   ErrorItem,
   ErrorListResponse,
   MapEdge,
@@ -55,6 +56,7 @@ import {
   HISTOGRAM_UPPER_BOUNDS_MS,
 } from "../storage/histogram.js";
 import { STORAGE_POOL } from "../storage/storage.module.js";
+import { type ErrorOccurrence, groupErrors } from "./error-groups.js";
 import { QUERY_OPTIONS, type ResolvedQueryOptions } from "./options.js";
 import { routeStatsSpec, type Values } from "./params.js";
 import { queriesSql } from "./queries-sql.js";
@@ -601,6 +603,72 @@ export class QueryService {
       older: rows.length > limit && last ? errorCursor(last) : null,
       reset,
     };
+  }
+
+  // ---- error groups ------------------------------------------------------------------------------
+
+  /** Error spans of the window grouped by (type, normalised message, route); the newest 5,000 are read. */
+  async errorGroups(
+    windowMinutes: number,
+    service: string | undefined,
+    now: number = Date.now(),
+  ): Promise<ErrorGroupsResponse> {
+    const empty = groupErrors([], windowMinutes, now);
+    const params = new Params();
+    const where = [
+      "s.is_error",
+      `s.start_time >= ${params.add(new Date(empty.fromUnixMs))}`,
+    ];
+    if (service !== undefined) {
+      where.push(`s.service_name = ${params.add(service)}`);
+    }
+    const rows = await this.rows<
+      ErrorRow & {
+        service_name: string | null;
+        root_route: string | null;
+        root_method: string | null;
+        root_status: number | null;
+      }
+    >(
+      `SELECT s.trace_id, s.span_id, s.name, s.kind, s.status_message, s.events,
+              s.start_ns::text AS start_ns, s.end_ns::text AS end_ns,
+              s.http_route, s.http_method, s.http_status, s.service_name,
+              t.http_route AS root_route, t.http_method AS root_method, t.http_status AS root_status
+         FROM spans s LEFT JOIN traces t ON t.trace_id = s.trace_id
+        WHERE ${where.join(" AND ")}
+        ORDER BY s.start_time DESC, s.trace_id DESC, s.span_id DESC
+        LIMIT 5000`,
+      params.values,
+    );
+    return groupErrors(
+      rows.map((r): ErrorOccurrence => {
+        const hasRoot =
+          r.root_route !== null ||
+          r.root_method !== null ||
+          r.root_status !== null;
+        const item = errorItemOf(
+          r,
+          hasRoot
+            ? {
+                http_route: r.root_route,
+                http_method: r.root_method,
+                http_status: r.root_status,
+              }
+            : undefined,
+        );
+        return {
+          traceId: item.traceId,
+          spanId: item.spanId,
+          timeUnixMs: item.timeUnixMs,
+          errorType: item.errorType,
+          message: item.message,
+          route: item.route,
+          service: r.service_name ?? undefined,
+        };
+      }),
+      windowMinutes,
+      now,
+    );
   }
 
   // ---- route statistics ------------------------------------------------------------------------

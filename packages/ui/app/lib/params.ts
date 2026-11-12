@@ -61,6 +61,12 @@ export const errorFilterParsers = {
   route: stringParser(errorListParams.route),
 };
 
+/** P9-04: the errors page shows groups (default) or every occurrence. */
+export const viewParser = parseAsStringLiteral([
+  "grouped",
+  "all",
+] as const).withDefault("grouped");
+
 /** The service the standalone server's views are narrowed to; absent means all services. */
 export const serviceParser = stringParser({ maxLength: 256 });
 

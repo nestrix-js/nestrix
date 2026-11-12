@@ -9,6 +9,7 @@
 import type {
   AppMapParamsSpec,
   ClassStatsParamsSpec,
+  ErrorGroupParamsSpec,
   ErrorListParamsSpec,
   MetaParamsSpec,
   ParamSpec,
@@ -38,6 +39,17 @@ export const errorListSpec: ErrorListParamsSpec = {
   before: { kind: "cursor", maxLength: 256 },
   after: { kind: "cursor", maxLength: 256 },
   route: { kind: "string", maxLength: 512 },
+  service: { kind: "string", maxLength: 256 },
+};
+
+export const errorGroupSpec: ErrorGroupParamsSpec = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
   service: { kind: "string", maxLength: 256 },
 };
 

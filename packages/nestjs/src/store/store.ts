@@ -33,6 +33,7 @@ import type { TelemetryDiagnostics } from "../otel/types.js";
 import { SUPPRESS_TRACING_KEY } from "../outbound/rules.js";
 import { buildRedactedQueryKeys, scrubSpanAttributes } from "../privacy.js";
 import { type CursorKind, decodeCursor, encodeCursor } from "./cursor.js";
+import { type ErrorOccurrence, groupErrors } from "./error-groups.js";
 import {
   DEFAULT_STORE_LIMITS,
   DRAIN_CHUNK,
@@ -42,6 +43,7 @@ import {
 } from "./limits.js";
 import type {
   Attributes,
+  ErrorGroupsResponse,
   ErrorItem,
   ErrorListResponse,
   SpanRecord,
@@ -146,6 +148,8 @@ export interface TraceStore {
   /** All stored spans of a trace, by start time; `undefined` when not stored. */
   getTrace(traceId: string): TraceResponse | undefined;
   listErrors(query: ErrorListQuery): ErrorListResponse;
+  /** Error occurrences of the window grouped by (type, normalised message, route). */
+  groupErrors(windowMinutes: number, now?: number): ErrorGroupsResponse;
   /**
    * Calls `visit` with the stored spans of each trace held (oldest first). The array is the
    * store's own: read it, do not keep or change it. Never throws; a fault in `visit` stops the scan.
@@ -978,6 +982,36 @@ class Store implements TraceStore {
     } catch (error) {
       this.diagnostics.countFailure("store.query", error);
       return { items: [], head: null, older: null, reset: true };
+    }
+  }
+
+  groupErrors(
+    windowMinutes: number,
+    now: number = Date.now(),
+  ): ErrorGroupsResponse {
+    try {
+      const occurrences: ErrorOccurrence[] = [];
+      for (const entry of this.errors) {
+        if (entry.dead) continue;
+        const item = this.errorItem(entry);
+        const resourceService = entry.trace.resource["service.name"];
+        const service =
+          entry.span.service ??
+          (typeof resourceService === "string" ? resourceService : undefined);
+        occurrences.push({
+          traceId: item.traceId,
+          spanId: item.spanId,
+          timeUnixMs: item.timeUnixMs,
+          errorType: item.errorType,
+          message: item.message,
+          route: item.route,
+          service,
+        });
+      }
+      return groupErrors(occurrences, windowMinutes, now);
+    } catch (error) {
+      this.diagnostics.countFailure("store.query", error);
+      return groupErrors([], windowMinutes, now);
     }
   }
 

@@ -48,6 +48,7 @@ import {
   type ApiSources,
   apiError,
   classesHandler,
+  errorGroupsHandler,
   errorsHandler,
   mapHandler,
   metaHandler,
@@ -397,6 +398,10 @@ export class Dashboard {
       [
         `${api}/errors`,
         this.handler("api", (t) => errorsHandler(t, sources())),
+      ],
+      [
+        `${api}/errors/groups`,
+        this.handler("api", (t) => errorGroupsHandler(t, sources())),
       ],
       [
         `${api}/routes`,

@@ -2,6 +2,7 @@ import type {
   ApiError,
   AppMapResponse,
   ClassStatsResponse,
+  ErrorGroupsResponse,
   ErrorListResponse,
   MetaResponse,
   ProfileDetail,
@@ -146,6 +147,8 @@ export const getTraces = (params: QueryParams) =>
   getJson<TraceListResponse>("traces", params);
 export const getErrors = (params: QueryParams) =>
   getJson<ErrorListResponse>("errors", params);
+export const getErrorGroups = (params: QueryParams = {}) =>
+  getJson<ErrorGroupsResponse>("errors/groups", params);
 export const getRoutes = (params: QueryParams = {}) =>
   getJson<RouteStatsResponse>("routes", params);
 export const getTrace = (id: string) => getJson<TraceResponse>("trace", { id });
