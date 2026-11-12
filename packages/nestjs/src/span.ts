@@ -6,6 +6,7 @@
 import "reflect-metadata";
 import {
   type Span as ApiSpan,
+  type Context,
   context,
   type Exception,
   type SpanOptions,
@@ -73,9 +74,11 @@ export function withSpan<T>(
 ): T {
   // Host-owned SDK past maxSpansPerTrace (D-78): no span; `fn` runs once under the parent.
   let standIn: ApiSpan | undefined;
+  let parentCtx: Context | undefined;
   try {
+    parentCtx = context.active();
     standIn = hostGate(
-      context.active(),
+      parentCtx,
       options?.kind,
       options?.attributes,
       options?.root,
@@ -83,14 +86,27 @@ export function withSpan<T>(
   } catch {
     standIn = undefined;
   }
-  if (standIn !== undefined) return fn(standIn);
+  if (standIn !== undefined) {
+    // The stand-in is the active span inside `fn`, so a library asking for it does not write on
+    // the recorded parent. Building the context never changes whether `fn` runs, or how often.
+    let inner: Context | undefined;
+    try {
+      inner = trace.setSpan(parentCtx ?? context.active(), standIn);
+    } catch {
+      inner = undefined;
+    }
+    const stand = standIn;
+    return inner === undefined
+      ? fn(stand)
+      : context.with(inner, () => fn(stand));
+  }
   let outcome: Outcome<T> | undefined;
   let started = false;
   try {
     const tracer = trace.getTracer(TRACER_NAME);
     const returned = tracer.startActiveSpan(name, options ?? {}, (span) => {
       started = true;
-      hostStarted(span);
+      hostStarted(span, parentCtx);
       let result: T;
       try {
         result = fn(span);
