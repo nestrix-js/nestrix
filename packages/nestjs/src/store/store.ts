@@ -43,6 +43,12 @@ import { type CursorKind, decodeCursor, encodeCursor } from "./cursor.js";
 import { droppedSpansOf } from "./dropped-spans.js";
 import { type ErrorOccurrence, groupErrors } from "./error-groups.js";
 import {
+  addToHeatmap,
+  assembleInsights,
+  emptyHeatmap,
+  INSIGHTS_MS,
+} from "./error-insights.js";
+import {
   DEFAULT_STORE_LIMITS,
   DRAIN_CHUNK,
   MAX_LOG_CONTEXT_LENGTH,
@@ -55,6 +61,7 @@ import {
 import type {
   Attributes,
   ErrorGroupsResponse,
+  ErrorInsightsResponse,
   ErrorItem,
   ErrorListResponse,
   SpanRecord,
@@ -183,6 +190,14 @@ export interface TraceStore {
   listErrors(query: ErrorListQuery): ErrorListResponse;
   /** Error occurrences of the window grouped by (type, normalised message, route). */
   groupErrors(windowMinutes: number, now?: number): ErrorGroupsResponse;
+  /**
+   * Error events by weekday and hour (UTC) and per release over the last 7 days, as far as the
+   * store holds them (`coveredFromUnixMs`). Never throws.
+   */
+  errorInsights(
+    query: { route?: string | undefined },
+    now?: number,
+  ): ErrorInsightsResponse;
   /**
    * Calls `visit` with the stored spans of each trace held (oldest first). The array is the
    * store's own: read it, do not keep or change it. Never throws; a fault in `visit` stops the scan.
@@ -1247,12 +1262,81 @@ class Store implements TraceStore {
           message: item.message,
           route: item.route,
           service,
+          release: releaseOf(entry.trace),
         });
       }
       return groupErrors(occurrences, windowMinutes, now);
     } catch (error) {
       this.diagnostics.countFailure("store.query", error);
       return groupErrors([], windowMinutes, now);
+    }
+  }
+
+  errorInsights(
+    query: { route?: string | undefined },
+    now: number = Date.now(),
+  ): ErrorInsightsResponse {
+    try {
+      const from = now - INSIGHTS_MS;
+      const heatmap = emptyHeatmap();
+      const releases = new Map<
+        string,
+        { events: number; requests: number; firstSeenUnixMs: number }
+      >();
+      const slot = (release: string, atMs: number) => {
+        let r = releases.get(release);
+        if (r === undefined) {
+          r = { events: 0, requests: 0, firstSeenUnixMs: atMs };
+          releases.set(release, r);
+        }
+        if (atMs < r.firstSeenUnixMs) r.firstSeenUnixMs = atMs;
+        return r;
+      };
+      let covered = now;
+      for (const entry of this.listed) {
+        const root = entry.root;
+        if (entry.dead || root === undefined) continue;
+        if (root.startTimeUnixMs < from) continue;
+        if (root.startTimeUnixMs < covered) covered = root.startTimeUnixMs;
+        const release = releaseOf(entry);
+        if (release === undefined) continue;
+        const r = slot(release, root.startTimeUnixMs);
+        if (
+          traceTypeOf(root) === "http" &&
+          (query.route === undefined ||
+            stringAttr(root, ATTR_ROUTE) === query.route)
+        )
+          r.requests++;
+      }
+      for (const entry of this.errors) {
+        if (entry.dead) continue;
+        const item = this.errorItem(entry);
+        if (item.timeUnixMs < from || item.timeUnixMs > now) continue;
+        if (query.route !== undefined && item.route !== query.route) continue;
+        if (item.timeUnixMs < covered) covered = item.timeUnixMs;
+        addToHeatmap(heatmap, item.timeUnixMs);
+        const release = releaseOf(entry.trace);
+        if (release !== undefined) slot(release, item.timeUnixMs).events++;
+      }
+      return assembleInsights({
+        now,
+        heatmap,
+        coveredFromUnixMs: covered,
+        releases: [...releases].map(([release, r]) => ({
+          release,
+          events: r.events,
+          requests: r.requests,
+          firstSeenUnixMs: r.firstSeenUnixMs,
+        })),
+      });
+    } catch (error) {
+      this.diagnostics.countFailure("store.query", error);
+      return assembleInsights({
+        now,
+        heatmap: emptyHeatmap(),
+        coveredFromUnixMs: now,
+        releases: [],
+      });
     }
   }
 

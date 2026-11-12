@@ -8,6 +8,7 @@ import type {
   ClassStatsResponse,
   DependenciesResponse,
   ErrorGroupsResponse,
+  ErrorInsightsResponse,
   InstanceSummary,
   MetaResponse,
   OverviewResponse,
@@ -43,6 +44,7 @@ type Endpoint =
   | "routes/explain"
   | "errors"
   | "errors/groups"
+  | "errors/insights"
   | "classes"
   | "map"
   | "dependencies"
@@ -197,6 +199,8 @@ export class MockApi {
   errors = new ErrorStore(() => this.epoch);
   /** When set, `errors/groups` answers with this for the asked window; empty groups otherwise. */
   errorGroups: ((windowMinutes: number) => ErrorGroupsResponse) | null = null;
+  /** When set, `errors/insights` answers with this; an empty grid and no releases otherwise. */
+  errorInsights: (() => ErrorInsightsResponse) | null = null;
   /** When set, `routes` answers with this for the asked window instead of the stub. */
   routeStats: ((windowMinutes: number) => RouteStatsResponse) | null = null;
   /** When set, `routes/histogram` / `routes/compare` answer with these (P9-02). */
@@ -294,6 +298,7 @@ export class MockApi {
     this.requests = [];
     this.routeStats = null;
     this.errorGroups = null;
+    this.errorInsights = null;
     this.routeHistogram = null;
     this.routeCompare = null;
     this.routeExplain = null;
@@ -489,6 +494,21 @@ export class MockApi {
             fromUnixMs: to - windowMinutes * 60_000,
             toUnixMs: to,
             groups: [],
+          },
+        };
+      }
+      case "errors/insights": {
+        const to = Date.now();
+        return {
+          status: 200,
+          body: this.errorInsights?.() ?? {
+            fromUnixMs: to - 7 * 86_400_000,
+            toUnixMs: to,
+            coveredFromUnixMs: to - 7 * 86_400_000,
+            zone: "UTC",
+            heatmap: Array.from({ length: 7 }, () => new Array(24).fill(0)),
+            total: 0,
+            releases: [],
           },
         };
       }

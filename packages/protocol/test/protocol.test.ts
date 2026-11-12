@@ -22,6 +22,7 @@ describe("package entry", () => {
         "appMapParams",
         "classStatsParams",
         "errorGroupParams",
+        "errorInsightsParams",
         "dependencyParams",
         "errorListParams",
         "metaParams",

@@ -11,6 +11,7 @@ import type {
   ClassStatsParamsSpec,
   DependencyParamsSpec,
   ErrorGroupParamsSpec,
+  ErrorInsightsParamsSpec,
   ErrorListParamsSpec,
   MetaParamsSpec,
   OverviewParamsSpec,
@@ -88,6 +89,11 @@ export const errorGroupSpec: ErrorGroupParamsSpec = {
     oneOf: [15, 60],
     default: 15,
   },
+  service: { kind: "string", maxLength: 256 },
+};
+
+export const errorInsightsSpec: ErrorInsightsParamsSpec = {
+  route: { kind: "string", maxLength: 512 },
   service: { kind: "string", maxLength: 256 },
 };
 

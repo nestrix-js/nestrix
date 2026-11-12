@@ -7,6 +7,7 @@ import type {
   ClassStatsResponse,
   DependenciesResponse,
   ErrorGroupsResponse,
+  ErrorInsightsResponse,
   ErrorListResponse,
   InstanceListResponse,
   MetaResponse,
@@ -165,6 +166,8 @@ export const getErrors = (params: QueryParams) =>
   getJson<ErrorListResponse>("errors", params);
 export const getErrorGroups = (params: QueryParams = {}) =>
   getJson<ErrorGroupsResponse>("errors/groups", params);
+export const getErrorInsights = (params: QueryParams = {}) =>
+  getJson<ErrorInsightsResponse>("errors/insights", params);
 export const getRoutes = (params: QueryParams = {}) =>
   getJson<RouteStatsResponse>("routes", params);
 export const getRouteHistogram = (params: QueryParams) =>

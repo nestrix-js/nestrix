@@ -21,6 +21,8 @@ import type {
   DependencyParamsSpec,
   ErrorGroupParamsSpec,
   ErrorGroupsResponse,
+  ErrorInsightsParamsSpec,
+  ErrorInsightsResponse,
   ErrorListParamsSpec,
   ErrorListResponse,
   MetaResponse,
@@ -66,6 +68,7 @@ import {
   buildTimeline,
 } from "../store/dependencies.js";
 import { groupErrors } from "../store/error-groups.js";
+import { assembleInsights, emptyHeatmap } from "../store/error-insights.js";
 import { buildQueryStats } from "../store/queries.js";
 import type { StoreStats, TraceStore } from "../store/store.js";
 import { type DashboardResponse, JSON_TYPE } from "./respond.js";
@@ -136,6 +139,11 @@ export const errorGroupSpec: ErrorGroupParamsSpec = {
     oneOf: [15, 60],
     default: 15,
   },
+  service: { kind: "string", maxLength: 256 },
+};
+
+export const errorInsightsSpec: ErrorInsightsParamsSpec = {
+  route: { kind: "string", maxLength: 512 },
   service: { kind: "string", maxLength: 256 },
 };
 
@@ -599,6 +607,27 @@ export function errorGroupsHandler(
       ? undefined
       : sources.store?.groupErrors(windowMinutes, now)) ??
     groupErrors([], windowMinutes, now ?? Date.now());
+  return ok(body);
+}
+
+export function errorInsightsHandler(
+  target: unknown,
+  sources: ApiSources,
+  now: number = Date.now(),
+): DashboardResponse {
+  const parsed = parseQuery(target, errorInsightsSpec);
+  if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
+  const route = parsed.values.route as string | undefined;
+  const body: ErrorInsightsResponse =
+    (otherService(parsed.values, sources)
+      ? undefined
+      : sources.store?.errorInsights({ route }, now)) ??
+    assembleInsights({
+      now,
+      heatmap: emptyHeatmap(),
+      coveredFromUnixMs: now,
+      releases: [],
+    });
   return ok(body);
 }
 

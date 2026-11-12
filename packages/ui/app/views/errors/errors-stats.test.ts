@@ -1,4 +1,4 @@
-import type { ErrorGroup } from "@nestrix-js/protocol";
+import type { ErrorGroup, ErrorReleaseStat } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,7 +7,10 @@ import {
   NO_ROUTE,
   NO_TYPE,
   OTHER_TYPES,
+  peakCell,
   percentOf,
+  releaseBars,
+  releaseText,
   routeBreakdown,
   totalEvents,
   typeBreakdown,
@@ -137,5 +140,76 @@ describe("typeCounts", () => {
     ]);
     expect(typeCounts(items)[2]?.type).toBeUndefined();
     expect(typeCounts([])).toEqual([]);
+  });
+});
+
+describe("groupState with a backend state (P15-02)", () => {
+  it("uses the state the backend sent, whatever the series says", () => {
+    expect(
+      groupState(g(3, { at: { 1: 1, 14: 2 }, state: "regressed" }), window15),
+    ).toBe("regressed");
+    expect(
+      groupState(g(3, { at: { 14: 2 }, state: "ongoing" }), window15),
+    ).toBe("ongoing");
+    expect(
+      groupState(
+        g(2, { at: { 14: 2 }, state: "quiet", lastSeenUnixMs: NOW }),
+        window15,
+      ),
+    ).toBe("quiet");
+  });
+});
+
+describe("releaseText", () => {
+  it("shows the newest release, and the first one too when they differ", () => {
+    expect(releaseText({})).toBeUndefined();
+    expect(releaseText({ lastSeenRelease: "1.2.0" })).toBe("1.2.0");
+    expect(
+      releaseText({ firstSeenRelease: "1.2.0", lastSeenRelease: "1.2.0" }),
+    ).toBe("1.2.0");
+    expect(
+      releaseText({ firstSeenRelease: "1.0.0", lastSeenRelease: "1.2.0" }),
+    ).toBe("1.0.0 → 1.2.0");
+  });
+});
+
+describe("peakCell", () => {
+  it("finds the busiest weekday and hour, and nothing in an empty grid", () => {
+    const grid = Array.from({ length: 7 }, () => new Array<number>(24).fill(0));
+    expect(peakCell(grid)).toBeUndefined();
+    (grid[2] as number[])[9] = 4;
+    (grid[5] as number[])[23] = 2;
+    expect(peakCell(grid)).toEqual({ weekday: "Wed", hour: "09", count: 4 });
+  });
+});
+
+describe("releaseBars", () => {
+  const stat = (
+    release: string,
+    events: number,
+    requests?: number,
+  ): ErrorReleaseStat => ({
+    release,
+    events,
+    firstSeenUnixMs: 0,
+    ...(requests === undefined
+      ? {}
+      : { requests, per1000Requests: (events / requests) * 1000 }),
+  });
+
+  it("charts errors per 1,000 requests when every release has requests", () => {
+    const r = releaseBars([stat("1.0.0", 3, 1500), stat("1.1.0", 30, 1000)]);
+    expect(r.metric).toBe("per1000");
+    expect(r.bars.map((b) => b.value)).toEqual([2, 30]);
+    expect(r.bars.map((b) => b.valueLabel)).toEqual(["2.0/1k", "30/1k"]);
+    expect(r.bars[0]?.title).toBe("1.0.0: 3 events in 1,500 requests");
+  });
+
+  it("falls back to events, labelled, when a release has no requests", () => {
+    const r = releaseBars([stat("1.0.0", 3, 1500), stat("1.1.0", 5)]);
+    expect(r.metric).toBe("events");
+    expect(r.bars.map((b) => b.value)).toEqual([3, 5]);
+    expect(r.bars[1]?.valueLabel).toBe("5 events");
+    expect(releaseBars([])).toEqual({ metric: "events", bars: [] });
   });
 });
