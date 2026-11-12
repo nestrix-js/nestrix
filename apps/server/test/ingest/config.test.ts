@@ -73,6 +73,23 @@ describe("loadConfig", () => {
     ).toMatch(/^NESTRIX_MAX_CONNECTIONS/);
   });
 
+  it("reads NESTRIX_MAX_SPANS_PER_TRACE (default 50,000; 1,000 to 10,000,000)", () => {
+    const max = (env: Record<string, string>) => {
+      const r = loadConfig({ DATABASE_URL: DB, ...env });
+      return r.ok ? r.config.maxSpansPerTrace : undefined;
+    };
+    expect(max({})).toBe(50_000);
+    expect(max({ NESTRIX_MAX_SPANS_PER_TRACE: "1000" })).toBe(1_000);
+    expect(max({ NESTRIX_MAX_SPANS_PER_TRACE: "10000000" })).toBe(10_000_000);
+    for (const bad of ["999", "10000001", "1e5", "-5", "many", "2.5"]) {
+      expect(
+        errors({ DATABASE_URL: DB, NESTRIX_MAX_SPANS_PER_TRACE: bad })[0],
+      ).toMatch(
+        /^NESTRIX_MAX_SPANS_PER_TRACE must be a whole number from 1000 to 10000000/,
+      );
+    }
+  });
+
   it("accepts the explicit opt-out", () => {
     const result = loadConfig({
       DATABASE_URL: DB,

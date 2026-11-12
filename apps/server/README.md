@@ -77,6 +77,7 @@ Read once from the environment at start and validated. A bad value exits with on
 | `NESTRIX_ADMIN_PASSWORD` | none | At least 12 characters. Without it the UI, `/login` and the query API answer 503 and a log line says why; ingest still works. |
 | `NESTRIX_SESSION_SECRET` | random per start | At least 32 characters. Part of the session signing key; see "Admin login" for what it does and does not do. |
 | `NESTRIX_RETENTION_DAYS` | `7` | Whole number, 1 to 3650. |
+| `NESTRIX_MAX_SPANS_PER_TRACE` | `50000` | Whole number, 1 000 to 10 000 000. Spans stored per trace; see "Span limit per trace". |
 | `NESTRIX_MAX_CONNECTIONS` | `1024` | Whole number, 1 to 1 000 000. Node's `server.maxConnections`. |
 | `NESTRIX_WEBHOOK_ALLOWED_HOSTS` | empty | Comma-separated host names or IP addresses (no scheme, port or path) that alert webhooks may reach although they resolve to private addresses. |
 | `NESTRIX_PUBLIC_URL` | unset | `http://` or `https://` address of the dashboard, without credentials, query or fragment. Put in alert notifications as a link. |
@@ -171,6 +172,10 @@ With `NESTRIX_INGEST_AUTH=none` there is no key to tell instances apart, so any 
 Preliminary, from one run (`benchmarks/results/server-ingest.md`): on a laptop (Apple silicon, Docker in a VM with 7.7 GiB, load generator, server and Postgres on the same host, default Postgres settings), the server accepted and stored **about 20 000 spans per second** for 45 seconds with nothing refused, and about 22 000 spans per second when offered 80 000, refusing the rest with back-pressure rather than growing memory. Every accepted span was stored. The server process used 250 to 310 MiB.
 
 **This is not a guarantee.** The paced run met its target, so 20 000 is a lower bound for that machine, not a ceiling; a different machine, network, span size or concurrent dashboard use will differ. The full benchmark is deferred. Beyond what you measure on your own hardware, send OTLP to a dedicated backend.
+
+## Span limit per trace
+
+One job that fans out can put millions of spans in a single trace. The server stores at most `NESTRIX_MAX_SPANS_PER_TRACE` spans per trace (default 50 000, from 1 000 to 10 000 000). Spans past the limit are not stored; the earliest-starting spans of a batch are the ones kept. The server counts them per trace (`traces.dropped_spans`) and answers the export with OTLP partial success: `rejected_spans` includes them, and the message says they were not stored because of the per-trace limit. The `trace` query reports them as `droppedSpans.byServer`, added to what the apps themselves counted but did not record (their `maxSpansPerTrace`, read from the spans' `nestrix.trace.spans_dropped*` attributes). A retried export of spans that were already stored counts again as dropped once the trace is at the limit. Existing traces start at 0 dropped (migration `0010_traces_dropped_spans.sql`).
 
 ## Retention and partitions
 

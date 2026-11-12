@@ -19,6 +19,14 @@
  * 503 with `Retry-After`); a batch larger than the whole queue is still accepted when the queue is
  * empty, so it is never refused forever.
  *
+ * Per-trace cap (D-78). Inside the transaction, under the traces advisory lock, one query reads the
+ * stored `traces.span_count` of the batch's trace ids (the summary row already counts the spans
+ * stored, so there is no scan of `spans`). A trace with `span_count + batch spans > maxSpansPerTrace`
+ * keeps the room left, earliest-starting spans first; the rest are not inserted, and their count
+ * is added to `traces.dropped_spans` in the same transaction. `write()` resolves with the number
+ * dropped for that batch (the receiver reports it as OTLP partial success). Cost per transaction:
+ * one indexed SELECT, plus one UPDATE only when something was dropped.
+ *
  * Failures. A transient database failure (connection loss, too many connections, shutdown,
  * deadlock or serialisation failure after one retry, lock timeout) rejects the group's batches
  * with `IngestBusyError`, so OTLP exporters retry them. Any other failure of a group of several
@@ -31,6 +39,7 @@ import {
   IngestBusyError,
   type IngestLogBatch,
   type IngestSink,
+  type IngestWriteResult,
 } from "../ingest/model.js";
 import {
   deriveResource,
@@ -41,6 +50,7 @@ import {
   UNMATCHED_ROUTE,
 } from "./derive.js";
 import { bucketIndex, emptyHistogram } from "./histogram.js";
+import { ADVISORY_CLASS, TRACES_LOCK } from "./locks.js";
 import { type LogWriterOptions, PostgresLogWriter } from "./logs.js";
 import type { PartitionManager } from "./partitions.js";
 import { upsertTraces } from "./traces.js";
@@ -58,6 +68,8 @@ export interface WriterOptions {
   onError?: (error: unknown, context: string) => void;
   /** The log writer behind `writeLogs` (P9-07, `logs.ts`). */
   logs?: LogWriterOptions;
+  /** Spans stored per trace; later ones are counted, not stored (D-78). Default 50 000. */
+  maxSpansPerTrace?: number;
 }
 
 export interface WriterStats {
@@ -71,6 +83,8 @@ export interface WriterStats {
   outOfRangeSpans: number;
   /** Spans whose times could not be stored. */
   invalidSpans: number;
+  /** Spans not stored because their trace was over `maxSpansPerTrace`. */
+  cappedSpans: number;
   /** Batches rejected busy because the queue was full. */
   busyRejections: number;
   /** Batches that failed for another reason. */
@@ -81,7 +95,7 @@ export interface WriterStats {
 interface Pending {
   batch: IngestBatch;
   spans: number;
-  resolve: () => void;
+  resolve: (result: IngestWriteResult | undefined) => void;
   reject: (error: unknown) => void;
 }
 
@@ -157,6 +171,13 @@ function addToRollup(
   r.hist[b] = (r.hist[b] ?? 0) + 1;
 }
 
+/** What `write` resolves with: nothing, unless the per-trace cap dropped spans of the batch. */
+function resultOf(dropped: number | undefined): IngestWriteResult | undefined {
+  return dropped !== undefined && dropped > 0
+    ? { droppedSpans: dropped }
+    : undefined;
+}
+
 const SERVICES_REFRESH_MS = 60_000;
 
 export class PostgresIngestSink implements IngestSink {
@@ -164,6 +185,7 @@ export class PostgresIngestSink implements IngestSink {
   private readonly maxSpansPerTransaction: number;
   private readonly retryAfterSeconds: number;
   private readonly resourceCacheSize: number;
+  private readonly maxSpansPerTrace: number;
   private readonly queue: Pending[] = [];
   private queuedSpans = 0;
   private working = false;
@@ -178,6 +200,7 @@ export class PostgresIngestSink implements IngestSink {
     duplicateSpans: 0,
     outOfRangeSpans: 0,
     invalidSpans: 0,
+    cappedSpans: 0,
     busyRejections: 0,
     failedBatches: 0,
     transactions: 0,
@@ -192,6 +215,7 @@ export class PostgresIngestSink implements IngestSink {
     this.maxSpansPerTransaction = options.maxSpansPerTransaction ?? 5_000;
     this.retryAfterSeconds = options.retryAfterSeconds ?? 5;
     this.resourceCacheSize = options.resourceCacheSize ?? 10_000;
+    this.maxSpansPerTrace = options.maxSpansPerTrace ?? 50_000;
     this.logs = new PostgresLogWriter(pool, partitions, {
       retryAfterSeconds: this.retryAfterSeconds,
       ...options.logs,
@@ -209,21 +233,21 @@ export class PostgresIngestSink implements IngestSink {
     }
   }
 
-  write(batch: IngestBatch): Promise<void> {
+  write(batch: IngestBatch): Promise<IngestWriteResult | undefined> {
     try {
       if (this.closed) {
         return Promise.reject(new IngestBusyError(this.retryAfterSeconds));
       }
       let spans = 0;
       for (const rs of batch.resourceSpans) spans += rs.spans.length;
-      if (spans === 0) return Promise.resolve();
+      if (spans === 0) return Promise.resolve(undefined);
       if (this.queue.length > 0 || this.working) {
         if (this.queuedSpans + spans > this.maxQueueSpans) {
           this.counters.busyRejections++;
           return Promise.reject(new IngestBusyError(this.retryAfterSeconds));
         }
       }
-      return new Promise<void>((resolve, reject) => {
+      return new Promise<IngestWriteResult | undefined>((resolve, reject) => {
         this.queue.push({ batch, spans, resolve, reject });
         this.queuedSpans += spans;
         this.kick();
@@ -310,8 +334,10 @@ export class PostgresIngestSink implements IngestSink {
   /** Writes a group and settles each of its promises. Never throws. */
   private async writeGroup(group: Pending[]): Promise<void> {
     try {
-      await this.writeBatches(group.map((p) => p.batch));
-      for (const p of group) p.resolve();
+      const dropped = await this.writeBatches(group.map((p) => p.batch));
+      for (const [i, p] of group.entries()) {
+        p.resolve(resultOf(dropped[i]));
+      }
       return;
     } catch (error) {
       if (isTransient(error)) {
@@ -330,8 +356,8 @@ export class PostgresIngestSink implements IngestSink {
     // A non-transient failure of a group: one batch at a time, so a bad one fails alone.
     for (const p of group) {
       try {
-        await this.writeBatches([p.batch]);
-        p.resolve();
+        const dropped = await this.writeBatches([p.batch]);
+        p.resolve(resultOf(dropped[0]));
       } catch (error) {
         if (isTransient(error)) {
           p.reject(new IngestBusyError(this.retryAfterSeconds));
@@ -352,19 +378,24 @@ export class PostgresIngestSink implements IngestSink {
     }
   }
 
-  private async writeBatches(batches: IngestBatch[]): Promise<void> {
+  /** Returns, per batch, the spans dropped by the per-trace cap. */
+  private async writeBatches(batches: IngestBatch[]): Promise<number[]> {
     // Derive rows and the distinct resources.
     const resources = new Map<string, ResourceRow>();
     const rows: SpanRow[] = [];
+    const batchOf = new Map<SpanRow, number>();
     let invalid = 0;
-    for (const batch of batches) {
+    for (const [batchIndex, batch] of batches.entries()) {
       for (const rs of batch.resourceSpans) {
         const resource = deriveResource(rs.resource);
         resources.set(resource.hash, resource);
         for (const span of rs.spans) {
           const row = deriveSpan(span, resource);
           if (row === null) invalid++;
-          else rows.push(row);
+          else {
+            rows.push(row);
+            batchOf.set(row, batchIndex);
+          }
         }
       }
     }
@@ -409,9 +440,15 @@ export class PostgresIngestSink implements IngestSink {
       let broken: Error | undefined;
       try {
         await client.query("BEGIN");
-        const inserted = await this.insertSpans(client, storable, resourceIds);
+        const capped = await this.applyTraceCap(client, storable);
+        const inserted = await this.insertSpans(
+          client,
+          capped.kept,
+          resourceIds,
+        );
         await this.upsertRollups(client, inserted);
         await upsertTraces(client, inserted, resourceIds);
+        await this.recordDropped(client, capped.droppedByTrace);
         const services = this.servicesDue(inserted);
         if (services.length > 0) {
           await client.query(
@@ -424,12 +461,18 @@ export class PostgresIngestSink implements IngestSink {
         await client.query("COMMIT");
         this.counters.transactions++;
         this.counters.writtenSpans += inserted.length;
-        this.counters.duplicateSpans += storable.length - inserted.length;
+        this.counters.duplicateSpans += capped.kept.length - inserted.length;
+        this.counters.cappedSpans += capped.dropped.length;
         this.counters.outOfRangeSpans += outOfRange + unstorable;
         this.counters.invalidSpans += invalid;
         const now = Date.now();
         for (const name of services) this.servicesWritten.set(name, now);
-        return;
+        const droppedByBatch = batches.map(() => 0);
+        for (const r of capped.dropped) {
+          const i = batchOf.get(r);
+          if (i !== undefined) droppedByBatch[i] = (droppedByBatch[i] ?? 0) + 1;
+        }
+        return droppedByBatch;
       } catch (error) {
         try {
           await client.query("ROLLBACK");
@@ -445,6 +488,82 @@ export class PostgresIngestSink implements IngestSink {
         client.release(broken);
       }
     }
+  }
+
+  /**
+   * Applies the per-trace cap inside the transaction. Takes the traces advisory lock first (the
+   * summary upsert takes it too, so every writer orders lock then insert), reads the stored span
+   * count of the batch's traces, and splits `rows` into those that fit and those that do not.
+   */
+  private async applyTraceCap(
+    client: PoolClient,
+    rows: SpanRow[],
+  ): Promise<{
+    kept: SpanRow[];
+    dropped: SpanRow[];
+    droppedByTrace: Map<string, number>;
+  }> {
+    const droppedByTrace = new Map<string, number>();
+    if (rows.length === 0) return { kept: rows, dropped: [], droppedByTrace };
+    const byTrace = new Map<string, SpanRow[]>();
+    for (const r of rows) {
+      const list = byTrace.get(r.traceId);
+      if (list) list.push(r);
+      else byTrace.set(r.traceId, [r]);
+    }
+    await client.query("SELECT pg_advisory_xact_lock($1, $2)", [
+      ADVISORY_CLASS,
+      TRACES_LOCK,
+    ]);
+    const { rows: stored } = await client.query<{
+      trace_id: string;
+      span_count: number;
+    }>(
+      `SELECT trace_id, max(span_count) AS span_count
+         FROM traces WHERE trace_id = ANY($1::text[]) GROUP BY trace_id`,
+      [[...byTrace.keys()]],
+    );
+    const have = new Map(stored.map((r) => [r.trace_id, Number(r.span_count)]));
+    const over = new Set<string>();
+    for (const [traceId, list] of byTrace) {
+      if ((have.get(traceId) ?? 0) + list.length > this.maxSpansPerTrace)
+        over.add(traceId);
+    }
+    if (over.size === 0) return { kept: rows, dropped: [], droppedByTrace };
+    const dropped = new Set<SpanRow>();
+    for (const traceId of over) {
+      const list = (byTrace.get(traceId) as SpanRow[])
+        .slice()
+        .sort((a, b) =>
+          a.startNs < b.startNs ? -1 : a.startNs > b.startNs ? 1 : 0,
+        );
+      const room = Math.max(
+        0,
+        this.maxSpansPerTrace - (have.get(traceId) ?? 0),
+      );
+      for (const r of list.slice(room)) dropped.add(r);
+      droppedByTrace.set(traceId, list.length - Math.min(room, list.length));
+    }
+    return {
+      kept: rows.filter((r) => !dropped.has(r)),
+      dropped: [...dropped],
+      droppedByTrace,
+    };
+  }
+
+  /** Adds the dropped counts to the traces' summary rows (they exist: room was 0 only for stored traces). */
+  private async recordDropped(
+    client: PoolClient,
+    droppedByTrace: ReadonlyMap<string, number>,
+  ): Promise<void> {
+    if (droppedByTrace.size === 0) return;
+    const ids = [...droppedByTrace.keys()].sort();
+    await client.query(
+      `UPDATE traces t SET dropped_spans = t.dropped_spans + u.n, updated_at = now()
+         FROM unnest($1::text[], $2::bigint[]) AS u(trace_id, n)
+        WHERE t.trace_id = u.trace_id`,
+      [ids, ids.map((id) => droppedByTrace.get(id) as number)],
+    );
   }
 
   private servicesDue(inserted: readonly SpanRow[]): string[] {

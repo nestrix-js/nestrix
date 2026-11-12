@@ -121,6 +121,10 @@ export const traces = pgTable(
     userId: text("user_id"),
     spanCount: integer("span_count").notNull(),
     errorCount: integer("error_count").notNull(),
+    /** Spans not stored because the trace was over the per-trace cap (migration 0010, D-78). */
+    droppedSpans: bigint("dropped_spans", { mode: "number" })
+      .notNull()
+      .default(0),
     services: text("services").array().notNull(),
     spanNames: text("span_names").array().notNull(),
     updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),

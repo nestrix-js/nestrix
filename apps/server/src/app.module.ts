@@ -61,6 +61,7 @@ export class AppModule {
               StorageModule.forRoot({
                 databaseUrl: config.databaseUrl,
                 retentionDays: config.retentionDays,
+                writer: { maxSpansPerTrace: config.maxSpansPerTrace },
               }),
               ingest,
               // Remote CPU profiling (P10-02, D-76): instance check-in and upload on the ingest

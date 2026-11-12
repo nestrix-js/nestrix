@@ -72,6 +72,8 @@ export interface ServerConfig {
   /** True when `sessionSecret` was generated at start (sessions do not survive a restart). */
   readonly sessionSecretGenerated: boolean;
   readonly retentionDays: number;
+  /** `NESTRIX_MAX_SPANS_PER_TRACE` (D-78): spans stored per trace; later ones are counted, not stored. */
+  readonly maxSpansPerTrace: number;
   readonly alerts: AlertsConfig;
 }
 
@@ -86,6 +88,9 @@ export const MIN_ADMIN_PASSWORD_LENGTH = 12;
 export const MIN_SESSION_SECRET_LENGTH = 32;
 export const MAX_RETENTION_DAYS = 3650;
 export const DEFAULT_MAX_CONNECTIONS = 1024;
+export const DEFAULT_MAX_SPANS_PER_TRACE = 50_000;
+export const MIN_MAX_SPANS_PER_TRACE = 1_000;
+export const MAX_MAX_SPANS_PER_TRACE = 10_000_000;
 export const DEFAULT_INGEST: Omit<IngestConfig, "auth" | "keys"> = {
   // As the OpenTelemetry Collector's OTLP receiver. A single request at every cap below is
   // charged about 20 MiB + (400k + 100k) x 512 B = 264 MiB of the budget, so it always fits.
@@ -217,6 +222,15 @@ export function loadConfig(env: Env = process.env): ConfigResult {
     errors,
   );
 
+  const maxSpansPerTrace = integer(
+    env,
+    "NESTRIX_MAX_SPANS_PER_TRACE",
+    DEFAULT_MAX_SPANS_PER_TRACE,
+    MIN_MAX_SPANS_PER_TRACE,
+    MAX_MAX_SPANS_PER_TRACE,
+    errors,
+  );
+
   const allowedHosts: string[] = [];
   const allowedRaw = (env.NESTRIX_WEBHOOK_ALLOWED_HOSTS ?? "")
     .split(",")
@@ -278,6 +292,7 @@ export function loadConfig(env: Env = process.env): ConfigResult {
           : Buffer.from(sessionSecretText, "utf8"),
       sessionSecretGenerated: sessionSecretText === undefined,
       retentionDays,
+      maxSpansPerTrace,
       alerts: Object.freeze({
         allowedHosts: Object.freeze(allowedHosts),
         publicUrl,
