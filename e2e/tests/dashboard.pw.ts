@@ -50,6 +50,13 @@ async function mainFlow(
   // The logged link sets the cookie, redirects, and the dashboard loads.
   await page.goto(app.link);
   await expect(page).toHaveURL(/\/_nestrix\/(#.*)?$/);
+  // The home page is the Overview (phase 11), served by the real `overview` endpoint.
+  await expect(page.getByTestId("health")).toBeVisible();
+  await page
+    .getByRole("navigation", { name: "Sections" })
+    .getByRole("link", { name: "Requests", exact: true })
+    .click();
+  await expect(page).toHaveURL(/#\/requests/);
   const list = page.getByTestId("requests").locator("tbody tr");
   // Four traces: /hello, /users/:id, /out (with the two /hello server spans inside it), /boom.
   await expect(list).toHaveCount(4);
