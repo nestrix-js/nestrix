@@ -7,6 +7,7 @@ import {
   MAX_METHODS_PER_CLASS,
   OTHER,
   ownAverages,
+  withPreviousClasses,
 } from "../src/stats/class-stats.js";
 import { BUCKET_MS } from "../src/stats/route-stats.js";
 import { getOrCreateStore } from "../src/store/store.js";
@@ -279,5 +280,94 @@ describe("ownAverages from stored spans", () => {
       throw new Error("boom");
     }, 0);
     expect(own.size).toBe(0);
+  });
+});
+
+describe("withPreviousClasses", () => {
+  it("attaches the previous window per class and totals, from the same ring", () => {
+    const s = new ClassStatistics(T0);
+    // Previous window (15 minutes before T0 + 15 min): minutes 0..14; current: 15..29.
+    s.recordAt("A", "service", "m", 100, false, T0 + 2 * BUCKET_MS);
+    s.recordAt("A", "service", "m", 300, true, T0 + 3 * BUCKET_MS);
+    s.recordAt("Gone", "service", "m", 50, false, T0 + 4 * BUCKET_MS);
+    s.recordAt("A", "service", "m", 10, false, T0 + 16 * BUCKET_MS);
+    s.recordAt("New", "service", "m", 10, false, T0 + 17 * BUCKET_MS);
+    const now = T0 + 29 * BUCKET_MS + 1000;
+    const curFrom = Math.floor(now / BUCKET_MS) * BUCKET_MS - 14 * BUCKET_MS;
+    const current = s.query(15, true, undefined, now);
+    const previous = s.query(15, true, undefined, curFrom - 1);
+    const r = withPreviousClasses(current, previous, null);
+    expect(r.previousCovered).toBe(true);
+    expect(r.note).toBeNull();
+    const a = r.classes.find((c) => c.className === "A");
+    expect(a?.calls).toBe(1);
+    expect(a?.previous).toEqual({
+      calls: 2,
+      errors: 1,
+      totalMs: 400,
+      avgMs: 200,
+      ownMs: null,
+    });
+    expect(
+      r.classes.find((c) => c.className === "New")?.previous,
+    ).toBeUndefined();
+    expect(r.previousTotals).toEqual({
+      classes: 2,
+      calls: 3,
+      errors: 1,
+      totalMs: 450,
+      ownMs: null,
+    });
+  });
+
+  it("without a previous answer says why and adds nothing else", () => {
+    const s = new ClassStatistics(T0);
+    s.recordAt("A", "service", "m", 1, false, T0);
+    const r = withPreviousClasses(
+      s.query(15, true, undefined, T0),
+      undefined,
+      "nope",
+    );
+    expect(r).toMatchObject({ previousCovered: false, note: "nope" });
+    expect(r.previousTotals).toBeUndefined();
+    expect(r.classes[0]?.previous).toBeUndefined();
+  });
+
+  it("ownAverages with an upper bound leaves out spans that started at or after it", () => {
+    const span = (
+      spanId: string,
+      startTimeUnixMs: number,
+      durationMs: number,
+    ) => ({
+      spanId,
+      name: "m",
+      kind: "internal" as const,
+      startTimeUnixMs,
+      durationMs,
+      attributes: { "nestrix.class": "A", "nestrix.method": "m" },
+      events: [],
+      status: { code: "unset" as const },
+      links: [],
+    });
+    const scan = (
+      visit: (spans: readonly ReturnType<typeof span>[]) => void,
+    ) => {
+      visit([
+        span("a", T0, 10),
+        span("b", T0 + 1000, 30),
+        span("c", T0 + 5000, 1000),
+      ]);
+    };
+    expect(ownAverages(scan, T0).get("A")?.get("m")).toBeCloseTo(346.67, 1);
+    expect(
+      ownAverages(scan, T0, T0 + 5000)
+        .get("A")
+        ?.get("m"),
+    ).toBe(20);
+    expect(
+      ownAverages(scan, T0 + 100, T0 + 5000)
+        .get("A")
+        ?.get("m"),
+    ).toBe(30);
   });
 });

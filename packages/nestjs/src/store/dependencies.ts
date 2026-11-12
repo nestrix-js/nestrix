@@ -6,6 +6,7 @@ import { targetOf } from "./app-map.js";
 import type {
   DependenciesResponse,
   DependencyPoint,
+  DependencyPreviousTotals,
   DependencyStats,
   MapNode,
   TraceTimelineResponse,
@@ -133,6 +134,68 @@ export function buildDependencies(
     toUnixMs: now,
     bucketMs,
     dependencies,
+  };
+}
+
+/**
+ * `buildDependencies` plus the previous window: the same number of buckets just before the
+ * current ones, counted the same way. `statisticsSinceUnixMs` is when this process began to keep
+ * data; a previous window that began earlier is reported as not covered (no `previous` anywhere),
+ * as `windowCoverage` does for routes. Never throws.
+ */
+export function buildDependenciesWithPrevious(
+  store: TraceStore | undefined,
+  windowMinutes: number,
+  now: number,
+  statisticsSinceUnixMs: number,
+): DependenciesResponse {
+  const current = buildDependencies(store, windowMinutes, now);
+  const previousFrom = current.fromUnixMs - windowMinutes * MINUTE_MS;
+  if (!(statisticsSinceUnixMs <= previousFrom)) {
+    return {
+      ...current,
+      previousCovered: false,
+      note: "Statistics started less than two windows ago, so the previous window is only partly counted or empty.",
+    };
+  }
+  const previous = buildDependencies(
+    store,
+    windowMinutes,
+    current.fromUnixMs - 1,
+  ).dependencies;
+  const byId = new Map(previous.map((d) => [d.id, d]));
+  const totals: DependencyPreviousTotals = {
+    dependencies: previous.length,
+    calls: 0,
+    errors: 0,
+    slowestP95Ms: 0,
+  };
+  for (const d of previous) {
+    totals.calls += d.calls;
+    totals.errors += d.errors;
+    if (d.p95Ms > totals.slowestP95Ms) totals.slowestP95Ms = d.p95Ms;
+  }
+  return {
+    ...current,
+    dependencies: current.dependencies.map((d) => {
+      const p = byId.get(d.id);
+      return p === undefined
+        ? d
+        : {
+            ...d,
+            previous: {
+              calls: p.calls,
+              errors: p.errors,
+              errorRate: p.errorRate,
+              totalMs: p.totalMs,
+              p50Ms: p.p50Ms,
+              p95Ms: p.p95Ms,
+            },
+          };
+    }),
+    previousCovered: true,
+    note: null,
+    previousTotals: totals,
   };
 }
 

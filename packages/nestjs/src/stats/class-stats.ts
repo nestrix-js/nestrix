@@ -24,6 +24,7 @@ import type { MethodCallSink, MethodClassKind } from "../methods/sink.js";
 import type {
   ClassKind,
   ClassStats,
+  ClassStatsPreviousTotals,
   ClassStatsResponse,
   MethodStats,
   SpanRecord,
@@ -252,11 +253,13 @@ export class ClassStatistics implements MethodCallSink {
  * Average own time per (class, method) from stored spans: for each span carrying `nestrix.class`
  * and `nestrix.method` that started at or after `fromUnixMs`, its duration minus the summed
  * durations of its direct children in the same trace, clipped at 0. `scan` visits the stored
- * traces (`TraceStore.scanAllTraces`). Never throws.
+ * traces (`TraceStore.scanAllTraces`). With `toUnixMs`, only spans that started before it count
+ * (the previous window). Never throws.
  */
 export function ownAverages(
   scan: (visit: (spans: readonly SpanRecord[]) => void) => void,
   fromUnixMs: number,
+  toUnixMs: number = Number.POSITIVE_INFINITY,
 ): OwnAverages {
   const sums = new Map<string, Map<string, { sum: number; n: number }>>();
   try {
@@ -272,6 +275,7 @@ export function ownAverages(
       }
       for (const span of spans) {
         if (span.startTimeUnixMs < fromUnixMs) continue;
+        if (span.startTimeUnixMs >= toUnixMs) continue;
         const cls = span.attributes[ATTR_CLASS];
         const method = span.attributes[ATTR_METHOD];
         if (typeof cls !== "string" || typeof method !== "string") continue;
@@ -302,6 +306,58 @@ export function ownAverages(
     out.set(cls, m);
   }
   return out;
+}
+
+/**
+ * Adds the previous window to a classes answer. `previous` is the same query over the window just
+ * before `current`, or `undefined` when the statistics do not cover it (then `note` says why).
+ * Never throws.
+ */
+export function withPreviousClasses(
+  current: ClassStatsResponse,
+  previous: ClassStatsResponse | undefined,
+  note: string | null,
+): ClassStatsResponse {
+  if (previous === undefined) {
+    return { ...current, previousCovered: false, note };
+  }
+  const byName = new Map(previous.classes.map((c) => [c.className, c]));
+  const totals: ClassStatsPreviousTotals = {
+    classes: previous.classes.length,
+    calls: 0,
+    errors: 0,
+    totalMs: 0,
+    ownMs: null,
+  };
+  for (const c of previous.classes) {
+    totals.calls += c.calls;
+    totals.errors += c.errors;
+    totals.totalMs += c.totalMs;
+    if (c.ownMs !== null) totals.ownMs = (totals.ownMs ?? 0) + c.ownMs;
+  }
+  totals.totalMs = round(totals.totalMs);
+  if (totals.ownMs !== null) totals.ownMs = round(totals.ownMs);
+  return {
+    ...current,
+    classes: current.classes.map((c) => {
+      const p = byName.get(c.className);
+      return p === undefined
+        ? c
+        : {
+            ...c,
+            previous: {
+              calls: p.calls,
+              errors: p.errors,
+              totalMs: p.totalMs,
+              avgMs: p.avgMs,
+              ownMs: p.ownMs,
+            },
+          };
+    }),
+    previousCovered: true,
+    note: null,
+    previousTotals: totals,
+  };
 }
 
 function round(ms: number): number {

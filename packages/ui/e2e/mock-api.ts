@@ -6,6 +6,7 @@ import type {
   ApiToken,
   AppMapResponse,
   ClassStatsResponse,
+  DependenciesResponse,
   ErrorGroupsResponse,
   InstanceSummary,
   MetaResponse,
@@ -211,6 +212,9 @@ export class MockApi {
   /** When set, `classes` / `map` answer with this for the asked window instead of the generated data. */
   classStats: ((windowMinutes: number) => ClassStatsResponse) | null = null;
   appMap: ((windowMinutes: number) => AppMapResponse) | null = null;
+  /** When set, `dependencies` answers with this instead of the generated data (P15-01). */
+  dependenciesAnswer: ((windowMinutes: number) => DependenciesResponse) | null =
+    null;
   /** The standalone server's extras: `mode` and `services` in meta; `mode` defaults to embedded. */
   mode: MetaResponse["mode"] = "embedded";
   services: string[] | undefined = undefined;
@@ -296,6 +300,7 @@ export class MockApi {
     this.overview = null;
     this.classStats = null;
     this.appMap = null;
+    this.dependenciesAnswer = null;
     this.mode = "embedded";
     this.services = undefined;
     this.unauthorized = false;
@@ -454,7 +459,9 @@ export class MockApi {
       case "dependencies":
         return {
           status: 200,
-          body: generatedDependencies(windowOf(query)),
+          body: (this.dependenciesAnswer ?? generatedDependencies)(
+            windowOf(query),
+          ),
         };
       case "traces/timeline":
         return { status: 200, body: generatedTimeline(windowOf(query)) };

@@ -6,6 +6,7 @@
  * traces. Pure apart from reading the store; never throws.
  */
 import type {
+  AppMapPreviousTotals,
   AppMapResponse,
   Attributes,
   MapEdge,
@@ -189,5 +190,72 @@ export function buildAppMap(
     toUnixMs: now,
     nodes: [app, ...kept.map((t) => t.node)],
     edges: kept.map(edgeOf),
+  };
+}
+
+/**
+ * `buildAppMap` plus the previous window (the `windowMinutes` before the current one, counted the
+ * same way). `statisticsSinceUnixMs` is when this process began to keep data; a previous window
+ * that began earlier is reported as not covered. Never throws.
+ */
+export function buildAppMapWithPrevious(
+  store: TraceStore | undefined,
+  windowMinutes: number,
+  now: number,
+  statisticsSinceUnixMs: number,
+  serviceName?: string,
+): AppMapResponse {
+  const current = buildAppMap(store, windowMinutes, now, serviceName);
+  const previousFrom = current.fromUnixMs - windowMinutes * 60_000;
+  if (!(statisticsSinceUnixMs <= previousFrom)) {
+    return {
+      ...current,
+      previousCovered: false,
+      note: "Statistics started less than two windows ago, so the previous window is only partly counted or empty.",
+    };
+  }
+  const previous = buildAppMap(
+    store,
+    windowMinutes,
+    current.fromUnixMs - 1,
+    serviceName,
+  );
+  const apps = new Set(
+    previous.nodes.filter((n) => n.kind === "app").map((n) => n.id),
+  );
+  const key = (e: MapEdge) => `${e.from}\u0000${e.to}`;
+  const byKey = new Map(previous.edges.map((e) => [key(e), e]));
+  const totals: AppMapPreviousTotals = {
+    targets: new Set(
+      previous.edges.filter((e) => !apps.has(e.to)).map((e) => e.to),
+    ).size,
+    calls: 0,
+    errors: 0,
+    slowestP95Ms: 0,
+  };
+  for (const e of previous.edges) {
+    totals.calls += e.calls;
+    totals.errors += e.errors;
+    if (e.p95Ms > totals.slowestP95Ms) totals.slowestP95Ms = e.p95Ms;
+  }
+  return {
+    ...current,
+    edges: current.edges.map((e) => {
+      const p = byKey.get(key(e));
+      return p === undefined
+        ? e
+        : {
+            ...e,
+            previous: {
+              calls: p.calls,
+              errors: p.errors,
+              p50Ms: p.p50Ms,
+              p95Ms: p.p95Ms,
+            },
+          };
+    }),
+    previousCovered: true,
+    note: null,
+    previousTotals: totals,
   };
 }

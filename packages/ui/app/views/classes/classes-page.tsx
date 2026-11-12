@@ -7,6 +7,7 @@ import { Fragment, useMemo, useState } from "react";
 import { DataTableSkeleton } from "@/components/data-table/data-table-skeleton";
 import { BarCell } from "@/components/kit/bar-cell";
 import { Chip } from "@/components/kit/chip";
+import { Delta } from "@/components/kit/delta";
 import { DONUT_RADIUS, Donut, DonutLegend } from "@/components/kit/donut";
 import { donutSlices } from "@/components/kit/format";
 import { PageHeader } from "@/components/kit/page-header";
@@ -30,6 +31,7 @@ import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser, stringParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
+import { classChanges, rowAvgChange } from "@/views/classes/class-changes";
 import {
   formatShare,
   kindBreakdown,
@@ -53,8 +55,6 @@ const WINDOWS = [
   { value: 60, label: "60 min" },
 ] as const;
 const DEFAULT_WINDOW = 15;
-const NO_PREVIOUS =
-  "The class statistics do not compare with a previous window.";
 const STATS = "counted before sampling";
 const OWN_SOURCE = "estimated from sampled traces";
 
@@ -117,6 +117,7 @@ function MethodRow({ m, maxOwn }: { m: MethodStats; maxOwn: number }) {
         {formatDuration(m.totalMs)}
       </TableCell>
       <TableCell>{ownCell(methodOwnMs(m), maxOwn)}</TableCell>
+      <TableCell />
     </TableRow>
   );
 }
@@ -146,6 +147,7 @@ export function ClassesPage() {
     [all, sort, dir, query.class],
   );
   const summary = useMemo(() => summarizeClasses(all), [all]);
+  const changes = classChanges(stats.data, summary);
   const breakdown = useMemo(() => kindBreakdown(all), [all]);
   const maxOwn = Math.max(
     1,
@@ -289,8 +291,9 @@ export function ClassesPage() {
                   label="Traced classes"
                   value={String(summary.classes)}
                   unit="with calls"
-                  delta="—"
-                  deltaTitle={NO_PREVIOUS}
+                  delta={changes.classes.text}
+                  deltaTone={changes.classes.tone}
+                  deltaTitle={changes.classes.title}
                   source={STATS}
                 />
                 <StatTile
@@ -298,8 +301,9 @@ export function ClassesPage() {
                   label="Calls"
                   value={summary.calls.toLocaleString("en")}
                   unit={`in ${shownWindow} min`}
-                  delta="—"
-                  deltaTitle={NO_PREVIOUS}
+                  delta={changes.calls.text}
+                  deltaTone={changes.calls.tone}
+                  deltaTitle={changes.calls.title}
                   source={STATS}
                 />
                 <StatTile
@@ -311,8 +315,9 @@ export function ClassesPage() {
                       : `${(summary.errorRate * 100).toFixed(summary.errorRate >= 0.1 ? 0 : 1)}%`
                   }
                   unit={`${summary.errors.toLocaleString("en")} of ${summary.calls.toLocaleString("en")} calls`}
-                  delta="—"
-                  deltaTitle={NO_PREVIOUS}
+                  delta={changes.errorRate.text}
+                  deltaTone={changes.errorRate.tone}
+                  deltaTitle={changes.errorRate.title}
                   source={`threw or rejected · ${STATS}`}
                 />
                 <StatTile
@@ -320,8 +325,9 @@ export function ClassesPage() {
                   label="Own time"
                   value={ownParts?.[0] ?? "—"}
                   unit={ownParts?.[1]}
-                  delta="—"
-                  deltaTitle={NO_PREVIOUS}
+                  delta={changes.own.text}
+                  deltaTone={changes.own.tone}
+                  deltaTitle={changes.own.title}
                   footer={
                     summary.heaviest ? (
                       <span
@@ -441,6 +447,7 @@ export function ClassesPage() {
                         </TableHead>
                       );
                     })}
+                    <TableHead className="text-right">Avg change</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -489,6 +496,18 @@ export function ClassesPage() {
                             {formatDuration(c.totalMs)}
                           </TableCell>
                           <TableCell>{ownCell(c.ownMs, maxOwn)}</TableCell>
+                          <TableCell className="text-right">
+                            {(() => {
+                              const change = rowAvgChange(c, stats.data);
+                              return (
+                                <Delta
+                                  text={change.text}
+                                  tone={change.tone}
+                                  title={change.title}
+                                />
+                              );
+                            })()}
+                          </TableCell>
                         </TableRow>
                         {expanded &&
                           sortMethods(c.methods, sort, dir).map((m) => (

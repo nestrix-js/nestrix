@@ -34,6 +34,30 @@ export interface DependencyStats {
   exampleTraceId?: string;
   /** One point per bucket of the window, oldest first. */
   series: DependencyPoint[];
+  /**
+   * The same numbers for the previous window (no series). Absent when the previous window is not
+   * covered, or when the target had no calls in it.
+   */
+  previous?: DependencyPrevious;
+}
+
+/** The previous window's numbers of one dependency (`DependencyStats`). */
+export interface DependencyPrevious {
+  calls: number;
+  errors: number;
+  errorRate: number;
+  totalMs: number;
+  p50Ms: number;
+  p95Ms: number;
+}
+
+/** Totals over every target of the previous window, including targets with no calls now. */
+export interface DependencyPreviousTotals {
+  dependencies: number;
+  calls: number;
+  errors: number;
+  /** Highest p95 of any target; 0 without calls. */
+  slowestP95Ms: number;
 }
 
 /** `GET api/v1/dependencies`: targets by total time, most first. */
@@ -43,6 +67,15 @@ export interface DependenciesResponse {
   toUnixMs: number;
   bucketMs: number;
   dependencies: DependencyStats[];
+  /**
+   * Whether statistics cover the whole previous window (the same length, just before this one),
+   * as `RouteWindowCompareResponse.previousCovered`. Absent from older servers: show no change.
+   */
+  previousCovered?: boolean;
+  /** Why `previousCovered` is false, otherwise `null`. */
+  note?: string | null;
+  /** Present when `previousCovered` is true. */
+  previousTotals?: DependencyPreviousTotals;
 }
 
 /** One bucket of the request timeline: sampled traces by outcome of their root. */

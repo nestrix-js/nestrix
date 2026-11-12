@@ -18,6 +18,7 @@ import { useMemo, useState } from "react";
 import { DataTableSkeleton } from "@/components/data-table/data-table-skeleton";
 import { BarCell } from "@/components/kit/bar-cell";
 import { Chip } from "@/components/kit/chip";
+import { Delta } from "@/components/kit/delta";
 import type { ChipTone } from "@/components/kit/format";
 import { PageHeader } from "@/components/kit/page-header";
 import { Section } from "@/components/kit/section";
@@ -40,6 +41,7 @@ import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
+import { edgeP95Change, mapChanges } from "@/views/map/map-changes";
 import {
   type ErrorLevel,
   edgesOf,
@@ -64,7 +66,6 @@ const WINDOWS = [
 ] as const;
 const DEFAULT_WINDOW = 15;
 const parsers = { windowMinutes: routeWindowParser };
-const NO_PREVIOUS = "The map does not compare with a previous window.";
 const SOURCE = "from sampled traces";
 
 const ICONS: Record<MapNodeKind, LucideIcon> = {
@@ -318,6 +319,7 @@ export function MapPage() {
     ? formatDuration(totals.slowest.p95Ms).split(" ")
     : null;
   const targets = layout.nodes.filter((n) => n.kind !== "app").length;
+  const changes = mapChanges(map.data, layout.edges, targets);
 
   return (
     <section className="space-y-6" aria-label="Map">
@@ -394,8 +396,9 @@ export function MapPage() {
                     ? `and ${targets} they call`
                     : "databases, caches and services"
                 }
-                delta="—"
-                deltaTitle={NO_PREVIOUS}
+                delta={serviceCount > 1 ? undefined : changes.targets.text}
+                deltaTone={changes.targets.tone}
+                deltaTitle={changes.targets.title}
                 source={SOURCE}
               />
               <StatTile
@@ -403,8 +406,9 @@ export function MapPage() {
                 label="Calls"
                 value={thousands(totals.calls)}
                 unit={`in ${shownWindow} min`}
-                delta="—"
-                deltaTitle={NO_PREVIOUS}
+                delta={changes.calls.text}
+                deltaTone={changes.calls.tone}
+                deltaTitle={changes.calls.title}
                 source={SOURCE}
               />
               <StatTile
@@ -412,8 +416,9 @@ export function MapPage() {
                 label="Error rate"
                 value={formatRate(totals.errors, totals.calls)}
                 unit={`${thousands(totals.errors)} of ${thousands(totals.calls)}`}
-                delta="—"
-                deltaTitle={NO_PREVIOUS}
+                delta={changes.errorRate.text}
+                deltaTone={changes.errorRate.tone}
+                deltaTitle={changes.errorRate.title}
                 source={SOURCE}
               />
               <StatTile
@@ -421,6 +426,9 @@ export function MapPage() {
                 label="Slowest call"
                 value={slowestParts?.[0] ?? "—"}
                 unit={slowestParts ? `p95 ${slowestParts[1]}` : undefined}
+                delta={changes.slowest.text}
+                deltaTone={changes.slowest.tone}
+                deltaTitle={changes.slowest.title}
                 footer={
                   totals.slowest ? (
                     <span
@@ -692,6 +700,7 @@ export function MapPage() {
                     <TableHead className="text-right">Error rate</TableHead>
                     <TableHead className="text-right">p50</TableHead>
                     <TableHead className="text-right">p95</TableHead>
+                    <TableHead className="text-right">p95 change</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -739,6 +748,18 @@ export function MapPage() {
                           label={formatDuration(e.p95Ms)}
                           color="--chart-2"
                         />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {(() => {
+                          const change = edgeP95Change(e, map.data);
+                          return (
+                            <Delta
+                              text={change.text}
+                              tone={change.tone}
+                              title={change.title}
+                            />
+                          );
+                        })()}
                       </TableCell>
                     </TableRow>
                   ))}

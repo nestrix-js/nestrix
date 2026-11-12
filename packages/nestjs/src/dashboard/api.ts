@@ -45,15 +45,26 @@ import type {
 import { buildEmbeddedExplain } from "../explain/embedded.js";
 import { methodsEnabled } from "../methods/registry.js";
 import { buildEmbeddedOverview } from "../overview/embedded.js";
-import { type ClassStatistics, ownAverages } from "../stats/class-stats.js";
+import {
+  type ClassStatistics,
+  ownAverages,
+  withPreviousClasses,
+} from "../stats/class-stats.js";
 import {
   releaseCompare,
   routeHistogram,
   windowCompare,
 } from "../stats/route-insights.js";
-import type { RouteStatistics } from "../stats/route-stats.js";
-import { buildAppMap } from "../store/app-map.js";
-import { buildDependencies, buildTimeline } from "../store/dependencies.js";
+import {
+  BUCKET_MS,
+  type RouteStatistics,
+  WINDOW_BUCKETS,
+} from "../stats/route-stats.js";
+import { buildAppMapWithPrevious } from "../store/app-map.js";
+import {
+  buildDependenciesWithPrevious,
+  buildTimeline,
+} from "../store/dependencies.js";
 import { groupErrors } from "../store/error-groups.js";
 import { buildQueryStats } from "../store/queries.js";
 import type { StoreStats, TraceStore } from "../store/store.js";
@@ -721,14 +732,37 @@ export function classesHandler(
           (visit) => store.scanAllTraces(visit),
           (Math.floor(at / 60_000) - windowMinutes + 1) * 60_000,
         );
-  const result = sources.classes.query(
-    windowMinutes,
-    methodsEnabled(),
-    own,
-    at,
-  );
+  const enabled = methodsEnabled();
+  const current = sources.classes.query(windowMinutes, enabled, own, at);
+  // The previous window: the ring keeps 60 minutes, so only a window of 30 minutes or less has
+  // one in range; and it must lie after the statistics began.
+  const last = Math.floor(at / BUCKET_MS);
+  const curFirst = last - windowMinutes + 1;
+  const prevFirst = curFirst - windowMinutes;
+  let previous: ClassStatsResponse | undefined;
+  let note: string | null = null;
+  if (prevFirst < last - WINDOW_BUCKETS + 1) {
+    note = `Statistics are kept for the last ${WINDOW_BUCKETS} minutes, so the ${windowMinutes} minutes before the last ${windowMinutes} are not available. Compare 15 minutes instead.`;
+  } else if (sources.classes.sinceUnixMs > prevFirst * BUCKET_MS) {
+    note =
+      "Statistics started less than two windows ago, so the previous window is only partly counted or empty.";
+  } else {
+    previous = sources.classes.query(
+      windowMinutes,
+      enabled,
+      store === undefined
+        ? undefined
+        : ownAverages(
+            (visit) => store.scanAllTraces(visit),
+            prevFirst * BUCKET_MS,
+            curFirst * BUCKET_MS,
+          ),
+      curFirst * BUCKET_MS - 1,
+    );
+  }
+  const result = withPreviousClasses(current, previous, note);
   const body: ClassStatsResponse = otherService(parsed.values, sources)
-    ? { ...result, classes: [] }
+    ? { ...result, classes: [], previousTotals: undefined }
     : result;
   return ok(body);
 }
@@ -740,14 +774,15 @@ export function mapHandler(
 ): DashboardResponse {
   const parsed = parseQuery(target, appMapSpec);
   if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
-  const result = buildAppMap(
+  const result = buildAppMapWithPrevious(
     sources.store,
     parsed.values.windowMinutes as number,
     now,
+    sources.stats.sinceUnixMs,
     sources.service.name,
   );
   const body: AppMapResponse = otherService(parsed.values, sources)
-    ? { ...result, nodes: [], edges: [] }
+    ? { ...result, nodes: [], edges: [], previousTotals: undefined }
     : result;
   return ok(body);
 }
@@ -778,14 +813,15 @@ export function dependenciesHandler(
 ): DashboardResponse {
   const parsed = parseQuery(target, dependencySpec);
   if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
-  const result = buildDependencies(
+  const result = buildDependenciesWithPrevious(
     sources.store,
     parsed.values.windowMinutes as number,
     now,
+    sources.stats.sinceUnixMs,
   );
   return ok(
     otherService(parsed.values, sources)
-      ? { ...result, dependencies: [] }
+      ? { ...result, dependencies: [], previousTotals: undefined }
       : result,
   );
 }
