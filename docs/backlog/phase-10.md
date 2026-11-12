@@ -9,10 +9,10 @@ The wire contract is fixed in `packages/protocol/src/remote-profiles.ts` (and `M
 | ID | Task | Tier | Depends | Status |
 |---|---|---|---|---|
 | P10-00 | D-76, protocol types, this backlog | lead | — | done |
-| P10-01 | SDK: `export.profiler` option and the check-in poller | opus | P10-00 | done (review pending in P10-04) |
-| P10-02 | Server: check-in, upload, instances, remote-profiles routes and storage | opus | P10-00 | done (review pending in P10-04) |
+| P10-01 | SDK: `export.profiler` option and the check-in poller | opus | P10-00 | done (reviewed) |
+| P10-02 | Server: check-in, upload, instances, remote-profiles routes and storage | opus | P10-00 | done (reviewed) |
 | P10-03 | UI: standalone Profiler page (instances, capture, history, detail) | sonnet | P10-00 | done (local checks) |
-| P10-04 | End-to-end check, security review, docs, changeset | lead + reviewer | P10-01..03 | todo |
+| P10-04 | End-to-end check, security review, docs, changeset | lead + reviewer | P10-01..03 | done (end-to-end: real Postgres + server + app, 3 s capture done in ~19 s, token and cross-site starts refused; Opus review: 4 findings fixed (generic-endpoint key leak, key-index ownership, unref'd transport, lost order), 1 deferred (upload memory accounting); changeset `overview-and-remote-profiling`) |
 
 ## Settled design
 
