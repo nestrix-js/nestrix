@@ -296,7 +296,7 @@ describe.skipIf(noDatabase)(`query API ${skipReason}`, () => {
         sampling: { owner: "host", rate: null },
         statistics: { windowMinutesOptions: [15, 60] },
         warnings: [],
-        profiler: { available: false, running: false },
+        profiler: { available: false, running: false, remote: true },
         runtime: { available: false },
       });
       expect(meta.store.traces).toBe(6);

@@ -10,7 +10,7 @@ The wire contract is fixed in `packages/protocol/src/remote-profiles.ts` (and `M
 |---|---|---|---|---|
 | P10-00 | D-76, protocol types, this backlog | lead | — | done |
 | P10-01 | SDK: `export.profiler` option and the check-in poller | opus | P10-00 | todo |
-| P10-02 | Server: check-in, upload, instances, remote-profiles routes and storage | opus | P10-00 | todo |
+| P10-02 | Server: check-in, upload, instances, remote-profiles routes and storage | opus | P10-00 | done |
 | P10-03 | UI: standalone Profiler page (instances, capture, history, detail) | sonnet | P10-00 | todo |
 | P10-04 | End-to-end check, security review, docs, changeset | lead + reviewer | P10-01..03 | todo |
 
@@ -41,6 +41,11 @@ The wire contract is fixed in `packages/protocol/src/remote-profiles.ts` (and `M
 - **Expiry.** `pending` older than 60 s and `running` older than `durationMs + 60 s` become `expired` (checked on read and on a periodic sweep).
 - **Storage.** New hand-written SQL migration (follow `storage/migrate.ts` and the existing migrations): tables `instances` (primary key `service`, `instance_id`) and `remote_profiles` (`id` text primary key, `service`, `instance_id`, `version`, `state`, `requested_at`, `started_at`, `finished_at`, `duration_ms`, `actual_duration_ms`, `samples`, `bytes`, `error`, `profile` bytea gzip nullable, `requested_by`, `principal`). Retention: keep the newest 20 per service and drop rows older than the span retention; delete instances not seen for 1 day.
 - **Tests.** Route tests with the existing server test harness: check-in upsert and order handoff; upload by the right instance stores and detail returns functions/flame; upload by another instance or key is refused; failed; expiry; `POST remote-profiles` refused for API tokens, cross-site and wrong origin, unknown instance, duplicates, cool-down; `GET instances` window.
+- **As built.** Code in `apps/server/src/profiler/`, migration `0008_remote_profiles.sql`, tests in `apps/server/test/profiler/`. The wire contract is unchanged. Choices beyond the text above:
+  - The upload carries no `service`/`instanceId`, so "ordered to the same instance" is enforced through the key: an instance id is owned by the ingest key of its first check-in (a check-in for it with another key is `409`), the order goes only to a check-in for its `service` + `instanceId`, the receiving key is stored as the capture's `principal`, and only that key may upload or report failure. Unknown, still-pending and other keys' captures all answer `404` (no confirmation that an id exists). With `NESTRIX_INGEST_AUTH=none` all requests share the principal `none`.
+  - The instance routes share `IngestReceiver`'s key check, rate-limit bucket and memory budget (`IngestReceiver.admit`); `INGEST_PATH_PATTERN` covers them, so the admin middleware, the body parsers and self-tracing treat them as ingest. The upload is checked for ownership before its body is read; its JSON value counts are checked on the raw bytes with the ingest limits and charged to the budget; then it is validated field by field and rebuilt from the `.cpuprofile` fields only (`cpuprofile.ts`).
+  - The summary code is a byte copy of `packages/nestjs/src/profiler/normalize.ts` in `apps/server/src/profiler/normalize.ts` (plus one provenance line), checked identical by `test/profiler/unit.test.ts`; nothing was exported from `@nestrix-js/nestjs`. The detail's summary is cached for the last 8 captures.
+  - `durationSeconds` is the only duration input; `requested_by` is `admin`. The cool-down counts `done` and `failed` captures only (an expired one never ran). `QueryExceptionFilter` now maps 409, 411, 413, 415 and 429 to their protocol codes.
 
 ### P10-03 UI (`packages/ui`)
 

@@ -6,7 +6,9 @@
  * 1. `AdminAuth.middleware()`, mounted by `configureApp` with `app.use()` before the body parsers
  *    and before any Nest route, so it sees every request, matched or not. It is **default deny**:
  *    only these raw paths pass without a session (anchored, case-insensitive, as Express routes):
- *    the OTLP receiver (`/v1/traces`, `/v1/logs`), `/login`, `/login.css` and `/logout`. Every other path,
+ *    the ingest-key routes (`INGEST_PATH_PATTERN`: `/v1/traces`, `/v1/logs`, and remote
+ *    profiling's `/v1/nestrix/check-in`, `/v1/nestrix/profiles/:id` and `…/:id/failed`),
+ *    `/login`, `/login.css` and `/logout`. Every other path,
  *    `/`, `/assets/*`, `/api/v1/*` and any path a later controller adds, needs a valid session.
  * 2. `AdminAuthGuard`, a global Nest guard (`APP_GUARD`), lets a controller run only when the
  *    middleware stamped the request, and lets the session-free stamps reach only the controllers
@@ -93,11 +95,13 @@ const API_PREFIX = /^\/api(?:\/|$)/i;
 const SAFE_METHODS = new Set(["GET", "HEAD"]);
 /**
  * The only paths an API token may read (with `GET` or `HEAD`): the query API's read routes, as
- * Express routes them (case-insensitive, optional trailing slash). Not the alert, SLO or token
+ * Express routes them (case-insensitive, optional trailing slash), and remote profiling's reads
+ * (P10-02: `instances`, `remote-profiles`, `remote-profiles/:id`, `remote-profiles/:id/download`;
+ * starting a capture is a `POST`, which a token never passes). Not the alert, SLO or token
  * routes, not the UI, not ingest.
  */
 export const TOKEN_READ_ROUTE =
-  /^\/api\/v1\/(?:meta|traces(?:\/timeline)?|trace(?:\/logs)?|errors(?:\/groups)?|routes(?:\/histogram|\/compare)?|classes|queries|map|dependencies)\/?$/i;
+  /^\/api\/v1\/(?:meta|traces(?:\/timeline)?|trace(?:\/logs)?|errors(?:\/groups)?|routes(?:\/histogram|\/compare)?|classes|queries|map|dependencies|instances|remote-profiles(?:\/[^/]+(?:\/download)?)?)\/?$/i;
 /** `Authorization: Bearer nxt_…`: the scheme case-insensitive (RFC 9110), the prefix exact. */
 const BEARER_API_TOKEN = /^bearer +(nxt_\S*) *$/i;
 const TOKEN_ONLY_READS = "API tokens can only read the query API.";
@@ -290,7 +294,8 @@ export class AdminAuth implements OnModuleInit {
   ): boolean | Promise<boolean> {
     const path = pathnameOf(req);
     if (INGEST_PATH_PATTERN.test(path)) {
-      // Ingest (/v1/traces, /v1/logs) keeps its own keys: an API token is not one (the receiver checks them).
+      // Ingest (/v1/traces, /v1/logs, /v1/nestrix/*) keeps its own keys: an API token is not one
+      // (the receiver and the instance routes check them).
       stamp(req, "ingest");
       return true;
     }

@@ -41,7 +41,9 @@ export class IngestModule {
           | FactoryProvider,
         IngestReceiver,
       ],
-      exports: [INGEST_SINK],
+      // `IngestReceiver`: its key check, rate limiter and memory budget are shared with the
+      // instance side of remote profiling (P10-02).
+      exports: [INGEST_SINK, IngestReceiver],
     };
   }
 }
