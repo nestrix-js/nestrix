@@ -23,6 +23,9 @@ const sloNav = { to: "/slos", label: "SLOs" } as const;
 // Embedded dashboard only, when `meta.profiler.available`.
 const profilerNav = { to: "/profiler", label: "Profiler" } as const;
 
+// Embedded dashboard only, when `meta.runtime.available`.
+const runtimeNav = { to: "/runtime", label: "Runtime" } as const;
+
 type Connection = "connecting" | "live" | "paused" | "disconnected";
 
 const connectionLabel: Record<Connection, string> = {
@@ -52,6 +55,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const notice = meta.data ? samplingNotice(meta.data.sampling) : null;
   const standalone = meta.data?.mode === "standalone";
   const profilerOn = meta.data?.profiler?.available === true;
+  const runtimeOn = meta.data?.runtime?.available === true;
   const services = meta.data?.services ?? [];
   const [selected, setSelected] = useService();
   // Links keep the chosen service: the hash holds it, and a plain link would drop it.
@@ -145,6 +149,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {[
             ...nav,
             ...(profilerOn ? [profilerNav] : []),
+            ...(runtimeOn ? [runtimeNav] : []),
             ...(standalone ? [sloNav] : []),
           ].map((item) => (
             <Link

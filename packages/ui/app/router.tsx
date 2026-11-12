@@ -14,6 +14,7 @@ import { MapPage } from "@/views/map/map-page";
 import { ProfilerPage } from "@/views/profiler/profiler-page";
 import { RequestsPage } from "@/views/requests/requests-page";
 import { RoutesPage } from "@/views/routes/routes-page";
+import { RuntimePage } from "@/views/runtime/runtime-page";
 import { SlosPage } from "@/views/slos/slos-page";
 import { TracePage } from "@/views/trace/trace-page";
 
@@ -57,6 +58,11 @@ const profilerRoute = createRoute({
   path: "/profiler",
   component: ProfilerPage,
 });
+const runtimeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/runtime",
+  component: RuntimePage,
+});
 const slosRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/slos",
@@ -78,6 +84,7 @@ export const router = createRouter({
     classesRoute,
     mapRoute,
     profilerRoute,
+    runtimeRoute,
     slosRoute,
     traceRoute,
   ]),

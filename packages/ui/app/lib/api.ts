@@ -9,6 +9,7 @@ import type {
   ProfileStartRequest,
   ProfileStartResponse,
   RouteStatsResponse,
+  RuntimeResponse,
   Slo,
   SloCreate,
   SloListResponse,
@@ -165,6 +166,9 @@ export const startProfile = (durationSeconds: number) =>
 /** The `.cpuprofile` download, a plain link: the session cookie authenticates it. */
 export const profileDownloadUrl = (id: string) =>
   apiUrl(`profiles/${encodeURIComponent(id)}/download`);
+
+// Process runtime samples: the embedded dashboard only, when `meta.runtime.available`.
+export const getRuntime = () => getJson<RuntimeResponse>("runtime");
 
 // SLOs: the standalone server only (`/api/v1/slos`).
 export const getSlos = () => getJson<SloListResponse>("slos");
