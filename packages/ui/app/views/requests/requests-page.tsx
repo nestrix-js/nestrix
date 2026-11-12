@@ -41,6 +41,7 @@ export function filtersToParams(filters: RequestFilters): QueryParams {
     method: filters.method ?? undefined,
     status: filters.status ?? undefined,
     minDurationMs: filters.minDurationMs ?? undefined,
+    maxDurationMs: filters.maxDurationMs ?? undefined,
     search: filters.search ?? undefined,
     type: filters.type ?? undefined,
     release: filters.release ?? undefined,
@@ -222,6 +223,22 @@ export function RequestsPage() {
         }}
       />
       <SavedFiltersMenu filters={filters} onApply={(f) => void setFilters(f)} />
+      <DebouncedInput
+        aria-label="Maximum duration (ms)"
+        placeholder="Max ms"
+        type="number"
+        min={0}
+        className="h-7 w-24"
+        value={
+          filters.maxDurationMs === null ? "" : String(filters.maxDurationMs)
+        }
+        onCommit={(v) => {
+          const n = v.trim() === "" ? Number.NaN : Number(v);
+          void setFilters({
+            maxDurationMs: Number.isFinite(n) && n >= 0 ? n : null,
+          });
+        }}
+      />
     </DataTableToolbar>
   );
 

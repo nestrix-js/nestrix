@@ -49,6 +49,7 @@ export const requestFilterParsers = {
   method: stringParser(traceListParams.method),
   status: parseAsStringLiteral(traceListParams.status.values),
   minDurationMs: numberParser(traceListParams.minDurationMs),
+  maxDurationMs: numberParser(traceListParams.maxDurationMs),
   search: stringParser(traceListParams.search),
   type: parseAsStringLiteral(traceListParams.type.values),
   release: stringParser(traceListParams.release),

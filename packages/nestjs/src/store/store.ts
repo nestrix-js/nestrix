@@ -75,6 +75,7 @@ export interface TraceListQuery {
   readonly method?: string | undefined;
   readonly status?: "ok" | "error" | "4xx" | "5xx" | undefined;
   readonly minDurationMs?: number | undefined;
+  readonly maxDurationMs?: number | undefined;
   /** Case-insensitive substring of any span name in the trace, or of the route. */
   readonly search?: string | undefined;
   /**
@@ -847,6 +848,11 @@ class Store implements TraceStore {
       if (
         query.minDurationMs !== undefined &&
         !(root.durationMs >= query.minDurationMs)
+      )
+        return false;
+      if (
+        query.maxDurationMs !== undefined &&
+        !(root.durationMs <= query.maxDurationMs)
       ) {
         return false;
       }
