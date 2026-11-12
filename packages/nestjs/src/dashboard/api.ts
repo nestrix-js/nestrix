@@ -24,6 +24,7 @@ import type {
   ErrorListParamsSpec,
   ErrorListResponse,
   MetaResponse,
+  OverviewParamsSpec,
   ParamSpec,
   QuerySort,
   QueryStatsParamsSpec,
@@ -41,6 +42,7 @@ import type {
   TraceType,
 } from "@nestrix-js/protocol";
 import { methodsEnabled } from "../methods/registry.js";
+import { buildEmbeddedOverview } from "../overview/embedded.js";
 import { type ClassStatistics, ownAverages } from "../stats/class-stats.js";
 import {
   releaseCompare,
@@ -121,6 +123,18 @@ export const errorGroupSpec: ErrorGroupParamsSpec = {
     oneOf: [15, 60],
     default: 15,
   },
+  service: { kind: "string", maxLength: 256 },
+};
+
+export const overviewSpec: OverviewParamsSpec = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 60,
+    oneOf: [15, 60],
+    default: 15,
+  },
+  apdexMs: { kind: "int", min: 10, max: 10000, default: 300 },
   service: { kind: "string", maxLength: 256 },
 };
 
@@ -746,4 +760,23 @@ export function timelineHandler(
     },
   );
   return ok(result);
+}
+
+export function overviewHandler(
+  target: unknown,
+  sources: ApiSources,
+  now: number = Date.now(),
+): DashboardResponse {
+  const parsed = parseQuery(target, overviewSpec);
+  if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
+  const v = parsed.values;
+  return ok(
+    buildEmbeddedOverview(
+      sources,
+      v.windowMinutes as number,
+      v.apdexMs as number,
+      now,
+      otherService(v, sources),
+    ),
+  );
 }

@@ -74,6 +74,17 @@ export interface RouteAggregate {
   hist: Uint32Array;
 }
 
+/** One route in one minute (`RouteStatistics.minuteRows`). */
+export interface RouteMinuteRow {
+  minute: number;
+  method: string;
+  route: string;
+  count: number;
+  errors: number;
+  max: number;
+  hist: number[];
+}
+
 export interface RouteSeriesPointResult {
   /** Start of the bucket, Unix ms. */
   timeUnixMs: number;
@@ -292,6 +303,41 @@ export class RouteStatistics {
           }
         }
         if (agg.count > 0) out.push(agg);
+      }
+    } catch {
+      // Statistics never throw into a request.
+    }
+    return out;
+  }
+
+  /**
+   * One row per route and minute with requests, over the minutes `firstMinute..lastMinute`
+   * (inclusive minute indexes). The histograms are copies. Minutes no longer kept count as empty.
+   * Never throws.
+   */
+  minuteRows(firstMinute: number, lastMinute: number): RouteMinuteRow[] {
+    const out: RouteMinuteRow[] = [];
+    try {
+      const all: Series[] = [];
+      for (const byRoute of this.byMethod.values()) {
+        for (const s of byRoute.values()) all.push(s);
+      }
+      if (this.other) all.push(this.other);
+      for (const s of all) {
+        for (let m = firstMinute; m <= lastMinute; m++) {
+          const slot = ((m % WINDOW_BUCKETS) + WINDOW_BUCKETS) % WINDOW_BUCKETS;
+          if (s.minute[slot] !== m || (s.count[slot] as number) === 0) continue;
+          const start = slot * HISTOGRAM_BUCKETS;
+          out.push({
+            minute: m,
+            method: s.method,
+            route: s.route,
+            count: s.count[slot] as number,
+            errors: s.errors[slot] as number,
+            max: s.max[slot] as number,
+            hist: Array.from(s.hist.subarray(start, start + HISTOGRAM_BUCKETS)),
+          });
+        }
       }
     } catch {
       // Statistics never throw into a request.

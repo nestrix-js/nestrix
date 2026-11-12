@@ -12,6 +12,7 @@ import {
 import type { ApiError, QuerySort } from "@nestrix-js/protocol";
 import { QUERY_HEADERS, QueryExceptionFilter } from "./exception.filter.js";
 import { QueryGuardGate } from "./guard.js";
+import { OverviewService } from "./overview.service.js";
 import {
   appMapSpec,
   classStatsSpec,
@@ -19,6 +20,7 @@ import {
   errorGroupSpec,
   errorListSpec,
   metaSpec,
+  overviewSpec,
   type Parsed,
   parseQuery,
   queryStatsSpec,
@@ -68,7 +70,10 @@ function parse(
 @UseGuards(QueryGuardGate)
 @UseFilters(QueryExceptionFilter)
 export class QueryController {
-  constructor(private readonly query: QueryService) {}
+  constructor(
+    private readonly query: QueryService,
+    private readonly overviewService: OverviewService,
+  ) {}
 
   @Inject(TraceLogsService)
   private readonly traceLogsService!: TraceLogsService;
@@ -200,6 +205,17 @@ export class QueryController {
       return this.query.releaseCompare(a, b, service);
     }
     return this.query.windowCompare(v.windowMinutes as number, service);
+  }
+
+  @Get("overview")
+  @Headers()
+  overview(@Req() req: RequestLike) {
+    const v = parse(req, overviewSpec);
+    return this.overviewService.overview(
+      v.windowMinutes as number,
+      v.apdexMs as number,
+      v.service as string | undefined,
+    );
   }
 
   @Get("classes")

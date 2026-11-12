@@ -165,10 +165,32 @@ export function releasesSeen(store: TraceStore | undefined): string[] {
 }
 
 /**
- * The last `windowMinutes` against the `windowMinutes` before them. The statistics keep the last
- * 60 minutes, so a 60-minute window has no previous window to compare with; a previous window
- * that began before the statistics did is only partly counted. Both cases are said in `note`.
+ * Whether route statistics cover the `windowMinutes` before the last `windowMinutes`, and why not.
+ * The statistics keep the last 60 minutes, so a 60-minute window has no previous window to compare
+ * with; a previous window that began before the statistics did is only partly counted. Both cases
+ * are said in `note`.
  */
+export function windowCoverage(
+  stats: RouteStatistics,
+  windowMinutes: number,
+  now: number,
+): { previousCovered: boolean; note: string | null } {
+  const last = Math.floor(now / BUCKET_MS);
+  const curFirst = last - windowMinutes + 1;
+  const prevFirst = curFirst - windowMinutes;
+  const kept = prevFirst >= last - WINDOW_BUCKETS + 1;
+  const counted = stats.sinceUnixMs <= prevFirst * BUCKET_MS;
+  let note: string | null = null;
+  if (!kept) {
+    note = `Statistics are kept for the last ${WINDOW_BUCKETS} minutes, so the ${windowMinutes} minutes before the last ${windowMinutes} are not available. Compare 15 minutes instead.`;
+  } else if (!counted) {
+    note =
+      "Statistics started less than two windows ago, so the previous window is only partly counted.";
+  }
+  return { previousCovered: kept && counted, note };
+}
+
+/** The last `windowMinutes` against the `windowMinutes` before them (see {@link windowCoverage}). */
 export function windowCompare(
   stats: RouteStatistics,
   store: TraceStore | undefined,
@@ -179,15 +201,8 @@ export function windowCompare(
   const curFirst = last - windowMinutes + 1;
   const prevLast = curFirst - 1;
   const prevFirst = prevLast - windowMinutes + 1;
+  const { previousCovered, note } = windowCoverage(stats, windowMinutes, now);
   const kept = prevFirst >= last - WINDOW_BUCKETS + 1;
-  const counted = stats.sinceUnixMs <= prevFirst * BUCKET_MS;
-  let note: string | null = null;
-  if (!kept) {
-    note = `Statistics are kept for the last ${WINDOW_BUCKETS} minutes, so the ${windowMinutes} minutes before the last ${windowMinutes} are not available. Compare 15 minutes instead.`;
-  } else if (!counted) {
-    note =
-      "Statistics started less than two windows ago, so the previous window is only partly counted.";
-  }
   return {
     mode: "window",
     windowMinutes,
@@ -196,7 +211,7 @@ export function windowCompare(
       toUnixMs: curFirst * BUCKET_MS,
     },
     current: { fromUnixMs: curFirst * BUCKET_MS, toUnixMs: now },
-    previousCovered: kept && counted,
+    previousCovered,
     note,
     releases: releasesSeen(store),
     routes: compareRows(

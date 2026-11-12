@@ -53,6 +53,7 @@ import {
   errorsHandler,
   mapHandler,
   metaHandler,
+  overviewHandler,
   PROTOCOL_VERSION,
   parseQuery,
   queriesHandler,
@@ -450,6 +451,10 @@ export class Dashboard {
       [
         `${api}/dependencies`,
         this.handler("api", (t) => dependenciesHandler(t, sources())),
+      ],
+      [
+        `${api}/overview`,
+        this.handler("api", (t) => overviewHandler(t, sources())),
       ],
       [
         `${api}/traces/timeline`,
