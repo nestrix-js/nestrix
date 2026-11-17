@@ -57,7 +57,7 @@ NestrixModule.forRoot({
 
 - There is no `Proxy`. `this` stays the real instance, so `#private` members work, and method-level `@UseGuards` keeps applying.
 - The promise a traced method returns must be handled by its caller. A method that handles its own promise (`p.catch(log); return p`) while its caller ignores the return value turns a rejection into an unhandled one.
-- `@nestjs/testing` is not supported: Nest gives the testing module no `instrument` option. HTTP spans still work there. See the [FAQ](/faq).
+- `@nestjs/testing` is not supported: Nest gives the testing module no `instrument` option. HTTP spans still work there. See the [FAQ](/faq) and [Testing your app](/guide/testing).
 
 ## Level 3: database and cache
 
@@ -86,6 +86,49 @@ NestrixModule.forRoot({
 **`pg` and nested copies.** An ORM may bring its own copy of `pg`. Nestrix wraps copies loaded when it starts and again at `onApplicationBootstrap`. A copy first loaded during a request is not traced.
 
 **`ioredis` and root commands.** A command with no active span (the connection handshake, commands queued before the connection was ready) is dropped by default. `ioredis: { rootSpans: true }` keeps them as root spans.
+
+## Mail and other outgoing channels
+
+An HTTP-API mail provider (SES over HTTPS, SendGrid, Postmark, Resend) is already traced as an outbound call. SMTP is not: nothing traces a raw TCP or TLS conversation. Two options, both opt-in:
+
+- **Name the class.** Put the Nest provider that sends mail in `methods.include`: `methods: { include: [MailService] }`. This works on classes Nest instantiates as providers; a transport object a library creates internally is not one.
+- **Wrap the send** in `withSpan('mail.send', ...)` and record only the transport name and the outcome:
+
+```ts
+import { Injectable } from "@nestjs/common";
+import { withSpan } from "@nestrix-js/nestjs";
+
+// Whatever sends your mail: nodemailer, a vendor SDK over SMTP, a queue.
+interface MailTransport {
+  readonly name: string;
+  send(message: { to: string; subject: string; html: string }): Promise<void>;
+}
+
+@Injectable()
+export class MailService {
+  constructor(private readonly transport: MailTransport) {}
+
+  async sendWelcome(to: string): Promise<void> {
+    return withSpan("mail.send", async (span) => {
+      // Only the transport and the outcome. No address, subject or content.
+      span.setAttribute("mail.transport", this.transport.name);
+      try {
+        await this.transport.send({
+          to,
+          subject: "Welcome",
+          html: "<p>Hi</p>",
+        });
+        span.setAttribute("mail.outcome", "sent");
+      } catch (error) {
+        span.setAttribute("mail.outcome", "failed");
+        throw error; // withSpan records it and sets the error status
+      }
+    });
+  }
+}
+```
+
+Keep addresses, subjects and bodies off the span. A `net`/`tls`-level span for SMTP clients is not planned: those sockets carry the message itself, so a generic instrumentation could not know what to leave out.
 
 ## BullMQ jobs
 

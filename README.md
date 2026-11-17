@@ -2,7 +2,7 @@
 
 Open-source observability for NestJS 12+: Nest-aware OpenTelemetry traces, in a dashboard served by your own app or in the backend you already run.
 
-> **Status: 0.1.0.** `@nestrix-js/nestjs`, `@nestrix-js/ui` and `@nestrix-js/mcp` are published at `0.1.0` under the `latest` npm tag, and the standalone server image is on GHCR (`:0.1.0`, `:latest`). Everything described below is built (phases 0 to 11); the API can still change before 1.0.
+> **Status: pre-1.0.** `@nestrix-js/nestjs`, `@nestrix-js/ui` and `@nestrix-js/mcp` are published under the `latest` npm tag, and the standalone server image is on GHCR (`:latest`). Everything described below is built; the API can still change before 1.0.
 
 ## What it is for
 
@@ -92,6 +92,8 @@ Open `http://localhost:4318`, sign in with the admin password, and pick a servic
 | [Compatibility](docs/compatibility.md) | What is tested and supported: Node, Nest, adapters, libraries, transports, browsers |
 | [Upgrading from 0.x](docs/upgrading.md) | Every rename and default change before 1.0, with before and after code |
 | [1.0 readiness](docs/backlog/phase-6.md#10-readiness) | Phase 6 acceptance status and the owner steps before release |
+| [Testing your app](docs-site/guide/testing.md) | `@nestrix-js/nestjs/testing`: capture finished spans in memory, keep Nestrix off in tests |
+| [Mail and other outgoing channels](packages/nestjs/README.md#mail-and-other-outgoing-channels) | Tracing SMTP and library transports with `methods.include` or `withSpan` |
 | [Documentation site guides](docs-site/guide/getting-started.md) | Dashboard, security model, standalone server, MCP, logs and metrics |
 | [Package READMEs](packages/nestjs/README.md) | [`@nestrix-js/nestjs`](packages/nestjs/README.md), [`@nestrix-js/mcp`](packages/mcp/README.md), [`@nestrix-js/ui`](packages/ui/README.md), [standalone server](apps/server/README.md) |
 | [Architecture](docs/architecture.md) | What is being built and why |

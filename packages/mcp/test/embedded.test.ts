@@ -5,6 +5,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { STATISTICS_COUNTING } from "@nestrix-js/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type Connected, connect } from "./helpers.js";
 
@@ -141,7 +142,8 @@ describe("embedded dashboard", () => {
     const stats = await mcp.call("route_stats");
     expect(stats.isError, stats.text).toBe(false);
     expect(stats.text).toContain("GET /orders");
-    expect(stats.text).toContain("Every request is counted");
+    expect(stats.text).toContain(STATISTICS_COUNTING.embedded);
+    expect(stats.text).not.toContain("stored spans");
     const stats60 = await mcp.call("route_stats", { windowMinutes: 60 });
     expect(stats60.text).toContain("last 60 minutes");
     const cls = await mcp.call("class_stats");

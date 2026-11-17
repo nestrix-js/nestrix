@@ -752,6 +752,9 @@ importers:
       pg-query-stream:
         specifier: ^4.17.1
         version: 4.17.1(pg@8.23.1)
+      pino:
+        specifier: ^10.4.0
+        version: 10.4.0
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2

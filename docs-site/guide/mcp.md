@@ -56,7 +56,7 @@ For Claude Code, the `claude mcp add` command with the same two variables is in 
 
 ## What the assistant can see
 
-Exactly what the dashboard shows, already scrubbed inside your app: span names, timings, allow-listed attributes, SQL text without bind values, error messages and stack traces. Request and response bodies, bind parameters and other headers are not stored, so they cannot be read. Traces are sampled and in memory; route statistics count every request. Telemetry text can contain anything, so the server tells the model to treat it as data.
+Exactly what the dashboard shows, already scrubbed inside your app: span names, timings, allow-listed attributes, SQL text without bind values, error messages and stack traces. Request and response bodies, bind parameters and other headers are not stored, so they cannot be read. Traces are sampled and in memory. On an app's embedded dashboard route statistics count every request; on the standalone server they are counted from the stored spans, so they reflect the sampling of the services that send them (the tools say which applies). Telemetry text can contain anything, so the server tells the model to treat it as data.
 
 A server API token can read the query API and nothing else: it is refused by the UI, token management, alert and SLO routes and ingest. See [Security model](/guide/security#standalone-server-api-tokens).
 

@@ -1,82 +1,12 @@
 import { ConsoleLogger, type LogLevel } from "@nestjs/common";
-import { isSpanContextValid, trace } from "@opentelemetry/api";
 import { diagnostics } from "../diagnostics.js";
-import { getLogSink, getTraceLogSink, type TraceLogSink } from "./sink.js";
-import { getTraceIds, type TraceIds } from "./trace-ids.js";
+import { emitMessages } from "./emit.js";
+import { getTraceIds } from "./trace-ids.js";
+
+export { MAX_BODY_LENGTH } from "./emit.js";
 
 type JsonLogObject = ReturnType<ConsoleLogger["getJsonLogObject"]>;
 type JsonLogOptions = Parameters<ConsoleLogger["getJsonLogObject"]>[1];
-
-/** The longest body sent over OTLP; longer ones are cut and end in `…`. */
-export const MAX_BODY_LENGTH = 8192;
-
-function rawBodyOf(message: unknown): string {
-  if (typeof message === "string") return message;
-  if (message instanceof Error) return message.message;
-  try {
-    return JSON.stringify(message) ?? String(message);
-  } catch {
-    return String(message);
-  }
-}
-
-function bodyOf(message: unknown): string {
-  const body = rawBodyOf(message);
-  return body.length > MAX_BODY_LENGTH
-    ? `${body.slice(0, MAX_BODY_LENGTH)}…`
-    : body;
-}
-
-/**
- * The ids of the active span when it is recording: a line written under a sampled-out span
- * would be kept for a trace the store never receives.
- */
-function recordingIds(): TraceIds | undefined {
-  const span = trace.getActiveSpan();
-  if (!span?.isRecording()) return undefined;
-  const spanContext = span.spanContext();
-  return isSpanContextValid(spanContext)
-    ? { traceId: spanContext.traceId, spanId: spanContext.spanId }
-    : undefined;
-}
-
-/** Set while records are handed to the trace slot, so a line logged on that path is not fed back. */
-let addingToTrace = false;
-
-/** The active recording span's ids when the store takes lines now; `undefined` otherwise. Never throws. */
-function traceTarget(
-  traceSink: TraceLogSink | undefined,
-): TraceIds | undefined {
-  if (traceSink === undefined || addingToTrace) return undefined;
-  try {
-    return recordingIds();
-  } catch (error) {
-    diagnostics.countFailure("logs.trace", error);
-    return undefined;
-  }
-}
-
-/** Hands the lines to the dashboard store. Never throws. */
-function addToTrace(
-  traceSink: TraceLogSink,
-  ids: TraceIds,
-  level: LogLevel,
-  bodies: readonly string[],
-  context: string | undefined,
-): void {
-  if (addingToTrace) return;
-  addingToTrace = true;
-  try {
-    const timeUnixMs = Date.now();
-    for (const body of bodies) {
-      traceSink.add({ ...ids, timeUnixMs, level, body, context });
-    }
-  } catch (error) {
-    diagnostics.countFailure("logs.trace", error);
-  } finally {
-    addingToTrace = false;
-  }
-}
 
 /**
  * Nest's `ConsoleLogger` with the active trace and span id on every line, and, when
@@ -103,26 +33,14 @@ export class NestrixLogger extends ConsoleLogger {
     try {
       const resolved = messages.map((m) => this.resolveMessage(m));
       toPrint = resolved;
-      const sink = getLogSink();
-      const traceSink = getTraceLogSink();
-      const ids = traceTarget(traceSink);
-      if (sink || ids) {
-        const bodies = resolved.map((r) => bodyOf(this.redact(r)));
-        if (traceSink && ids) {
-          addToTrace(traceSink, ids, logLevel, bodies, context || undefined);
-        }
-        if (sink) {
-          const stack = typeof errorStack === "string" ? errorStack : undefined;
-          for (const body of bodies) {
-            sink.emit({
-              level: logLevel,
-              body,
-              context: context || undefined,
-              stack,
-            });
-          }
-        }
-      }
+      emitMessages(
+        logLevel,
+        resolved,
+        context || undefined,
+        typeof errorStack === "string" ? errorStack : undefined,
+        undefined,
+        (r) => this.redact(r),
+      );
     } catch (error) {
       diagnostics.countFailure("logs.emit", error);
     }
