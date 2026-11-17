@@ -1,4 +1,13 @@
 export {
+  getExportStatus,
+  type NestrixExportFailure,
+  type NestrixExportFailureReason,
+  type NestrixExportSignal,
+  type NestrixExportState,
+  type NestrixExportStatus,
+  type NestrixSignalExportStatus,
+} from "./export-status.js";
+export {
   type BullmqAttributes,
   type BullmqAttributeValue,
   type BullmqSpan,

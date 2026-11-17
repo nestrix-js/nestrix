@@ -3,8 +3,13 @@ import { NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import { AppModule } from "./app.module.js";
 import { AdminAuth } from "./auth/admin-auth.js";
-import type { HttpServerConfig, ServerConfig } from "./config.js";
+import {
+  DEFAULT_INGEST,
+  type HttpServerConfig,
+  type ServerConfig,
+} from "./config.js";
 import { INGEST_PATH_PATTERN } from "./ingest/tokens.js";
+import { unknownOtlpPathMiddleware } from "./ingest/unknown-path.js";
 
 /**
  * True for the ingest path as Express routes it: case-insensitive, with or without a trailing
@@ -33,7 +38,14 @@ export function configureApp(
 ): void {
   if (config !== undefined) configureHttpServer(app, config.http);
   app.disable("x-powered-by");
-  // First, before the body parsers and every Nest route: the admin login's default-deny
+  // #39: a `/v1/…` path that is not an ingest route (`/v1/metrics`) answers an OTLP 404, before
+  // the admin login, so exporters see "not found" instead of 403/503 (src/ingest/unknown-path.ts).
+  app.use(
+    unknownOtlpPathMiddleware(
+      config?.ingest.discardTimeoutMs ?? DEFAULT_INGEST.discardTimeoutMs,
+    ),
+  );
+  // Next, before the body parsers and every Nest route: the admin login's default-deny
   // middleware (src/auth/admin-auth.ts). Throws at start if AuthModule is missing.
   app.use(app.get(AdminAuth).middleware());
   app.useBodyParser("json", {

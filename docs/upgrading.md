@@ -123,6 +123,12 @@ A fix: the resource on exported metrics lacked the value that traces had. If you
 
 The owned meter provider starts at bootstrap, so a `MeterProvider` your app registers in `onModuleInit` takes precedence. The request histogram has gained `url.scheme`. Metric names may change in a minor release (see above), so pin dashboards to them knowing that.
 
+### Export failures are logged, and metrics stop at an endpoint that does not take them
+
+New in 0.5 (D-82). When Nestrix owns the pipeline, an export that starts failing (backend down, key refused, rate limited) logs one warning through Nest's `Logger` (context `Nestrix`), and one line when it recovers; before, nothing was logged. A metrics URL that answers 404, 405 or 501 (the Nestrix standalone server, which now answers 404 there instead of 403) gets one line, and Nestrix stops exporting metrics until the app restarts; traces and logs continue. If you filtered OpenTelemetry's diag output to find export errors, read these lines instead.
+
+New export: `getExportStatus()`, a read-only snapshot per signal (state, last success and failure, reason and HTTP status, consecutive failures, totals by reason, items dropped from the queue), plus two observable counters on the registered `MeterProvider`, `nestrix.export.failures{signal,reason}` and `nestrix.export.dropped{signal}`. With a host-owned SDK nothing changes: the status stays `inactive` and no instrument is added. Use the status in readiness checks as "degraded", never as a reason to restart (the "Export health" sections of the package README and of the logs and metrics guide show how).
+
 ### Standard OpenTelemetry sampler and protocol variables are not read
 
 `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG`, `OTEL_SDK_DISABLED` and `OTEL_EXPORTER_OTLP_PROTOCOL` have no effect in 1.x. Use the `sampleRate` option, and `enabled: false` or `NESTRIX_ENABLED=false` to switch Nestrix off. Export is OTLP/HTTP with protobuf only. A new 1.0 install is not affected, but a config copied from another OpenTelemetry setup will not behave as it did there.

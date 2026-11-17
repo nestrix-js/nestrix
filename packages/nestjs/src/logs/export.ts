@@ -8,12 +8,28 @@
  * globally; when the host already registered one, registration fails, the one built here is
  * shut down, and records go to the host's.
  */
+
+import type { Agent as HttpAgent } from "node:http";
 import type { LogLevel } from "@nestjs/common";
 import { context, logs, SeverityNumber } from "@opentelemetry/api";
 import type {
   BatchLogRecordProcessor,
   LoggerProvider,
 } from "@opentelemetry/sdk-logs";
+import {
+  activateExport,
+  deactivateExport,
+  recordExportDropped,
+} from "../export-status.js";
+import {
+  createExportAgents,
+  type ResponseStatusTracker,
+} from "../otel/export-agent.js";
+import { observeExports } from "../otel/observe-export.js";
+import {
+  createDropCountingMeterProvider,
+  LOG_PROCESSED_METRIC,
+} from "../otel/pipeline.js";
 import { settle } from "../otel/redacting-exporter.js";
 import { buildResource } from "../otel/resource.js";
 import type { TelemetryDiagnostics } from "../otel/types.js";
@@ -28,6 +44,7 @@ export interface LogExportModules {
     url: string;
     headers: Record<string, string>;
     timeoutMillis: number;
+    httpAgentOptions?: (protocol: string) => HttpAgent;
   }) => ConstructorParameters<typeof BatchLogRecordProcessor>[0]["exporter"];
 }
 
@@ -136,21 +153,39 @@ export function setupLogExport(
       }
       if (active !== state) return; // shut down while loading
       try {
+        // D-82: the exporter's agents (unref'ed sockets, as for traces) also report the HTTP
+        // status of each answer, and every export's result feeds getExportStatus().logs.
+        const tracker: ResponseStatusTracker = { lastStatus: undefined };
+        const agents = createExportAgents(tracker);
+        const exporter = observeExports(
+          new modules.OTLPLogExporter({
+            url: otlp.url,
+            headers: { ...otlp.headers },
+            timeoutMillis: otlp.timeoutMillis,
+            httpAgentOptions: (protocol: string) => agents.factory(protocol),
+          }),
+          { signal: "logs", tracker },
+        ) as ConstructorParameters<
+          typeof BatchLogRecordProcessor
+        >[0]["exporter"];
         const provider = new modules.LoggerProvider({
           resource: buildResource(options),
           processors: [
             new modules.BatchLogRecordProcessor({
-              exporter: new modules.OTLPLogExporter({
-                url: otlp.url,
-                headers: { ...otlp.headers },
-                timeoutMillis: otlp.timeoutMillis,
-              }),
+              exporter,
+              // Queue-full drops, counted as for spans (pipeline.ts).
+              selfObsMeterProvider: createDropCountingMeterProvider(
+                (count) => recordExportDropped("logs", count),
+                LOG_PROCESSED_METRIC,
+              ),
             }),
           ],
         });
         // False when a host provider holds the slot: use it, drop ours.
-        if (logs.setGlobalLoggerProvider(provider)) state.provider = provider;
-        else void settle(() => provider.shutdown());
+        if (logs.setGlobalLoggerProvider(provider)) {
+          state.provider = provider;
+          activateExport("logs");
+        } else void settle(() => provider.shutdown());
         const logger = logs.getLogger("@nestrix-js/nestjs");
         state.sink = {
           emit(record) {
@@ -212,6 +247,7 @@ function handle(state: Active): LogExportHandle {
         const { provider } = state;
         if (provider) {
           await bounded(() => provider.shutdown(), SHUTDOWN_TIMEOUT_MILLIS);
+          deactivateExport("logs");
           try {
             logs.disable();
           } catch {

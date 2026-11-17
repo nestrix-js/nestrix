@@ -12,11 +12,65 @@
  *   `EAI_AGAIN`, `ENOTFOUND`, `ENETUNREACH`, `EHOSTUNREACH`;
  *   `http-transport-utils.mjs:115-127`), and fails every later connection the same way.
  */
+import { subscribe } from "node:diagnostics_channel";
 import { Agent as HttpAgent } from "node:http";
 import { Agent as HttpsAgent } from "node:https";
 import type { Duplex } from "node:stream";
 
 export const SHUTDOWN_ERROR_CODE = "ERR_NESTRIX_TELEMETRY_SHUTDOWN";
+
+/**
+ * The HTTP status of the last answer an exporter got through these agents (D-82). The OTLP
+ * exporter drops it for the statuses it retries (429, 502, 503, 504: its final error is a bare
+ * "Export failed with retryable status"; otlp-exporter-base 0.301.1 `http-transport-utils.mjs`,
+ * `otlp-export-delegate.mjs`), so it is read here, from Node's public
+ * `http.client.response.finish` channel, for requests sent through one of these agents only.
+ */
+export interface ResponseStatusTracker {
+  lastStatus: number | undefined;
+}
+
+const RESPONSE_FINISH = "http.client.response.finish";
+const trackedAgents = new WeakMap<object, ResponseStatusTracker>();
+let subscribed = false;
+
+/**
+ * Subscriber of `http.client.response.finish`: one `WeakMap` lookup per response the process
+ * receives, so subscribed once, on the first tracked agent, and kept. Never throws (a throwing
+ * subscriber raises `uncaughtException`).
+ */
+function onResponseFinish(message: unknown): void {
+  try {
+    const m = message as {
+      request?: { agent?: unknown };
+      response?: { statusCode?: unknown };
+    } | null;
+    const agent = m?.request?.agent;
+    if (agent === null || typeof agent !== "object") return;
+    const tracker = trackedAgents.get(agent);
+    if (tracker === undefined) return;
+    const status = m?.response?.statusCode;
+    if (typeof status === "number") tracker.lastStatus = status;
+  } catch {
+    // Never throws into Node's HTTP client.
+  }
+}
+
+function track(
+  agent: object,
+  tracker: ResponseStatusTracker | undefined,
+): void {
+  if (tracker === undefined) return;
+  try {
+    trackedAgents.set(agent, tracker);
+    if (!subscribed) {
+      subscribe(RESPONSE_FINISH, onResponseFinish);
+      subscribed = true;
+    }
+  } catch {
+    // Without the channel, a retried status is reported as `other`.
+  }
+}
 
 function shutdownError(): Error {
   return Object.assign(new Error("Nestrix telemetry shut down"), {
@@ -38,11 +92,13 @@ export interface ExportAgents {
   abort(): void;
 }
 
-export function createExportAgents(): ExportAgents {
+export function createExportAgents(
+  tracker?: ResponseStatusTracker,
+): ExportAgents {
   const sockets = new Set<Duplex>();
   let aborted = false;
 
-  const track = (socket: Duplex | null | undefined): void => {
+  const trackSocket = (socket: Duplex | null | undefined): void => {
     if (!socket) return;
     unref(socket);
     sockets.add(socket);
@@ -56,7 +112,7 @@ export function createExportAgents(): ExportAgents {
       ...args: Parameters<HttpAgent["createConnection"]>
     ): ReturnType<HttpAgent["createConnection"]> {
       const socket = super.createConnection(...args);
-      track(socket);
+      trackSocket(socket);
       return socket;
     }
     override reuseSocket(...args: Parameters<HttpAgent["reuseSocket"]>): void {
@@ -69,7 +125,7 @@ export function createExportAgents(): ExportAgents {
       ...args: Parameters<HttpsAgent["createConnection"]>
     ): ReturnType<HttpsAgent["createConnection"]> {
       const socket = super.createConnection(...args);
-      track(socket);
+      trackSocket(socket);
       return socket;
     }
     override reuseSocket(...args: Parameters<HttpsAgent["reuseSocket"]>): void {
@@ -83,10 +139,16 @@ export function createExportAgents(): ExportAgents {
   return {
     factory(protocol) {
       if (protocol === "http:") {
-        http ??= new UnrefHttpAgent({ keepAlive: true });
+        if (http === undefined) {
+          http = new UnrefHttpAgent({ keepAlive: true });
+          track(http, tracker);
+        }
         return http;
       }
-      https ??= new UnrefHttpsAgent({ keepAlive: true });
+      if (https === undefined) {
+        https = new UnrefHttpsAgent({ keepAlive: true });
+        track(https, tracker);
+      }
       return https;
     },
     abort() {

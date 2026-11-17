@@ -15,6 +15,7 @@ import {
   TraceIdRatioBasedSampler,
   TracerProvider,
 } from "@opentelemetry/sdk-trace";
+import { activateExport, deactivateExport } from "../export-status.js";
 import { createStoreProcessor } from "../store/processor.js";
 import { getOrCreateStore, type TraceStore } from "../store/store.js";
 import {
@@ -276,7 +277,10 @@ function setup(
     return hostHandle(config, diagnostics);
   }
 
-  if (!pipeline) {
+  if (pipeline) {
+    // D-82: getExportStatus().traces reports from here on.
+    activateExport("traces");
+  } else {
     diagnostics.logOnce(
       "otel.export-off",
       "OTLP export is off: no endpoint is set (export.otlp.endpoint, OTEL_EXPORTER_OTLP_TRACES_ENDPOINT or OTEL_EXPORTER_OTLP_ENDPOINT), or export.otlp is false. Spans are created but not sent anywhere.",
@@ -453,6 +457,8 @@ async function teardown(state: Owned): Promise<void> {
     () => state.provider.shutdown(),
     state.timeoutMillis,
   );
+  // Before abort(): exports it cuts off are not failures of the endpoint.
+  if (state.pipeline) deactivateExport("traces");
   if (outcome === "timeout") {
     // Without this the batch processor's export timer, the exporter's socket and its
     // retries keep the process alive after the app closed.

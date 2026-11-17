@@ -14,7 +14,21 @@
  */
 import { metrics } from "@opentelemetry/api";
 import type { Diagnostics } from "../diagnostics.js";
-import { createExportAgents, type ExportAgents } from "../otel/export-agent.js";
+import {
+  activateExport,
+  deactivateExport,
+  type NestrixExportFailure,
+  recordExportStopped,
+} from "../export-status.js";
+import {
+  createExportAgents,
+  type ExportAgents,
+  type ResponseStatusTracker,
+} from "../otel/export-agent.js";
+import {
+  type ObservableExporter,
+  observeExports,
+} from "../otel/observe-export.js";
 import { settle } from "../otel/redacting-exporter.js";
 import { buildResource } from "../otel/resource.js";
 import type { ResolvedMetricExport } from "../resolve-options.js";
@@ -96,6 +110,8 @@ interface Shared {
   ready: Promise<void>;
   provider: OwnedMeterProvider | undefined;
   agents: ExportAgents | undefined;
+  /** The owned export started (getExportStatus().metrics was activated). */
+  activated: boolean;
   closed: boolean;
   timeoutMillis: number;
   diagnostics: Diagnostics;
@@ -152,16 +168,26 @@ async function load(state: Shared, config: MetricExportConfig): Promise<void> {
     );
     return;
   }
-  const agents = createExportAgents();
+  const tracker: ResponseStatusTracker = { lastStatus: undefined };
+  const agents = createExportAgents(tracker);
   let provider: OwnedMeterProvider;
   try {
     const cfg = config.export;
-    const exporter = new sdk.OTLPMetricExporter({
-      url: cfg.url,
-      headers: { ...cfg.headers },
-      timeoutMillis: cfg.timeoutMillis,
-      httpAgentOptions: (protocol: string) => agents.factory(protocol),
-    });
+    // D-82: every export's result feeds getExportStatus().metrics; an endpoint that does not
+    // accept metrics (404, 405, 501) stops the export (#39).
+    const exporter = observeExports(
+      new sdk.OTLPMetricExporter({
+        url: cfg.url,
+        headers: { ...cfg.headers },
+        timeoutMillis: cfg.timeoutMillis,
+        httpAgentOptions: (protocol: string) => agents.factory(protocol),
+      }) as ObservableExporter<unknown>,
+      {
+        signal: "metrics",
+        tracker,
+        onNotSupported: (failure) => stopNotSupported(state, failure),
+      },
+    );
     const reader = new sdk.PeriodicExportingMetricReader({
       exporter,
       exportIntervalMillis: cfg.intervalMillis,
@@ -188,13 +214,56 @@ async function load(state: Shared, config: MetricExportConfig): Promise<void> {
   }
   state.provider = provider;
   state.agents = agents;
+  state.activated = true;
+  activateExport("metrics");
+  notifyAll(state);
+}
+
+/** Tells every app's binding that the global provider changed, so it rebinds. Never throws. */
+function notifyAll(state: Shared): void {
   for (const notify of state.onRegistered) {
     try {
       notify();
     } catch (error) {
-      diagnostics.countFailure("metrics.export.notify", error);
+      state.diagnostics.countFailure("metrics.export.notify", error);
     }
   }
+}
+
+export const METRICS_NOT_SUPPORTED_MESSAGE = (failure: NestrixExportFailure) =>
+  `The OTLP endpoint does not accept metrics (HTTP ${failure.httpStatus ?? "error"} on its metrics URL), so Nestrix stopped exporting metrics until the app restarts. Traces and logs are not affected. The Nestrix standalone server ingests traces and logs only: send metrics to an OpenTelemetry Collector (OTEL_EXPORTER_OTLP_METRICS_ENDPOINT), or set metrics: { export: false }.`;
+
+/**
+ * #39: the endpoint answered 404, 405 or 501 to a metric export. The exporter wrapper already
+ * sends nothing more; this logs one line, unregisters Nestrix's `MeterProvider` (so the
+ * instruments rebind to the API's no-op and the runtime monitors stop) and shuts it down, bounded.
+ * Called from the exporter's result callback, so the work starts on a later tick. Never throws.
+ */
+function stopNotSupported(state: Shared, failure: NestrixExportFailure): void {
+  try {
+    recordExportStopped(
+      "metrics",
+      failure,
+      METRICS_NOT_SUPPORTED_MESSAGE(failure),
+    );
+  } catch {
+    // Never throws.
+  }
+  void settle(async () => {
+    await Promise.resolve();
+    const provider = state.provider;
+    if (provider === undefined || state.closed) return;
+    // Taken first: the app's own teardown then has nothing left to shut down.
+    state.provider = undefined;
+    disableOwn(state, provider);
+    notifyAll(state);
+    await bounded(() => provider.shutdown(), state.timeoutMillis);
+    try {
+      state.agents?.abort();
+    } catch (error) {
+      state.diagnostics.countFailure("metrics.shutdown", error);
+    }
+  });
 }
 
 async function teardown(state: Shared): Promise<void> {
@@ -203,8 +272,14 @@ async function teardown(state: Shared): Promise<void> {
   // The load is local disk; bounded anyway, so a hung import cannot hold the shutdown.
   const loaded = await bounded(() => state.ready, state.timeoutMillis);
   const provider = state.provider;
-  if (loaded === "timeout" || provider === undefined) return;
+  if (loaded === "timeout" || provider === undefined) {
+    // Stopped for #39 earlier: nothing left to shut down, the status ends here.
+    if (state.activated) deactivateExport("metrics");
+    return;
+  }
   const outcome = await bounded(() => provider.shutdown(), state.timeoutMillis);
+  // Before abort(): exports it cuts off are not failures of the endpoint.
+  deactivateExport("metrics");
   if (outcome === "timeout") {
     try {
       state.agents?.abort();
@@ -255,6 +330,7 @@ export function startMetricExport(
       ready: Promise.resolve(),
       provider: undefined,
       agents: undefined,
+      activated: false,
       closed: false,
       timeoutMillis:
         config.shutdownTimeoutMillis ?? DEFAULT_SHUTDOWN_TIMEOUT_MILLIS,

@@ -13,7 +13,12 @@ import {
   type SpanExporter,
   type SpanProcessor,
 } from "@opentelemetry/sdk-trace";
-import { createExportAgents } from "./export-agent.js";
+import { recordExportDropped } from "../export-status.js";
+import {
+  createExportAgents,
+  type ResponseStatusTracker,
+} from "./export-agent.js";
+import { observeExports } from "./observe-export.js";
 import {
   createRedactingExporter,
   type RedactionCounters,
@@ -46,6 +51,8 @@ export interface PipelineCounters extends RedactionCounters {
  * names, so string literals.
  */
 const PROCESSED_METRIC = "otel.sdk.processor.span.processed";
+/** The same for the log batch processor (sdk-logs 3.1.1, `LogRecordProcessorMetrics.mjs`). */
+export const LOG_PROCESSED_METRIC = "otel.sdk.processor.log.processed";
 const ERROR_TYPE = "error.type";
 const QUEUE_FULL = "queue_full";
 
@@ -53,15 +60,18 @@ const QUEUE_FULL = "queue_full";
  * A `MeterProvider` whose only live instrument counts the batch processor's queue-full
  * drops. Passed as `selfObsMeterProvider`, a public (experimental) option of
  * `BatchSpanProcessor`; the drop counter itself (`_droppedSpansCount`) is private and
- * reset after each warning. Every other instrument is the API's no-op.
+ * reset after each warning. Every other instrument is the API's no-op. `metricName` is
+ * the processed-items counter to watch: spans by default, `LOG_PROCESSED_METRIC` for the
+ * log batch processor, whose queue-full drops are reported the same way (D-82).
  */
 export function createDropCountingMeterProvider(
   onDropped: (count: number) => void,
+  metricName: string = PROCESSED_METRIC,
 ): MeterProvider {
   const noop = createNoopMeter();
   const meter: Meter = {
     createCounter(name, options) {
-      if (name !== PROCESSED_METRIC) return noop.createCounter(name, options);
+      if (name !== metricName) return noop.createCounter(name, options);
       return {
         add(value, attributes) {
           try {
@@ -215,7 +225,8 @@ export function createPipeline(
 ): Pipeline | undefined {
   const otlp = config.export.otlp;
   if (otlp === false) return undefined;
-  const agents = createExportAgents();
+  const tracker: ResponseStatusTracker = { lastStatus: undefined };
+  const agents = createExportAgents(tracker);
   const exporter = createLazyOtlpExporter(
     {
       url: otlp.url,
@@ -225,7 +236,9 @@ export function createPipeline(
     },
     diagnostics,
   );
-  const chain = createProcessorChain(exporter, {
+  // D-82: every export's result feeds getExportStatus(), passed on unchanged.
+  const observed = observeExports(exporter, { signal: "traces", tracker });
+  const chain = createProcessorChain(observed, {
     scrub: config.scrub,
     redact: config.redact,
     queue: config.export.queue,
@@ -277,6 +290,7 @@ export function createProcessorChain(
     exportTimeoutMillis: options.exportTimeoutMillis,
     selfObsMeterProvider: createDropCountingMeterProvider((count) => {
       counters.droppedSpans += count;
+      recordExportDropped("traces", count);
     }),
   });
   // Tells the exporter wrapper when the processor flushes or shuts down, so those exports

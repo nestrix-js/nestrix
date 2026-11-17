@@ -137,7 +137,6 @@ describe("with an admin password", () => {
       "/anything",
       "/login/../api/v1/probe",
       "/v1/traces/../api/v1/probe",
-      "/v1/tracesx",
       "/login.cssx",
       "http://127.0.0.1/api/v1/probe",
     ]) {
