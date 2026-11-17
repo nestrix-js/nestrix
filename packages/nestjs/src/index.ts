@@ -7,6 +7,14 @@ export {
   type NestrixExportStatus,
   type NestrixSignalExportStatus,
 } from "./export-status.js";
+export {
+  type BullmqAttributes,
+  type BullmqAttributeValue,
+  type BullmqSpan,
+  type BullmqTelemetry,
+  type BullmqTelemetryOptions,
+  bullmqTelemetry,
+} from "./jobs/bullmq.js";
 export { emitLog, type NestrixLogRecord } from "./logs/emit.js";
 export { NestrixLogger } from "./logs/logger.js";
 export { getTraceIds, type TraceIds } from "./logs/trace-ids.js";
