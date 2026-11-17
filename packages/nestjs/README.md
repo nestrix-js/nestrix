@@ -757,15 +757,14 @@ If the library is not installed the integration reports itself disabled and does
 
 ## Background jobs (BullMQ)
 
-BullMQ has its own OpenTelemetry support. Give it a `BullMQOtel` from `bullmq-otel` (a separate package; Nestrix does not depend on it) and it records its own spans and puts the trace context in each job:
+BullMQ has its own OpenTelemetry support, through its `telemetry` option. Give it `bullmqTelemetry()` and it records its own spans and puts the trace context in each job:
 
 <!-- sample: bullmq -->
 
 ```ts
 import { BullModule, Processor, WorkerHost } from "@nestjs/bullmq";
 import { Module } from "@nestjs/common";
-import { BullMQOtel } from "bullmq-otel";
-import { NestrixModule } from "@nestrix-js/nestjs";
+import { bullmqTelemetry, NestrixModule } from "@nestrix-js/nestjs";
 
 @Processor("emails")
 export class EmailProcessor extends WorkerHost {
@@ -778,7 +777,7 @@ export class EmailProcessor extends WorkerHost {
     BullModule.forRoot({
       connection: { host: "localhost", port: 6379 },
       // The one line: BullMQ records its own spans and carries the trace context in each job.
-      telemetry: new BullMQOtel({ tracerName: "my-app" }),
+      telemetry: bullmqTelemetry({ tracerName: "my-app" }),
     }),
     BullModule.registerQueue({ name: "emails" }),
     NestrixModule.forRoot(),
@@ -788,9 +787,46 @@ export class EmailProcessor extends WorkerHost {
 export class AppModule {}
 ```
 
-`telemetry` set on `BullModule.forRoot()` reaches the queues and the workers `@nestjs/bullmq` creates. `BullMQOtel` takes an options object, `{ tracerName }`. With `NestrixInstrument` ([level 2](#method-spans-level-2)), a `@Processor` class's `process` method also gets a method span with `nestrix.entry = "job"`. Nestrix adds no code of its own for jobs: BullMQ makes the spans and Nestrix shows them.
+`telemetry` set on `BullModule.forRoot()` reaches the queues and the workers `@nestjs/bullmq` creates, in the API and in a separate worker process (`NestFactory.createApplicationContext`) alike. `bullmqTelemetry()` implements BullMQ's `Telemetry` interface on Nestrix's own `@opentelemetry/api`, with no dependency on `bullmq` or `bullmq-otel`, and looks its tracer up when BullMQ first uses it, so it works wherever and whenever you create it. Its options:
 
-The trace shape, checked against BullMQ 6.7 and `bullmq-otel` 2.0 with real Postgres and Redis (`test/e2e-phase3/`): a job added during a request stays in that request's trace.
+| Option | Default | What it does |
+|---|---|---|
+| `tracerName` | `"bullmq"` | The instrumentation scope of BullMQ's spans. |
+| `version` | none | The scope version. |
+| `enableMetrics` | `false` | Also gives BullMQ a meter: its job counters, job duration histogram and queue gauge, through the global `MeterProvider` (Nestrix's when `metrics` is on). |
+| `meterName` | `tracerName` | The meter's scope. |
+| `rootSpans` | `false` | Keeps BullMQ's internal spans that have no parent: the stalled-jobs check every 30 seconds in each worker, and `close` at shutdown. Each would be a trace of its own. |
+
+It differs from `bullmq-otel` in three ways: a failed job marks its `process` span as an error, with the failure reason as the exception (BullMQ's interface has no way to set a status); the job's return value (`bullmq.job.result` on the "job completed" event) is never recorded, like a response body; and every method catches its own errors, so telemetry can never fail a `queue.add()` or a job. With `NestrixInstrument` ([level 2](#method-spans-level-2)), a `@Processor` class's `process` method also gets a method span with `nestrix.entry = "job"`. Nestrix does not wrap BullMQ: BullMQ makes the spans and Nestrix shows them.
+
+**Why not `new BullMQOtel()`.** `bullmq-otel` 2.0 ships only CommonJS to Node, so in an ESM app it loads the CommonJS copy of `@opentelemetry/api` while Nestrix loads the ESM copy. `BullMQOtel` takes its tracer in its constructor, which, written inline in `BullModule.forRoot()`, runs when the module file is imported, before Nestrix registers its tracer provider; the tracer its copy hands out then never records, so BullMQ's spans are silently missing (the trace context still travels, so the processor's span hangs straight off the request). If you keep `bullmq-otel`, build it on first use. That records BullMQ's spans, without the three differences above:
+
+<!-- sample: bullmq-otel-lazy -->
+
+```ts
+import { BullModule } from "@nestjs/bullmq";
+import type { Telemetry } from "bullmq";
+import { BullMQOtel } from "bullmq-otel";
+
+// Built when BullMQ first uses it, after Nestrix has registered its tracer provider.
+let otel: BullMQOtel | undefined;
+const lazy = () => (otel ??= new BullMQOtel({ tracerName: "my-app" }));
+const telemetry: Telemetry = {
+  get tracer() {
+    return lazy().tracer;
+  },
+  get contextManager() {
+    return lazy().contextManager;
+  },
+};
+
+export const queues = BullModule.forRoot({
+  connection: { host: "localhost", port: 6379 },
+  telemetry,
+});
+```
+
+The trace shape, checked against BullMQ 6.7 with real Redis, in an ESM API and a separate worker process run with plain `node` (`test/e2e-phase3/jobs-node-esm.test.ts`) and in an Express app with Postgres (`test/e2e-phase3/jobs.test.ts`): a job added during a request stays in that request's trace.
 
 ```text
 GET /orders                      server
@@ -799,10 +835,10 @@ GET /orders                      server
       add emails.welcome         producer (BullMQ)
         process emails           consumer (BullMQ, runs later in the worker)
           EmailProcessor.process method span, nestrix.entry = "job"
-          complete emails        (BullMQ)
+          complete emails        (BullMQ; "fail emails" when the job failed)
 ```
 
-The consumer span is a **child** of the producer span in the same trace, with no span link, so a request and the jobs it queued show as one trace, however much later the worker ran them. A job added outside a request (no active span) starts a trace of its own. Without `telemetry`, the processor's method span (if `NestrixInstrument` is on) is a root span: nothing connects it to the request that queued the job. In the dashboard's request list, the `jobs` type filter shows traces that a job started.
+The consumer span is a **child** of the producer span in the same trace, with no span link, so a request and the jobs it queued show as one trace, however much later the worker ran them. A job added outside a request (no active span) starts a trace of its own. Making a long or repeated job its own trace, linked to the request that queued it, is planned (D-78), not built. Without `telemetry`, the processor's method span (if `NestrixInstrument` is on) is a root span: nothing connects it to the request that queued the job. In the dashboard's request list, the `jobs` type filter shows traces that a job started.
 
 ## Large traces: `maxSpansPerTrace`
 
@@ -1116,7 +1152,7 @@ Notes:
 - An app with no HTTP adapter (a pure microservice) boots; it has no HTTP spans and no dashboard, and its message handlers are traced ([Microservices](#microservices)).
 - Under `@nestjs/testing`, HTTP spans work; method spans do not ([Method spans](#method-spans-level-2)).
 - The full matrix, with the test or CI job behind each row, is in [docs/compatibility.md](https://github.com/nestrix-js/nestrix/blob/main/docs/compatibility.md); coming from a 0.x build, read [docs/upgrading.md](https://github.com/nestrix-js/nestrix/blob/main/docs/upgrading.md).
-- Library spans were tested against `pg` 8.23, `mysql2` 3.24, `ioredis` 6.0 and BullMQ 6.7 with `bullmq-otel` 2.0, and microservices against `@nestjs/microservices` 12.4.
+- Library spans were tested against `pg` 8.23, `mysql2` 3.24, `ioredis` 6.0 and BullMQ 6.7 with `bullmqTelemetry()` (and with `bullmq-otel` 2.0 built on first use), and microservices against `@nestjs/microservices` 12.4.
 
 ## Stability
 
