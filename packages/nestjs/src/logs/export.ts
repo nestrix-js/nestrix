@@ -194,6 +194,7 @@ export function setupLogExport(
               severityText: record.level.toUpperCase(),
               body: record.body,
               attributes: {
+                ...record.attributes,
                 ...(record.context && {
                   "nestrix.log.context": record.context,
                 }),

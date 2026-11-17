@@ -25,7 +25,7 @@ Upgrade the host's OpenTelemetry packages to SDK 3 and API 1.10. Do not use `--l
 
 ## Why are there no method spans in my tests?
 
-`@nestjs/testing` is not supported for method spans: Nest gives `Test.createTestingModule` no `instrument` option and offers no public way to decorate instances there. HTTP spans still work. Run an e2e test with `NestFactory.create` if you need method spans.
+`@nestjs/testing` is not supported for method spans: Nest gives `Test.createTestingModule` no `instrument` option and offers no public way to decorate instances there. HTTP spans still work. Run an e2e test with `NestFactory.create` if you need method spans. [Testing your app](/guide/testing) shows how to assert on spans.
 
 ## Does it use a `Proxy` or need preload flags?
 

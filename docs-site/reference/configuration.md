@@ -117,7 +117,7 @@ Return `false` to drop the span. It must be synchronous: a promise drops the spa
 | `ui.auth.authorize` | none | `(request) => boolean \| Promise<boolean>`. Called for every dashboard request with the raw request, before any Nest guard. Only `true` allows; a throw, a rejection, any other value or no answer in 10 seconds denies. |
 | `ui.startupToken` | `true` | `'auto'` mode only. `false` drops the startup token check and its log link; a same-host reverse proxy then exposes the dashboard when `NODE_ENV` is unset. |
 | `ui.profiler` | `true` | The on-demand CPU [profiler](/guide/dashboard#profiler). Offered only where the dashboard is authenticated (`enabled: true`, or `'auto'` with the startup token or `auth`). `false` removes it and its routes. A non-boolean is an invalid `ui` value. |
-| `ui.logs` | `true` | Keep `NestrixLogger` lines next to their trace in the dashboard store ([Logs next to the trace](/guide/dashboard)). `false` keeps none; the logger still prints and the correlation ids are unchanged. A non-boolean is an invalid `ui` value. |
+| `ui.logs` | `true` | Keep `NestrixLogger` lines and `emitLog()` records next to their trace in the dashboard store ([Logs next to the trace](/guide/dashboard)). `false` keeps none; the logger still prints and the correlation ids are unchanged. A non-boolean is an invalid `ui` value. |
 
 ## `store`
 
@@ -132,7 +132,7 @@ Ignored while the dashboard is off.
 
 | Option | Default | Description |
 |---|---|---|
-| `logs.export` | `false` | Send `NestrixLogger` records over OTLP/HTTP to `/v1/logs` of the configured endpoint (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is honoured, but does not turn export on by itself). Like metrics, it runs only when Nestrix owns the trace provider and trace export is on; with a host-owned SDK Nestrix registers no `LoggerProvider` and logs one line saying so. Needs `@opentelemetry/sdk-logs` and `@opentelemetry/exporter-logs-otlp-http`; without them one log line says so. |
+| `logs.export` | `false` | Send `NestrixLogger` and [`emitLog()`](/guide/logs-and-metrics#logs-from-your-own-logger) records over OTLP/HTTP to `/v1/logs` of the configured endpoint (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is honoured, but does not turn export on by itself). Like metrics, it runs only when Nestrix owns the trace provider and trace export is on; with a host-owned SDK Nestrix registers no `LoggerProvider` and logs one line saying so. Needs `@opentelemetry/sdk-logs` and `@opentelemetry/exporter-logs-otlp-http`; without them one log line says so. |
 
 ## `metrics`
 

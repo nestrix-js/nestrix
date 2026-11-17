@@ -17,6 +17,7 @@ export default defineConfig({
         items: [
           { text: "Getting started", link: "/guide/getting-started" },
           { text: "Levels 1 to 3", link: "/guide/levels" },
+          { text: "Testing your app", link: "/guide/testing" },
         ],
       },
       {

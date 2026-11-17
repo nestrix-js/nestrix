@@ -2,7 +2,7 @@
 
 An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant (Claude Code, Claude Desktop, Cursor and others) read what your NestJS app is doing through [Nestrix](https://github.com/nestrix-js/nestrix): requests as traces, errors, per-route and per-class statistics, and what the app calls. It is a small program the assistant starts over stdio. It talks HTTP to Nestrix and runs nothing inside your app.
 
-> **Status: 0.1.0.** Needs Node 26.13 or later.
+> **Status: pre-1.0.** Needs Node 26.13 or later.
 
 ## What it can do
 
@@ -76,7 +76,7 @@ Keep the token out of files you commit: most clients can read it from your envir
 
 ## What the assistant can and cannot see
 
-It sees exactly what the dashboard shows, which is already scrubbed and redacted inside your app (the `redact` hook and the privacy defaults apply): span names, timings, the allow-listed attributes, SQL statement text without bind values, error messages and stack traces. Request and response bodies, bind parameters and headers outside the allowlist are never stored, so they cannot be read. Traces are sampled and kept in memory, so a rare or old request may be missing; `route_stats` counts every request.
+It sees exactly what the dashboard shows, which is already scrubbed and redacted inside your app (the `redact` hook and the privacy defaults apply): span names, timings, the allow-listed attributes, SQL statement text without bind values, error messages and stack traces. Request and response bodies, bind parameters and headers outside the allowlist are never stored, so they cannot be read. Traces are sampled and kept in memory, so a rare or old request may be missing. On an app's embedded dashboard `route_stats` counts every request; on the standalone server statistics are counted from the stored spans, so they reflect the sampling of the services that send them (the tools say which applies).
 
 Text a tool returns is telemetry from your application: a span name or an error message can contain anything. The server tells the model to treat it as data, but give the assistant only the access you would give a colleague reading the dashboard.
 

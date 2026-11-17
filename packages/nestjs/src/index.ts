@@ -7,6 +7,7 @@ export {
   type NestrixExportStatus,
   type NestrixSignalExportStatus,
 } from "./export-status.js";
+export { emitLog, type NestrixLogRecord } from "./logs/emit.js";
 export { NestrixLogger } from "./logs/logger.js";
 export { getTraceIds, type TraceIds } from "./logs/trace-ids.js";
 export {

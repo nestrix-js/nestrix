@@ -14,13 +14,103 @@ While a span is active, text lines end with ` trace_id=… span_id=…`. In JSON
 
 A failure in correlation or export never changes what the log call prints or throws.
 
+### Logs from your own logger
+
+An app that keeps its own logger (a `ConsoleLogger` subclass with its own redaction, pino, winston) sends its lines through the same path with `emitLog({ level, message, context?, error?, attributes? })`. Nestrix still patches nothing: you call it from your logger's print path. A record goes where a `NestrixLogger` line goes, under the same rules: to `/v1/logs` with the active span's trace and span id when `logs.export` is on, and next to its trace in the dashboard while a recording span is active (`ui.logs`). The message is sent as given (a string as is, an `Error` as its message, anything else as JSON), cut to 8,192 characters. `level` is Nest's (`verbose`, `debug`, `log`, `warn`, `error`, `fatal`; anything else counts as `log`); `error` takes an `Error` or a stack string and is exported as `exception.stacktrace` (never kept in the dashboard); `attributes` are added to the exported record only. `emitLog` prints nothing, redacts nothing and never throws. With Nestrix disabled (`enabled: false`, `NESTRIX_ENABLED=false`), or with neither log export nor the dashboard on, it returns after two reads and does not look at the record.
+
+**Redact before you call it.** Nestrix sends exactly the message you pass, so pass the one your logger already redacted. A `ConsoleLogger` subclass masks the message, then hands it to `emitLog` and to `super`:
+
+```ts
+import { ConsoleLogger, type LogLevel } from "@nestjs/common";
+import { emitLog } from "@nestrix-js/nestjs";
+
+/** Your own logger: masks tokens, prints as usual, and hands each line to Nestrix. */
+export class AppLogger extends ConsoleLogger {
+  protected override printMessages(
+    messages: unknown[],
+    context?: string,
+    logLevel: LogLevel = "log",
+    writeStreamType?: "stdout" | "stderr",
+    errorStack?: unknown,
+    params?: Record<string, unknown>,
+  ): void {
+    const safe = messages.map((m) => maskTokens(this.resolveMessage(m)));
+    for (const message of safe) {
+      // this.redact applies ConsoleLogger's own `redact` option before export.
+      emitLog({
+        level: logLevel,
+        message: this.redact(message),
+        context,
+        error: errorStack,
+      });
+    }
+    super.printMessages(
+      safe,
+      context,
+      logLevel,
+      writeStreamType,
+      errorStack,
+      params,
+    );
+  }
+}
+
+function maskTokens(message: unknown): unknown {
+  return typeof message === "string"
+    ? message.replace(/token=\S+/g, "token=[REDACTED]")
+    : message;
+}
+```
+
+Pass it as the app logger, `NestFactory.create(AppModule, { logger: new AppLogger() })`, instead of `NestrixLogger` (using both would send each line twice). For trace ids on the printed lines as well, use `getTraceIds()` in your format.
+
+**pino.** Add a destination next to stdout. pino writes to it synchronously inside the log call, so the request's span is still active, and after its `redact`, so masked fields stay masked:
+
+```ts
+import type { LogLevel } from "@nestjs/common";
+import pino from "pino";
+import { emitLog } from "@nestrix-js/nestjs";
+
+const NEST_LEVEL: Record<number, LogLevel> = {
+  10: "verbose",
+  20: "debug",
+  30: "log",
+  40: "warn",
+  50: "error",
+  60: "fatal",
+};
+
+/** A pino destination: it gets each line after pino's `redact`, inside the caller's span. */
+const toNestrix = {
+  write(line: string): void {
+    try {
+      const { level, msg, context, err } = JSON.parse(line);
+      emitLog({
+        level: NEST_LEVEL[level] ?? "log",
+        message: msg ?? line,
+        context,
+        error: err?.stack,
+      });
+    } catch {
+      // Not JSON: not exported.
+    }
+  },
+};
+
+export const logger = pino(
+  { redact: ["password", "*.password"] },
+  pino.multistream([{ stream: process.stdout }, { stream: toNestrix }]),
+);
+```
+
+A `multistream` entry without `level` takes `info` and above; set `level` on the entry to send debug lines. Two pino set-ups do not work for this: a `transport` (`pino.transport`, the `transport` option) runs in a worker thread, outside the request's context, so records arrive without trace ids; and `hooks.logMethod` sees the arguments before `redact` runs, so it would export unredacted values.
 ### Logs next to the trace
 
-With the dashboard on, `NestrixLogger` lines written under a recording span are also kept with their trace and shown beside the waterfall; the standalone server does the same for records sent to its `/v1/logs`. This is context for a trace, not log storage or search. See [Dashboard](/guide/dashboard#logs-next-to-the-trace) for the limits and `ui.logs` to switch it off.
+With the dashboard on, `NestrixLogger` lines and `emitLog()` records written under a recording span are also kept with their trace and shown beside the waterfall; the standalone server does the same for records sent to its `/v1/logs`. This is context for a trace, not log storage or search. See [Dashboard](/guide/dashboard#logs-next-to-the-trace) for the limits and `ui.logs` to switch it off.
 
 ### Exporting logs
 
-Set `logs: { export: true }` to also send every `NestrixLogger` record over OTLP/HTTP to `/v1/logs` of the configured endpoint (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is used as given once trace export is on; it does not turn export on by itself). Like metrics, this runs only when Nestrix owns the tracer provider: with a host-owned SDK Nestrix registers no `LoggerProvider` and logs one line saying so. Records carry Nest's level as OpenTelemetry severity, the logger context as `nestrix.log.context`, and the active span's context.
+Set `logs: { export: true }` to also send every `NestrixLogger` and `emitLog()` record over OTLP/HTTP to `/v1/logs` of the configured endpoint (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is used as given once trace export is on; it does not turn export on by itself). Like metrics, this runs only when Nestrix owns the tracer provider: with a host-owned SDK Nestrix registers no `LoggerProvider` and logs one line saying so. Records carry Nest's level as OpenTelemetry severity, the logger context as `nestrix.log.context`, and the active span's context.
 
 This needs two optional packages. Without them Nestrix logs one line with the command and carries on:
 

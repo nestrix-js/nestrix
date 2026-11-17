@@ -133,6 +133,12 @@ New export: `getExportStatus()`, a read-only snapshot per signal (state, last su
 
 `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG`, `OTEL_SDK_DISABLED` and `OTEL_EXPORTER_OTLP_PROTOCOL` have no effect in 1.x. Use the `sampleRate` option, and `enabled: false` or `NESTRIX_ENABLED=false` to switch Nestrix off. Export is OTLP/HTTP with protobuf only. A new 1.0 install is not affected, but a config copied from another OpenTelemetry setup will not behave as it did there.
 
+## Added
+
+### `emitLog()`: logs from your own logger
+
+Until now only `NestrixLogger` lines were exported to `/v1/logs` and kept next to their trace. `emitLog({ level, message, context?, error?, attributes? })` sends a record from any logger through the same path and rules (D-89): call it from your `ConsoleLogger` subclass's print path, or from a pino destination, with the message your logger already redacted. Nothing changes for apps that do not call it, and `NestrixLogger` behaves as before. See [Logs from your own logger](../packages/nestjs/README.md#logs-from-your-own-logger).
+
 ## The bundled UI and the query API
 
 The dashboard's query API and `@nestrix-js/protocol` are internal to the UI, which ships at the same version. The 0.x renames below matter only if you called `/_nestrix/api/v1` yourself or built against the protocol types. Nothing public changed.

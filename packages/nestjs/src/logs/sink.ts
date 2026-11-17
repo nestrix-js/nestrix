@@ -1,5 +1,5 @@
 /**
- * Where `NestrixLogger` hands records. Module-level slots because the logger is usually created
+ * Where `NestrixLogger` and `emitLog()` hand records. Module-level slots because the logger is usually created
  * before the Nest module exists (`NestFactory.create(AppModule, { logger: new NestrixLogger() })`):
  *
  * - the export slot: filled by `NestrixCore` when `logs.export` is on and the packages loaded
@@ -10,6 +10,7 @@
  * Both empty means: print only.
  */
 import type { LogLevel } from "@nestjs/common";
+import type { Attributes } from "@opentelemetry/api";
 
 export interface LogRecordInput {
   level: LogLevel;
@@ -18,6 +19,8 @@ export interface LogRecordInput {
   context: string | undefined;
   /** The stack of an `error` or `fatal` call, when given. */
   stack: string | undefined;
+  /** Extra attributes passed to `emitLog()`; `NestrixLogger` passes none. Export only. */
+  attributes?: Attributes | undefined;
 }
 
 export interface LogSink {
