@@ -390,7 +390,7 @@ Redaction runs shortly after the span ends, not in the request, so a span waits 
 
 Every option is optional. `NestrixModule.forRoot(options?)` and the object `forRootAsync`'s factory returns take the same shape. Invalid values (for example a `sampleRate` outside 0 to 1, or a non-positive queue size) throw. With `forRoot`, that happens when `forRoot()` is called, which is when your module file loads, and also with `enabled: false`. With `forRootAsync`, it happens when the factory's result is resolved during `NestFactory.create`. `export.otlp.timeoutMillis` is validated only when an endpoint resolves.
 
-The package exports these types: `NestrixModuleOptions`, `NestrixModuleAsyncOptions`, `NestrixExportOptions`, `NestrixOtlpOptions`, `NestrixQueueOptions`, `NestrixIgnoreOptions`, `NestrixHttpOptions`, `RedactHook`, `RedactableSpan`, `UrlMatcher`, `TraceIds`, `NestrixUiOptions`, `NestrixUiTokenAuth`, `NestrixUiCustomAuth`, `NestrixStoreOptions`, `NestrixMetricsOptions`, `NestrixLogsOptions`, `NestrixMethodsOptions`, `NestrixIntegrationsOptions`, `NestrixEnhancerKind`, `ClassMatcher` and `NestInstrument`. The package also exports `NestrixModule`, `NestrixLogger`, `getTraceIds`, `Span`, `withSpan`, `nestrixSpanProcessor`, `NestrixInstrument`, `composeInstrument`, `nestrixPreRequestHook` and `instrumentClient`. `SpanOptions` is not re-exported: import it from `@opentelemetry/api`.
+The package exports these types: `NestrixModuleOptions`, `NestrixModuleAsyncOptions`, `NestrixExportOptions`, `NestrixOtlpOptions`, `NestrixQueueOptions`, `NestrixIgnoreOptions`, `NestrixHttpOptions`, `RedactHook`, `RedactableSpan`, `UrlMatcher`, `TraceIds`, `NestrixLogRecord`, `NestrixUiOptions`, `NestrixUiTokenAuth`, `NestrixUiCustomAuth`, `NestrixStoreOptions`, `NestrixMetricsOptions`, `NestrixLogsOptions`, `NestrixMethodsOptions`, `NestrixIntegrationsOptions`, `NestrixEnhancerKind`, `ClassMatcher` and `NestInstrument`. The package also exports `NestrixModule`, `NestrixLogger`, `emitLog`, `getTraceIds`, `Span`, `withSpan`, `nestrixSpanProcessor`, `NestrixInstrument`, `composeInstrument`, `nestrixPreRequestHook` and `instrumentClient`. `SpanOptions` is not re-exported: import it from `@opentelemetry/api`.
 
 <!-- sample: all-options -->
 
@@ -455,7 +455,7 @@ That sample sets most options to their defaults, except where a default is "unse
 | `ui` | `'auto'` | The embedded dashboard: `false`, `'auto'` or an object. See [Dashboard](#dashboard) and [`ui`](#ui). |
 | `store` | see below | Limits of the dashboard's in-memory store. See [`store`](#store). |
 | `logs` | `{ export: false }` | Log export over OTLP. See [Logs](#logs). |
-| `logs.export` | `false` | Send `NestrixLogger` records over OTLP to `/v1/logs`, under the same rule as metrics (see [One rule for every signal](#a-host-that-already-runs-an-opentelemetry-sdk)). Needs `@opentelemetry/sdk-logs` and `@opentelemetry/exporter-logs-otlp-http`. See [Logs](#logs). |
+| `logs.export` | `false` | Send `NestrixLogger` and `emitLog()` records over OTLP to `/v1/logs`, under the same rule as metrics (see [One rule for every signal](#a-host-that-already-runs-an-opentelemetry-sdk)). Needs `@opentelemetry/sdk-logs` and `@opentelemetry/exporter-logs-otlp-http`. See [Logs](#logs). |
 | `metrics` | on | Request-duration and runtime metrics. See [Metrics](#metrics) and [`metrics`](#metrics-option). |
 
 ### `methods`
@@ -564,7 +564,7 @@ A hook for the spans Nestrix exports and the spans the dashboard stores. See [Pr
 | `ui.auth` | none | `{ token }` (at least 32 characters; `Authorization: Bearer`, or the `<path>/auth?token=` link once per browser) or `{ authorize(request) }` (async allowed; the raw request, before any Nest guard; only `true` allows). Required when `enabled` is `true`. With `'auto'` it applies in addition to the local-only rules. |
 | `ui.startupToken` | `true` | `'auto'` mode only. `false` drops the startup token check and its log link; a same-host reverse proxy then exposes the dashboard when `NODE_ENV` is unset. |
 | `ui.profiler` | `true` | The on-demand CPU [profiler](#profiler). Offered only where the dashboard is authenticated (`enabled: true`, or `'auto'` with the startup token or `auth`). `false` removes it and its routes. |
-| `ui.logs` | `true` | Keep `NestrixLogger` lines next to their trace in the dashboard store ([Logs next to the trace](#logs-next-to-the-trace)). `false` keeps none; the logger still prints and the correlation ids are unchanged. |
+| `ui.logs` | `true` | Keep `NestrixLogger` lines and `emitLog()` records next to their trace in the dashboard store ([Logs next to the trace](#logs-next-to-the-trace)). `false` keeps none; the logger still prints and the correlation ids are unchanged. |
 
 An invalid `ui` value (wrong type, bad path, short token, both `token` and `authorize`) turns the dashboard off and logs an error; it does not throw.
 
@@ -1061,7 +1061,7 @@ export async function bootstrap(): Promise<void> {
 
 While a span is active, text lines end with ` trace_id=… span_id=…`, and in JSON mode (`new NestrixLogger({ json: true })`) each line gets `trace_id` and `span_id` fields. Outside a span the output is `ConsoleLogger`'s. For pino, winston or `nestjs-pino`, `getTraceIds()` returns `{ traceId, spanId }` of the active span, or `undefined`; use it in a `mixin` or format function.
 
-Set `logs: { export: true }` to also send every `NestrixLogger` record over OTLP/HTTP to `/v1/logs` of the configured endpoint (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is used as given once trace export is on; it does not turn export on by itself). Like metrics, this runs only when Nestrix owns the trace provider; see [One rule for every signal](#a-host-that-already-runs-an-opentelemetry-sdk). Records carry Nest's level as OpenTelemetry severity, the logger context as `nestrix.log.context`, and the active span's context. This needs two optional packages; without them Nestrix logs one line with the command and carries on:
+Set `logs: { export: true }` to also send every `NestrixLogger` record (and every [`emitLog()`](#logs-from-your-own-logger) record) over OTLP/HTTP to `/v1/logs` of the configured endpoint (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` is used as given once trace export is on; it does not turn export on by itself). Like metrics, this runs only when Nestrix owns the trace provider; see [One rule for every signal](#a-host-that-already-runs-an-opentelemetry-sdk). Records carry Nest's level as OpenTelemetry severity, the logger context as `nestrix.log.context`, and the active span's context. This needs two optional packages; without them Nestrix logs one line with the command and carries on:
 
 ```bash
 npm install @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http
@@ -1069,9 +1069,103 @@ npm install @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http
 
 If your app already registered a `LoggerProvider`, the records go to it and Nestrix registers nothing. With a host-owned tracer provider Nestrix registers no `LoggerProvider` at all and logs one line saying so. Records logged before the packages finish loading at startup are printed but not exported. A failure in correlation or export never changes what the log call prints or throws.
 
+### Logs from your own logger
+
+An app that keeps its own logger (a `ConsoleLogger` subclass with its own redaction, pino, winston) sends its lines through the same path with `emitLog({ level, message, context?, error?, attributes? })`. Nestrix still patches nothing: you call it from your logger's print path. A record goes where a `NestrixLogger` line goes, under the same rules: to `/v1/logs` with the active span's trace and span id when `logs.export` is on, and next to its trace in the dashboard while a recording span is active (`ui.logs`). The message is sent as given (a string as is, an `Error` as its message, anything else as JSON), cut to 8,192 characters. `level` is Nest's (`verbose`, `debug`, `log`, `warn`, `error`, `fatal`; anything else counts as `log`); `error` takes an `Error` or a stack string and is exported as `exception.stacktrace` (never kept in the dashboard); `attributes` are added to the exported record only. `emitLog` prints nothing, redacts nothing and never throws. With Nestrix disabled (`enabled: false`, `NESTRIX_ENABLED=false`), or with neither log export nor the dashboard on, it returns after two reads and does not look at the record.
+
+**Redact before you call it.** Nestrix sends exactly the message you pass, so pass the one your logger already redacted. A `ConsoleLogger` subclass masks the message, then hands it to `emitLog` and to `super`:
+
+<!-- sample: logs-own-logger -->
+
+```ts
+import { ConsoleLogger, type LogLevel } from "@nestjs/common";
+import { emitLog } from "@nestrix-js/nestjs";
+
+/** Your own logger: masks tokens, prints as usual, and hands each line to Nestrix. */
+export class AppLogger extends ConsoleLogger {
+  protected override printMessages(
+    messages: unknown[],
+    context?: string,
+    logLevel: LogLevel = "log",
+    writeStreamType?: "stdout" | "stderr",
+    errorStack?: unknown,
+    params?: Record<string, unknown>,
+  ): void {
+    const safe = messages.map((m) => maskTokens(this.resolveMessage(m)));
+    for (const message of safe) {
+      // this.redact applies ConsoleLogger's own `redact` option before export.
+      emitLog({
+        level: logLevel,
+        message: this.redact(message),
+        context,
+        error: errorStack,
+      });
+    }
+    super.printMessages(
+      safe,
+      context,
+      logLevel,
+      writeStreamType,
+      errorStack,
+      params,
+    );
+  }
+}
+
+function maskTokens(message: unknown): unknown {
+  return typeof message === "string"
+    ? message.replace(/token=\S+/g, "token=[REDACTED]")
+    : message;
+}
+```
+
+Pass it as the app logger, `NestFactory.create(AppModule, { logger: new AppLogger() })`, instead of `NestrixLogger` (using both would send each line twice). For trace ids on the printed lines as well, use `getTraceIds()` in your format.
+
+**pino.** Add a destination next to stdout. pino writes to it synchronously inside the log call, so the request's span is still active, and after its `redact`, so masked fields stay masked:
+
+<!-- sample: logs-pino -->
+
+```ts
+import type { LogLevel } from "@nestjs/common";
+import pino from "pino";
+import { emitLog } from "@nestrix-js/nestjs";
+
+const NEST_LEVEL: Record<number, LogLevel> = {
+  10: "verbose",
+  20: "debug",
+  30: "log",
+  40: "warn",
+  50: "error",
+  60: "fatal",
+};
+
+/** A pino destination: it gets each line after pino's `redact`, inside the caller's span. */
+const toNestrix = {
+  write(line: string): void {
+    try {
+      const { level, msg, context, err } = JSON.parse(line);
+      emitLog({
+        level: NEST_LEVEL[level] ?? "log",
+        message: msg ?? line,
+        context,
+        error: err?.stack,
+      });
+    } catch {
+      // Not JSON: not exported.
+    }
+  },
+};
+
+export const logger = pino(
+  { redact: ["password", "*.password"] },
+  pino.multistream([{ stream: process.stdout }, { stream: toNestrix }]),
+);
+```
+
+A `multistream` entry without `level` takes `info` and above; set `level` on the entry to send debug lines. Two pino set-ups do not work for this: a `transport` (`pino.transport`, the `transport` option) runs in a worker thread, outside the request's context, so records arrive without trace ids; and `hooks.logMethod` sees the arguments before `redact` runs, so it would export unredacted values.
 ### Logs next to the trace
 
-With the dashboard on, a `NestrixLogger` line written while a recording span is active is also kept in the dashboard's store with its trace, and the trace view lists it beside the waterfall (click a line to select its span). This needs no package; `ui: { logs: false }` stops keeping lines (the logger still prints and the correlation ids are unchanged). Lines whose trace has no span yet are held apart, at most a tenth of `store.maxTraces` of them, oldest dropped first, so a burst of logs cannot push out real traces. What is kept: time, level, logger context and the message after the logger's own `redact` option, cut to 8,192 characters (no stack traces). At most 200 lines per trace; they count toward `store.maxBytes` and leave with their trace. Lines outside a span, or under a span that is not sampled, are not kept. The dashboard is not a log viewer: there is no search across lines. The standalone server does the same for log records sent to its `/v1/logs` (point `logs.export` at it). Log messages are free text, so the advice in [What the dashboard shows](#what-the-dashboard-shows) applies: use the logger's `redact` option for structured values you do not want shown, and do not log secrets.
+With the dashboard on, a `NestrixLogger` line (or an [`emitLog()`](#logs-from-your-own-logger) record) written while a recording span is active is also kept in the dashboard's store with its trace, and the trace view lists it beside the waterfall (click a line to select its span). This needs no package; `ui: { logs: false }` stops keeping lines (the logger still prints and the correlation ids are unchanged). Lines whose trace has no span yet are held apart, at most a tenth of `store.maxTraces` of them, oldest dropped first, so a burst of logs cannot push out real traces. What is kept: time, level, logger context and the message after the logger's own `redact` option, cut to 8,192 characters (no stack traces). At most 200 lines per trace; they count toward `store.maxBytes` and leave with their trace. Lines outside a span, or under a span that is not sampled, are not kept. The dashboard is not a log viewer: there is no search across lines. The standalone server does the same for log records sent to its `/v1/logs` (point `logs.export` at it). Log messages are free text, so the advice in [What the dashboard shows](#what-the-dashboard-shows) applies: use the logger's `redact` option for structured values you do not want shown, and do not log secrets.
 
 ## Privacy
 
