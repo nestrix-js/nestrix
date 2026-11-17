@@ -8,6 +8,11 @@ import type {
   TraceListResponse,
 } from "@nestrix-js/protocol";
 import { clean, fmtMs, fmtPct, fmtTime, plural, table } from "./format.js";
+import {
+  STANDALONE_STATISTICS_NOTE,
+  type StatisticsMode,
+  statisticsCounting,
+} from "./statistics-wording.js";
 
 /** Rows shown in a statistics table. */
 export const MAX_ROWS = 25;
@@ -15,9 +20,10 @@ export const MAX_ROWS = 25;
 export function renderTraceList(
   list: TraceListResponse,
   filters: string,
+  mode?: StatisticsMode,
 ): string {
   if (list.items.length === 0) {
-    return `No stored traces match${filters ? ` (${filters})` : ""}. Traces are sampled and the store is in memory, so older or unsampled requests are not here; route_stats counts every request.`;
+    return `No stored traces match${filters ? ` (${filters})` : ""}. Traces are sampled and the store is in memory, so older or unsampled requests are not here. ${statisticsCounting(mode)}`;
   }
   const rows = list.items.map((t) => {
     const what = t.method && t.route ? `${t.method} ${t.route}` : t.name;
@@ -125,7 +131,10 @@ function routeLine(r: RouteStats): string[] {
   ];
 }
 
-export function renderRoutes(stats: RouteStatsResponse): string {
+export function renderRoutes(
+  stats: RouteStatsResponse,
+  mode?: StatisticsMode,
+): string {
   if (stats.routes.length === 0) {
     return `No requests counted in the last ${stats.windowMinutes} minutes.`;
   }
@@ -136,7 +145,7 @@ export function renderRoutes(stats: RouteStatsResponse): string {
   );
   const shown = sorted.slice(0, MAX_ROWS);
   const lines = [
-    `Routes over the last ${stats.windowMinutes} minutes, slowest p95 first. Every request is counted, sampled or not.`,
+    `Routes over the last ${stats.windowMinutes} minutes, slowest p95 first. ${statisticsCounting(mode)}`,
     ...table([
       ["route", "requests", "errors", "error rate", "p50", "p95", "p99", "max"],
       ...shown.map(routeLine),
@@ -148,7 +157,10 @@ export function renderRoutes(stats: RouteStatsResponse): string {
   return lines.join("\n");
 }
 
-export function renderClasses(stats: ClassStatsResponse): string {
+export function renderClasses(
+  stats: ClassStatsResponse,
+  mode?: StatisticsMode,
+): string {
   if (stats.methodsState === "no-data-in-range") {
     return `This service has sent method spans before, but none in the last ${stats.windowMinutes} minutes (it may be idle). Try a longer window.`;
   }
@@ -166,7 +178,7 @@ export function renderClasses(stats: ClassStatsResponse): string {
   );
   const shown = sorted.slice(0, MAX_ROWS);
   const lines = [
-    `Classes over the last ${stats.windowMinutes} minutes, most own time first. Own time is estimated from the sampled traces in the store; calls and errors are counted before sampling.`,
+    `Classes over the last ${stats.windowMinutes} minutes, most own time first. Own time is estimated from the sampled traces in the store; ${mode === "standalone" ? STANDALONE_STATISTICS_NOTE : "calls and errors are counted before sampling."}`,
     ...table([
       ["class", "kind", "calls", "errors", "avg", "own time"],
       ...shown.map((c) => [
@@ -246,7 +258,7 @@ export function renderOverview(input: OverviewInput): string {
     );
   }
   lines.push(
-    `Sampling: ${meta.sampling.owner === "nestrix" ? `${trimRate(meta.sampling.rate)} of requests are stored as traces` : "owned by the host app (rate unknown)"}; route statistics count every request.`,
+    `Sampling: ${meta.sampling.owner === "nestrix" ? `${trimRate(meta.sampling.rate)} of requests are stored as traces` : "owned by the host app (rate unknown)"}. ${statisticsCounting(meta.mode)}`,
   );
   lines.push(
     `Store: ${meta.store.traces}/${meta.store.maxTraces} traces, ${meta.store.spans} spans, ${meta.store.evictedTraces} evicted, ${meta.store.droppedSpans} spans dropped.`,

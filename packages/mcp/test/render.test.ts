@@ -1,3 +1,4 @@
+import { STATISTICS_COUNTING } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 import { renderExplanation } from "../src/render/explain.js";
 import { fmtMs, fmtTime, truncate } from "../src/render/format.js";
@@ -258,9 +259,9 @@ describe("renderExplanation", () => {
 
 describe("lists", () => {
   it("sorts routes by p95 and notes that every request is counted", () => {
-    const text = renderRoutes(routes);
+    const text = renderRoutes(routes, "embedded");
     expect(text.indexOf("/orders ")).toBeLessThan(text.indexOf("/orders/:id"));
-    expect(text).toContain("Every request is counted");
+    expect(text).toContain(STATISTICS_COUNTING.embedded);
     expect(text).toContain("20%");
   });
 

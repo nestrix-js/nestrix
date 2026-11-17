@@ -2,7 +2,7 @@
 
 Open-source observability for NestJS 12+: Nest-aware OpenTelemetry traces, in a dashboard served by your own app or in the backend you already run.
 
-> **Status: 0.1.0.** `@nestrix-js/nestjs`, `@nestrix-js/ui` and `@nestrix-js/mcp` are published at `0.1.0` under the `latest` npm tag, and the standalone server image is on GHCR (`:0.1.0`, `:latest`). Everything described below is built (phases 0 to 11); the API can still change before 1.0.
+> **Status: pre-1.0.** `@nestrix-js/nestjs`, `@nestrix-js/ui` and `@nestrix-js/mcp` are published under the `latest` npm tag, and the standalone server image is on GHCR (`:latest`). Everything described below is built; the API can still change before 1.0.
 
 ## What it is for
 
