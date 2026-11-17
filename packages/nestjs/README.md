@@ -20,6 +20,8 @@ Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app pro
 - [Releases and users](#releases-and-users)
 - [Metrics](#metrics)
 - [Custom spans](#custom-spans)
+- [Mail and other outgoing channels](#mail-and-other-outgoing-channels)
+- [Testing your app](#testing-your-app)
 - [Logs](#logs)
 - [Privacy](#privacy)
 - [Stability](#stability)
@@ -988,6 +990,55 @@ export class BillingService {
 - Other thenables and Observables are returned untouched and their span ends when the function returns, so an Observable's span covers none of the stream.
 - **The promise a traced method returns must be handled by its caller.** The caller gets a promise derived from the original one. If your method handles its own promise (`p.catch(log); return p`) and the caller ignores the return value, the derived promise's rejection is unhandled, and under Node's default `--unhandled-rejections=throw` the process exits where it would not have without the span. A method that returns a memoised promise returns a new promise object on each call.
 - If the tracer itself fails, your function still runs exactly once.
+
+## Mail and other outgoing channels
+
+An HTTP-API mail provider (SES over HTTPS, SendGrid, Postmark, Resend) is already traced as an outbound call. SMTP is not: it is a raw TCP or TLS conversation, and nothing there is traced. Two options, both opt-in:
+
+- **Name the class.** List the Nest provider that sends mail in `methods.include`, for example your own `MailService` or a mail module's service: `methods: { include: [MailService] }`. Every method of it then gets a span inside the request. This works on classes Nest instantiates as providers; a transport object a library builds internally is not one.
+- **Wrap the send** in `withSpan('mail.send', ...)` and record only what you choose, here the transport name and the outcome:
+
+<!-- sample: mail-send -->
+
+```ts
+import { Injectable } from "@nestjs/common";
+import { withSpan } from "@nestrix-js/nestjs";
+
+// Whatever sends your mail: nodemailer, a vendor SDK over SMTP, a queue.
+interface MailTransport {
+  readonly name: string;
+  send(message: { to: string; subject: string; html: string }): Promise<void>;
+}
+
+@Injectable()
+export class MailService {
+  constructor(private readonly transport: MailTransport) {}
+
+  async sendWelcome(to: string): Promise<void> {
+    return withSpan("mail.send", async (span) => {
+      // Only the transport and the outcome. No address, subject or content.
+      span.setAttribute("mail.transport", this.transport.name);
+      try {
+        await this.transport.send({
+          to,
+          subject: "Welcome",
+          html: "<p>Hi</p>",
+        });
+        span.setAttribute("mail.outcome", "sent");
+      } catch (error) {
+        span.setAttribute("mail.outcome", "failed");
+        throw error; // withSpan records it and sets the error status
+      }
+    });
+  }
+}
+```
+
+Do not put the recipient, subject or body on the span: Nestrix records none of these by default and the example keeps it that way. A `net`/`tls`-level span for SMTP clients is not planned: those sockets carry the message itself, so a generic instrumentation could not tell what to leave out.
+
+## Testing your app
+
+`@nestrix-js/nestjs/testing` gives a test file the finished spans in memory: `createInMemorySpanCapture()` returns `{ spans(), findSpan(nameOrPredicate), reset(), shutdown() }`. Create it before the Nest app, call `shutdown()` after. The full guide, with Vitest and Jest examples, is [Testing your app](https://github.com/nestrix-js/nestrix/blob/main/docs-site/guide/testing.md).
 
 ## Logs
 

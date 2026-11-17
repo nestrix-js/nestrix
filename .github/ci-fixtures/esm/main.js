@@ -7,10 +7,12 @@ import assert from "node:assert/strict";
 import { Controller, Get, Module } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { NestrixModule } from "@nestrix-js/nestjs";
+import { createInMemorySpanCapture } from "@nestrix-js/nestjs/testing";
 import { dashboardDirectory } from "@nestrix-js/ui";
 
 assert.equal(typeof NestrixModule.forRoot, "function");
 assert.ok(dashboardDirectory instanceof URL);
+assert.equal(typeof createInMemorySpanCapture, "function");
 
 const SERVICE_NAME = "consume-esm";
 const OPTIONS_TOKEN = Symbol.for("@nestrix-js/nestjs:options");
