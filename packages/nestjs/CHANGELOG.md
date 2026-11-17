@@ -1,5 +1,22 @@
 # @nestrix-js/nestjs
 
+## 0.5.0
+
+### Minor Changes
+
+- [#55](https://github.com/nestrix-js/nestrix/pull/55) [`26c3c50`](https://github.com/nestrix-js/nestrix/commit/26c3c504adf4aebc28bd140c8e34e7c1c2dc1c2c) Thanks [@lamberto15](https://github.com/lamberto15)! - Report failed and dropped exports to the host application ([#21](https://github.com/nestrix-js/nestrix/issues/21), [#39](https://github.com/nestrix-js/nestrix/issues/39)). When Nestrix owns the OpenTelemetry pipeline, an export of spans, log records or metrics that starts failing logs one warning through Nest's `Logger` (context `Nestrix`) with the reason (`unreachable`, `unauthorized`, `rate_limited`, `server_error`, `timeout`, `not_supported`, `other`) and HTTP status, and one line when it recovers; never one per batch. The new `getExportStatus()` export returns a read-only snapshot per signal (state, last success and failure, consecutive failures, totals by reason, items dropped from the bounded queue), and two observable counters, `nestrix.export.failures{signal,reason}` and `nestrix.export.dropped{signal}`, reach the registered `MeterProvider`. A metrics URL that answers 404, 405 or 501 (such as the Nestrix standalone server) now gets one log line and metric export stops; traces and logs continue. Nothing changes with a host-owned OpenTelemetry SDK.
+
+- [#53](https://github.com/nestrix-js/nestrix/pull/53) [`a81c3f8`](https://github.com/nestrix-js/nestrix/commit/a81c3f89ba01fa8f552d5d462bf0a0e989dc5efa) Thanks [@lamberto15](https://github.com/lamberto15)! - Add `emitLog({ level, message, context?, error?, attributes? })`: an application's own logger (a `ConsoleLogger` subclass, a pino destination) can now send its already-redacted lines through the same path as `NestrixLogger`: to `/v1/logs` with the active span's trace and span id when `logs.export` is on, and next to their trace in the dashboard. It never throws, and with Nestrix disabled it returns without reading the record. `NestrixLogger` now uses the same path, with no change in behaviour.
+
+- [#51](https://github.com/nestrix-js/nestrix/pull/51) [`246cdc0`](https://github.com/nestrix-js/nestrix/commit/246cdc01781b72a520c1d7308d089ba411095aa6) Thanks [@lamberto15](https://github.com/lamberto15)! - Add the `@nestrix-js/nestjs/testing` subpath with `createInMemorySpanCapture()`, which captures finished spans in memory for tests of an app that uses Nestrix. New docs: "Testing your app" and a mail recipe (`methods.include` or `withSpan` for SMTP and library transports).
+
+- [#54](https://github.com/nestrix-js/nestrix/pull/54) [`7bd3c50`](https://github.com/nestrix-js/nestrix/commit/7bd3c50366d001daaf20aab02e9162e360e66918) Thanks [@lamberto15](https://github.com/lamberto15)! - Add `bullmqTelemetry()`, BullMQ's `telemetry` implemented on Nestrix's own OpenTelemetry API with no dependency on `bullmq` or `bullmq-otel` (issue [#20](https://github.com/nestrix-js/nestrix/issues/20)). Pass `telemetry: bullmqTelemetry({ tracerName })` to `BullModule.forRoot()`. It looks its tracer up on first use, so BullMQ's producer, consumer and complete/fail spans are recorded in ESM apps, where a `new BullMQOtel()` created in `BullModule.forRoot()` loads the CommonJS copy of `@opentelemetry/api` before Nestrix registers its provider and silently records nothing. A failed job's `process` span now carries the exception and error status, the job's return value is never recorded, BullMQ's parentless housekeeping spans are dropped unless `rootSpans: true`, and `enableMetrics: true` adds BullMQ's job metrics. The README's BullMQ section now uses the helper and shows how to keep `bullmq-otel` by building it on first use.
+
+### Patch Changes
+
+- Updated dependencies [[`d677d0b`](https://github.com/nestrix-js/nestrix/commit/d677d0b8b5b3e21d45edea2ed4c33c2cd09e9dd6)]:
+  - @nestrix-js/ui@0.5.0
+
 ## 0.4.0
 
 ### Minor Changes
