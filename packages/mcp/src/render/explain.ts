@@ -5,6 +5,10 @@ import type {
 } from "@nestrix-js/protocol";
 import { clean, fmtMs, fmtPct, plural, truncate } from "./format.js";
 import {
+  type StatisticsMode,
+  statisticsCounting,
+} from "./statistics-wording.js";
+import {
   buildTree,
   classOf,
   type RepeatedStatement,
@@ -24,6 +28,8 @@ export interface ExplainInput {
   traces: TraceResponse[];
   /** Routes that do have statistics, for a hint when `stats` is empty. */
   knownRoutes: string[];
+  /** Backend the statistics came from; unknown when `meta` was unreachable. */
+  mode?: StatisticsMode | undefined;
 }
 
 interface Bucket {
@@ -58,7 +64,7 @@ export function renderExplanation(input: ExplainInput): string {
     }
   } else {
     lines.push(
-      `Why is ${label} slow? Last ${input.windowMinutes} minutes, every request counted:`,
+      `Why is ${label} slow? Last ${input.windowMinutes} minutes. ${statisticsCounting(input.mode)}`,
     );
     for (const s of [...input.stats].sort((a, b) =>
       a.method < b.method ? -1 : 1,
@@ -72,7 +78,8 @@ export function renderExplanation(input: ExplainInput): string {
   if (input.traces.length === 0) {
     lines.push(
       "",
-      "No stored traces for this route (traces are sampled and kept in memory), so the time cannot be broken down. Statistics above still count every request.",
+      "No stored traces for this route (traces are sampled and kept in memory), so the time cannot be broken down.",
+      `The statistics above: ${statisticsCounting(input.mode)}`,
     );
     return lines.join("\n");
   }

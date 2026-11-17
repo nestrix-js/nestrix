@@ -11,6 +11,7 @@ export * from "./route-explain.js";
 export * from "./route-insights.js";
 export type * from "./runtime.js";
 export type * from "./slos.js";
+export * from "./statistics-wording.js";
 export type * from "./tokens.js";
 export * from "./types.js";
 
