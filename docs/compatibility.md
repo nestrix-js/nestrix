@@ -71,7 +71,7 @@ Container tests start the official images with Docker and skip with a message wh
 | `pg` | 8.23.1 (peer `^8.0.0`), against `postgres:18-alpine` | Tested; on by default | `test/integrations/pg.test.ts`, `pg-absent.test.ts`. Other 8.x: expected to work. |
 | `mysql2` | 3.24.6, against `mysql:8.4` | Tested; opt-in (`integrations.mysql2: true`) | `test/integrations/mysql2.test.ts`. 3.20 or later is needed (diagnostics channels). |
 | `ioredis` | 6.0.0, against `redis:8-alpine` | Tested; opt-in | `test/integrations/ioredis.test.ts`. 5.11 or later is needed. |
-| BullMQ | 6.7.2 with `bullmq-otel` 2.0.1 and `@nestjs/bullmq` 12.0.1, against `redis:8-alpine` | Tested | `test/e2e-phase3/jobs.test.ts`. |
+| BullMQ | 6.7.2 with `bullmqTelemetry()` and `@nestjs/bullmq` 12.0.1, against `redis:8-alpine`; `bullmq-otel` 2.0.1 only when built on first use | Tested | `test/e2e-phase3/jobs-node-esm.test.ts` (built ESM API on platform-node and a `createApplicationContext` worker, plain `node`), `test/e2e-phase3/jobs.test.ts` (Express, Vitest). `new BullMQOtel()` at import time records no BullMQ span in an ESM app (issue #20). |
 | `@nestjs/schedule` | 12.0.3 | Tested | `test/methods`, `e2e-phase3`. |
 | ORMs on `pg` (MikroORM and similar) | Not run here | Expected to work for a `pg` copy loaded at import time or in a provider factory; a copy first loaded during a request is not traced (documented). |
 | Other drivers (`mongodb`, `mssql`, `better-sqlite3`, `postgres.js`) | Not tested | Not supported by Nestrix itself; upstream `@opentelemetry/instrumentation-*` packages use the same API and join the same traces. |
@@ -123,7 +123,6 @@ The server is a private workspace app in 1.0, shipped as a Docker image built fr
 | `pg` | `pg` spans (other drivers need no package from Nestrix) |
 | `@opentelemetry/sdk-logs`, `@opentelemetry/exporter-logs-otlp-http` | `logs.export` |
 | `@opentelemetry/sdk-metrics`, `@opentelemetry/exporter-metrics-otlp-http` | metric export |
-| `bullmq-otel` | BullMQ job traces |
 
 ## What is not covered
 

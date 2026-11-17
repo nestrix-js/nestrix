@@ -32,6 +32,9 @@
       "path": "examples/node-esm"
     },
     {
+      "path": "examples/bullmq-esm"
+    },
+    {
       "path": "examples/express-cjs"
     },
     {

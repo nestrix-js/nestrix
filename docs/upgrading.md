@@ -148,6 +148,7 @@ Pin the UI to the same version as `@nestrix-js/nestjs`, and do not script agains
 - `store` stays a top-level option; `ui` still has its three states (`'auto'`, `false`, `{ enabled: true, auth }`).
 - Privacy defaults: no request or response bodies, no bind parameters, no headers outside the allowlist.
 - The dashboard is closed unless something positive opens it, and its API never emits CORS headers.
+- BullMQ: pass `telemetry: bullmqTelemetry({ tracerName })` (exported by `@nestrix-js/nestjs` since 0.5) instead of `new BullMQOtel(...)`. In an ESM app a `BullMQOtel` created in `BullModule.forRoot()` records no BullMQ span at all, silently (issue #20, D-81); the README's "Background jobs" section shows how to keep `bullmq-otel` if you must.
 
 ## Checking the upgrade
 

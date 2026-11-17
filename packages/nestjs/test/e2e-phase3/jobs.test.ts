@@ -1,6 +1,8 @@
 // P3-08 acceptance (roadmap phase 3): one request runs three `pg` queries and enqueues a BullMQ
 // job; the queries are children of the right method spans; the job's processing, with the
 // processor's `process` method span under it, is found in the trace. Real Postgres 18 and Redis 8.
+// BullMQ telemetry is `bullmqTelemetry()` (D-81). This file registers its provider before the module
+// is evaluated, so it cannot show the issue #20 ordering bug; jobs-node-esm.test.ts does.
 import "reflect-metadata";
 import { createRequire } from "node:module";
 import { BullModule, InjectQueue, Processor, WorkerHost } from "@nestjs/bullmq";
@@ -8,8 +10,8 @@ import { Controller, Get, Inject, Injectable, Module } from "@nestjs/common";
 import { SpanKind } from "@opentelemetry/api";
 import type { ReadableSpan } from "@opentelemetry/sdk-trace";
 import type { Job, Queue } from "bullmq";
-import { BullMQOtel } from "bullmq-otel";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { bullmqTelemetry } from "../../src/jobs/bullmq.js";
 import { NestrixInstrument } from "../../src/methods/instrument.js";
 import { NestrixModule } from "../../src/nestrix.module.js";
 import {
@@ -91,7 +93,7 @@ class EmailProcessor extends WorkerHost {
   imports: [
     BullModule.forRoot({
       connection: REDIS ?? { host: "127.0.0.1", port: 6379 },
-      telemetry: new BullMQOtel({ tracerName: "nestrix-e2e" }),
+      telemetry: bullmqTelemetry({ tracerName: "nestrix-e2e" }),
     }),
     BullModule.registerQueue({ name: "emails" }),
     NestrixModule.forRoot(BASE_OPTIONS),

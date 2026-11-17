@@ -132,14 +132,20 @@ Keep addresses, subjects and bodies off the span. A `net`/`tls`-level span for S
 
 ## BullMQ jobs
 
-BullMQ has its own OpenTelemetry support. Give it a `BullMQOtel` from `bullmq-otel` (a separate package; Nestrix does not depend on it) and it records its own spans and carries the trace context in each job:
+BullMQ has its own OpenTelemetry support, through its `telemetry` option. Give it `bullmqTelemetry()` from `@nestrix-js/nestjs` (no other package needed) and it records its own spans and carries the trace context in each job, in the API and in a separate worker process (`createApplicationContext`) alike:
 
 ```ts
+import { bullmqTelemetry } from "@nestrix-js/nestjs";
+
 BullModule.forRoot({
   connection: { host: "localhost", port: 6379 },
-  telemetry: new BullMQOtel({ tracerName: "my-app" }),
+  telemetry: bullmqTelemetry({ tracerName: "my-app" }),
 });
 ```
+
+It looks its tracer up when BullMQ first uses it, so it works wherever you create it. A failed job marks its `process` span as an error, with the failure reason as the exception; the job's return value is never recorded; BullMQ's parentless housekeeping spans (the stalled-jobs check every 30 s per worker) are dropped unless `rootSpans: true`. `enableMetrics: true` adds BullMQ's job metrics.
+
+**Not `new BullMQOtel()` in an ESM app.** `bullmq-otel` 2.0 is CommonJS only, so it uses the CommonJS copy of `@opentelemetry/api` while Nestrix uses the ESM copy; created inline in `BullModule.forRoot()`, it takes its tracer before Nestrix registers its provider, and BullMQ's spans are silently missing. If you keep it, build it on first use (getters for `tracer` and `contextManager`; the README's "Background jobs" section has the code).
 
 A job added during a request stays in that request's trace. The consumer span is a child of the producer span, with no span link, however much later the worker ran it:
 
@@ -150,6 +156,7 @@ GET /orders                      server
       add emails.welcome         producer (BullMQ)
         process emails           consumer (BullMQ, runs later in the worker)
           EmailProcessor.process method span, nestrix.entry = "job"
+          complete emails        ("fail emails" when the job failed)
 ```
 
-A job added outside a request starts a trace of its own. Without `telemetry`, a `@Processor`'s method span is a root span. Nestrix adds no code of its own for jobs. In the dashboard the `jobs` type filter shows traces that a job started.
+A job added outside a request starts a trace of its own. Without `telemetry`, a `@Processor`'s method span is a root span. Nestrix does not wrap BullMQ: BullMQ makes the spans and Nestrix shows them. In the dashboard the `jobs` type filter shows traces that a job started.
