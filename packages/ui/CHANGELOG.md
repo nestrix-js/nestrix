@@ -1,5 +1,11 @@
 # @nestrix-js/ui
 
+## 0.5.0
+
+### Patch Changes
+
+- [#50](https://github.com/nestrix-js/nestrix/pull/50) [`d677d0b`](https://github.com/nestrix-js/nestrix/commit/d677d0b8b5b3e21d45edea2ed4c33c2cd09e9dd6) Thanks [@lamberto15](https://github.com/lamberto15)! - The MCP server no longer says route statistics "count every request" when it reads the standalone server, where they are counted from the stored spans and reflect the senders' sampling. The sentences about what statistics count now live in one place (the private protocol package) and the dashboard and the MCP tools use the same ones for both modes; tool descriptions state both cases because they are fixed before the server is known. The package READMEs no longer name a version in their status line.
+
 ## 0.4.0
 
 ### Minor Changes

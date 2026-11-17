@@ -1,5 +1,0 @@
----
-"@nestrix-js/nestjs": minor
----
-
-Report failed and dropped exports to the host application (#21, #39). When Nestrix owns the OpenTelemetry pipeline, an export of spans, log records or metrics that starts failing logs one warning through Nest's `Logger` (context `Nestrix`) with the reason (`unreachable`, `unauthorized`, `rate_limited`, `server_error`, `timeout`, `not_supported`, `other`) and HTTP status, and one line when it recovers; never one per batch. The new `getExportStatus()` export returns a read-only snapshot per signal (state, last success and failure, consecutive failures, totals by reason, items dropped from the bounded queue), and two observable counters, `nestrix.export.failures{signal,reason}` and `nestrix.export.dropped{signal}`, reach the registered `MeterProvider`. A metrics URL that answers 404, 405 or 501 (such as the Nestrix standalone server) now gets one log line and metric export stops; traces and logs continue. Nothing changes with a host-owned OpenTelemetry SDK.
