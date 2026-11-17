@@ -19,7 +19,9 @@
  *   handler as the processor would have, and answers `SUCCESS`. The processor then keeps
  *   its flag, holds later spans in its bounded queue during an outage, and drops (and
  *   counts) what does not fit. It does nothing else with a failure: no retry, no
- *   re-queue, only a self-observability metric that Nestrix does not read.
+ *   re-queue, only a self-observability metric that Nestrix does not read. Nestrix's own
+ *   record of every result is the export status, fed by the wrapper inside this one
+ *   (observe-export.ts, D-82).
  * - A hard limit, for when the flag is cleared anyway (the processor's own export timeout
  *   fires before the exporter answers): while an export is in flight, one further batch
  *   waits here and starts when the first is answered; a batch beyond that is not sent,

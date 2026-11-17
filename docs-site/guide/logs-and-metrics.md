@@ -57,3 +57,40 @@ NestrixModule.forRoot({
 ```
 
 Options: `metrics: false`, `metrics.runtime` and `metrics.export`; see the [reference](/reference/configuration#metrics).
+
+An endpoint that answers 404, 405 or 501 on its metrics URL does not accept metrics (the [standalone server](/guide/standalone-server) ingests traces and logs only, and so does Jaeger). Nestrix then logs one line and stops exporting metrics until the app restarts; traces and logs carry on.
+
+## Export health
+
+When Nestrix owns the pipeline, it tells you when telemetry is not getting through. Requests are never slowed or failed by it.
+
+- **Log lines**, through Nest's `Logger` (context `Nestrix`): one warning when exports of a signal start failing, with the reason (`unreachable`, `unauthorized` for 401/403, `rate_limited` for 429, `server_error` for 5xx, `timeout`, `not_supported` for 404/405/501, `other`), one more if the reason changes during the same outage, and one line when exports work again. Never one per batch. The warning comes when the first export after the outage gives up on its retries: for spans within `export.queue.scheduledDelayMillis` plus `export.otlp.timeoutMillis` (5 s + 10 s by default).
+- **`getExportStatus()`**, exported from `@nestrix-js/nestjs`: a frozen snapshot per signal (`traces`, `logs`, `metrics`) with `state` (`inactive`, `pending`, `ok`, `failing`, `stopped`), `lastSuccessAt`, `lastFailureAt`, `lastFailure` (`{ reason, httpStatus }`), `consecutiveFailures`, `failures` by reason and `dropped` (spans or log records dropped from the full queue), and `degraded`. No I/O; never throws.
+- **Two observable counters** on the registered `MeterProvider` (Nestrix's or yours): `nestrix.export.failures` (`signal`, `reason`) and `nestrix.export.dropped` (`signal`). A failing metric export reports its own failures in the next export that succeeds, and causes no extra export.
+
+With Nestrix disabled, export off, or your own OpenTelemetry SDK owning the signal, every signal is `inactive`, no counter is added and nothing is logged: Nestrix does not read a host's exporters (D-69).
+
+### In a readiness check: degraded, not down
+
+Report telemetry as a detail of your health endpoint. Do not fail readiness or liveness on it: an observability outage must not make Kubernetes restart your pods or take them out of the load balancer.
+
+```ts
+import { Controller, Get } from "@nestjs/common";
+import { getExportStatus } from "@nestrix-js/nestjs";
+
+@Controller("health")
+export class HealthController {
+  @Get("ready")
+  ready() {
+    const telemetry = getExportStatus();
+    return {
+      status: "ok", // decided by your own checks (database, queues)
+      telemetry: telemetry.degraded ? "degraded" : "ok",
+      traces: telemetry.traces.state,
+      lastTraceFailure: telemetry.traces.lastFailure,
+    };
+  }
+}
+```
+
+With `@nestjs/terminus`, return the same as the details of an indicator that is always `up`. To alert, use the counters, for example `increase(nestrix_export_failures_total[10m]) > 0` with a Prometheus bridge.

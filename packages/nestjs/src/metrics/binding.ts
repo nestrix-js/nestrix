@@ -19,9 +19,12 @@ import {
   type Meter,
   type MeterProvider,
   metrics,
+  type ObservableCallback,
+  type ObservableCounter,
 } from "@opentelemetry/api";
 import { METRIC_HTTP_SERVER_REQUEST_DURATION } from "@opentelemetry/semantic-conventions";
 import type { Diagnostics } from "../diagnostics.js";
+import { exportCounts, isExportActive } from "../export-status.js";
 import { type RuntimeMetrics, startRuntimeMetrics } from "./runtime.js";
 
 /** Meter name, the same as the tracer's (`TRACER_NAME` in http/server.ts). */
@@ -55,17 +58,59 @@ export function hasGlobalMeterProvider(): boolean {
   }
 }
 
+/** D-82: failed OTLP exports of Nestrix's own pipeline, by `signal` and `reason`. */
+export const METRIC_EXPORT_FAILURES = "nestrix.export.failures";
+/** D-82: spans and log records Nestrix's own pipeline dropped from its bounded queue, by `signal`. */
+export const METRIC_EXPORT_DROPPED = "nestrix.export.dropped";
+
+/**
+ * Reads the export status's cumulative counts (export-status.ts) at collection time. Nothing is
+ * recorded on the export path, so a failing metric export cannot cause more exports: its own failure
+ * shows up, once per interval, in the next export. Never throws.
+ */
+const observeFailures: ObservableCallback = (result) => {
+  try {
+    for (const { signal, failures, active } of exportCounts()) {
+      if (!active) continue;
+      for (const [reason, count] of Object.entries(failures)) {
+        if (count > 0) result.observe(count, { signal, reason });
+      }
+    }
+  } catch {
+    // Never throws into the SDK's collection.
+  }
+};
+
+const observeDropped: ObservableCallback = (result) => {
+  try {
+    for (const { signal, dropped, active } of exportCounts()) {
+      if (active && signal !== "metrics") result.observe(dropped, { signal });
+    }
+  } catch {
+    // Never throws into the SDK's collection.
+  }
+};
+
 const UNBOUND = Symbol("unbound");
 
 export class MeterBinding {
   private provider: MeterProvider | typeof UNBOUND = UNBOUND;
   private histogram: Histogram | undefined;
   private runtime: RuntimeMetrics | undefined;
+  private exportInstruments:
+    | { failures: ObservableCounter; dropped: ObservableCounter }
+    | undefined;
   private closed = false;
 
+  /**
+   * `exportStatus`: also report `nestrix.export.failures` and `nestrix.export.dropped` (D-82). Set
+   * only when Nestrix owns the tracer provider; they are created only while its trace export is
+   * on, so a host-owned SDK sees no new instrument.
+   */
   constructor(
     private readonly runtimeEnabled: boolean,
     private readonly diagnostics: Diagnostics,
+    private readonly exportStatus = false,
   ) {}
 
   /**
@@ -95,6 +140,14 @@ export class MeterBinding {
 
   private unbind(): void {
     this.histogram = undefined;
+    const exportInstruments = this.exportInstruments;
+    this.exportInstruments = undefined;
+    try {
+      exportInstruments?.failures.removeCallback(observeFailures);
+      exportInstruments?.dropped.removeCallback(observeDropped);
+    } catch (error) {
+      this.diagnostics.countFailure("metrics.export-status-stop", error);
+    }
     const runtime = this.runtime;
     this.runtime = undefined;
     try {
@@ -131,6 +184,25 @@ export class MeterBinding {
     }
     if (this.runtimeEnabled) {
       this.runtime = startRuntimeMetrics(meter, this.diagnostics);
+    }
+    if (this.exportStatus && isExportActive("traces")) {
+      try {
+        const failures = meter.createObservableCounter(METRIC_EXPORT_FAILURES, {
+          description:
+            "Failed OTLP exports of Nestrix's own pipeline, by signal and reason.",
+          unit: "{export}",
+        });
+        const dropped = meter.createObservableCounter(METRIC_EXPORT_DROPPED, {
+          description:
+            "Spans and log records Nestrix dropped before export because its bounded queue was full.",
+          unit: "{item}",
+        });
+        failures.addCallback(observeFailures);
+        dropped.addCallback(observeDropped);
+        this.exportInstruments = { failures, dropped };
+      } catch (error) {
+        this.diagnostics.countFailure("metrics.export-status", error);
+      }
     }
   }
 }

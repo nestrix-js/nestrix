@@ -46,7 +46,11 @@ export function startMetrics(
   try {
     const resolved = options.metrics;
     if (resolved === false) return undefined;
-    const binding = new MeterBinding(resolved.runtime, diagnostics);
+    const binding = new MeterBinding(
+      resolved.runtime,
+      diagnostics,
+      telemetry?.ownsProvider === true,
+    );
     let exportHandle: MetricExportHandle | undefined;
     let exportStarted = false;
     // Binds now to whatever provider is registered (a host's), so runtime instruments start

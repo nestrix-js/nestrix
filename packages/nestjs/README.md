@@ -24,6 +24,7 @@ Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app pro
 - [Privacy](#privacy)
 - [Stability](#stability)
 - [Shutdown and flushing](#shutdown-and-flushing)
+- [Export health: `getExportStatus()`](#export-health-getexportstatus)
 - [Supported versions](#supported-versions)
 - [OpenTelemetry SDK 3 only](#opentelemetry-sdk-3-only)
 - [Using it next to other tools](#using-it-next-to-other-tools)
@@ -935,7 +936,7 @@ With no `MeterProvider` registered and no export, nothing is recorded and the ev
 pnpm add @opentelemetry/sdk-metrics@^3.1.1 @opentelemetry/exporter-metrics-otlp-http@^0.301.1
 ```
 
-Without them Nestrix logs one line with that command and carries on; metrics stay API-only. Nestrix registers its own `MeterProvider` only when none is registered, never replaces yours, and flushes it on `app.close()` within the same 5-second bound as spans.
+Without them Nestrix logs one line with that command and carries on; metrics stay API-only. Nestrix registers its own `MeterProvider` only when none is registered, never replaces yours, and flushes it on `app.close()` within the same 5-second bound as spans. An endpoint that answers 404, 405 or 501 on its metrics URL (the Nestrix standalone server ingests traces and logs only) gets one log line, and Nestrix stops exporting metrics; see [Export health](#export-health-getexportstatus), which also covers `nestrix.export.failures` and `nestrix.export.dropped`.
 
 <!-- sample: metrics -->
 
@@ -1099,6 +1100,51 @@ export async function bootstrap(): Promise<void> {
 ```
 
 Shutdown is bounded: Nestrix waits at most 5 seconds for the collector. When several Nestrix apps run in one process (an e2e suite), they share one provider; closing the last one shuts it down and removes the OpenTelemetry globals Nestrix registered. A provider your app owns is never flushed or shut down by Nestrix.
+
+## Export health: `getExportStatus()`
+
+When Nestrix owns the OpenTelemetry provider and exports, it tells you when telemetry is not getting through: the backend is down, the ingest key was revoked, the server is rate limiting, or the bounded queue is dropping spans. Requests are never slowed or failed by it; this is about knowing.
+
+**Log lines**, through Nest's `Logger` with the context `Nestrix`: one warning when exports of a signal (spans, log records, metrics) start failing, with the reason, one more if the reason changes during the same outage, and one line when exports succeed again. Never one per batch. For example:
+
+```text
+WARN [Nestrix] Exports of spans to the OTLP endpoint are failing (unauthorized, HTTP 401: the endpoint refused the credentials). ...
+LOG  [Nestrix] Exporting spans to the OTLP endpoint works again, after 12 failed exports; 0 spans were dropped from the queue meanwhile.
+```
+
+The warning comes when the first export after the outage gives up, which is after the exporter's own retries: within `export.queue.scheduledDelayMillis` (5 s) plus `export.otlp.timeoutMillis` (10 s) for spans, and the metric export interval plus the timeout for metrics.
+
+**`getExportStatus()`** returns a frozen snapshot, per signal (`traces`, `logs`, `metrics`): `state` (`inactive`, `pending`, `ok`, `failing`, `stopped`), `lastSuccessAt` and `lastFailureAt` (milliseconds since the epoch, or `null`), `lastFailure` (`{ reason, httpStatus }`), `consecutiveFailures`, `failures` (totals by reason) and `dropped` (spans or log records dropped from the full queue), plus `degraded` (`true` when a signal Nestrix exports is `failing` or `stopped`). Reasons: `unreachable`, `unauthorized` (401, 403), `rate_limited` (429), `server_error` (5xx), `timeout`, `not_supported` (404, 405, 501) and `other`. It is cheap (no I/O) and never throws. With Nestrix disabled, export off, or your own OpenTelemetry SDK owning the signal, every signal is `inactive`: Nestrix does not read a host's exporters.
+
+Use it in a readiness or health endpoint as a detail, **degraded, not down**: an observability outage should never make an orchestrator restart your app or take it out of the load balancer.
+
+<!-- sample: export-status -->
+
+```ts
+import { Controller, Get } from "@nestjs/common";
+import { getExportStatus } from "@nestrix-js/nestjs";
+
+@Controller("health")
+export class HealthController {
+  // Readiness: your own checks decide it. Telemetry is reported, never a reason to fail it,
+  // so an observability outage cannot get your pods restarted or taken out of the load balancer.
+  @Get("ready")
+  ready() {
+    const telemetry = getExportStatus();
+    return {
+      status: "ok",
+      telemetry: telemetry.degraded ? "degraded" : "ok",
+      traces: telemetry.traces.state,
+      lastTraceFailure: telemetry.traces.lastFailure,
+      droppedSpans: telemetry.traces.dropped,
+    };
+  }
+}
+```
+
+**Metrics.** The same counts are reported as two observable counters, `nestrix.export.failures` (attributes `signal`, `reason`) and `nestrix.export.dropped` (attribute `signal`), on the registered `MeterProvider`, so a Prometheus bridge or your own `MeterProvider` can alert on them. They exist only while Nestrix owns the trace export. When the metric export itself fails, its own failures are sent with the next export that succeeds; they cause no extra export.
+
+**An endpoint that does not accept metrics.** When the metrics URL answers 404, 405 or 501 (the Nestrix standalone server, Jaeger), Nestrix logs one line and stops exporting metrics until the app restarts; traces and logs carry on. `getExportStatus().metrics.state` is then `stopped`.
 
 ## Supported versions
 

@@ -1,3 +1,12 @@
+export {
+  getExportStatus,
+  type NestrixExportFailure,
+  type NestrixExportFailureReason,
+  type NestrixExportSignal,
+  type NestrixExportState,
+  type NestrixExportStatus,
+  type NestrixSignalExportStatus,
+} from "./export-status.js";
 export { NestrixLogger } from "./logs/logger.js";
 export { getTraceIds, type TraceIds } from "./logs/trace-ids.js";
 export {

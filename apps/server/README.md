@@ -129,6 +129,7 @@ What the answers mean:
 |---|---|---|
 | 400 | Malformed body, bad gzip, or invalid UTF-8 | Not retry. |
 | 401 | Missing or wrong key, or auth not configured | Fix the key. |
+| 404 | A `/v1/…` path that is not an ingest route, such as `/v1/metrics` (no key needed) | Do not send that signal here. |
 | 413 | Body or inflated body over 20 MiB, or over a count cap, or a request too large for the memory budget | Send smaller batches; do not retry as is. |
 | 415 | Unsupported `Content-Type` or `Content-Encoding` | Send protobuf or JSON, gzip or none. |
 | 429 | Over the rate limit; has `Retry-After` | Retry after that many seconds. |
@@ -144,7 +145,7 @@ Log records sent to `/v1/logs` are kept only when they carry a trace id, in the 
 NestrixModule.forRoot({ logs: { export: true } }) // OTEL_EXPORTER_OTLP_ENDPOINT=http://nestrix.internal:4318
 ```
 
-There is no `/v1/metrics`. A request to it is not an ingest request: the admin layer answers it (403 for a `POST` without a same-origin `Origin` header, which OTLP exporters do not send; 503 when no admin password is set). Exporters treat both as failures and may retry. A Nestrix app that exports metrics to the same base endpoint will log these errors; point metrics at a collector (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`) or turn them off.
+There is no `/v1/metrics`. It, and any other `/v1/…` path that is not an ingest route, answers `404` with a `google.rpc.Status` body (protobuf or JSON, as the request's `Content-Type`), before the admin login and without a key (`src/ingest/unknown-path.ts`; paths with `.`/`..` segments or percent-escapes are left to the admin login). OTLP exporters do not retry a 404. A Nestrix app that exports metrics to the same base endpoint logs one line saying metrics are not accepted there and stops exporting them; traces and logs continue. Point metrics at a collector (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`) or turn their export off (`metrics: { export: false }`).
 
 ## Remote CPU profiling
 
