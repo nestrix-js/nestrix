@@ -1,6 +1,7 @@
 // Every tool against a mocked standalone server (node:http returning protocol-shaped data).
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { STATISTICS_COUNTING } from "@nestrix-js/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   classes,
@@ -92,6 +93,19 @@ describe("standalone server", () => {
     for (const t of tools.filter((t) => t.name !== "start_profile")) {
       expect(t.annotations?.readOnlyHint, t.name).toBe(true);
     }
+  });
+
+  it("says route statistics come from stored spans, never that they count every request", async () => {
+    const wording = STATISTICS_COUNTING.standalone;
+    const stats = await mcp.call("route_stats");
+    expect(stats.text).toContain(wording);
+    expect(stats.text).not.toMatch(/every request/i);
+    const overview = await mcp.call("overview");
+    expect(overview.text).toContain(wording);
+    expect(overview.text).not.toMatch(/count every request/i);
+    const explained = await mcp.call("explain_slowness", { route: "/orders" });
+    expect(explained.text).toContain(wording);
+    expect(explained.text).not.toMatch(/every request/i);
   });
 
   it("overview describes the server, services, slowest and failing routes", async () => {
