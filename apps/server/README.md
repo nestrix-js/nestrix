@@ -249,7 +249,7 @@ Pull or rebuild the image and restart. Migrations are applied at start, in order
 
 ### Upgrading to shared sessions (issue #31)
 
-Migration `0013_admin_sessions.sql` adds the tables for sign-outs and the login limit. Session cookies issued by earlier versions were signed with a per-process key and are refused after the upgrade: every admin signs in once more. From then on a restart keeps sessions, as long as `NESTRIX_SESSION_SECRET` and `NESTRIX_ADMIN_PASSWORD` stay the same.
+Migration `0014_admin_sessions.sql` adds the tables for sign-outs and the login limit. Session cookies issued by earlier versions were signed with a per-process key and are refused after the upgrade: every admin signs in once more. From then on a restart keeps sessions, as long as `NESTRIX_SESSION_SECRET` and `NESTRIX_ADMIN_PASSWORD` stay the same.
 
 ## Running several instances
 

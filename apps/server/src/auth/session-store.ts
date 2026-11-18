@@ -1,6 +1,6 @@
 /**
  * Admin-login state shared by every server instance through PostgreSQL (issue #31, D-96;
- * migration `0013_admin_sessions.sql`).
+ * migration `0014_admin_sessions.sql`).
  *
  * - `PostgresSessionRevocations`: sessions ended by `/logout`, by nonce, until the session
  *   expires. Read on every request that carries a validly signed cookie (one indexed lookup;
