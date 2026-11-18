@@ -35,12 +35,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # Tags: check:old-writer reads the previous release's source from its git tag.
+          fetch-depth: 0
       - uses: ./.github/actions/setup
         with:
           node-version: ${{ matrix.node }}
       - name: Wait for Docker
         run: timeout 90 sh -c 'until docker info >/dev/null 2>&1; do sleep 2; done'
       - run: pnpm verify
+      # D-109: the previous release's inserts and upserts must still work on the new schema,
+      # unless the migration is listed in apps/server/migrations/coordinated-stop.json.
+      - name: Previous release's writers on the current schema
+        run: pnpm check:old-writer --require-db
       # D-99 (issue #41): a report, never a failure; uses the build `pnpm verify` made.
       - name: Import cost of a disabled app (report only)
         continue-on-error: true

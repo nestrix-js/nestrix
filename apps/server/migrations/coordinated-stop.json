@@ -1,0 +1,3 @@
+{
+  "0016_environments.sql": "Route and class rollup keys gain environment; 0.7.x upserts fail. Stop every replica before upgrading."
+}

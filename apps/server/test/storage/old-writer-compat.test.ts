@@ -13,6 +13,11 @@
  * THIS TEST: if the failure assertions below ever start passing, rolling upgrades may have become
  * possible and the docs can be relaxed; if the "still works" assertions fail, another statement
  * of the 0.6.0 writer broke and must be added to the upgrade notes.
+ *
+ * The general policy (D-109, expand/contract) is enforced by `scripts/check-old-writer.mjs`, which
+ * extracts the previous release's real SQL from its git tag and allows only the migrations listed
+ * in `apps/server/migrations/coordinated-stop.json` (0016 is listed). This file stays as the
+ * precise regression test of this one release.
  */
 import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";

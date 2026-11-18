@@ -422,6 +422,8 @@ Service level objectives are managed on the dashboard's **SLOs** page or through
 
 ## Upgrading
 
+Migrations follow expand/contract: they only add or relax, so the previous release keeps working while replicas are replaced one at a time. A migration that cannot (it removes, renames, retypes or re-keys something the previous release uses) is listed in `migrations/coordinated-stop.json` and its release says to stop every replica first; `scripts/check-old-writer.mjs` (`pnpm check:old-writer`, run in CI) checks the previous release's inserts and upserts against the current schema and fails on an unlisted break. Currently listed: `0016_environments.sql`, see "Upgrading to environments" below.
+
 Pull or rebuild the image and restart (see also [Upgrades in the production guide](../../docs-site/guide/production.md#upgrades) for the rolling-upgrade policy). Migrations are applied at start, in order, under a PostgreSQL advisory lock, so several instances starting together are safe; each runs in a transaction, and a migration file changed after it was applied stops the start. There is no downgrade: back up the database before upgrading. With `NESTRIX_SESSION_SECRET` set, admins stay signed in across the restart (see "Admin login").
 
 ### Upgrading to users and roles (issue #34)
@@ -490,7 +492,7 @@ Partitions created after that inherit the index.
 
 ### Upgrading to environments (issue #28)
 
-**This release cannot be upgraded with a rolling update: stop every server replica first.** `0016` replaces the primary keys of `route_minutes` and `class_minutes` with unique keys that include `environment`. The 0.6.0 server upserts those tables with `ON CONFLICT (minute, service_name, method, route)` (and `(minute, service_name, class_name, method_name)`); once `0016` has run PostgreSQL rejects both (`there is no unique or exclusion constraint matching the ON CONFLICT specification`), so a 0.6.0 replica that is still taking traffic fails its ingest transactions and loses those batches. No key serves both writers (a unique index on the old columns would forbid the same route in two environments). `test/storage/old-writer-compat.test.ts` pins this. Every other statement of the 0.6.0 server still works on the new schema.
+**This release cannot be upgraded with a rolling update: stop every server replica first.** `0016` replaces the primary keys of `route_minutes` and `class_minutes` with unique keys that include `environment`. The 0.6.0 server upserts those tables with `ON CONFLICT (minute, service_name, method, route)` (and `(minute, service_name, class_name, method_name)`); once `0016` has run PostgreSQL rejects both (`there is no unique or exclusion constraint matching the ON CONFLICT specification`), so a 0.6.0 replica that is still taking traffic fails its ingest transactions and loses those batches. No key serves both writers (a unique index on the old columns would forbid the same route in two environments). `test/storage/old-writer-compat.test.ts` pins this, and `migrations/coordinated-stop.json` lists `0016` so that the CI check of the previous release's writes allows it. Every other statement of the 0.6.0 server still works on the new schema.
 
 Steps:
 

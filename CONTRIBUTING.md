@@ -57,6 +57,10 @@ Nestrix runs inside other people's applications, on every request. The bar follo
 
 The full list, with the reasons, is in [AGENTS.md](AGENTS.md) under "Rules that are easy to break". It is written for AI agents working on the repository, and it applies to people too.
 
+## Migrations
+
+The standalone server's migrations (`apps/server/migrations`) follow expand/contract, so a rolling update never breaks the previous release's writers. A migration may only add (tables, nullable or defaulted columns, indexes) or relax. If you need to remove, rename, retype or re-key something the previous release reads or writes, split it: release N adds the new form and works with both, release N+1 removes the old. The only exception is a migration listed, with a reason, in `apps/server/migrations/coordinated-stop.json`; it also needs an upgrade note in its changeset and in `apps/server/README.md`. `pnpm check:old-writer` (CI runs it) checks the latest released server's inserts and upserts against the current schema; it needs Docker or `NESTRIX_CHECK_DATABASE_URL`.
+
 ## Pull requests
 
 - Keep one change per pull request, and say what it is for.
