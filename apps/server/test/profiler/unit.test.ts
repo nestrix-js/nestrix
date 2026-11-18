@@ -11,6 +11,10 @@ import { METHOD_METADATA, PATH_METADATA } from "@nestjs/common/constants";
 import { describe, expect, it } from "vitest";
 import { AUTH_STAMP, TOKEN_READ_ROUTE } from "../../src/auth/admin-auth.js";
 import { AdminAuthGuard } from "../../src/auth/auth.guard.js";
+import {
+  AUTH_PRINCIPAL,
+  PASSWORD_PRINCIPAL,
+} from "../../src/auth/principal.js";
 import { IngestController } from "../../src/ingest/ingest.controller.js";
 import { INGEST_PATH_PATTERN } from "../../src/ingest/tokens.js";
 import {
@@ -456,12 +460,17 @@ describe("routing and access", () => {
     stamp: string | undefined,
     method: string,
     target: unknown,
+    principal: unknown = stamp === "session" ? PASSWORD_PRINCIPAL : undefined,
   ) =>
     ({
       getType: () => "http",
       getClass: () => target,
       switchToHttp: () => ({
-        getRequest: () => ({ method, [AUTH_STAMP]: stamp }),
+        getRequest: () => ({
+          method,
+          [AUTH_STAMP]: stamp,
+          [AUTH_PRINCIPAL]: principal,
+        }),
       }),
     }) as unknown as ExecutionContext;
   const allows = (ctx: ExecutionContext) => {
@@ -494,5 +503,16 @@ describe("routing and access", () => {
     expect(allows(context("session", "POST", RemoteProfilesController))).toBe(
       true,
     );
+    // Issue #34: a viewer session (or one without a principal) reads but never writes.
+    const viewer = { kind: "oidc", role: "viewer", userId: 1, label: "v" };
+    expect(
+      allows(context("session", "GET", RemoteProfilesController, viewer)),
+    ).toBe(true);
+    expect(
+      allows(context("session", "POST", RemoteProfilesController, viewer)),
+    ).toBe(false);
+    expect(
+      allows(context("session", "POST", RemoteProfilesController, null)),
+    ).toBe(false);
   });
 });

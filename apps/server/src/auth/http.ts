@@ -194,7 +194,9 @@ export interface RawResponse {
   readonly cacheControl?: string | undefined;
   readonly body?: Buffer | string | undefined;
   /** Extra headers (`location`, `set-cookie`, `retry-after`). Lower-case names. */
-  readonly headers?: Readonly<Record<string, string>> | undefined;
+  readonly headers?:
+    | Readonly<Record<string, string | readonly string[]>>
+    | undefined;
 }
 
 /** Removes every `Access-Control-*` header already set. */
@@ -291,7 +293,7 @@ export function writeRaw(res: ServerResponse, response: RawResponse): void {
     );
     if (response.headers) {
       for (const [name, value] of Object.entries(response.headers)) {
-        res.setHeader(name, value);
+        res.setHeader(name, typeof value === "string" ? value : [...value]);
       }
     }
     res.end(body);

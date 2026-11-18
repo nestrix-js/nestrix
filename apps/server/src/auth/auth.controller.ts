@@ -3,7 +3,8 @@ import { Controller, Get, Post, Req, Res } from "@nestjs/common";
 import { AdminAuth } from "./admin-auth.js";
 
 /**
- * `/login`, `/login.css` and `/logout`. Responses are written to the raw response by `AdminAuth`
+ * `/login`, `/login.css`, `/logout`, and single sign-on's `/login/oidc` and `/login/oidc/callback`
+ * (issue #34). Responses are written to the raw response by `AdminAuth`
  * (`@Res()`), so their headers are exactly the ones it sets.
  */
 @Controller()
@@ -24,6 +25,22 @@ export class AuthController {
     @Res() res: ServerResponse,
   ): Promise<void> {
     return this.auth.login(req, res);
+  }
+
+  @Get("login/oidc")
+  oidcStart(
+    @Req() req: IncomingMessage,
+    @Res() res: ServerResponse,
+  ): Promise<void> {
+    return this.auth.oidcStart(req, res);
+  }
+
+  @Get("login/oidc/callback")
+  oidcCallback(
+    @Req() req: IncomingMessage,
+    @Res() res: ServerResponse,
+  ): Promise<void> {
+    return this.auth.oidcCallback(req, res);
   }
 
   @Get("login.css")

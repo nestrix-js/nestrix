@@ -1,5 +1,6 @@
 /** Response types of the Nestrix query API, version 1. Types only; no runtime code lives here except the version constant (see index.ts). */
 
+import type { MetaAccess } from "./access.js";
 import type { MetaMetrics } from "./metrics.js";
 import type { MetaProfiler } from "./profiles.js";
 import type { MetaRuntime } from "./runtime.js";
@@ -115,6 +116,11 @@ export interface MetaResponse {
   runtime?: MetaRuntime;
   /** Historical metrics (issue #18): the standalone server with `NESTRIX_METRICS=on`. Absent from embedded dashboards and older servers. */
   metrics?: MetaMetrics;
+  /**
+   * Who the request is and what it may do (standalone server, issue #34). Absent from the
+   * embedded dashboard and older servers: treat as `admin` (the server decides anyway).
+   */
+  access?: MetaAccess;
 }
 
 /** One environment the standalone server holds data for (`MetaResponse.environments`). */

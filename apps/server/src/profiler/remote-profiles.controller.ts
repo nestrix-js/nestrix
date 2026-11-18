@@ -5,7 +5,7 @@
  *   `GET remote-profiles/<id>`, `GET remote-profiles/<id>/download`: any reader (a session, or an
  *   API token: these paths are in `TOKEN_READ_ROUTE` and the global guard admits a token to this
  *   controller for `GET`/`HEAD` only).
- * - `POST remote-profiles`: the admin session only (D-74 keeps API tokens read-only). Three layers
+ * - `POST remote-profiles`: an admin session only (`@AdminOnly()`, audited; issue #34) (D-74 keeps API tokens read-only). Three layers
  *   refuse a token: the middleware (a token passes only on `GET`/`HEAD`), the global guard (same),
  *   and `SessionQueryGuard` on the route. Then the embedded `POST profiles` rules (architecture
  *   §4.7), in order: exactly one `Sec-Fetch-Site: same-origin` (403); exactly one `Origin`, equal
@@ -47,6 +47,7 @@ import type {
 } from "@nestrix-js/protocol";
 import { originMatchesHost } from "../auth/http.js";
 import { ReadQueryGuard, SessionQueryGuard } from "../auth/query-guard.js";
+import { AdminOnly, Audited } from "../auth/roles.js";
 import {
   QUERY_HEADERS,
   QueryExceptionFilter,
@@ -235,6 +236,8 @@ export class RemoteProfilesController {
 
   @Post("remote-profiles")
   @UseGuards(SessionQueryGuard)
+  @AdminOnly()
+  @Audited("remote_profile.start")
   @HttpCode(202)
   @Headers()
   async start(

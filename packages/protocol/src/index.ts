@@ -1,3 +1,4 @@
+export type * from "./access.js";
 export type * from "./alerts.js";
 export type * from "./dependencies.js";
 export type * from "./error-groups.js";
