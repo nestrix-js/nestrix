@@ -1,6 +1,6 @@
 /**
  * Admin-login state shared by every server instance through PostgreSQL (issue #31, D-96;
- * migration `0012_admin_sessions.sql`).
+ * migration `0013_admin_sessions.sql`).
  *
  * - `PostgresSessionRevocations`: sessions ended by `/logout`, by nonce, until the session
  *   expires. Read on every request that carries a validly signed cookie (one indexed lookup;
@@ -9,20 +9,21 @@
  *   differences between instances and the database) are deleted with each new revocation.
  * - `PostgresLoginLimiter`: the per-client `/login` window and the global failure budget, with the
  *   rules of the in-process `LoginRateLimiter` (5 attempts a minute per client, 60 failures a
- *   minute in all). An attempt first reserves a slot of the global budget, in one statement
- *   under the budget row's lock (so concurrent attempts on every instance are serialised and at
- *   most the budget get through), then upserts its client row under that row's lock (so a client
- *   is counted exactly). The slot is released when the client's window refuses the attempt or the
- *   password is right; otherwise it is the attempt's failure. The global budget therefore bounds
- *   attempts in flight plus failures, and no burst can get more attempts to the password check
- *   than it has room for. Client rows are written only by attempts that hold a slot, so new rows
- *   per window are at most the budget plus correct-password sign-ins; rows whose window has
- *   passed are deleted at most once a window per instance. Time is the database's
+ *   minute in all). An attempt is one transaction (`take`): the client's row first, under its
+ *   lock (so a client is counted exactly and its concurrent attempts queue), then, only if the
+ *   client's window admits it, a slot of the global budget under the budget row's lock (so at most
+ *   the budget get through across every instance); a budget refusal rolls the client's attempt
+ *   back. The slot is released when the password is right; otherwise it is the attempt's failure.
+ *   So no burst gets more attempts to the password check than the budget, and one flooding
+ *   address holds at most the slots its own window admits (5), never the whole budget. Refused
+ *   API tokens go through `take` too, under the key `token:<client>`. New client rows per window
+ *   are at most the budget plus correct-password sign-ins; rows whose window has passed are
+ *   deleted at most once a window per instance. Time is the database's
  *   (`statement_timestamp()`), so instances with skewed clocks agree.
  *
  * Every method rejects when the database cannot answer; `AdminAuth` fails closed on that.
  */
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type {
   LoginLimiter,
   LoginRateDecision,
@@ -33,6 +34,8 @@ import type { SessionRevocations, VerifiedSession } from "./session.js";
 
 /** Revocations kept this long after their session's expiry before they are deleted. */
 const EXPIRED_MARGIN = "1 hour";
+/** A pool or one checked-out connection (inside a transaction). */
+type Queryable = Pick<PoolClient, "query">;
 /** Longest limiter key stored (keys are IP addresses or IPv6 /64 prefixes; never this long). */
 const MAX_CLIENT_KEY = 100;
 
@@ -127,10 +130,12 @@ export class PostgresLoginLimiter implements LoginLimiter {
    * are in the window, so concurrent callers on every instance are serialised and at most the
    * budget succeed. Returns the slot's time (text, microseconds) when reserved.
    */
-  private async reserve(): Promise<
+  private async reserve(
+    q: Queryable,
+  ): Promise<
     { ok: true; at: string } | { ok: false; retryAfterSeconds: number }
   > {
-    const { rows } = await this.pool.query<{
+    const { rows } = await q.query<{
       reserved: boolean;
       at: string;
       wait: string | null;
@@ -177,32 +182,57 @@ export class PostgresLoginLimiter implements LoginLimiter {
   }
 
   async reserveFailure(): Promise<LoginRateDecision> {
-    const slot = await this.reserve();
+    const slot = await this.reserve(this.pool);
     return slot.ok ? { ok: true } : slot;
   }
 
   /**
-   * Reserve a budget slot first, then the client's window; a client refusal releases the slot.
-   * So a client row is written only by an attempt that holds a slot: new rows per window are
-   * bounded by the budget plus correct-password sign-ins.
+   * One transaction on one connection: the client's window first (its upsert takes the client
+   * row's lock), and only if that admits the attempt, a budget slot (the budget row's lock);
+   * ROLLBACK when the budget refuses, so the client is not charged either. Lock order is always
+   * client row, then budget row, so two attempts cannot deadlock (`reserveFailure` takes only the
+   * budget row). Consequences: concurrent attempts from one client queue on its row lock and hold
+   * at most the slots its window admits, so one flooding address cannot fill the budget with
+   * attempts that would be refused anyway; and a client row is changed only by an attempt that
+   * got a slot or by one its own window refused (an existing row), so new rows per window are at
+   * most the budget plus correct-password sign-ins. If anything fails, the transaction is rolled
+   * back and the call rejects (the caller answers 503).
    */
   async take(key: string): Promise<LoginTake> {
-    const slot = await this.reserve();
-    if (!slot.ok) return slot;
-    const reservation: LoginReservation = { at: slot.at };
-    // If this throws, the slot stays counted (the safe side); the caller answers 503.
-    const client = await this.takeClient(key);
-    if (!client.ok) {
-      await this.release(reservation);
-      return client;
+    const conn = await this.pool.connect();
+    let broken: Error | undefined;
+    try {
+      await conn.query("BEGIN");
+      const client = await this.takeClient(conn, key);
+      if (!client.ok) {
+        await conn.query("COMMIT");
+        return client;
+      }
+      const slot = await this.reserve(conn);
+      if (!slot.ok) {
+        await conn.query("ROLLBACK");
+        return slot;
+      }
+      await conn.query("COMMIT");
+      this.prune();
+      return { ok: true, reservation: { at: slot.at } };
+    } catch (error) {
+      broken = error instanceof Error ? error : new Error(String(error));
+      await conn.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      // A connection that failed mid-transaction is discarded, not returned to the pool.
+      conn.release(broken);
     }
-    return { ok: true, reservation };
   }
 
-  private async takeClient(key: string): Promise<LoginRateDecision> {
+  private async takeClient(
+    q: Queryable,
+    key: string,
+  ): Promise<LoginRateDecision> {
     const client = key.slice(0, MAX_CLIENT_KEY) || "unknown";
     // In `DO UPDATE SET`, `c.*` is the row before this statement; RETURNING shows it after.
-    const { rows } = await this.pool.query<{
+    const { rows } = await q.query<{
       taken: boolean;
       wait: string | null;
     }>(
@@ -223,7 +253,6 @@ export class PostgresLoginLimiter implements LoginLimiter {
       [client, this.limit, this.windowMs],
     );
     const row = rows[0];
-    this.prune();
     return decision(row?.taken === true, row?.wait);
   }
 

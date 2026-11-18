@@ -119,7 +119,6 @@ describe("token failure limits", () => {
     const { auth, good, run, bad } = setup();
     const now = 1_000_000;
     auth.limiter = new LoginRateLimiter(5, 60_000, () => now, 10_000, 3);
-    auth.tokenLimiter = new LoginRateLimiter(5, 60_000, () => now);
     for (let i = 0; i < 3; i++) {
       expect(
         (await run(`198.51.100.${i}`, { ...read, token: bad() })).status,
@@ -141,7 +140,7 @@ describe("token failure limits", () => {
   it("the per-client 429 carries Retry-After and is per client", async () => {
     const { auth, run, bad } = setup();
     let now = 5_000_000;
-    auth.tokenLimiter = new LoginRateLimiter(5, 60_000, () => now);
+    auth.limiter = new LoginRateLimiter(5, 60_000, () => now);
     for (let i = 0; i < 5; i++) {
       expect((await run("192.0.2.7", { ...read, token: bad() })).status).toBe(
         401,

@@ -349,6 +349,97 @@ describe.skipIf(noDatabase)(`several instances ${skipReason}`, () => {
     }
   });
 
+  it("one address flooding /login in concurrent batches cannot lock out the right password from other addresses", async () => {
+    const own = await createTestDb("replicas_flood");
+    const [x, y] = await Promise.all([
+      startAlertsServer(own.url, TRUSTED),
+      startAlertsServer(own.url, TRUSTED),
+    ]);
+    try {
+      const flooder = "203.0.113.200";
+      const outcomes: number[] = [];
+      for (let round = 0; round < 10; round++) {
+        const flood = Array.from({ length: 100 }, async (_, i) => {
+          const res = await postLogin(
+            (i % 2 === 0 ? x : y).baseUrl,
+            "wrong-password-x",
+            { "x-forwarded-for": flooder },
+          );
+          await res.arrayBuffer();
+          return res.status;
+        });
+        // The admin signs in from another address while the batch is in flight.
+        const admin = postLogin((round % 2 === 0 ? y : x).baseUrl, ADMIN_PW, {
+          "x-forwarded-for": `192.0.2.${round + 10}`,
+        }).then(async (res) => {
+          await res.arrayBuffer();
+          return res.status;
+        });
+        const [flooded, adminStatus] = await Promise.all([
+          Promise.all(flood),
+          admin,
+        ]);
+        outcomes.push(adminStatus);
+        // The flooder gets at most its own window: 5 attempts in the whole run.
+        expect(
+          flooded.filter((s) => s === 401).length,
+          `round ${round}`,
+        ).toBeLessThanOrEqual(round === 0 ? 5 : 0);
+      }
+      expect(outcomes).toEqual(Array(10).fill(303));
+      const failures = await own.pool.query<{ n: number }>(
+        "SELECT cardinality(failures) AS n FROM admin_login_failures",
+      );
+      expect(failures.rows).toEqual([{ n: 5 }]);
+    } finally {
+      await x.close();
+      await y.close();
+      await own.drop();
+    }
+  });
+
+  it("refused API tokens are limited per client across instances", async () => {
+    const own = await createTestDb("replicas_tokens");
+    const [x, y] = await Promise.all([
+      startAlertsServer(own.url, TRUSTED),
+      startAlertsServer(own.url, TRUSTED),
+    ]);
+    try {
+      const statuses: number[] = [];
+      for (let i = 0; i < 8; i++) {
+        const res = await fetch(
+          `${(i % 2 === 0 ? x : y).baseUrl}/api/v1/meta`,
+          {
+            headers: {
+              authorization: `Bearer nxt_${Buffer.alloc(32, i + 1).toString("base64url")}`,
+              "x-forwarded-for": "198.18.0.1",
+            },
+          },
+        );
+        await res.arrayBuffer();
+        statuses.push(res.status);
+      }
+      // 5 in all, not 5 per instance.
+      expect(statuses).toEqual([401, 401, 401, 401, 401, 429, 429, 429]);
+      const { rows } = await own.pool.query<{ client: string }>(
+        "SELECT client FROM admin_login_clients",
+      );
+      expect(rows.map((r) => r.client)).toEqual(["token:198.18.0.1"]);
+      // Its /login window is separate.
+      expect(
+        (
+          await postLogin(x.baseUrl, ADMIN_PW, {
+            "x-forwarded-for": "198.18.0.1",
+          })
+        ).status,
+      ).toBe(303);
+    } finally {
+      await x.close();
+      await y.close();
+      await own.drop();
+    }
+  });
+
   it("refuses a cookie past its expiry on the database's clock, even from an instance whose clock is behind", async () => {
     const auth = a.app.get(AdminAuth);
     const original = auth.nowSeconds;
@@ -410,6 +501,13 @@ describe.skipIf(noDatabase)(`several instances ${skipReason}`, () => {
         expect(res.status).toBe(503);
         expect(res.headers.get("set-cookie")).toBeNull();
         expect(await res.text()).toContain("cannot reach its database");
+        // A bad API token whose failure cannot be counted: 503, not 401.
+        const token = await fetch(`${a.baseUrl}/api/v1/meta`, {
+          headers: {
+            authorization: `Bearer nxt_${Buffer.alloc(32, 9).toString("base64url")}`,
+          },
+        });
+        expect(token.status).toBe(503);
 
         auth.limiter = {
           take: () => ({ ok: true, reservation: { at: "x" } }),
@@ -427,13 +525,6 @@ describe.skipIf(noDatabase)(`several instances ${skipReason}`, () => {
           "x-forwarded-for": freshClient(),
         });
         expect(rightPw.status).toBe(303);
-        // A bad API token whose failure cannot be counted: 503, not 401.
-        const token = await fetch(`${a.baseUrl}/api/v1/meta`, {
-          headers: {
-            authorization: `Bearer nxt_${Buffer.alloc(32, 9).toString("base64url")}`,
-          },
-        });
-        expect(token.status).toBe(503);
       } finally {
         auth.limiter = shared;
       }

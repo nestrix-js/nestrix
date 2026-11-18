@@ -79,7 +79,6 @@ describe.skipIf(noDatabase)(`API tokens ${skipReason}`, () => {
 
   beforeEach(() => {
     auth.limiter = new LoginRateLimiter();
-    auth.tokenLimiter = new LoginRateLimiter();
   });
 
   describe("management (session only)", () => {
@@ -487,7 +486,6 @@ describe.skipIf(noDatabase)(`API tokens ${skipReason}`, () => {
     it("failures share the login's global budget: once spent, misses and logins answer 429 but a valid token still works", async () => {
       let now = 1_000_000;
       auth.limiter = new LoginRateLimiter(5, 60_000, () => now, 10_000, 3);
-      auth.tokenLimiter = new LoginRateLimiter(100, 60_000, () => now);
       for (let i = 0; i < 3; i++) {
         expect(
           (await read("/api/v1/meta", bearer(wellFormedUnknown()))).status,

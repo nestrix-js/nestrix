@@ -228,11 +228,6 @@ export class AdminAuth implements OnModuleInit {
    * hands over the PostgreSQL limiter shared by every instance (D-96). Replaceable in tests.
    */
   limiter: LoginLimiter = new LoginRateLimiter();
-  /**
-   * Per-client allowance of refused API tokens (5 a minute, like `/login`). Only misses are
-   * taken from it, so a client's valid token is never counted. Replaceable in tests.
-   */
-  tokenLimiter = new LoginRateLimiter();
   /** Seconds since the epoch. Replaceable in tests. */
   nowSeconds: () => number = () => Math.floor(Date.now() / 1000);
 
@@ -507,7 +502,7 @@ export class AdminAuth implements OnModuleInit {
    * A token that is not valid: over this client's allowance of misses or with the global failure
    * budget spent -> 429 with `Retry-After` (neither counts again); otherwise 401, counted toward
    * the global budget. Valid tokens never reach here, so a lockout cannot refuse one. The
-   * client allowance is per instance; the global budget is the shared one (D-96). When the budget
+   * allowance and the budget are both shared by every instance (D-96). When the budget
    * cannot be read or charged: 503, nothing else said. Always resolves `false`; never rejects.
    */
   private async tokenMiss(
@@ -517,9 +512,11 @@ export class AdminAuth implements OnModuleInit {
   ): Promise<false> {
     let decision: LoginRateDecision;
     try {
-      // The client's own allowance (per instance), then the shared budget, charged atomically.
-      const client = this.tokenLimiter.allow(this.clientOf(req));
-      decision = client.ok ? await this.limiter.reserveFailure() : client;
+      // The client's own allowance of misses (5 a minute, key `token:<client>`, apart from its
+      // `/login` window) and a slot of the shared budget, in one atomic step; the slot is kept:
+      // it is this failure. Shared by every instance (D-96).
+      const rate = await this.limiter.take(`token:${this.clientOf(req)}`);
+      decision = rate.ok ? { ok: true } : rate;
     } catch {
       this.throttledWarn(
         "login rate limit unavailable (database unavailable?)",
