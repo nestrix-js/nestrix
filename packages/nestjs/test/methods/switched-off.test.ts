@@ -20,7 +20,7 @@ import {
   type Type,
 } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { NestrixCore } from "../../src/core.js";
 import {
   NestrixInstrument,
@@ -34,6 +34,10 @@ import { NestrixModule } from "../../src/nestrix.module.js";
 import { NESTRIX_RUNTIME } from "../../src/tokens.js";
 import { startReceiver } from "../otel-helpers.js";
 import { ADAPTERS, BASE_OPTIONS, bootInstrumented } from "./helpers.js";
+
+// These tests start Node processes, run tsc or wait on a real OTLP receiver; under a loaded full
+// run they can pass the 5 s default. Raising the limit changes no assertion.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const pkgDir = fileURLToPath(new URL("../..", import.meta.url));
 
