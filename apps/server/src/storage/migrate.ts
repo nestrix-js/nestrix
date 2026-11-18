@@ -29,13 +29,20 @@ export interface MigrationResult {
   skipped: string[];
 }
 
+/** The migration file names in `directory`, in the order they are applied. */
+export async function migrationFileNames(
+  directory: string = DEFAULT_MIGRATIONS_DIR,
+): Promise<string[]> {
+  return (await readdir(directory))
+    .filter((f) => /^\d{4}_[a-z0-9_]+\.sql$/.test(f))
+    .sort();
+}
+
 export async function runMigrations(
   pool: Pool,
   directory: string = DEFAULT_MIGRATIONS_DIR,
 ): Promise<MigrationResult> {
-  const files = (await readdir(directory))
-    .filter((f) => /^\d{4}_[a-z0-9_]+\.sql$/.test(f))
-    .sort();
+  const files = await migrationFileNames(directory);
   const sources = await Promise.all(
     files.map(async (name) => {
       const sql = await readFile(join(directory, name), "utf8");
