@@ -170,8 +170,10 @@ function stackOf(error: unknown): string | undefined {
  * Sends one log record from your own logger through the same path as `NestrixLogger`: kept next
  * to its trace in the dashboard while a recording span is active, and exported over OTLP to
  * `/v1/logs` when `logs.export` is on, with the active span's trace and span id. It prints
- * nothing and redacts nothing: call it from your logger's print path with the message your logger
- * already redacted. Never throws. With Nestrix disabled, or with neither the dashboard nor log
+ * nothing and does not redact the message: call it from your logger's print path with the message
+ * your logger already redacted. `attributes` get Nestrix's built-in scrub rule before export
+ * (D-112: always-redacted headers, listed query keys and `url.full` credentials), not the `redact`
+ * hook. Never throws. With Nestrix disabled, or with neither the dashboard nor log
  * export on, it returns after two slot reads.
  */
 export function emitLog(record: NestrixLogRecord): void {

@@ -11,7 +11,12 @@
 
 import type { Agent as HttpAgent } from "node:http";
 import type { LogLevel } from "@nestjs/common";
-import { context, logs, SeverityNumber } from "@opentelemetry/api";
+import {
+  type Attributes,
+  context,
+  logs,
+  SeverityNumber,
+} from "@opentelemetry/api";
 import type {
   BatchLogRecordProcessor,
   LoggerProvider,
@@ -33,6 +38,7 @@ import {
 import { settle } from "../otel/redacting-exporter.js";
 import { buildResource } from "../otel/resource.js";
 import type { TelemetryDiagnostics } from "../otel/types.js";
+import { buildRedactedQueryKeys, scrubSpanAttributes } from "../privacy.js";
 import type { ResolvedOptions } from "../resolve-options.js";
 import { type LogSink, setLogSink } from "./sink.js";
 
@@ -115,7 +121,9 @@ export function setupLogExport(
   options: Pick<
     ResolvedOptions,
     "logs" | "serviceName" | "resourceAttributes" | "otelResourceAttributes"
-  >,
+  > &
+    // For `http.redactQueryKeys` (D-112); without it, the default keys apply.
+    Partial<Pick<ResolvedOptions, "http">>,
   diagnostics: TelemetryDiagnostics,
   loader: LogExportLoader = loadModules,
 ): LogExportHandle | undefined {
@@ -133,6 +141,7 @@ export function setupLogExport(
       );
       return undefined;
     }
+    const queryKeys = buildRedactedQueryKeys(options.http?.redactQueryKeys);
     const state: Active = {
       refs: 1,
       ready: Promise.resolve(),
@@ -189,12 +198,21 @@ export function setupLogExport(
         const logger = logs.getLogger("@nestrix-js/nestjs");
         state.sink = {
           emit(record) {
+            let attributes: Attributes | undefined;
+            try {
+              attributes = scrubbedLogAttributes(record.attributes, queryKeys);
+            } catch (error) {
+              // Fail closed: attributes that cannot be cleaned are not sent, nor is the record.
+              recordExportDropped("logs", 1);
+              diagnostics.countFailure("logs.redact", error);
+              return;
+            }
             logger.emit({
               severityNumber: SEVERITY[record.level],
               severityText: record.level.toUpperCase(),
               body: record.body,
               attributes: {
-                ...record.attributes,
+                ...attributes,
                 ...(record.context && {
                   "nestrix.log.context": record.context,
                 }),
@@ -214,6 +232,35 @@ export function setupLogExport(
     diagnostics.countFailure("logs.setup", error);
     return undefined;
   }
+}
+
+/**
+ * `emitLog`'s attributes with Nestrix's built-in scrub rule applied (D-112): the always-redacted
+ * headers under `http.request.header.*` / `http.response.header.*`, listed query keys in
+ * `url.query` and `url.full`, and `url.full`'s fragment and userinfo. Works on a copy; the
+ * caller's object is never changed. An attribute that cannot be read is left out. Throws when
+ * the map cannot be walked or an attribute cannot be removed; the caller drops the record.
+ */
+export function scrubbedLogAttributes(
+  attributes: Attributes | undefined,
+  keys: ReadonlySet<string>,
+): Attributes | undefined {
+  if (attributes === undefined || attributes === null) return undefined;
+  if (typeof attributes !== "object" || Array.isArray(attributes)) {
+    return undefined;
+  }
+  // No prototype: an own `__proto__` key stays a plain key.
+  const copy = Object.create(null) as Record<string, unknown>;
+  for (const key of Object.keys(attributes)) {
+    try {
+      const value = attributes[key];
+      copy[key] = Array.isArray(value) ? value.slice() : value;
+    } catch {
+      // Unreadable: left out.
+    }
+  }
+  scrubSpanAttributes({ attributes: copy }, keys);
+  return copy as Attributes;
 }
 
 function guarded(sink: LogSink, diagnostics: TelemetryDiagnostics): LogSink {

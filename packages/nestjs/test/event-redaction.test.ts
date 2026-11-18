@@ -1,4 +1,4 @@
-// D-111 (audit, "Protected headers remain visible on span events"): the built-in scrub rule
+// D-112 (audit, "Protected headers remain visible on span events"): the built-in scrub rule
 // applies to every span event's attributes, before the user's `redact` hook, in both sinks that
 // take spans out of Nestrix: the dashboard store and the Nestrix-owned OTLP exporter.
 // Global state in the last block: no host SDK; Nestrix owns the provider (OTLP export to a local
@@ -179,7 +179,7 @@ describe("owned exporter: event attributes", () => {
   });
 
   it("fails closed when the scrub cannot read a value once and cannot delete it: event emptied, span dropped", () => {
-    // A value that throws on its first read (the scrub's) and cannot be deleted: before D-111
+    // A value that throws on its first read (the scrub's) and cannot be deleted: before D-112
     // the scrub swallowed that, and the validation step's second read let the raw value through.
     function onceThrowing(target: Record<string, unknown>, key: string) {
       let thrown = false;
@@ -220,6 +220,85 @@ describe("owned exporter: event attributes", () => {
       "http.response.header.set-cookie": ["REDACTED"],
     });
     expect(JSON.stringify(exported[0]?.events)).not.toContain(SECRET);
+    expect(c.redactFailedSpans).toBe(1);
+  });
+});
+
+describe("owned exporter: link attributes", () => {
+  function withLinks(
+    span: ReadableSpan,
+    links: { attributes?: Record<string, unknown> }[],
+  ): ReadableSpan {
+    return {
+      ...span,
+      spanContext: span.spanContext,
+      links: links.map((l, i) => ({
+        context: {
+          traceId: "c".repeat(32),
+          spanId: `${i}`.padStart(16, "d"),
+          traceFlags: 1,
+        },
+        ...(l.attributes ? { attributes: l.attributes as never } : {}),
+      })),
+    } as ReadableSpan;
+  }
+
+  it("masks protected headers and url.full on every link, keeps the rest", () => {
+    const { exported, inner } = capturingExporter();
+    const exporter = createRedactingExporter(inner, {
+      scrub: builtInScrub,
+      redact: undefined,
+      counters: counters(),
+      diagnostics: recordingDiagnostics(),
+    });
+    const span = withLinks(leakySpan(1), [
+      { attributes: { ...LEAKY_EVENT_ATTRIBUTES } },
+      {},
+    ]);
+    exporter.export([span], () => {});
+    const links = exported[0]?.links ?? [];
+    expect(links).toHaveLength(2);
+    expect(links[0]?.attributes).toEqual(SCRUBBED_EVENT_ATTRIBUTES);
+    expect(links[0]?.context.traceId).toBe("c".repeat(32));
+    expect(links[1]?.attributes).toBeUndefined();
+    expect(JSON.stringify(links)).not.toContain(SECRET);
+    // The SDK span's own link is untouched.
+    expect(span.links[0]?.attributes?.["url.full"]).toContain(SECRET);
+  });
+
+  it("fails closed: a scrub that throws on a link leaves it no attributes; unreadable link attributes drop the span", () => {
+    const { exported, inner } = capturingExporter();
+    const c = counters();
+    const exporter = createRedactingExporter(inner, {
+      scrub: (view) => {
+        if (view.attributes["app.throw"] !== undefined)
+          throw new Error("scrub");
+        builtInScrub(view);
+      },
+      redact: undefined,
+      counters: c,
+      diagnostics: recordingDiagnostics(),
+    });
+    const unreadable: Record<string, unknown> = {};
+    Object.defineProperty(unreadable, "url.full", {
+      enumerable: true,
+      get() {
+        throw new Error("getter");
+      },
+    });
+    exporter.export(
+      [
+        withLinks(leakySpan(1, "throwing-scrub"), [
+          { attributes: { ...LEAKY_EVENT_ATTRIBUTES, "app.throw": true } },
+        ]),
+        withLinks(leakySpan(2, "unreadable-link"), [
+          { attributes: unreadable },
+        ]),
+      ],
+      () => {},
+    );
+    expect(exported.map((s) => s.name)).toEqual(["throwing-scrub"]);
+    expect(exported[0]?.links[0]?.attributes).toEqual({});
     expect(c.redactFailedSpans).toBe(1);
   });
 });

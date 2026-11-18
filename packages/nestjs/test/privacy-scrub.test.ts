@@ -45,7 +45,7 @@ describe("scrubSpanAttributes", () => {
   });
 });
 
-// D-111: event attribute maps get the same rule as the span's.
+// D-112: event attribute maps get the same rule as the span's.
 describe("scrubSpanAttributes on events", () => {
   it("masks protected headers and redacted query keys in every event, keeps the rest", () => {
     const span = {

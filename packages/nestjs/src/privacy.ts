@@ -449,7 +449,7 @@ const USERINFO = /^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/?#]*@/;
 /**
  * Nestrix's own redaction step for every span the Nestrix-owned pipeline exports and the
  * dashboard store keeps, including spans from other instrumentations (architecture §4.8, D-37).
- * Applies one rule to the span's attributes and to each event's attributes (D-111: an event
+ * Applies one rule to the span's attributes and to each event's attributes (D-112: an event
  * can carry a header or a URL too, from `recordError(error, attributes)`, `span.addEvent` or
  * another instrumentation). Rewrites in place:
  * - `url.query`: values of listed keys become `REDACTED`;
