@@ -77,6 +77,21 @@ export interface LogConfig {
   readonly hideRouteMapping: boolean;
 }
 
+/** Native log storage (issue #17, D-106). */
+export interface LogStoreConfig {
+  /**
+   * `NESTRIX_LOGS`: `trace` (default, D-75) keeps only records that carry a trace id, 200 per
+   * trace; `all` also keeps records without one and lifts the per-trace cap to `maxPerTrace`.
+   */
+  readonly mode: "trace" | "all";
+  /** `NESTRIX_LOG_RETENTION_DAYS`: days of log lines kept; at most `retentionDays`. */
+  readonly retentionDays: number;
+  /** `NESTRIX_LOGS_MAX_PER_TRACE` (`all` mode): lines kept per trace. */
+  readonly maxPerTrace: number;
+  /** `NESTRIX_LOGS_MAX_PER_MINUTE` (`all` mode): lines stored per minute by this process. */
+  readonly maxPerMinute: number;
+}
+
 export interface ServerConfig {
   readonly port: number;
   readonly databaseUrl: string;
@@ -93,6 +108,8 @@ export interface ServerConfig {
   readonly maxSpansPerTrace: number;
   readonly alerts: AlertsConfig;
   readonly log: LogConfig;
+  /** Native log storage and search (issue #17, D-106). */
+  readonly logStore: LogStoreConfig;
   /**
    * `NESTRIX_TRUSTED_PROXIES` (issue #31, D-96): reverse proxies whose `X-Forwarded-For` names the
    * client the login limiter keys on. `undefined`: none, the socket peer is the client.
@@ -129,6 +146,8 @@ export const MIN_ADMIN_PASSWORD_LENGTH = 12;
 export const MIN_SESSION_SECRET_LENGTH = 32;
 export const MAX_RETENTION_DAYS = 3650;
 export const DEFAULT_MAX_CONNECTIONS = 1024;
+export const DEFAULT_LOGS_MAX_PER_TRACE = 1_000;
+export const DEFAULT_LOGS_MAX_PER_MINUTE = 30_000;
 export const DEFAULT_MAX_SPANS_PER_TRACE = 50_000;
 export const MIN_MAX_SPANS_PER_TRACE = 1_000;
 export const MAX_MAX_SPANS_PER_TRACE = 10_000_000;
@@ -370,6 +389,40 @@ export function loadConfig(
     errors,
   );
 
+  const logsRaw = present(env, "NESTRIX_LOGS")?.trim().toLowerCase();
+  if (logsRaw !== undefined && logsRaw !== "trace" && logsRaw !== "all") {
+    errors.push(`NESTRIX_LOGS accepts "trace" or "all" (got "${logsRaw}").`);
+  }
+  const logRetentionDays = integer(
+    env,
+    "NESTRIX_LOG_RETENTION_DAYS",
+    retentionDays,
+    1,
+    MAX_RETENTION_DAYS,
+    errors,
+  );
+  if (logRetentionDays > retentionDays) {
+    errors.push(
+      `NESTRIX_LOG_RETENTION_DAYS (${logRetentionDays}) cannot exceed NESTRIX_RETENTION_DAYS (${retentionDays}): log partitions are created and dropped with the span partitions.`,
+    );
+  }
+  const logsMaxPerTrace = integer(
+    env,
+    "NESTRIX_LOGS_MAX_PER_TRACE",
+    DEFAULT_LOGS_MAX_PER_TRACE,
+    200,
+    100_000,
+    errors,
+  );
+  const logsMaxPerMinute = integer(
+    env,
+    "NESTRIX_LOGS_MAX_PER_MINUTE",
+    DEFAULT_LOGS_MAX_PER_MINUTE,
+    1,
+    100_000_000,
+    errors,
+  );
+
   const allowedHosts: string[] = [];
   const allowedRaw = (env.NESTRIX_WEBHOOK_ALLOWED_HOSTS ?? "")
     .split(",")
@@ -475,6 +528,12 @@ export function loadConfig(
         publicUrl,
       }),
       log,
+      logStore: Object.freeze({
+        mode: logsRaw === "all" ? "all" : "trace",
+        retentionDays: Math.min(logRetentionDays, retentionDays),
+        maxPerTrace: logsMaxPerTrace,
+        maxPerMinute: logsMaxPerMinute,
+      }),
       trustedProxies,
     }),
   };

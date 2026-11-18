@@ -25,6 +25,8 @@ const nav = [
 ] as const;
 // Needs the standalone server's stored history.
 const sloNav = { to: "/slos", label: "SLOs" } as const;
+// Needs the standalone server's stored log lines (issue #17).
+const logsNav = { to: "/logs", label: "Logs" } as const;
 // The standalone server's settings (API tokens).
 const settingsNav = { to: "/settings", label: "Settings" } as const;
 // Embedded dashboard when `meta.profiler.available`; standalone server when `meta.profiler.remote`.
@@ -193,7 +195,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ...nav,
             ...(profilerOn ? [profilerNav] : []),
             ...(runtimeOn ? [runtimeNav] : []),
-            ...(standalone ? [sloNav, settingsNav] : []),
+            ...(standalone ? [logsNav, sloNav, settingsNav] : []),
           ].map((item) => (
             <Link
               key={item.to}

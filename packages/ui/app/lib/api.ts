@@ -10,6 +10,7 @@ import type {
   ErrorInsightsResponse,
   ErrorListResponse,
   InstanceListResponse,
+  LogSearchResponse,
   MetaResponse,
   OverviewResponse,
   ProfileDetail,
@@ -181,6 +182,9 @@ export const getTrace = (id: string) => getJson<TraceResponse>("trace", { id });
 /** P9-07: the log lines kept next to a trace (both backends). */
 export const getTraceLogs = (id: string) =>
   getJson<TraceLogsResponse>("trace/logs", { id });
+/** Issue #17: search over the standalone server's stored log lines. */
+export const getLogs = (params: QueryParams) =>
+  getJson<LogSearchResponse>("logs", params);
 export const getClasses = (params: QueryParams = {}) =>
   getJson<ClassStatsResponse>("classes", params);
 export const getMap = (params: QueryParams = {}) =>

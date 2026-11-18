@@ -3,9 +3,10 @@
  * each record on its own: an invalid record is dropped and counted (OTLP partial success), the rest
  * of the request is kept.
  *
- * Logs are kept as context for a trace, not as a log backend (D-19 as amended): a record without a
+ * Logs are kept as context for a trace by default (D-19 as amended, D-75): a record without a
  * trace id (empty or all zero) is accepted and not kept, and is not counted as rejected (the sender
- * did nothing wrong). Only what the trace view shows is kept: time, severity, the body as text, the
+ * did nothing wrong). With `keepTraceless` (`NESTRIX_LOGS=all`, D-106) such a record is kept with
+ * an empty trace id and is validated like the others (it needs a time). Only what the trace view shows is kept: time, severity, the body as text, the
  * `nestrix.log.context` attribute, the span id and the resource (for `service.name`). Other
  * attributes are not stored.
  *
@@ -57,16 +58,20 @@ function timeOf(record: LogRecord): bigint {
 }
 
 /** `"none"` for a record without a trace (not kept, not rejected). */
+function hasNoTrace(record: LogRecord): boolean {
+  const traceId = record.traceId;
+  return traceId.length === 0 || (traceId.length === 16 && isZero(traceId));
+}
+
 function validate(
   record: LogRecord,
   latest: bigint,
+  keepTraceless: boolean,
 ): RejectReason | "none" | undefined {
-  const traceId = record.traceId;
-  if (traceId.length === 0 || (traceId.length === 16 && isZero(traceId))) {
-    return "none";
-  }
-  if (traceId.length !== 16) return "invalid trace id";
-  if (record.spanId.length !== 0 && record.spanId.length !== 8) {
+  const traceless = hasNoTrace(record);
+  if (traceless && !keepTraceless) return "none";
+  if (!traceless && record.traceId.length !== 16) return "invalid trace id";
+  if (!traceless && record.spanId.length !== 0 && record.spanId.length !== 8) {
     return "invalid span id";
   }
   const time = timeOf(record);
@@ -76,15 +81,15 @@ function validate(
   return undefined;
 }
 
-function bodyText(record: LogRecord): string {
+function bodyText(record: LogRecord): { text: string; truncated: boolean } {
   const body = record.body;
   let out: string;
   if (body === undefined || body.value.case === undefined) out = "";
   else if (body.value.case === "stringValue") out = text(body.value.value);
   else out = jsonText(body);
   return out.length > MAX_LOG_BODY_LENGTH
-    ? `${out.slice(0, MAX_LOG_BODY_LENGTH)}…`
-    : out;
+    ? { text: `${out.slice(0, MAX_LOG_BODY_LENGTH)}…`, truncated: true }
+    : { text: out, truncated: false };
 }
 
 function contextOf(record: LogRecord): string | undefined {
@@ -99,17 +104,20 @@ function contextOf(record: LogRecord): string | undefined {
 
 function toRecord(record: LogRecord): IngestLogRecord {
   const severity = record.severityNumber as number;
+  const body = bodyText(record);
+  const traceless = hasNoTrace(record);
   const out: IngestLogRecord = {
-    traceId: hex(record.traceId),
+    traceId: traceless ? "" : hex(record.traceId),
     timeUnixNano: timeOf(record),
     severityNumber:
       Number.isInteger(severity) && severity >= 0 && severity <= 24
         ? severity
         : 0,
     severityText: text(record.severityText.slice(0, MAX_SEVERITY_TEXT_LENGTH)),
-    body: bodyText(record),
+    body: body.text,
   };
-  if (record.spanId.length === 8 && !isZero(record.spanId)) {
+  if (body.truncated) out.truncated = true;
+  if (!traceless && record.spanId.length === 8 && !isZero(record.spanId)) {
     out.spanId = hex(record.spanId);
   }
   const context = contextOf(record);
@@ -117,10 +125,17 @@ function toRecord(record: LogRecord): IngestLogRecord {
   return out;
 }
 
+export interface LogMapOptions {
+  /** Keep records without a trace id (`NESTRIX_LOGS=all`, D-106). */
+  keepTraceless?: boolean;
+}
+
 export function toIngestLogBatch(
   request: ExportLogsServiceRequest,
   nowUnixNano: bigint = BigInt(Date.now()) * 1_000_000n,
+  options: LogMapOptions = {},
 ): IngestLogBatch {
+  const keepTraceless = options.keepTraceless === true;
   const latest = nowUnixNano + MAX_FUTURE_NS;
   const rejected = new Map<RejectReason, number>();
   const resourceLogs: IngestResourceLogs[] = [];
@@ -131,7 +146,7 @@ export function toIngestLogBatch(
     for (const sl of rl.scopeLogs) {
       for (const record of sl.logRecords) {
         total++;
-        const reason = validate(record, latest);
+        const reason = validate(record, latest, keepTraceless);
         if (reason === "none") continue;
         if (reason !== undefined) {
           rejected.set(reason, (rejected.get(reason) ?? 0) + 1);

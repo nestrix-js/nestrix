@@ -186,7 +186,7 @@ describe("the nestrix-mcp program", () => {
         version: pkg.version,
       });
       const { tools } = await client.listTools();
-      expect(tools).toHaveLength(9);
+      expect(tools).toHaveLength(10);
       const result = await client.callTool({ name: "overview", arguments: {} });
       const text = (result.content as { text: string }[])[0]?.text ?? "";
       expect(text).toContain("Nestrix dashboard (embedded in one app)");

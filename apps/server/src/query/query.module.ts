@@ -9,6 +9,7 @@ import {
 import { SlosService } from "../slos/slos.service.js";
 import { ExplainService } from "./explain.service.js";
 import { DenyQueryGuard, QUERY_GUARD, QueryGuardGate } from "./guard.js";
+import { LogSearchService } from "./log-search.service.js";
 import {
   QUERY_OPTIONS,
   type QueryModuleOptions,
@@ -47,6 +48,7 @@ export class QueryModule {
         // Stateless (needs only STORAGE_POOL): the overview reads SLO burn rates through it.
         SlosService,
         TraceLogsService,
+        LogSearchService,
       ],
     };
   }

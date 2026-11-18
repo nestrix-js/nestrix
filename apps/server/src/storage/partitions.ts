@@ -152,8 +152,15 @@ export async function dropExpiredPartitions(
   pool: Pool,
   retentionDays: number,
   nowUnixMs: number = Date.now(),
+  logRetentionDays: number = retentionDays,
 ): Promise<string[]> {
-  const oldest = oldestKeptDay(utcDay(nowUnixMs), retentionDays);
+  const today = utcDay(nowUnixMs);
+  const oldest = oldestKeptDay(today, retentionDays);
+  // Log lines may be kept for fewer days than spans (issue #17, D-106).
+  const oldestLogs = oldestKeptDay(
+    today,
+    Math.min(logRetentionDays, retentionDays),
+  );
   return withMaintenanceLock(pool, async (client) => {
     const existing = await listPartitions(client);
     const dropped: string[] = [];
@@ -161,18 +168,24 @@ export async function dropExpiredPartitions(
       for (const day of [...(existing.get(table) ?? [])].sort(
         (a, b) => a - b,
       )) {
-        if (day >= oldest) continue;
+        if (day >= (table === "logs" ? oldestLogs : oldest)) continue;
         const name = partitionName(table, day);
         await client.query(`DROP TABLE IF EXISTS ${name}`);
         dropped.push(name);
       }
     }
+    // The drop counters follow the log retention (migration 0021).
+    await client.query("DELETE FROM log_drops WHERE day < $1::date", [
+      new Date(oldestLogs * DAY_MS).toISOString().slice(0, 10),
+    ]);
     return dropped;
   });
 }
 
 export interface PartitionManagerOptions {
   retentionDays: number;
+  /** Days of `logs` kept, at most `retentionDays` (default: the same). */
+  logRetentionDays?: number;
   /** Interval of the maintenance run; default one hour. */
   intervalMs?: number;
   /** Clock, for tests. */
@@ -188,6 +201,7 @@ export interface PartitionManagerOptions {
  */
 export class PartitionManager {
   private readonly retentionDays: number;
+  private readonly logRetentionDays: number;
   private readonly intervalMs: number;
   private readonly now: () => number;
   private timer: NodeJS.Timeout | undefined;
@@ -199,6 +213,10 @@ export class PartitionManager {
     private readonly options: PartitionManagerOptions,
   ) {
     this.retentionDays = options.retentionDays;
+    this.logRetentionDays = Math.min(
+      options.logRetentionDays ?? options.retentionDays,
+      options.retentionDays,
+    );
     this.intervalMs = options.intervalMs ?? 3_600_000;
     this.now = options.now ?? Date.now;
   }
@@ -226,6 +244,15 @@ export class PartitionManager {
     const today = this.today();
     return {
       first: oldestKeptDay(today, this.retentionDays),
+      last: today + DAYS_AHEAD,
+    };
+  }
+
+  /** The days the log writer accepts: like `acceptedDays`, with the log retention. */
+  acceptedLogDays(): { first: number; last: number } {
+    const today = this.today();
+    return {
+      first: oldestKeptDay(today, this.logRetentionDays),
       last: today + DAYS_AHEAD,
     };
   }
@@ -258,6 +285,7 @@ export class PartitionManager {
           this.pool,
           this.retentionDays,
           this.now(),
+          this.logRetentionDays,
         );
         await this.refresh();
         this.options.onRun?.({ created, dropped });
@@ -270,13 +298,21 @@ export class PartitionManager {
 
   private async refresh(): Promise<void> {
     const existing = await listPartitions(this.pool);
-    const sets = PARTITIONED_TABLES.map(
-      (t) => existing.get(t) ?? new Set<number>(),
-    );
-    const [first, ...rest] = sets;
+    // A day older than the log retention has no `logs` partition by design: spans still go in.
+    const oldestLogs = oldestKeptDay(this.today(), this.logRetentionDays);
+    const need = PARTITIONED_TABLES.map((t) => ({
+      table: t,
+      days: existing.get(t) ?? new Set<number>(),
+    }));
+    const [first, ...rest] = need;
     const available = new Set<number>();
-    for (const day of first ?? []) {
-      if (rest.every((s) => s.has(day))) available.add(day);
+    for (const day of first?.days ?? []) {
+      if (
+        rest.every(
+          (r) => r.days.has(day) || (r.table === "logs" && day < oldestLogs),
+        )
+      )
+        available.add(day);
     }
     this.available = available;
   }

@@ -17,6 +17,7 @@
 import {
   bigint,
   boolean,
+  date,
   doublePrecision,
   integer,
   jsonb,
@@ -191,8 +192,20 @@ export const logs = pgTable(
     context: text("context"),
     serviceName: text("service_name").notNull(),
     recordHash: text("record_hash").notNull(),
+    truncated: boolean("truncated").notNull().default(false),
   },
   (t) => [primaryKey({ columns: [t.traceId, t.recordHash, t.time] })],
+);
+
+/** Log lines not stored, per UTC day and reason (migrations/0021_logs_search.sql). */
+export const logDrops = pgTable(
+  "log_drops",
+  {
+    day: date("day").notNull(),
+    reason: text("reason").notNull(),
+    dropped: bigint("dropped", { mode: "number" }).notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.reason] })],
 );
 
 /** Alerting (migrations/0002_alerts.sql, src/alerts/). */
