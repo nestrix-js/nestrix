@@ -11,6 +11,7 @@ import {
 import { HealthService, healthMiddleware } from "./health/health.js";
 import { INGEST_PATH_PATTERN } from "./ingest/tokens.js";
 import { unknownOtlpPathMiddleware } from "./ingest/unknown-path.js";
+import { ServerLogger } from "./logging.js";
 
 /**
  * True for the ingest path as Express routes it: case-insensitive, with or without a trailing
@@ -85,7 +86,7 @@ export async function createApp(
 ): Promise<NestExpressApplication> {
   const app = await NestFactory.create<NestExpressApplication>(
     AppModule.forRoot(config),
-    { bodyParser: false },
+    { bodyParser: false, logger: new ServerLogger(config.log) },
   );
   configureApp(app, config);
   app.enableShutdownHooks();
