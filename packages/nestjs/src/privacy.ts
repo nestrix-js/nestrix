@@ -444,7 +444,12 @@ interface ScrubbableSpan {
   readonly events?: ReadonlyArray<{ attributes: Record<string, unknown> }>;
 }
 
-const USERINFO = /^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/?#]*@/;
+// What a WHATWG URL parser reads as userinfo: leading C0/space junk is stripped; after a special
+// scheme any mix of `/` and `\` (including none) precedes the authority, which ends at the first
+// `/`, `\`, `?` or `#`; any other scheme needs `//` and ends the authority at `/`, `?` or `#`.
+const USERINFO =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: that is the point
+  /^[\u0000-\u0020]*(?:((?:https?|wss?|ftp|file):[/\\]*)[^/\\?#]*|((?!(?:https?|wss?|ftp|file):)[a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/?#]*)@/i;
 
 /**
  * Nestrix's own redaction step for every span the Nestrix-owned pipeline exports and the
@@ -498,7 +503,11 @@ function scrubAttributeMap(
         let url = value;
         const hash = url.indexOf("#");
         if (hash !== -1) url = url.slice(0, hash);
-        url = url.replace(USERINFO, `$1${REDACTED}:${REDACTED}@`);
+        url = url.replace(
+          USERINFO,
+          (_m, special?: string, other?: string) =>
+            `${special ?? other}${REDACTED}:${REDACTED}@`,
+        );
         const q = url.indexOf("?");
         if (q !== -1) {
           const query = redactQuery(url.slice(q + 1), keys);

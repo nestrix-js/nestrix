@@ -176,6 +176,8 @@ describe("owned exporter: event attributes", () => {
     expect(exported.map((s) => s.name)).toEqual(["GET /cb"]);
     expect(c.redactFailedSpans).toBe(1);
     expect(d.failures.map((f) => f.where)).toEqual(["otel.redact"]);
+    // The failure is the event scrub's: it could not write the scrubbed map back to the event.
+    expect(String(d.failures[0]?.error)).toContain("which has only a getter");
   });
 
   it("fails closed when the scrub cannot read a value once and cannot delete it: event emptied, span dropped", () => {
@@ -269,6 +271,7 @@ describe("owned exporter: link attributes", () => {
   it("fails closed: a scrub that throws on a link leaves it no attributes; unreadable link attributes drop the span", () => {
     const { exported, inner } = capturingExporter();
     const c = counters();
+    const d = recordingDiagnostics();
     const exporter = createRedactingExporter(inner, {
       scrub: (view) => {
         if (view.attributes["app.throw"] !== undefined)
@@ -277,7 +280,7 @@ describe("owned exporter: link attributes", () => {
       },
       redact: undefined,
       counters: c,
-      diagnostics: recordingDiagnostics(),
+      diagnostics: d,
     });
     const unreadable: Record<string, unknown> = {};
     Object.defineProperty(unreadable, "url.full", {
@@ -300,6 +303,11 @@ describe("owned exporter: link attributes", () => {
     expect(exported.map((s) => s.name)).toEqual(["throwing-scrub"]);
     expect(exported[0]?.links[0]?.attributes).toEqual({});
     expect(c.redactFailedSpans).toBe(1);
+    // The throwing link scrub is counted at its own site; the dropped span at "otel.redact".
+    expect(d.failures.map((f) => f.where).sort()).toEqual([
+      "otel.redact",
+      "otel.redact.link",
+    ]);
   });
 });
 

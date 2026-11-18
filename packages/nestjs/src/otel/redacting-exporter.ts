@@ -282,7 +282,9 @@ function applyRedaction(
       continue;
     }
     try {
-      out.push(toExportedSpan(span, result, options.scrub));
+      out.push(
+        toExportedSpan(span, result, options.scrub, options.diagnostics),
+      );
     } catch (error) {
       options.counters.redactFailedSpans++;
       options.diagnostics.countFailure("otel.redact", error);
@@ -299,6 +301,7 @@ function applyRedaction(
 function scrubbedLinks(
   links: readonly Link[],
   scrub: RedactingExporterOptions["scrub"],
+  diagnostics: RedactingExporterOptions["diagnostics"],
 ): Link[] {
   if (scrub === undefined || links.length === 0) return links as Link[];
   return links.map((link) => {
@@ -317,8 +320,13 @@ function scrubbedLinks(
         const value = view.attributes[key];
         if (isAttributeValue(value)) attributes[key] = value;
       }
-    } catch {
+    } catch (error) {
       attributes = {};
+      try {
+        diagnostics.countFailure("otel.redact.link", error);
+      } catch {
+        // Counting must not undo the fail-closed result.
+      }
     }
     return { ...link, attributes };
   });
@@ -328,6 +336,7 @@ function toExportedSpan(
   span: ReadableSpan,
   fields: RedactedFields,
   scrub: RedactingExporterOptions["scrub"],
+  diagnostics: RedactingExporterOptions["diagnostics"],
 ): ReadableSpan {
   const events: TimedEvent[] = span.events.map((event, i) => ({
     name: event.name,
@@ -345,7 +354,7 @@ function toExportedSpan(
     endTime: span.endTime,
     status: fields.status,
     attributes: fields.attributes,
-    links: scrubbedLinks(span.links, scrub),
+    links: scrubbedLinks(span.links, scrub, diagnostics),
     events,
     duration: span.duration,
     ended: span.ended,

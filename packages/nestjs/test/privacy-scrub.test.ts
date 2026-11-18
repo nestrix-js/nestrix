@@ -131,3 +131,40 @@ describe("scrubSpanAttributes on events", () => {
     expect(() => scrubSpanAttributes(span, keys)).toThrow();
   });
 });
+
+describe("url.full userinfo, in every form a URL parser reads as credentials", () => {
+  const scrub = (url: string): string => {
+    const span = { attributes: { "url.full": url } as Record<string, unknown> };
+    scrubSpanAttributes(span, keys);
+    return span.attributes["url.full"] as string;
+  };
+
+  it.each([
+    [" https://u:pw@h/x", "https://REDACTED:REDACTED@h/x"],
+    ["\thttps://u:pw@h/x", "https://REDACTED:REDACTED@h/x"],
+    ["https:\\\\u:pw@h/x", "https:\\\\REDACTED:REDACTED@h/x"],
+    ["https:/u:pw@h/x", "https:/REDACTED:REDACTED@h/x"],
+    ["HTTPS://tok@h/x", "HTTPS://REDACTED:REDACTED@h/x"],
+  ])("masks %j", (input, expected) => {
+    // The parser really does read userinfo here.
+    expect(new URL(input.trim()).username).not.toBe("");
+    expect(scrub(input)).toBe(expected);
+    expect(scrub(input)).not.toContain("pw");
+  });
+
+  it("drops a fragment before looking for userinfo", () => {
+    expect(scrub("https://h#a@b")).toBe("https://h");
+  });
+
+  it.each([
+    "https://h/x@y",
+    "https://h?x=a@b",
+    "https://h\\x@y",
+    "mailto:a@b.example",
+    "https://h/x",
+    "/relative/a@b",
+  ])("leaves %j unchanged (no userinfo for a URL parser)", (input) => {
+    if (/^https?:/.test(input)) expect(new URL(input).username).toBe("");
+    expect(scrub(input)).toBe(input);
+  });
+});

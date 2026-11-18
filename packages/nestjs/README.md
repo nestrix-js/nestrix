@@ -560,7 +560,7 @@ The lists add to the privacy defaults below; they never replace them.
 |---|---|---|
 | `http.requestHeaders` | none | Extra request headers recorded as `http.request.header.<name>`. |
 | `http.responseHeaders` | none | Extra response headers recorded as `http.response.header.<name>`. |
-| `http.redactQueryKeys` | none | Extra query-string keys whose values are replaced by `REDACTED`. |
+| `http.redactQueryKeys` | none | Extra query-string keys whose values are replaced by `REDACTED`. With several apps in one process, log export (`logs.export`) uses the keys of the first app that enabled it. |
 | `http.recordPath` | `'raw'` | What the server span records as `url.path`. `'raw'`: the path as sent, with the values of `http.redactPathParams` written as `REDACTED`. `'template'`: the matched route template (`/invitations/:token`, the same value as `http.route`); a request that matched no route (a 404) records no `url.path`. `ignore.paths` always matches the raw path. |
 | `http.redactPathParams` | none | Extra route parameter names (`token` for `/invitations/:token`) whose values are written as `REDACTED` in `url.path`, case-insensitive. Added to the default list (see Privacy). |
 | `http.redactOutgoingPath` | none | Path patterns whose `:name` segments are written as `REDACTED` in an outgoing request's `url.full`: `'/v1/invitations/:token'`, or with an origin, `'https://api.example.com/v1/invitations/:token'`. `*` matches any one segment; other segments must be equal; a pattern matches the start of the path. A `RegExp` runs on the path, and each capture group (or the whole match) becomes `REDACTED`. |
