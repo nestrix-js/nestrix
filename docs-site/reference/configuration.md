@@ -8,7 +8,7 @@ A table is checked against `packages/nestjs/src/options.ts` by `docs-site/script
 
 | Option | Default | Description |
 |---|---|---|
-| `enabled` | `true` | `false` registers nothing at all. `NESTRIX_ENABLED=false` (or `0`) in the environment does the same and wins over `enabled: true`: it is a kill switch. With `forRootAsync`, `enabled: false` from the factory leaves the providers registered but inert. |
+| `enabled` | `true` | `false` registers nothing at all. `NESTRIX_ENABLED=false` (or `0`) in the environment does the same and wins over `enabled: true`: it is a kill switch. With `forRootAsync`, `enabled: false` from the factory leaves the providers registered but inert; to also leave method wrappers out, pass `instrument: nestrixInstrumentIf(enabled)` ([Levels](../guide/levels.md#level-2-method-spans)). |
 | `serviceName` | `OTEL_SERVICE_NAME`, then the SDK's default | The `service.name` resource attribute. |
 | `serviceVersion` | first set of: `resourceAttributes['service.version']`, `service.version` in `OTEL_RESOURCE_ATTRIBUTES`, `GIT_SHA`, `npm_package_version` | The release every trace is tagged with. Blank values are skipped. Ignored when your app owns the SDK. |
 | `user` | none (off) | Reads the user behind a request, recorded as `user.id` on the server span. Called once per sampled request as the response closes, with the request object guards get. Must be synchronous; return a string or number (cut to 256 characters) or `undefined`. A throw, a promise or any other result records nothing and is counted. Goes through `redact`. |
@@ -145,7 +145,7 @@ Ignored while the dashboard is off.
 
 | Variable | Effect |
 |---|---|
-| `NESTRIX_ENABLED` | `false` or `0` (any case) registers nothing at all. |
+| `NESTRIX_ENABLED` | `false` or `0` (any case) registers nothing at all, `NestrixInstrument` leaves instances untouched, and the OpenTelemetry SDK, exporters and dashboard code are not loaded. |
 | `OTEL_SERVICE_NAME` | Default for `serviceName`. |
 | `OTEL_RESOURCE_ATTRIBUTES` | `key=value,key2=value2`, merged into the resource; `resourceAttributes` wins. |
 | `GIT_SHA` | The release (`service.version`) when no option or `OTEL_RESOURCE_ATTRIBUTES` sets one. |
