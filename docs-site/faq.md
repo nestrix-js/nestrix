@@ -57,6 +57,6 @@ By default Nestrix records no request or response bodies, no query bind paramete
   - With `http.recordPath: 'template'`, `url.path` is the route template whenever a route matched, and absent otherwise.
 - `url.full` on outgoing requests has credentials removed and the same query keys redacted. Path segments of outgoing URLs are kept unless `http.redactOutgoingPath` covers them.
 
-`http.requestHeaders`, `http.responseHeaders`, `http.redactQueryKeys` and `http.redactPathParams` add to these lists. Key-based redaction cannot clean free text: exception messages and status messages are stored as they are, so use the [`redact` hook](/reference/configuration#redact) for those.
+`http.requestHeaders`, `http.responseHeaders`, `http.redactQueryKeys` and `http.redactPathParams` add to these lists. The always-redacted headers, the listed query keys and credentials in `url.full` are masked wherever they appear on a span, on its own attributes and on each event's attributes (for example those passed to `recordError`), before the `redact` hook runs. Key-based redaction cannot clean free text: exception messages and status messages are stored as they are, so use the [`redact` hook](/reference/configuration#redact) for those.
 
 Nothing is sent anywhere unless you set an OTLP endpoint. The embedded dashboard keeps its data in memory and writes nothing to disk.

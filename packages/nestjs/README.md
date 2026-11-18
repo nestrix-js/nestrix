@@ -1424,6 +1424,8 @@ By default Nestrix records no request or response bodies, no query bind paramete
 
 `http.requestHeaders`, `http.responseHeaders`, `http.redactQueryKeys` and `http.redactPathParams` add to these lists.
 
+Before a span is exported or stored, Nestrix's own redaction runs on its attributes **and on the attributes of each of its events** (an exception event from `recordError(error, attributes)`, an event your code adds with `span.addEvent`, an event from another instrumentation), including spans from other instrumentations: `url.query` and the query of `url.full` lose the values of the listed keys, `url.full` loses its fragment and any `user:password@`, and `http.request.header.*` / `http.response.header.*` attributes for the always-redacted headers become `["REDACTED"]`. If an attribute cannot be read safely it is removed; if an event's attributes cannot be read at all they are emptied, and a span that cannot be cleaned is dropped. Other header attributes set by your code or another instrumentation are kept as they are; the allowlist decides only which headers Nestrix itself records.
+
 Key-based redaction cannot clean free text. Exception messages and status messages are stored as they are. Use `redact` for those.
 
 ### The `redact` hook
