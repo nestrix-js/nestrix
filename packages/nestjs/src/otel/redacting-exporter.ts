@@ -32,6 +32,8 @@
  * Runs on the batch processor's timer, never in a request path. Every method catches
  * everything; the result callback is called exactly once per `export`.
  */
+
+import type { Attributes, Link } from "@opentelemetry/api";
 import {
   type ExportResult,
   ExportResultCode,
@@ -43,7 +45,12 @@ import type {
   TimedEvent,
 } from "@opentelemetry/sdk-trace";
 import type { RedactableSpan, RedactHook } from "../options.js";
-import { type RedactedFields, redactSpan } from "./redaction.js";
+import {
+  copyAttributes,
+  isAttributeValue,
+  type RedactedFields,
+  redactSpan,
+} from "./redaction.js";
 import type { TelemetryDiagnostics } from "./types.js";
 
 export interface RedactionCounters {
@@ -275,7 +282,9 @@ function applyRedaction(
       continue;
     }
     try {
-      out.push(toExportedSpan(span, result));
+      out.push(
+        toExportedSpan(span, result, options.scrub, options.diagnostics),
+      );
     } catch (error) {
       options.counters.redactFailedSpans++;
       options.diagnostics.countFailure("otel.redact", error);
@@ -284,9 +293,50 @@ function applyRedaction(
   return out;
 }
 
+/**
+ * Each link's attributes through the scrub step (D-112): the hook does not see links, but the
+ * built-in rule still applies. Fail closed: a scrub that throws leaves the link no attributes;
+ * attributes that cannot be copied throw, and the caller drops the span (counted).
+ */
+function scrubbedLinks(
+  links: readonly Link[],
+  scrub: RedactingExporterOptions["scrub"],
+  diagnostics: RedactingExporterOptions["diagnostics"],
+): Link[] {
+  if (scrub === undefined || links.length === 0) return links as Link[];
+  return links.map((link) => {
+    if (link.attributes === undefined) return link;
+    const view: RedactableSpan = {
+      name: "",
+      kind: 0,
+      status: { code: 0 },
+      attributes: copyAttributes(link.attributes),
+      events: [],
+    };
+    let attributes: Attributes = {};
+    try {
+      scrub(view);
+      for (const key of Object.keys(view.attributes)) {
+        const value = view.attributes[key];
+        if (isAttributeValue(value)) attributes[key] = value;
+      }
+    } catch (error) {
+      attributes = {};
+      try {
+        diagnostics.countFailure("otel.redact.link", error);
+      } catch {
+        // Counting must not undo the fail-closed result.
+      }
+    }
+    return { ...link, attributes };
+  });
+}
+
 function toExportedSpan(
   span: ReadableSpan,
   fields: RedactedFields,
+  scrub: RedactingExporterOptions["scrub"],
+  diagnostics: RedactingExporterOptions["diagnostics"],
 ): ReadableSpan {
   const events: TimedEvent[] = span.events.map((event, i) => ({
     name: event.name,
@@ -304,7 +354,7 @@ function toExportedSpan(
     endTime: span.endTime,
     status: fields.status,
     attributes: fields.attributes,
-    links: span.links,
+    links: scrubbedLinks(span.links, scrub, diagnostics),
     events,
     duration: span.duration,
     ended: span.ended,

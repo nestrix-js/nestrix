@@ -78,7 +78,10 @@ export function redactSpan(
   }
 }
 
-function copyAttributes(attributes: Attributes): Record<string, unknown> {
+/** A plain copy (arrays copied too) for a hook or the scrub to edit. Throws if `attributes` cannot be read. */
+export function copyAttributes(
+  attributes: Attributes,
+): Record<string, unknown> {
   const copy: Record<string, unknown> = {};
   for (const key of Object.keys(attributes)) {
     const value = attributes[key];
