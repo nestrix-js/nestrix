@@ -128,6 +128,27 @@ function packedNumeric(field: DescField | undefined): boolean {
   );
 }
 
+/**
+ * Wire-byte multiplier for a packed run. A varint element can be one wire byte yet decode into a
+ * `bigint` slot (about 32 bytes), so varint runs weigh 8x the fixed-width rate
+ * (`BYTES_PER_PACKED_BYTE` x 8 = 32 bytes per wire byte).
+ */
+function packedWeight(field: DescField | undefined): number {
+  if (field === undefined || field.fieldKind !== "list") return 1;
+  if (field.listKind !== "scalar") return 1;
+  switch (field.scalar) {
+    case ScalarType.DOUBLE:
+    case ScalarType.FLOAT:
+    case ScalarType.FIXED32:
+    case ScalarType.FIXED64:
+    case ScalarType.SFIXED32:
+    case ScalarType.SFIXED64:
+      return 1;
+    default:
+      return 8;
+  }
+}
+
 function repeatedElement(field: DescField | undefined): boolean {
   return (
     field !== undefined &&
@@ -237,7 +258,7 @@ export function checkProtobuf(
           frame = { desc: child, end };
           continue; // pos stays at the child's first byte
         }
-        if (packedNumeric(field)) packedBytes += length;
+        if (packedNumeric(field)) packedBytes += length * packedWeight(field);
         if (repeatedElement(field) && ++messages > limits.maxMessages) {
           throw new LimitError(
             `request has more than ${limits.maxMessages} protobuf messages`,

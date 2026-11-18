@@ -18,6 +18,8 @@
  *   dropped and counted (`overSeriesCap`). Restarted instances get a new `service.instance.id`, so
  *   their old series stop counting an hour after their last point. The bound is per server process:
  *   with several server instances, a service can hold up to that many series on each.
+ * - age: a point older than two hours is dropped (`outOfRange`), so a row exists only for a recent
+ *   minute; rows are therefore bounded by the series cap x retention minutes;
  * - days: a point older than retention, or more than two days ahead, is dropped (`outOfRange`); a
  *   missing day partition within retention is created; partitions go with the spans' retention;
  * - in flight: at most `maxInflightPoints` points are being written at once; a batch beyond it is
@@ -39,6 +41,9 @@ import { type PartitionManager, utcDay } from "./partitions.js";
 import { isTransient } from "./writer.js";
 
 const MINUTE_MS = 60_000;
+/** A point older than this is dropped (`outOfRange`): rows stay near the series cap x retention minutes. */
+const MAX_POINT_AGE_MS = 2 * 3_600_000;
+const MAX_SERVICE_LENGTH = 256;
 
 export interface MetricWriterOptions {
   /** Points being written at once before `write` answers busy. Default 50 000. */
@@ -230,11 +235,16 @@ function rowOf(
 }
 
 /** Merges `b` into `a` (same row key) with the rules of the SQL upsert. */
+/** Keeps a merged sum inside what the mapper accepts, so float8 sums in Postgres cannot overflow. */
+function cap(v: number): number {
+  return Math.max(-1e100, Math.min(1e100, v));
+}
+
 function mergeRow(a: Row, b: Row): void {
   const newer = b.timeNs >= a.timeNs;
   const cumulative = a.kind === "gauge" || a.temporality === "cumulative";
   if (a.kind === "gauge") {
-    a.sum = (a.sum ?? 0) + (b.sum ?? 0);
+    a.sum = cap((a.sum ?? 0) + (b.sum ?? 0));
     a.count = (a.count ?? 0) + (b.count ?? 0);
     a.min = Math.min(a.min ?? Infinity, b.min ?? Infinity);
     a.max = Math.max(a.max ?? -Infinity, b.max ?? -Infinity);
@@ -243,7 +253,7 @@ function mergeRow(a: Row, b: Row): void {
     if (cumulative) {
       if (newer) a.last = b.last;
     } else {
-      a.sum = (a.sum ?? 0) + (b.sum ?? 0);
+      a.sum = cap((a.sum ?? 0) + (b.sum ?? 0));
     }
   } else if (cumulative) {
     if (newer) {
@@ -257,7 +267,9 @@ function mergeRow(a: Row, b: Row): void {
     a.buckets = into.map((v, i) => v + (from[i] ?? 0));
     a.histCount = (a.histCount ?? 0) + (b.histCount ?? 0);
     a.histSum =
-      a.histSum === null || b.histSum === null ? null : a.histSum + b.histSum;
+      a.histSum === null || b.histSum === null
+        ? null
+        : cap(a.histSum + b.histSum);
   }
   if (cumulative) {
     if (newer) a.startNs = b.startNs;
@@ -414,8 +426,18 @@ export class PostgresMetricWriter {
     for (const rm of batch.resourceMetrics) {
       for (const point of rm.points) {
         const key = seriesKey(point);
-        const row = rowOf(point, rm.serviceName, rm.instanceId, key);
-        if (row === null || row.day < first || row.day > last) {
+        const row = rowOf(
+          point,
+          rm.serviceName.slice(0, MAX_SERVICE_LENGTH),
+          rm.instanceId,
+          key,
+        );
+        if (
+          row === null ||
+          row.day < first ||
+          row.day > last ||
+          row.minute < nowMs - MAX_POINT_AGE_MS
+        ) {
           outOfRange++;
           continue;
         }

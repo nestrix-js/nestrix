@@ -9,6 +9,7 @@ import { toIngestMetricBatch } from "../../src/ingest/map-metrics.js";
 import {
   auth,
   JSON_TYPE,
+  PROTO,
   post,
   startServer,
   type TestServer,
@@ -254,6 +255,103 @@ describe("POST /v1/metrics on", () => {
     expect(big.status).toBe(413);
   });
 
+  it("refuses a packed varint run that would decode far larger than its wire size (413, not decoded)", async () => {
+    const varint = (n: number) => {
+      const out: number[] = [];
+      let v = n;
+      while (v > 127) {
+        out.push((v & 127) | 128);
+        v = Math.floor(v / 128);
+      }
+      out.push(v);
+      return Buffer.from(out);
+    };
+    const ld = (field: number, payload: Buffer) =>
+      Buffer.concat([
+        varint((field << 3) | 2),
+        varint(payload.length),
+        payload,
+      ]);
+    // ExponentialHistogramDataPoint.positive (8) > Buckets.bucket_counts (2): one wire byte each.
+    const buckets = ld(2, Buffer.alloc(12 * 1024 * 1024, 0));
+    const eh = ld(1, ld(8, buckets));
+    const metric = Buffer.concat([ld(1, Buffer.from("x")), ld(10, eh)]);
+    const body = ld(1, ld(2, ld(2, metric)));
+    const before = server.sink.metricBatches.length;
+    const res = await post(url(), body, { "content-type": PROTO, ...auth() });
+    expect(res.status).toBe(413);
+    expect(server.sink.metricBatches).toHaveLength(before);
+  });
+
+  it("applies the point limit to snake_case JSON too", async () => {
+    const over = testConfig({ NESTRIX_METRICS: "on" }).ingest.maxSpans + 1;
+    const dataPoints = Array.from({ length: over }, () => ({
+      time_unix_nano: nowNs(),
+      as_int: 1,
+    }));
+    const res = await send({
+      resource_metrics: [
+        {
+          resource: { attributes: [attr("service.name", "svc")] },
+          scope_metrics: [
+            {
+              metrics: [
+                {
+                  name: "process.memory.usage",
+                  unit: "By",
+                  gauge: { data_points: dataPoints },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(res.status).toBe(413);
+  });
+
+  it("rejects values beyond 1e100 and histograms with unsorted bounds or a bucket count mismatch", async () => {
+    const before = server.sink.metricPoints().length;
+    const res = await send(
+      metricsJson([
+        {
+          name: "process.memory.usage",
+          unit: "By",
+          gauge: { dataPoints: [{ timeUnixNano: nowNs(), asDouble: 1e300 }] },
+        },
+        duration([1, 0.5], ["1", "1", "1"]),
+        duration([0.5, 1], ["1", "1"]),
+        {
+          ...duration([0.5, 1], ["1", "1", "1"]),
+          histogram: {
+            aggregationTemporality: 2,
+            dataPoints: [
+              {
+                startTimeUnixNano: START,
+                timeUnixNano: nowNs(),
+                sum: 1e200,
+                explicitBounds: [0.5, 1],
+                bucketCounts: ["1", "1", "1"],
+              },
+            ],
+          },
+        },
+      ]),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      partialSuccess?: {
+        rejectedDataPoints?: string | number;
+        errorMessage?: string;
+      };
+    };
+    expect(Number(body.partialSuccess?.rejectedDataPoints)).toBe(4);
+    expect(body.partialSuccess?.errorMessage).toMatch(
+      /value out of range \(2\)/,
+    );
+    expect(server.sink.metricPoints()).toHaveLength(before);
+  });
+
   it("rejects a histogram with too many bounds as a bad point, not a crash", async () => {
     const bounds = Array.from({ length: 300 }, (_, i) => i + 1);
     const res = await send(
@@ -311,8 +409,90 @@ describe("toIngestMetricBatch", () => {
     expect(batch.resourceMetrics[0]?.points[0]?.value).toBe(0.3);
   });
 
-  it("does not let a __proto__ attribute reach Object.prototype", () => {
-    map(
+  it("derives a stable instance key from the resource attributes when service.instance.id is absent", () => {
+    const body = (host: string) => ({
+      resourceMetrics: [
+        {
+          resource: {
+            attributes: [attr("service.name", "svc"), attr("host.name", host)],
+          },
+          scopeMetrics: [
+            {
+              metrics: [
+                {
+                  name: "process.cpu.time",
+                  unit: "s",
+                  sum: {
+                    isMonotonic: true,
+                    aggregationTemporality: 2,
+                    dataPoints: [
+                      {
+                        startTimeUnixNano: START,
+                        timeUnixNano: nowNs(),
+                        asDouble: 1,
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const a1 = map(body("a")).resourceMetrics[0]?.instanceId;
+    const a2 = map(body("a")).resourceMetrics[0]?.instanceId;
+    const b = map(body("b")).resourceMetrics[0]?.instanceId;
+    expect(a1).toMatch(/^attrs-[0-9a-f]{12}$/);
+    expect(a1).toBe(a2);
+    expect(b).not.toBe(a1);
+    // An explicit id is used as sent.
+    expect(
+      map(metricsJson([rss()], "pod-9")).resourceMetrics[0]?.instanceId,
+    ).toBe("pod-9");
+  });
+
+  it("caps merged sums and cuts a long service name", () => {
+    const big = (v: number) => ({
+      timeUnixNano: nowNs(),
+      asDouble: v,
+    });
+    const batch = toIngestMetricBatch(
+      decodeMetricsRequest(
+        Buffer.from(
+          JSON.stringify({
+            resourceMetrics: [
+              {
+                resource: {
+                  attributes: [attr("service.name", "s".repeat(1000))],
+                },
+                scopeMetrics: [
+                  {
+                    metrics: [
+                      {
+                        name: "process.memory.usage",
+                        unit: "By",
+                        gauge: { dataPoints: [big(9e99), big(9e99)] },
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          }),
+        ),
+        "json",
+        limits,
+      ),
+    );
+    expect(batch.resourceMetrics[0]?.serviceName).toHaveLength(256);
+    expect(batch.resourceMetrics[0]?.points[0]?.value).toBeLessThanOrEqual(
+      1e100,
+    );
+  });
+
+  it("keeps attribute maps free of a prototype, so a __proto__ key stays an ordinary key", () => {
+    const batch = map(
       metricsJson([
         {
           name: "process.cpu.time",
@@ -334,6 +514,9 @@ describe("toIngestMetricBatch", () => {
     );
     expect(({} as Record<string, unknown>).cpu).toBeUndefined();
     expect(Object.keys(Object.prototype)).toEqual([]);
+    const kept = batch.resourceMetrics[0]?.points[0]?.attributes as object;
+    expect(Object.getPrototypeOf(kept)).toBeNull();
+    expect(Object.keys(kept)).toEqual(["cpu.mode"]);
   });
 });
 
