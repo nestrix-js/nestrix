@@ -136,8 +136,8 @@ describe.skipIf(noDatabase)(`route coverage ${skipReason}`, () => {
       }
     }
     expect(missing).toEqual([]);
-    // Alerts 4, SLOs 3, tokens 2, remote profiles 1.
-    expect(writes).toBe(10);
+    // Alerts 4, SLOs 3, tokens 2, remote profiles 1, error triage 3.
+    expect(writes).toBe(13);
   });
 });
 

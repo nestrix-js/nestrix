@@ -34,7 +34,11 @@ export type AuditAction =
   | "slo.delete"
   | "token.create"
   | "token.revoke"
-  | "remote_profile.start";
+  | "remote_profile.start"
+  /** Error triage (issue #26, D-103): `POST api/v1/errors/groups/{resolve,ignore,reopen}`. */
+  | "error_group.resolve"
+  | "error_group.ignore"
+  | "error_group.reopen";
 
 export interface AuditEntry {
   id: string;

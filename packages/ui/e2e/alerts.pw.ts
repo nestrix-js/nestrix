@@ -205,6 +205,7 @@ test("creating a rule validates in the browser, sends a POST and shows the secre
         enabled: true,
         service: "checkout",
         route: "/pay",
+        environment: null,
       },
     },
   ]);
@@ -351,7 +352,8 @@ test("a rule kind this page does not know is shown read-only", async ({
   mock.mode = "standalone";
   mock.alerts = [
     rule({
-      metric: "new_error_group" as AlertRule["metric"],
+      // A kind a newer server might add (`new_error_group` has a form since #26 with #19).
+      metric: "queue_depth" as AlertRule["metric"],
       name: "New errors",
     }),
   ];
@@ -363,4 +365,46 @@ test("a rule kind this page does not know is shown read-only", async ({
   await expect(card.getByRole("button", { name: "Edit" })).toHaveCount(0);
   await expect(card.getByRole("button", { name: "Delete" })).toBeVisible();
   expect(problems).toEqual([]);
+});
+
+test("a new-error-group rule is created without threshold or window, scoped by environment", async ({
+  page,
+}) => {
+  mock.mode = "standalone";
+  mock.services = ["checkout"];
+  await page.goto(url("alerts"));
+  await page.getByRole("button", { name: "New rule" }).click();
+  const form = page.getByTestId("alert-form");
+  await form.getByLabel("Name", { exact: true }).fill("New errors");
+  await form.getByLabel("Metric").selectOption("new_error_group");
+  await expect(form.getByLabel("Window")).toHaveCount(0);
+  await expect(form.getByTestId("new-group-note")).toBeVisible();
+  await form.getByLabel("Service (optional").fill("");
+  await form.getByLabel("Environment (optional").fill("production");
+  await form.getByLabel("Webhook URL").fill("https://hooks.example.com/nx");
+  await form.getByRole("button", { name: "Create rule" }).click();
+  await expect(page.getByTestId("alert-rule")).toHaveCount(1);
+  expect(mock.alertWrites[0]?.body).toEqual({
+    name: "New errors",
+    metric: "new_error_group",
+    service: null,
+    route: null,
+    environment: "production",
+    webhookUrl: "https://hooks.example.com/nx",
+    enabled: true,
+  });
+});
+
+test("a viewer sees the rules but no write control", async ({ page }) => {
+  mock.mode = "standalone";
+  mock.access = { role: "viewer", kind: "oidc", label: "ada@example.com" };
+  mock.alerts = [rule()];
+  await page.goto(url("alerts"));
+  const card = page.getByTestId("alert-rule");
+  await expect(card).toContainText("Checkout errors");
+  await expect(card.getByRole("button", { name: "History" })).toBeVisible();
+  for (const name of ["Send test", "Edit", "Delete"]) {
+    await expect(card.getByRole("button", { name })).toHaveCount(0);
+  }
+  await expect(page.getByRole("button", { name: "New rule" })).toHaveCount(0);
 });

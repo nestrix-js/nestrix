@@ -2,6 +2,7 @@ import type { AlertRule } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 
 import {
+  conditionText,
   describeDelivery,
   emptyForm,
   formatMetricValue,
@@ -118,9 +119,19 @@ describe("describeDelivery", () => {
 });
 
 describe("isKnownMetric", () => {
-  it("is false for a kind a newer server added", () => {
+  it("is false only for a kind a newer server added", () => {
     expect(isKnownMetric("error_rate")).toBe(true);
-    expect(isKnownMetric("new_error_group")).toBe(false);
+    expect(isKnownMetric("new_error_group")).toBe(true);
+    expect(isKnownMetric("queue_depth")).toBe(false);
+  });
+});
+
+describe("conditionText", () => {
+  it("states a threshold, or the event of a new-error-group rule", () => {
+    expect(conditionText(rule())).toBe("Error rate > 7%");
+    expect(
+      conditionText(rule({ metric: "new_error_group", threshold: 0 })),
+    ).toBe("an error group is new or regressed");
   });
 });
 
@@ -129,6 +140,41 @@ describe("formFromRule", () => {
     expect(formFromRule({ ...rule(), metric: "error_rate" }).threshold).toBe(
       "7",
     );
+  });
+
+  it("carries the environment, empty for every environment", () => {
+    expect(formFromRule({ ...rule(), metric: "error_rate" }).environment).toBe(
+      "",
+    );
+    expect(
+      formFromRule({ ...rule({ environment: "staging" }), metric: "p95_ms" })
+        .environment,
+    ).toBe("staging");
+  });
+
+  it("gives a new-error-group rule the default threshold and window, not its stored placeholders", () => {
+    const form = formFromRule({
+      ...rule({
+        metric: "new_error_group",
+        service: null,
+        environment: "production",
+        route: "/pay",
+        threshold: 0,
+        windowMinutes: 5,
+        forMinutes: 0,
+        minRequests: 1,
+      }),
+      metric: "new_error_group",
+    });
+    expect(form).toMatchObject({
+      metric: "new_error_group",
+      service: "",
+      environment: "production",
+      route: "/pay",
+      threshold: "5",
+      forMinutes: "2",
+      minRequests: "10",
+    });
   });
 });
 
@@ -154,7 +200,95 @@ describe("toRequest", () => {
         enabled: true,
         service: "checkout",
         route: "/pay",
+        environment: null,
       },
+    });
+  });
+
+  it("sends the environment of an error-rate or p95 rule, trimmed", () => {
+    const r = toRequest({ ...filled(), environment: " staging " });
+    expect(r.ok && r.body.environment).toBe("staging");
+    const unset = toRequest({
+      ...filled(),
+      metric: "p95_ms",
+      threshold: "300",
+      environment: "unset",
+    });
+    expect(unset.ok && unset.body.environment).toBe("unset");
+    const bad = toRequest({ ...filled(), environment: "a\u0007b" });
+    expect(!bad.ok && bad.message).toContain("Environment");
+  });
+
+  it("never sends an environment with a burn-rate rule (the server takes it from the SLO)", () => {
+    const r = toRequest({
+      ...filled(),
+      metric: "slo_burn_rate",
+      threshold: "14.4",
+      sloId: "3",
+      environment: "staging",
+    });
+    expect(r.ok && "environment" in r.body).toBe(false);
+  });
+
+  describe("a new-error-group rule", () => {
+    const group = () => ({
+      ...filled(),
+      metric: "new_error_group" as const,
+      sloId: "4",
+      // Whatever the other metrics left in the form is not sent.
+      threshold: "not a number",
+      windowMinutes: "1",
+      forMinutes: "99",
+      minRequests: "0",
+    });
+    const REFUSED = [
+      "threshold",
+      "windowMinutes",
+      "forMinutes",
+      "minRequests",
+      "sloId",
+      "comparator",
+    ];
+
+    it("sends name, scope and webhook only, with null for every service, route and environment", () => {
+      const r = toRequest({ ...group(), service: " ", route: "" });
+      expect(r).toEqual({
+        ok: true,
+        body: {
+          name: "checkout errors",
+          metric: "new_error_group",
+          service: null,
+          route: null,
+          environment: null,
+          webhookUrl: "https://hooks.example.com/x",
+          enabled: true,
+        },
+      });
+      for (const key of REFUSED) {
+        expect(r.ok && key in r.body, key).toBe(false);
+      }
+    });
+
+    it("sends a service, route and environment when given", () => {
+      const r = toRequest({
+        ...group(),
+        service: "checkout",
+        route: " /pay ",
+        environment: "production",
+      });
+      expect(r.ok && r.body).toMatchObject({
+        service: "checkout",
+        route: "/pay",
+        environment: "production",
+      });
+    });
+
+    it("still checks the name, the webhook and the optional fields", () => {
+      expect(toRequest({ ...group(), name: "" }).ok).toBe(false);
+      const hook = toRequest({ ...group(), webhookUrl: "ftp://x.example/h" });
+      expect(!hook.ok && hook.message).toContain("http or https");
+      const service = toRequest({ ...group(), service: "x".repeat(257) });
+      expect(!service.ok && service.message).toContain("Service");
     });
   });
 

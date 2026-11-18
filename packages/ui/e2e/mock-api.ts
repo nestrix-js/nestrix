@@ -224,6 +224,8 @@ export class MockApi {
   /** The standalone server's extras: `mode` and `services` in meta; `mode` defaults to embedded. */
   mode: MetaResponse["mode"] = "embedded";
   services: string[] | undefined = undefined;
+  /** `meta.access` (issue #34); absent unless set, as from an embedded dashboard. */
+  access: MetaResponse["access"] = undefined;
   /** Every API call answers 401, as the standalone server does without a session. */
   unauthorized = false;
   /** `POST logout` calls seen. */
@@ -323,6 +325,7 @@ export class MockApi {
     this.dependenciesAnswer = null;
     this.mode = "embedded";
     this.services = undefined;
+    this.access = undefined;
     this.unauthorized = false;
     this.logouts = 0;
     this.slos = [];
@@ -653,7 +656,8 @@ export class MockApi {
       const rule: AlertRule = {
         id: String(this.alerts.length + 100),
         name: String(input.name),
-        service: String(input.service ?? "from-slo"),
+        service:
+          input.service === null ? null : String(input.service ?? "from-slo"),
         environment: (input.environment as string | null | undefined) ?? null,
         route: (input.route as string | null | undefined) ?? null,
         metric: input.metric as AlertRule["metric"],
@@ -1029,6 +1033,7 @@ export class MockApi {
       warnings: [],
       mode: this.mode,
       ...(this.services ? { services: this.services } : {}),
+      ...(this.access ? { access: this.access } : {}),
       runtime: { available: this.mode === "embedded" && this.runtimeAvailable },
       profiler: {
         available: this.mode === "embedded" && this.profilerAvailable,

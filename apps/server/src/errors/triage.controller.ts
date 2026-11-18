@@ -17,6 +17,7 @@ import type {
 } from "@nestrix-js/protocol";
 import type { Pool } from "pg";
 import { SessionQueryGuard } from "../auth/query-guard.js";
+import { AdminOnly, Audited } from "../auth/roles.js";
 import {
   QUERY_HEADERS,
   QueryExceptionFilter,
@@ -89,7 +90,9 @@ function parseBody(body: unknown) {
  * Access is the alerts controller's: the admin login's middleware and global guard (a session;
  * a state-changing method also needs a same-origin `Origin`; an API token never reaches a write),
  * `SessionQueryGuard` again here, and no CORS headers. The `GET` routes of the same path belong to
- * `QueryController`.
+ * `QueryController`. Every route is `@AdminOnly()` (issue #34, D-104: a viewer reads the groups
+ * but cannot triage them) and audited as `error_group.<action>`; the audit entry has no target
+ * (the group key holds the error's normalised message, longer than the target column).
  */
 @Controller("api/v1/errors/groups")
 @UseGuards(SessionQueryGuard)
@@ -122,6 +125,8 @@ export class ErrorTriageController {
   }
 
   @Post("resolve")
+  @AdminOnly()
+  @Audited("error_group.resolve")
   @HttpCode(200)
   @Headers()
   resolve(@Body() body: unknown) {
@@ -129,6 +134,8 @@ export class ErrorTriageController {
   }
 
   @Post("ignore")
+  @AdminOnly()
+  @Audited("error_group.ignore")
   @HttpCode(200)
   @Headers()
   ignore(@Body() body: unknown) {
@@ -137,6 +144,8 @@ export class ErrorTriageController {
 
   /** Reopens a resolved or regressed group and un-ignores an ignored one. */
   @Post("reopen")
+  @AdminOnly()
+  @Audited("error_group.reopen")
   @HttpCode(200)
   @Headers()
   reopen(@Body() body: unknown) {

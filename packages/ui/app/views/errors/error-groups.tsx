@@ -51,6 +51,7 @@ import {
   getMeta,
   triageErrorGroup,
 } from "@/lib/api";
+import { useCanAdmin } from "@/lib/can-admin";
 import { pollInterval, usePaused } from "@/lib/live";
 import { attributeFilterParsers, attributeParams } from "@/lib/params";
 import { useService } from "@/lib/service";
@@ -543,8 +544,11 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
   });
   const data = groups.data;
   const shownWindow = data?.windowMinutes ?? windowMinutes;
-  // Only the standalone server stores triage; it also sends `ignoredCount`.
-  const canTriage = data?.ignoredCount !== undefined;
+  // Only the standalone server stores triage; it also sends `ignoredCount`. Everyone may switch
+  // the stored-state views; only an admin (issue #34, `useCanAdmin`) sees the triage buttons.
+  const storesTriage = data?.ignoredCount !== undefined;
+  const canAdmin = useCanAdmin();
+  const canTriage = storesTriage && canAdmin;
   const triage = useMutation({
     mutationFn: ({
       action,
@@ -596,7 +600,7 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
         controls={
           <>
             {viewToggle}
-            {canTriage && (
+            {storesTriage && (
               <SegmentedControl
                 label="Groups"
                 options={TRIAGE_VIEWS}
@@ -734,7 +738,7 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
                 </span>
               }
             >
-              {canTriage &&
+              {storesTriage &&
                 (data.ignoredCount ?? 0) > 0 &&
                 triageView === "active" && (
                   <p

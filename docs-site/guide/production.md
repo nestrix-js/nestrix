@@ -163,6 +163,16 @@ On Kubernetes, an Ingress does the same job; the chart's `ingress` values and an
 
 From the code: `/livez` answers while the process runs and ignores the database; `/readyz` answers 200 only when the database answers, every migration is applied and today's partitions exist, and answers 503 from the moment shutdown begins. On `SIGTERM` the server drains its write queue for up to 10 seconds and its webhook sender for up to 10 seconds, then closes the pool. Give it 30 seconds (`stop_grace_period`, `terminationGracePeriodSeconds`) rather than Docker's default of 10. Use `/readyz` for readiness and `/livez` for liveness: a database outage should take replicas out of rotation, not restart them.
 
+## Optional features and their settings
+
+Each of these is off, or unchanged from earlier releases, until you set it. The server README has the variables and what they cost:
+
+- Single sign-on and viewer/admin roles: `NESTRIX_OIDC_ISSUER`, `NESTRIX_OIDC_CLIENT_ID`, `NESTRIX_OIDC_CLIENT_SECRET` (or `_FILE`), `NESTRIX_OIDC_ADMIN_GROUPS`, `NESTRIX_OIDC_ALLOWED_GROUPS`, `NESTRIX_ADMIN_PASSWORD_LOGIN` ([Users, roles and single sign-on](https://github.com/nestrix-js/nestrix/tree/main/apps/server#users-roles-and-single-sign-on)). Set `NESTRIX_PUBLIC_URL` (or `NESTRIX_OIDC_REDIRECT_URL`) to the address behind your TLS proxy.
+- Environments: entries of `NESTRIX_INGEST_KEYS` written as `<environment>:<key>` bind a key to an environment, so a staging key cannot write production data ([Environments](https://github.com/nestrix-js/nestrix/tree/main/apps/server#environments)).
+- Log search: `NESTRIX_LOGS=all`, `NESTRIX_LOG_RETENTION_DAYS`, `NESTRIX_LOGS_MAX_PER_TRACE`, `NESTRIX_LOGS_MAX_PER_MINUTE`. `all` stores every log line and grows the database; size it with the storage formula above ([Log search](https://github.com/nestrix-js/nestrix/tree/main/apps/server#log-search)).
+- Historical metrics: `NESTRIX_METRICS=on`, `NESTRIX_METRICS_MAX_SERIES_PER_SERVICE`, `NESTRIX_METRICS_MAX_SERIES` ([Historical metrics](https://github.com/nestrix-js/nestrix/tree/main/apps/server#historical-metrics-optional)).
+- Attribute filters: `NESTRIX_INDEXED_ATTRIBUTES` ([Attribute filters](https://github.com/nestrix-js/nestrix/tree/main/apps/server#attribute-filters)).
+
 ## Checklist
 
 - Image pinned by version and digest.

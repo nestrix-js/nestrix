@@ -63,9 +63,9 @@ export interface AlertRuleCreate {
   name: string;
   /**
    * Required unless `metric` is `slo_burn_rate` (then taken from the SLO) or `new_error_group`
-   * (optional: every service).
+   * (optional: absent or `null` is every service; `null` on an update clears it).
    */
-  service?: string;
+  service?: string | null;
   /** `null` or absent: every environment. Taken from the SLO for `slo_burn_rate`. */
   environment?: string | null;
   route?: string | null;

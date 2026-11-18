@@ -36,6 +36,7 @@ import { pollInterval, usePaused } from "@/lib/live";
 import { useNow } from "@/lib/use-now";
 import {
   type AlertForm,
+  conditionText,
   deliveryTone,
   describeDelivery,
   emptyForm,
@@ -43,7 +44,6 @@ import {
   formFromRule,
   isKnownMetric,
   METRIC_LABEL,
-  metricLabel,
   ruleState,
   summarizeRules,
   toRequest,
@@ -155,12 +155,15 @@ function NewSecret({
 function RuleFormPanel({
   editing,
   services,
+  environments,
   slos,
   onCreated,
   onDone,
 }: {
   editing: (AlertRule & { metric: AlertForm["metric"] }) | undefined;
   services: string[];
+  /** `meta.environments` names (D-101), offered as suggestions; any value can be typed. */
+  environments: string[];
   slos: Slo[];
   onCreated: (created: AlertRuleCreateResponse) => void;
   onDone: () => void;
@@ -173,6 +176,8 @@ function RuleFormPanel({
   const set = <K extends keyof AlertForm>(key: K, value: AlertForm[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
   const burn = form.metric === "slo_burn_rate";
+  // D-103 (6): a new-error-group rule has no threshold, window, pending duration or minimum.
+  const newGroup = form.metric === "new_error_group";
 
   const save = useMutation({
     mutationFn: async () => {
@@ -224,7 +229,9 @@ function RuleFormPanel({
                     ? "5"
                     : metric === "p95_ms"
                       ? "500"
-                      : "14.4",
+                      : metric === "slo_burn_rate"
+                        ? "14.4"
+                        : f.threshold,
               }));
             }}
           >
@@ -241,7 +248,7 @@ function RuleFormPanel({
           <Field
             id="alert-slo"
             label="SLO"
-            hint="The rule takes its service and route from the SLO."
+            hint="The rule takes its service, environment and route from the SLO."
           >
             <select
               id="alert-slo"
@@ -260,7 +267,14 @@ function RuleFormPanel({
           </Field>
         ) : (
           <>
-            <Field id="alert-service" label="Service">
+            <Field
+              id="alert-service"
+              label={
+                newGroup
+                  ? "Service (optional, empty for every service)"
+                  : "Service"
+              }
+            >
               <Input
                 id="alert-service"
                 list="alert-services"
@@ -286,48 +300,83 @@ function RuleFormPanel({
                 onChange={(e) => set("route", e.target.value)}
               />
             </Field>
+            <Field
+              id="alert-environment"
+              label="Environment (optional, empty for every environment)"
+              hint={
+                '"unset" watches only the data sent without an environment.'
+              }
+            >
+              <Input
+                id="alert-environment"
+                list="alert-environments"
+                value={form.environment}
+                maxLength={256}
+                onChange={(e) => set("environment", e.target.value)}
+              />
+              <datalist id="alert-environments">
+                {environments.map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
+            </Field>
           </>
         )}
-        <Field id="alert-threshold" label={THRESHOLD_UNIT[form.metric] ?? ""}>
-          <Input
-            id="alert-threshold"
-            inputMode="decimal"
-            value={form.threshold}
-            onChange={(e) => set("threshold", e.target.value)}
-          />
-        </Field>
-        <Field id="alert-window" label="Window (minutes, 5 to 60)">
-          <Input
-            id="alert-window"
-            inputMode="numeric"
-            value={form.windowMinutes}
-            onChange={(e) => set("windowMinutes", e.target.value)}
-          />
-        </Field>
-        <Field
-          id="alert-for"
-          label="Pending duration (minutes, 0 to 60)"
-          hint="How long the condition must hold before the rule fires."
-        >
-          <Input
-            id="alert-for"
-            inputMode="numeric"
-            value={form.forMinutes}
-            onChange={(e) => set("forMinutes", e.target.value)}
-          />
-        </Field>
-        <Field
-          id="alert-min"
-          label="Minimum requests"
-          hint="Fewer requests in the window is no data: the state does not change."
-        >
-          <Input
-            id="alert-min"
-            inputMode="numeric"
-            value={form.minRequests}
-            onChange={(e) => set("minRequests", e.target.value)}
-          />
-        </Field>
+        {newGroup ? (
+          <p
+            data-testid="new-group-note"
+            className="text-xs text-muted-foreground md:col-span-2"
+          >
+            Notifies once when an error group is first seen, and again each time
+            a resolved group regresses. It has no threshold or window.
+          </p>
+        ) : (
+          <>
+            <Field
+              id="alert-threshold"
+              label={THRESHOLD_UNIT[form.metric] ?? ""}
+            >
+              <Input
+                id="alert-threshold"
+                inputMode="decimal"
+                value={form.threshold}
+                onChange={(e) => set("threshold", e.target.value)}
+              />
+            </Field>
+            <Field id="alert-window" label="Window (minutes, 5 to 60)">
+              <Input
+                id="alert-window"
+                inputMode="numeric"
+                value={form.windowMinutes}
+                onChange={(e) => set("windowMinutes", e.target.value)}
+              />
+            </Field>
+            <Field
+              id="alert-for"
+              label="Pending duration (minutes, 0 to 60)"
+              hint="How long the condition must hold before the rule fires."
+            >
+              <Input
+                id="alert-for"
+                inputMode="numeric"
+                value={form.forMinutes}
+                onChange={(e) => set("forMinutes", e.target.value)}
+              />
+            </Field>
+            <Field
+              id="alert-min"
+              label="Minimum requests"
+              hint="Fewer requests in the window is no data: the state does not change."
+            >
+              <Input
+                id="alert-min"
+                inputMode="numeric"
+                value={form.minRequests}
+                onChange={(e) => set("minRequests", e.target.value)}
+              />
+            </Field>
+          </>
+        )}
         <div className="md:col-span-2">
           <Field
             id="alert-webhook"
@@ -559,22 +608,28 @@ function RuleCard({
         <div>
           <dt className="text-xs text-muted-foreground">Fires when</dt>
           <dd data-testid="rule-condition" className="font-mono">
-            {metricLabel(rule.metric)} {rule.comparator}{" "}
-            {formatMetricValue(rule.metric, rule.threshold)}
+            {conditionText(rule)}
           </dd>
         </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">Window</dt>
-          <dd data-testid="rule-window">{rule.windowMinutes} min</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">Pending for</dt>
-          <dd data-testid="rule-for">{rule.forMinutes} min</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">Minimum requests</dt>
-          <dd data-testid="rule-min">{rule.minRequests}</dd>
-        </div>
+        {/* A new-error-group rule stores placeholders here (D-103 (6)): not shown. */}
+        {rule.metric !== "new_error_group" && (
+          <>
+            <div>
+              <dt className="text-xs text-muted-foreground">Window</dt>
+              <dd data-testid="rule-window">{rule.windowMinutes} min</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Pending for</dt>
+              <dd data-testid="rule-for">{rule.forMinutes} min</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">
+                Minimum requests
+              </dt>
+              <dd data-testid="rule-min">{rule.minRequests}</dd>
+            </div>
+          </>
+        )}
         <div>
           <dt className="text-xs text-muted-foreground">Last value</dt>
           <dd data-testid="rule-value" className="font-mono">
@@ -753,6 +808,7 @@ export function AlertsPage() {
           key={panel === "new" ? "new" : panel.id}
           editing={editing}
           services={meta.data?.services ?? []}
+          environments={(meta.data?.environments ?? []).map((e) => e.name)}
           slos={sloList}
           onCreated={setCreated}
           onDone={() => setPanel(null)}

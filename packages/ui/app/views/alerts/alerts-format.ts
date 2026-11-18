@@ -7,14 +7,28 @@ import type {
 } from "@nestrix-js/protocol";
 
 /**
- * The metrics this page has a form for. A rule of any other kind (`new_error_group`, or a kind a
- * newer server added) is shown read-only.
+ * The metrics this page has a form for. A rule of any other kind (one a newer server added) is
+ * shown read-only.
  */
 export const KNOWN_METRICS: readonly AlertMetric[] = [
   "error_rate",
   "p95_ms",
   "slo_burn_rate",
+  "new_error_group",
 ];
+
+/**
+ * What a rule watches, in words: `error rate > 5%`, or for a `new_error_group` rule (no threshold,
+ * D-103 (6)) the event that notifies.
+ */
+export function conditionText(
+  rule: Pick<AlertRule, "metric" | "comparator" | "threshold">,
+): string {
+  if (rule.metric === "new_error_group") {
+    return "an error group is new or regressed";
+  }
+  return `${metricLabel(rule.metric)} ${rule.comparator} ${formatMetricValue(rule.metric, rule.threshold)}`;
+}
 
 export const METRIC_LABEL: Record<AlertMetric, string> = {
   error_rate: "Error rate",
@@ -171,7 +185,13 @@ export function deliveryTone(
 export interface AlertForm {
   name: string;
   metric: AlertMetric;
+  /** Empty: every service (only for `new_error_group`; required otherwise). */
   service: string;
+  /**
+   * Empty: every environment; `unset`: the data without one; else that environment (D-101). Not
+   * sent for `slo_burn_rate`, whose environment comes from its SLO.
+   */
+  environment: string;
   route: string;
   sloId: string;
   /** error_rate in percent, p95_ms in ms, slo_burn_rate as a multiple. */
@@ -188,6 +208,7 @@ export function emptyForm(service = ""): AlertForm {
     name: "",
     metric: "error_rate",
     service,
+    environment: "",
     route: "",
     sloId: "",
     threshold: "5",
@@ -210,10 +231,24 @@ function thresholdText(metric: AlertMetric, threshold: number): string {
 export function formFromRule(
   rule: AlertRule & { metric: AlertMetric },
 ): AlertForm {
+  if (rule.metric === "new_error_group") {
+    // Its stored threshold and window are placeholders (D-103 (6)): the form keeps the defaults,
+    // used only if the rule is switched to another metric.
+    return {
+      ...emptyForm(rule.service ?? ""),
+      name: rule.name,
+      metric: rule.metric,
+      environment: rule.environment ?? "",
+      route: rule.route ?? "",
+      webhookUrl: rule.webhookUrl,
+      enabled: rule.enabled,
+    };
+  }
   return {
     name: rule.name,
     metric: rule.metric,
     service: rule.service ?? "",
+    environment: rule.environment ?? "",
     route: rule.route ?? "",
     sloId: rule.sloId ?? "",
     threshold: thresholdText(rule.metric, rule.threshold),
@@ -267,10 +302,51 @@ export type RequestResult<T> =
   | { ok: true; body: T }
   | { ok: false; message: string };
 
+/** The webhook URL of a form, checked as the server does, or the problem. */
+function checkedWebhook(
+  value: string,
+): { ok: true; value: string } | { ok: false; message: string } {
+  const url = value.trim();
+  const fail = (message: string) => ({ ok: false as const, message });
+  if (url.length === 0 || url.length > 2048) {
+    return fail("Webhook URL must have 1 to 2048 characters.");
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return fail("Webhook URL is not a valid URL.");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return fail("Webhook URL must use http or https.");
+  }
+  if (parsed.username !== "" || parsed.password !== "") {
+    return fail("Webhook URL must not contain credentials.");
+  }
+  return { ok: true, value: url };
+}
+
+/** An optional text field: empty is `null`, otherwise checked like the server. */
+function optionalText(
+  value: string,
+  field: string,
+  max: number,
+): { ok: true; value: string | null } | { ok: false; message: string } {
+  if (value.trim() === "") return { ok: true, value: null };
+  return checkedText(value, field, max);
+}
+
 /**
- * The request body for a form, or the first problem. `slo_burn_rate` rules send `sloId` and no
- * service or route (the server takes them from the SLO and refuses them otherwise); the other
- * metrics send the service and route and no `sloId`.
+ * The request body for a form, or the first problem. The same body serves a create and an
+ * update (an update sends every field, so a cleared one is cleared on the server).
+ *
+ * - `slo_burn_rate` sends `sloId` and no service, environment or route: the server takes them
+ *   from the SLO and refuses them otherwise.
+ * - `new_error_group` (D-103 (6)) sends service, route and environment, each `null` when empty
+ *   (every service, route, environment), and no threshold, window, pending duration, minimum
+ *   requests, `sloId` or comparator: the server refuses those for this kind.
+ * - The other metrics send threshold, window, pending duration and minimum requests, a required
+ *   service, and route and environment (`null` when empty), and no `sloId`.
  */
 export function toRequest(
   form: AlertForm,
@@ -278,6 +354,29 @@ export function toRequest(
   const fail = (message: string) => ({ ok: false as const, message });
   const name = checkedText(form.name, "Name", 200);
   if (!name.ok) return fail(name.message);
+
+  if (form.metric === "new_error_group") {
+    const service = optionalText(form.service, "Service", 256);
+    if (!service.ok) return fail(service.message);
+    const route = optionalText(form.route, "Route", 512);
+    if (!route.ok) return fail(route.message);
+    const environment = optionalText(form.environment, "Environment", 256);
+    if (!environment.ok) return fail(environment.message);
+    const webhook = checkedWebhook(form.webhookUrl);
+    if (!webhook.ok) return fail(webhook.message);
+    return {
+      ok: true,
+      body: {
+        name: name.value,
+        metric: form.metric,
+        service: service.value,
+        route: route.value,
+        environment: environment.value,
+        webhookUrl: webhook.value,
+        enabled: form.enabled,
+      },
+    };
+  }
 
   const raw = form.threshold.trim();
   const entered = raw === "" ? Number.NaN : Number(raw);
@@ -314,22 +413,8 @@ export function toRequest(
   );
   if (!minRequests.ok) return fail(minRequests.message);
 
-  const url = form.webhookUrl.trim();
-  if (url.length === 0 || url.length > 2048) {
-    return fail("Webhook URL must have 1 to 2048 characters.");
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return fail("Webhook URL is not a valid URL.");
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    return fail("Webhook URL must use http or https.");
-  }
-  if (parsed.username !== "" || parsed.password !== "") {
-    return fail("Webhook URL must not contain credentials.");
-  }
+  const webhook = checkedWebhook(form.webhookUrl);
+  if (!webhook.ok) return fail(webhook.message);
 
   const common = {
     name: name.value,
@@ -338,7 +423,7 @@ export function toRequest(
     windowMinutes: windowMinutes.value,
     forMinutes: forMinutes.value,
     minRequests: minRequests.value,
-    webhookUrl: url,
+    webhookUrl: webhook.value,
     enabled: form.enabled,
   };
   if (form.metric === "slo_burn_rate") {
@@ -347,11 +432,17 @@ export function toRequest(
   }
   const service = checkedText(form.service, "Service", 256);
   if (!service.ok) return fail(service.message);
-  let route: string | null = null;
-  if (form.route.trim() !== "") {
-    const r = checkedText(form.route, "Route", 512);
-    if (!r.ok) return fail(r.message);
-    route = r.value;
-  }
-  return { ok: true, body: { ...common, service: service.value, route } };
+  const route = optionalText(form.route, "Route", 512);
+  if (!route.ok) return fail(route.message);
+  const environment = optionalText(form.environment, "Environment", 256);
+  if (!environment.ok) return fail(environment.message);
+  return {
+    ok: true,
+    body: {
+      ...common,
+      service: service.value,
+      route: route.value,
+      environment: environment.value,
+    },
+  };
 }

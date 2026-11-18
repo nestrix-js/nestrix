@@ -42,6 +42,12 @@ import {
   signedCookie,
 } from "./helpers.js";
 
+/** A well-formed error group (`groupKeyOf("Error", "boom", undefined)`) in a named service. */
+const TRIAGE_BODY = {
+  key: JSON.stringify(["Error", "boom", null]),
+  service: "checkout",
+};
+
 describe.skipIf(noDatabase)(`OIDC sign-in and roles ${skipReason}`, () => {
   let db: TestDb;
   let idp: FakeIdp;
@@ -416,6 +422,10 @@ describe.skipIf(noDatabase)(`OIDC sign-in and roles ${skipReason}`, () => {
           "/api/v1/remote-profiles",
           { service: "s", instanceId: "i", durationSeconds: 5 },
         ],
+        // Error triage (issue #26): a viewer reads the groups, never triages them.
+        ["POST", "/api/v1/errors/groups/resolve", TRIAGE_BODY],
+        ["POST", "/api/v1/errors/groups/ignore", TRIAGE_BODY],
+        ["POST", "/api/v1/errors/groups/reopen", TRIAGE_BODY],
         ["PUT", "/api/v1/meta", {}],
         ["GET", "/api/v1/tokens", undefined],
         ["GET", "/api/v1/audit", undefined],
@@ -463,6 +473,23 @@ describe.skipIf(noDatabase)(`OIDC sign-in and roles ${skipReason}`, () => {
       expect(mine[0]?.atUnixMs).toBeGreaterThan(Date.now() - 60_000);
       // Never a secret in the log.
       expect(JSON.stringify(entries)).not.toContain("nxt_");
+
+      // Error triage is an admin write too, and audited (issue #26 with #34).
+      const triaged = await as(
+        session,
+        "POST",
+        "/api/v1/errors/groups/resolve",
+        TRIAGE_BODY,
+      );
+      expect(triaged.status).toBe(200);
+      await triaged.arrayBuffer();
+      const after = (await auditEntries()).filter(
+        (e) => e.actor.label === "grace@example.com",
+      );
+      expect(after[0]).toMatchObject({
+        action: "error_group.resolve",
+        outcome: "ok",
+      });
     });
 
     it("applies a role change at the next request of an open session", async () => {
