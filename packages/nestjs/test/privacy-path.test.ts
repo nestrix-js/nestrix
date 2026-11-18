@@ -53,6 +53,7 @@ describe("redactPathParams", () => {
     ["an optional group", "/u/abc", "/u{/:token}"],
     ["a regular-expression parameter", "/r/abc", "/r/:token(\\w+)"],
     ["an optional parameter", "/o/abc", "/o/:token?"],
+    ["a quoted parameter name", "/q/abc", '/q/:"token"'],
     ["a path that is not origin-form", "*", "/x/:token"],
   ])(
     "cannot be lined up (%s): the template, never the raw value",
@@ -124,6 +125,34 @@ describe("redactOutgoingPath", () => {
     );
   });
 
+  it.each([
+    [
+      "https://h.example:443/v1/:t",
+      "https://h.example/v1/abc",
+      "https://h.example/v1/REDACTED",
+    ],
+    [
+      "http://h.example:80/v1/:t",
+      "http://h.example/v1/abc",
+      "http://h.example/v1/REDACTED",
+    ],
+    [
+      "http://h.example:443/v1/:t",
+      "http://h.example:443/v1/abc",
+      "http://h.example:443/v1/REDACTED",
+    ],
+    [
+      "https://h.example:8443/v1/:t",
+      "https://h.example/v1/abc",
+      "https://h.example/v1/abc",
+    ],
+  ])(
+    "pattern origin %s: default ports are normalised (%s)",
+    (pattern, full, expected) => {
+      expect(redactOutgoingPath(full, compiled([pattern]))).toBe(expected);
+    },
+  );
+
   it("a redactor that throws fails closed: the whole path is REDACTED and the error reported", () => {
     const broken = {
       kind: "regexp",
@@ -154,6 +183,8 @@ describe("redactOutgoingPath", () => {
     ["v1/:token", 'must start with "/"'],
     ["/v1/invitations", 'at least one ":name"'],
     ["/v1/:token?x=1", "must not hold a query"],
+    ["/v1//x/:t", "must not hold an empty segment"],
+    ["https://h.example/a//:t", "must not hold an empty segment"],
   ])("rejects %o", (entry, message) => {
     const r = compileOutgoingPathRedactors([entry]);
     expect("error" in r && r.error).toContain(message);
@@ -205,8 +236,14 @@ describe("http options (D-97)", () => {
       'http.redactOutgoingPath[1] must hold at least one ":name" segment',
       { redactOutgoingPath: ["/x/:t", "/y"] },
     ],
-    ["http must be an object", null],
+    ["http must be an object", 42],
   ])("throws %s", (message, http) => {
     expect(() => resolveOptions({ http: http as never }, {})).toThrow(message);
+  });
+
+  it("http: null is treated like no http option", () => {
+    const r = resolveOptions({ http: null as never }, {});
+    expect(r.http.recordPath).toBe("raw");
+    expect(r.http.redactOutgoingPath).toEqual([]);
   });
 });

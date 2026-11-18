@@ -794,7 +794,8 @@ function resolveStringList(name: string, value: unknown): readonly string[] {
  * throw at `forRoot()` on a value they cannot use.
  */
 export function resolveHttp(http: unknown): ResolvedOptions["http"] {
-  if (http !== undefined && (http === null || typeof http !== "object")) {
+  // `null` is treated like `undefined` (it was accepted before D-97).
+  if (http !== undefined && http !== null && typeof http !== "object") {
     invalid("http must be an object");
   }
   const h = (http ?? {}) as NonNullable<NestrixModuleOptions["http"]>;
