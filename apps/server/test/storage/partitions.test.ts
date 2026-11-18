@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { IngestLogRecord } from "../../src/ingest/model.js";
 import { runMigrations } from "../../src/storage/migrate.js";
 import {
   dayLabel,
@@ -15,6 +16,7 @@ import {
   createTestDb,
   hex,
   noDatabase,
+  nsAt,
   skipReason,
   span,
   type TestDb,
@@ -159,5 +161,80 @@ describe.skipIf(noDatabase)(`partitions and retention ${skipReason}`, () => {
       [traceId],
     );
     expect(rows[0].n).toBe(1);
+  });
+  it("log retention drops the logs partitions and drop counters early, spans keep their days", async () => {
+    // Far from the other tests' days: their partitions are expired by this run anyway.
+    const now = Date.UTC(2027, 2, 10, 12, 0, 0);
+    const today = utcDay(now);
+    await ensurePartitions(db.pool, [today - 5, today - 1]);
+    const dayText = (d: number) => new Date(d * DAY).toISOString().slice(0, 10);
+    await db.pool.query(
+      "INSERT INTO log_drops (day, reason, dropped) VALUES ($1, 'rate_cap', 4), ($2, 'rate_cap', 6) ON CONFLICT (day, reason) DO UPDATE SET dropped = EXCLUDED.dropped",
+      [dayText(today - 5), dayText(today - 1)],
+    );
+    const dropped = await dropExpiredPartitions(db.pool, 7, now, 2);
+    expect(dropped).toContain(`logs_p${dayLabel(today - 5)}`);
+    expect(dropped).not.toContain(`logs_p${dayLabel(today - 1)}`);
+    expect(dropped.filter((n) => n.startsWith("spans_p"))).not.toContain(
+      `spans_p${dayLabel(today - 5)}`,
+    );
+    const parts = await listPartitions(db.pool);
+    expect(parts.get("logs")?.has(today - 5)).toBe(false);
+    expect(parts.get("logs")?.has(today - 1)).toBe(true);
+    expect(parts.get("spans")?.has(today - 5)).toBe(true);
+    expect(parts.get("traces")?.has(today - 5)).toBe(true);
+    const { rows } = await db.pool.query(
+      "SELECT day::text AS day FROM log_drops WHERE day IN ($1, $2) ORDER BY day",
+      [dayText(today - 5), dayText(today - 1)],
+    );
+    expect(rows.map((r) => r.day)).toEqual([dayText(today - 1)]);
+  });
+
+  it("a day without a logs partition still takes spans, and its log lines count as out of range", async () => {
+    const now = Date.UTC(2027, 5, 10, 12, 0, 0);
+    const today = utcDay(now);
+    const manager = new PartitionManager(db.pool, {
+      retentionDays: 7,
+      logRetentionDays: 2,
+      now: () => now,
+    });
+    // today - 5 exists for spans and traces but, by the log retention, never for logs.
+    await ensurePartitions(db.pool, [today - 5]);
+    await manager.start();
+    manager.stop();
+    const parts = await listPartitions(db.pool);
+    expect(parts.get("logs")?.has(today - 5)).toBe(false);
+    expect(parts.get("spans")?.has(today - 5)).toBe(true);
+    // refresh() counts the day as available because only `logs` lacks it, by design.
+    expect(manager.hasDay(today - 5)).toBe(true);
+    expect(manager.acceptedLogDays().first).toBe(today - 2);
+
+    const sink = new PostgresIngestSink(db.pool, manager);
+    const traceId = hex(16);
+    const then = (today - 5) * DAY + 3_600_000;
+    await sink.write(
+      batch("svc", [span({ traceId, startMs: then, durationMs: 1 })]),
+    );
+    expect(sink.stats()).toMatchObject({ writtenSpans: 1, outOfRangeSpans: 0 });
+    const log = (day: number): IngestLogRecord => ({
+      traceId,
+      timeUnixNano: nsAt(day * DAY + 3_600_000),
+      severityNumber: 9,
+      severityText: "INFO",
+      body: "x",
+    });
+    await sink.writeLogs({
+      resourceLogs: [
+        {
+          resource: { "service.name": "svc" },
+          records: [log(today - 5), log(today)],
+        },
+      ],
+      rejectedLogRecords: 0,
+    });
+    expect(sink.logs.stats()).toMatchObject({
+      writtenLogs: 1,
+      outOfRange: 1,
+    });
   });
 });

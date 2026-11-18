@@ -1,5 +1,5 @@
 /**
- * `GET /api/v1/logs` (issue #17, D-106): search over the stored log lines (`logs`, migration 0021),
+ * `GET /api/v1/logs` (issue #17, D-106): search over the stored log lines (`logs`, migrations 0021 and 0022),
  * newest first. A read of what the writer stored (`NESTRIX_LOGS` decides what that is), so it is
  * always available.
  *
@@ -68,6 +68,20 @@ export function likePattern(text: string): string {
   return `%${text.replace(/[\\%_]/g, "\\$&")}%`;
 }
 
+/** 503 with `Retry-After`: too many log searches are running (the filter sets the header). */
+export class LogSearchBusyException extends HttpException {
+  readonly retryAfterSeconds = 1;
+  constructor() {
+    const body: ApiError = {
+      error: {
+        code: "unavailable",
+        message: "Too many log searches are running. Retry in a moment.",
+      },
+    };
+    super(body, 503);
+  }
+}
+
 function badRequest(message: string): HttpException {
   const body: ApiError = { error: { code: "bad_request", message } };
   return new HttpException(body, 400);
@@ -89,6 +103,8 @@ interface Row {
 
 @Injectable()
 export class LogSearchService {
+  private active = 0;
+
   constructor(
     @Inject(STORAGE_POOL) private readonly pool: pg.Pool,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
@@ -148,15 +164,49 @@ export class LogSearchService {
         ORDER BY l.time_ns DESC, l.trace_id DESC, l.record_hash DESC
         LIMIT ${add(limit + 1)}`;
 
-    const client = await this.pool.connect();
+    // At most `searchConcurrency` scans at once per process: each can run for the whole
+    // statement timeout on a pooled connection, which ingest and the other queries share.
+    if (this.active >= this.config.logStore.searchConcurrency) {
+      throw new LogSearchBusyException();
+    }
+    this.active++;
     let rows: Row[];
+    try {
+      rows = await this.run(sql, values);
+    } finally {
+      this.active--;
+    }
+
+    const more = rows.length > limit;
+    const page = more ? rows.slice(0, limit) : rows;
+    const last = page[page.length - 1];
+    const dropped = await this.dropped(from, to ?? nowMs);
+    return {
+      items: page.map(toRecord),
+      older:
+        more && last
+          ? logCursor({
+              timeNs: last.time_ns,
+              traceId: last.trace_id,
+              hash: last.record_hash,
+            })
+          : null,
+      capture: this.config.logStore.mode,
+      dropped,
+    };
+  }
+
+  /** One statement in its own transaction with the statement timeout; a timeout is a 503. */
+  private async run(sql: string, values: unknown[]): Promise<Row[]> {
+    const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
       await client.query(
         `SET LOCAL statement_timeout = ${STATEMENT_TIMEOUT_MS}`,
       );
-      rows = (await client.query<Row>(sql, values)).rows;
+      const rows = (await client.query<Row>(sql, values)).rows;
       await client.query("COMMIT");
+      return rows;
     } catch (error) {
       try {
         await client.query("ROLLBACK");
@@ -177,24 +227,6 @@ export class LogSearchService {
     } finally {
       client.release();
     }
-
-    const more = rows.length > limit;
-    const page = more ? rows.slice(0, limit) : rows;
-    const last = page[page.length - 1];
-    const dropped = await this.dropped(from, to ?? nowMs);
-    return {
-      items: page.map(toRecord),
-      older:
-        more && last
-          ? logCursor({
-              timeNs: last.time_ns,
-              traceId: last.trace_id,
-              hash: last.record_hash,
-            })
-          : null,
-      capture: this.config.logStore.mode,
-      dropped,
-    };
   }
 
   /** Drops counted on the UTC days the window touches (day granularity). */
@@ -233,6 +265,11 @@ export class LogSearchService {
 function toRecord(r: Row): LogSearchRecord {
   const ns = BigInt(r.time_ns);
   const item: LogSearchRecord = {
+    id: logCursor({
+      timeNs: r.time_ns,
+      traceId: r.trace_id,
+      hash: r.record_hash,
+    }),
     timeUnixMs: Number(ns / 1_000n) / 1_000,
     timeUnixNano: r.time_ns,
     severity: r.severity_number,

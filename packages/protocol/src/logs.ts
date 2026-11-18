@@ -53,6 +53,8 @@ export interface TraceLogRecord {
  *   stored in either mode.
  */
 export interface LogSearchRecord {
+  /** Unique per stored line (its paging cursor): a stable list key. Not a trace or span id. */
+  id: string;
   /** Milliseconds, fractional part kept. */
   timeUnixMs: number;
   /** Exact time as a decimal string of nanoseconds. */

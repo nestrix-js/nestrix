@@ -228,6 +228,10 @@ export class PostgresLogWriter {
     this.counters.outOfRange += outOfRange;
     const drops = new Map<LogDropReason, number>();
     if (outOfRange > 0) drops.set("out_of_range", outOfRange);
+    // The per-minute budget is reserved here (so concurrent batches see it) and given back below
+    // for lines that were not stored: a failed transaction, duplicates, lines over the trace cap.
+    let reservedMinute = -1;
+    let reserved = 0;
     if (this.all && storable.length > 0) {
       const minute = Math.floor(this.now() / 60_000);
       if (minute !== this.minute) {
@@ -242,7 +246,15 @@ export class PostgresLogWriter {
         drops.set("rate_cap", over);
       }
       this.minuteCount += storable.length;
+      reservedMinute = minute;
+      reserved = storable.length;
     }
+    const refund = (stored: number): void => {
+      if (reserved > stored && reservedMinute === this.minute) {
+        this.minuteCount = Math.max(0, this.minuteCount - (reserved - stored));
+      }
+      reserved = 0;
+    };
     if (storable.length === 0) {
       await this.recordDrops(drops);
       return;
@@ -270,7 +282,13 @@ export class PostgresLogWriter {
       );
     }
 
-    const client = await this.pool.connect();
+    let client: PoolClient;
+    try {
+      client = await this.pool.connect();
+    } catch (error) {
+      refund(0);
+      throw error;
+    }
     let broken: Error | undefined;
     try {
       await client.query("BEGIN");
@@ -301,11 +319,14 @@ export class PostgresLogWriter {
       insert.push(...traceless);
       const inserted = await this.insert(client, insert);
       await client.query("COMMIT");
+      refund(inserted);
       if (overCap > 0) drops.set("trace_cap", overCap);
       this.counters.writtenLogs += inserted;
       this.counters.duplicateLogs += insert.length - inserted;
       this.counters.droppedOverCap += overCap;
     } catch (error) {
+      // Nothing was stored (or a failed COMMIT stored nothing): the budget is not spent.
+      refund(0);
       try {
         await client.query("ROLLBACK");
       } catch (rollbackError) {

@@ -96,6 +96,8 @@ export interface LogStoreConfig {
   readonly maxPerTrace: number;
   /** `NESTRIX_LOGS_MAX_PER_MINUTE` (`all` mode): lines stored per minute by this process. */
   readonly maxPerMinute: number;
+  /** `NESTRIX_LOG_SEARCH_CONCURRENCY`: log searches this process runs at once; more answer 503. */
+  readonly searchConcurrency: number;
 }
 
 /**
@@ -172,6 +174,7 @@ export const MAX_RETENTION_DAYS = 3650;
 export const DEFAULT_MAX_CONNECTIONS = 1024;
 export const DEFAULT_LOGS_MAX_PER_TRACE = 1_000;
 export const DEFAULT_LOGS_MAX_PER_MINUTE = 30_000;
+export const DEFAULT_LOG_SEARCH_CONCURRENCY = 2;
 export const DEFAULT_MAX_SPANS_PER_TRACE = 50_000;
 export const MIN_MAX_SPANS_PER_TRACE = 1_000;
 export const MAX_MAX_SPANS_PER_TRACE = 10_000_000;
@@ -446,6 +449,15 @@ export function loadConfig(
     errors,
   );
 
+  const logSearchConcurrency = integer(
+    env,
+    "NESTRIX_LOG_SEARCH_CONCURRENCY",
+    DEFAULT_LOG_SEARCH_CONCURRENCY,
+    1,
+    16,
+    errors,
+  );
+
   const allowedHosts: string[] = [];
   const allowedRaw = (env.NESTRIX_WEBHOOK_ALLOWED_HOSTS ?? "")
     .split(",")
@@ -581,6 +593,7 @@ export function loadConfig(
         retentionDays: Math.min(logRetentionDays, retentionDays),
         maxPerTrace: logsMaxPerTrace,
         maxPerMinute: logsMaxPerMinute,
+        searchConcurrency: logSearchConcurrency,
       }),
       trustedProxies,
       metrics: Object.freeze({

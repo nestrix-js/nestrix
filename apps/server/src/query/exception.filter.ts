@@ -74,6 +74,11 @@ export class QueryExceptionFilter implements ExceptionFilter {
     for (const [name, value] of Object.entries(QUERY_HEADERS)) {
       res.setHeader(name, value);
     }
+    const retryAfter = (exception as { retryAfterSeconds?: unknown })
+      ?.retryAfterSeconds;
+    if (typeof retryAfter === "number") {
+      res.setHeader("Retry-After", String(retryAfter));
+    }
     const body: ApiError = { error: { code: codeOf(status), message } };
     res.status(status).json(body);
   }

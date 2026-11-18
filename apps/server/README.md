@@ -150,6 +150,7 @@ Read once from the environment at start and validated. A bad value exits with on
 | `NESTRIX_LOG_RETENTION_DAYS` | `NESTRIX_RETENTION_DAYS` | Days of log lines kept; 1 to `NESTRIX_RETENTION_DAYS`. |
 | `NESTRIX_LOGS_MAX_PER_TRACE` | `1000` | `all` only: lines kept per trace, 200 to 100000. |
 | `NESTRIX_LOGS_MAX_PER_MINUTE` | `30000` | `all` only: lines this process stores per minute; more are dropped and counted. |
+| `NESTRIX_LOG_SEARCH_CONCURRENCY` | `2` | Whole number, 1 to 16. Log searches this process runs at once; more answer `503` with `Retry-After: 1`. |
 | `NESTRIX_METRICS` | `off` | `on` or `off`. `on` accepts Nestrix's runtime metrics on `POST /v1/metrics` and serves them from `GET /api/v1/metrics/*`; see "Historical metrics (optional)". |
 | `NESTRIX_METRICS_MAX_SERIES_PER_SERVICE` | `2000` | Whole number, 10 to 1 000 000. Active metric series per service, per server process. |
 | `NESTRIX_METRICS_MAX_SERIES` | `20000` | Whole number, 10 to 10 000 000. Active metric series in all, per server process. |
@@ -230,9 +231,29 @@ The 20 MiB limit matches the OpenTelemetry Collector's OTLP receiver. A batch of
 
 ### Log search
 
-With `NESTRIX_LOGS=all` the server stores every log record it receives, with or without a trace id, and the dashboard gets a Logs page (`GET /api/v1/logs`, also readable with an API token and through the MCP tool `search_logs`). The default `trace` keeps the behaviour above; the page and route still work and search what is stored. Filters: service, [environment](#environments), minimum severity, text, trace id and a time range (default last 24 hours); results are newest first and paged with a cursor. `text` matches whole words by default (PostgreSQL full text search; quotes, `or` and `-word` work); `match=substring` is a case-insensitive scan of the time range, so narrow the range first (a scan over 15 seconds answers 503). Lines are cut to 8,192 characters and marked truncated; lines not stored because of the per-trace cap, the per-minute cap or the retention window are counted and shown next to the results. A line with a trace id links to the trace when that trace is stored. Storage is bounded by `NESTRIX_LOG_RETENTION_DAYS` and the two caps.
+`GET /api/v1/logs` (also readable with an API token and through the MCP tool `search_logs`) and the dashboard's Logs page exist in every mode. With the default `NESTRIX_LOGS=trace` they search the lines the server stores under the behaviour below (only those with a trace id, 200 per trace); with `NESTRIX_LOGS=all` the server stores every log record it receives, with or without a trace id, up to `NESTRIX_LOGS_MAX_PER_TRACE` per trace. At most `NESTRIX_LOG_SEARCH_CONCURRENCY` searches run at once per process; more answer 503 with `Retry-After: 1`. Filters: service, [environment](#environments), minimum severity, text, trace id and a time range (default last 24 hours); results are newest first and paged with a cursor. `text` matches whole words by default (PostgreSQL full text search; quotes, `or` and `-word` work); `match=substring` is a case-insensitive scan of the time range, so narrow the range first (a scan over 15 seconds answers 503). Lines are cut to 8,192 characters and marked truncated; lines not stored because of the per-trace cap, the per-minute cap or the retention window are counted and shown next to the results. A line with a trace id links to the trace when that trace is stored. Storage is bounded by `NESTRIX_LOG_RETENTION_DAYS` and the two caps.
 
-Upgrade note: migration 0021 builds four indexes on `logs`. A partitioned table's indexes cannot be built concurrently, so log writes wait while it runs (reads and span ingest do not); a large install can pre-build them per partition with `CREATE INDEX CONCURRENTLY`, then `CREATE INDEX ... ON ONLY logs` and `ALTER INDEX ... ATTACH PARTITION` (the file's statements are `IF NOT EXISTS`, so they then do nothing). See the comments in `migrations/0021_logs_search.sql`.
+Upgrade note: migration `0021_logs_search.sql` adds `logs.truncated` and the `log_drops` table. The `ADD COLUMN` takes an `ACCESS EXCLUSIVE` lock on `logs` and its partitions, but rewrites nothing and commits at once (it waits for queries already running on `logs`, and new ones queue behind it for that moment). Migration `0022_logs_search_indexes.sql`, a separate transaction, builds four indexes on `logs`. A partitioned table's indexes cannot be built `CONCURRENTLY`, so it takes a `SHARE` lock on `logs` and each partition while they build: reads (search, trace view) and span ingest go on, log writes wait (a log export waits or answers 503 and is retried). On a large install pre-build the indexes first, without blocking writes; the migration then finds them and does nothing. The names must be exactly these, per partition `logs_pYYYYMMDD` (list them with `\d+ logs`), outside a transaction:
+
+```sql
+-- for each partition, the four indexes (outside a transaction):
+CREATE INDEX CONCURRENTLY logs_pYYYYMMDD_time_idx ON logs_pYYYYMMDD (time_ns DESC, trace_id DESC, record_hash DESC);
+CREATE INDEX CONCURRENTLY logs_pYYYYMMDD_service_time_idx ON logs_pYYYYMMDD (service_name, time_ns DESC, trace_id DESC, record_hash DESC);
+CREATE INDEX CONCURRENTLY logs_pYYYYMMDD_errors_time_idx ON logs_pYYYYMMDD (time_ns DESC, trace_id DESC, record_hash DESC) WHERE severity_number >= 17;
+CREATE INDEX CONCURRENTLY logs_pYYYYMMDD_body_fts_idx ON logs_pYYYYMMDD USING gin (to_tsvector('simple', body));
+-- once each, on the parent without touching the partitions:
+CREATE INDEX logs_time_idx ON ONLY logs (time_ns DESC, trace_id DESC, record_hash DESC);
+CREATE INDEX logs_service_time_idx ON ONLY logs (service_name, time_ns DESC, trace_id DESC, record_hash DESC);
+CREATE INDEX logs_errors_time_idx ON ONLY logs (time_ns DESC, trace_id DESC, record_hash DESC) WHERE severity_number >= 17;
+CREATE INDEX logs_body_fts_idx ON ONLY logs USING gin (to_tsvector('simple', body));
+-- for each partition and index:
+ALTER INDEX logs_time_idx ATTACH PARTITION logs_pYYYYMMDD_time_idx;
+ALTER INDEX logs_service_time_idx ATTACH PARTITION logs_pYYYYMMDD_service_time_idx;
+ALTER INDEX logs_errors_time_idx ATTACH PARTITION logs_pYYYYMMDD_errors_time_idx;
+ALTER INDEX logs_body_fts_idx ATTACH PARTITION logs_pYYYYMMDD_body_fts_idx;
+```
+
+Partitions created afterwards inherit the indexes.
 
 ### Traces and trace logs only
 

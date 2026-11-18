@@ -221,10 +221,7 @@ export function LogsPage() {
             className="divide-y divide-border rounded-lg border border-border font-mono text-xs"
           >
             {items.map((line) => (
-              <LogRow
-                key={`${line.timeUnixNano}-${line.traceId ?? ""}-${line.message.slice(0, 40)}`}
-                line={line}
-              />
+              <LogRow key={line.id} line={line} />
             ))}
           </ol>
           {logs.hasNextPage && (

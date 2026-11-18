@@ -12,7 +12,7 @@ export function renderLogs(res: LogSearchResponse, filters: string): string {
     }.`,
   );
   for (const item of res.items) {
-    const level = item.level !== "" ? item.level : `sev${item.severity}`;
+    const level = clean(item.level, 16) || `sev${item.severity}`;
     const trace =
       item.traceId === undefined
         ? ""

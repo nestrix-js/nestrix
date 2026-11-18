@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getTableConfig } from "drizzle-orm/pg-core";
@@ -7,6 +7,11 @@ import {
   DEFAULT_MIGRATIONS_DIR,
   runMigrations,
 } from "../../src/storage/migrate.js";
+import {
+  dayLabel,
+  ensurePartitions,
+  utcDay,
+} from "../../src/storage/partitions.js";
 import { schema } from "../../src/storage/schema.js";
 import {
   createTestDb,
@@ -49,6 +54,7 @@ describe.skipIf(noDatabase)(`migrations ${skipReason}`, () => {
       "0018_error_triage.sql",
       "0020_metric_minutes.sql",
       "0021_logs_search.sql",
+      "0022_logs_search_indexes.sql",
     ];
     const applied = [...a.applied, ...b.applied];
     expect(applied).toEqual(all);
@@ -141,3 +147,87 @@ describe.skipIf(noDatabase)(`migrations ${skipReason}`, () => {
     expect([...actual.keys()].filter((k) => !expected.has(k))).toEqual([]);
   });
 });
+
+describe.skipIf(noDatabase)(
+  `logs index pre-build (README upgrade note) ${skipReason}`,
+  () => {
+    let db: TestDb;
+    beforeAll(async () => {
+      db = await createTestDb("migratelogs");
+    });
+    afterAll(async () => {
+      await db?.drop();
+    });
+
+    it("0022 finds indexes built per partition, outside a transaction, and builds none of its own", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "nestrix-migrations-"));
+      await cp(DEFAULT_MIGRATIONS_DIR, dir, { recursive: true });
+      await rm(join(dir, "0022_logs_search_indexes.sql"));
+      expect((await runMigrations(db.pool, dir)).applied.at(-1)).toBe(
+        "0021_logs_search.sql",
+      );
+      const day = utcDay(Date.now());
+      await ensurePartitions(db.pool, [day]);
+      const part = `logs_p${dayLabel(day)}`;
+      // The README's statements, one by one (CONCURRENTLY cannot run in a transaction).
+      const defs: Array<[string, string, string]> = [
+        ["time", "(time_ns DESC, trace_id DESC, record_hash DESC)", ""],
+        [
+          "service_time",
+          "(service_name, time_ns DESC, trace_id DESC, record_hash DESC)",
+          "",
+        ],
+        [
+          "errors_time",
+          "(time_ns DESC, trace_id DESC, record_hash DESC)",
+          " WHERE severity_number >= 17",
+        ],
+        ["body_fts", "(to_tsvector('simple', body))", ""],
+      ];
+      for (const [name, cols, where] of defs) {
+        const using = name === "body_fts" ? " USING gin" : "";
+        await db.pool.query(
+          `CREATE INDEX CONCURRENTLY ${part}_${name}_idx ON ${part}${using} ${cols}${where}`,
+        );
+        await db.pool.query(
+          `CREATE INDEX logs_${name}_idx ON ONLY logs${using} ${cols}${where}`,
+        );
+        await db.pool.query(
+          `ALTER INDEX logs_${name}_idx ATTACH PARTITION ${part}_${name}_idx`,
+        );
+      }
+      const before = await db.pool.query(
+        "SELECT indexname FROM pg_indexes WHERE tablename = $1 ORDER BY 1",
+        [part],
+      );
+      expect((await runMigrations(db.pool, dir)).applied).toEqual([]);
+      // The real directory now has 0022; it applies on top without adding a second index.
+      const res = await runMigrations(db.pool);
+      expect(res.applied).toEqual(["0022_logs_search_indexes.sql"]);
+      const after = await db.pool.query(
+        "SELECT indexname FROM pg_indexes WHERE tablename = $1 ORDER BY 1",
+        [part],
+      );
+      expect(after.rows).toEqual(before.rows);
+      const { rows } = await db.pool.query(
+        `SELECT c.relname, i.indisvalid, EXISTS (SELECT 1 FROM pg_inherits h WHERE h.inhrelid = c.oid) AS attached
+           FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid
+          WHERE c.relname LIKE '${part}\\_%\\_idx'`,
+      );
+      expect(
+        rows.filter(
+          (r) =>
+            r.relname.includes("_time_idx") ||
+            r.relname.includes("_fts_idx") ||
+            r.relname.includes("_errors_time_idx"),
+        ),
+      ).not.toHaveLength(0);
+      for (const r of rows.filter((r) =>
+        /_(time|service_time|errors_time|body_fts)_idx$/.test(r.relname),
+      )) {
+        expect(r.indisvalid, r.relname).toBe(true);
+        expect(r.attached, r.relname).toBe(true);
+      }
+    });
+  },
+);
