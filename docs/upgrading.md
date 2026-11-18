@@ -149,7 +149,7 @@ New in 0.7 (#62, D-111). `OTEL_EXPORTER_OTLP_HEADERS_FILE` (and the `_TRACES_`, 
 
 ### `emitLog()`: logs from your own logger
 
-Until now only `NestrixLogger` lines were exported to `/v1/logs` and kept next to their trace. `emitLog({ level, message, context?, error?, attributes? })` sends a record from any logger through the same path and rules (D-89): call it from your `ConsoleLogger` subclass's print path, or from a pino destination, with the message your logger already redacted. Nothing changes for apps that do not call it, and `NestrixLogger` behaves as before. See [Logs from your own logger](../packages/nestjs/README.md#logs-from-your-own-logger).
+Until now only `NestrixLogger` lines were exported to `/v1/logs` and kept next to their trace. `emitLog({ level, message, context?, error?, attributes? })` sends a record from any logger through the same path and rules (D-89): call it from your `ConsoleLogger` subclass's print path, or from a pino destination, with the message your logger already redacted. Nothing changes for apps that do not call it, and `NestrixLogger` behaves as before. See [Logs from your own logger](https://github.com/nestrix-js/nestrix/blob/main/packages/nestjs/README.md#logs-from-your-own-logger).
 
 ## The bundled UI and the query API
 
