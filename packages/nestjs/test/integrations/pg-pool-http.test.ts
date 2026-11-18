@@ -29,7 +29,18 @@ import { PG_POOL_CONNECT_SPAN } from "../../src/integrations/pg-pool.js";
 import { NestrixModule } from "../../src/nestrix.module.js";
 import { collect, hostMeterProvider, points } from "../metrics/fixture.js";
 import { bootOwned } from "../stats-fixture.js";
-import { address, parentId, skipReason, waitUntil } from "./helpers.js";
+import {
+  address,
+  dbSpans,
+  durationMs,
+  parentId,
+  skipReason,
+  startMs,
+  waitUntil,
+} from "./helpers.js";
+
+/** The SDK's anchored clock and `performance.timeOrigin` differ by a fraction of a millisecond. */
+const CLOCK_SKEW_MS = 2;
 
 const require = createRequire(import.meta.url);
 // biome-ignore lint/suspicious/noExplicitAny: pg is untyped here on purpose (structural use only)
@@ -183,6 +194,16 @@ describe.skipIf(reason !== undefined)("pool wait in a Nest app", () => {
             (s) => s.spanContext().spanId === parentId(list[0] as ReadableSpan),
           );
           expect(parent?.spanContext().traceId).toBe(traceId);
+          // D-59: the request's BEGIN span starts after its wait ended.
+          const connect = list[0] as ReadableSpan;
+          const begin = dbSpans(finished).find(
+            (s) => s.name === "BEGIN" && s.spanContext().traceId === traceId,
+          );
+          expect(begin).toBeDefined();
+          if (begin !== undefined)
+            expect(startMs(begin)).toBeGreaterThanOrEqual(
+              startMs(connect) + durationMs(connect) - CLOCK_SKEW_MS,
+            );
           expect(list[0]?.attributes["db.client.connection.pool.name"]).toBe(
             name,
           );

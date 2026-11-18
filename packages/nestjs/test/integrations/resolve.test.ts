@@ -65,6 +65,10 @@ describe("integrations defaults and values", () => {
       "integrations.pg must be a boolean or { poolWaitThresholdMillis?: number | false }",
     ],
     [
+      { pg: { poolWaitThresholdMillis: null } },
+      "integrations.pg.poolWaitThresholdMillis must be false or a finite number of at least 0",
+    ],
+    [
       { pg: { poolWaitThresholdMillis: -1 } },
       "integrations.pg.poolWaitThresholdMillis must be false or a finite number of at least 0",
     ],

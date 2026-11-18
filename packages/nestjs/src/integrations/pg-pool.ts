@@ -16,8 +16,8 @@
  *   `db.client.connection.pool.name`. Recorded through `@opentelemetry/api`'s global
  *   `MeterProvider`, rebinding when it changes (as metrics/binding.ts does); nothing while it is the
  *   no-op one, nothing when `metrics: false`.
- * - Trace: an acquisition that succeeded after waiting at least `poolWaitThresholdMillis` (default
- *   5) adds an `INTERNAL` span `pg.pool.connect` from the call to the hand-out, under the caller's
+ * - Trace: an acquisition that found no free client (`idleCount > waitingCount` at the call) and
+ *   succeeded after waiting at least `poolWaitThresholdMillis` (default 5) adds an `INTERNAL` span `pg.pool.connect` from the call to the hand-out, under the caller's
  *   context, only inside a trace. It carries no `db.system.name`, so the dashboard does not count it
  *   as a query. A failed acquisition adds nothing: `pool.query()` keeps its existing failure span.
  *
@@ -158,7 +158,9 @@ export function poolName(source: unknown): string | undefined {
   const port = toPort(params.port);
   const database = toText(params.database);
   if (host === undefined || host === "") return undefined;
-  if (host.includes(":") && !host.startsWith("[")) host = `[${host}]`;
+  // IPv6 in brackets; a Unix socket path (Cloud SQL: `/cloudsql/proj:region:inst`) as it is.
+  if (host.includes(":") && !host.startsWith("[") && !host.startsWith("/"))
+    host = `[${host}]`;
   return `${host}${port === undefined ? "" : `:${port}`}${
     database === undefined || database === "" ? "" : `/${database}`
   }`;
@@ -174,8 +176,9 @@ function nameFor(pool: object, client: unknown): string {
   return name;
 }
 
-function track(pool: object): void {
-  if (trackedSet.has(pool)) return;
+/** Tracks `pool`; `false` past the cap, so its waits are not recorded either (bounded series). */
+function track(pool: object): boolean {
+  if (trackedSet.has(pool)) return true;
   if (tracked.size >= MAX_TRACKED_POOLS) {
     sweep();
     if (tracked.size >= MAX_TRACKED_POOLS) {
@@ -188,11 +191,27 @@ function track(pool: object): void {
           ),
         );
       }
-      return;
+      return false;
     }
   }
   trackedSet.add(pool);
   tracked.add(new WeakRef(pool));
+  return true;
+}
+
+/**
+ * Whether this call will be served by an idle client: more idle clients than callers already
+ * queued. pg-pool still hands an idle client out on `process.nextTick`, so synchronous work after
+ * `connect()` would otherwise count as a wait (D-98). Read from pg-pool's public getters.
+ */
+function hasFreeClient(pool: object): boolean {
+  try {
+    const p = pool as PoolLike;
+    return count(p.idleCount) > count(p.waitingCount);
+  } catch (error) {
+    countFailure("integrations.pg.pool.free", error);
+    return false;
+  }
 }
 
 function sweep(): void {
@@ -378,8 +397,10 @@ function planConnect(pool: unknown, args: unknown[]): ConnectPlan | undefined {
   if (pool === null || typeof pool !== "object") return undefined;
   const startedAt = performance.now();
   const parent = context.active();
+  const free = hasFreeClient(pool);
+  let record = false;
   if (c.metrics) {
-    track(pool);
+    record = track(pool);
     waitHistogram(); // binds the count instruments on first use
   }
   let settled = false;
@@ -395,9 +416,10 @@ function planConnect(pool: unknown, args: unknown[]): ConnectPlan | undefined {
       const attributes: Attributes = {
         [ATTR_DB_CLIENT_CONNECTION_POOL_NAME]: name,
       };
-      if (c.metrics) waitHistogram()?.record(waitMillis / 1000, attributes);
+      if (record) waitHistogram()?.record(waitMillis / 1000, attributes);
       const threshold = c.waitThresholdMillis;
       if (
+        !free &&
         threshold !== false &&
         waitMillis >= threshold &&
         hasActiveSpan(parent) &&
