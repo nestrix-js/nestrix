@@ -106,7 +106,7 @@ Points to know:
 
 Migrations run when a server starts, in order, under a PostgreSQL advisory lock, so replicas starting together are safe. **There is no downgrade: take a backup first.**
 
-**Policy.** Migrations are additive: they add tables, columns (nullable or with defaults) and indexes, and do not drop, rename or retype anything the previous release reads or writes. All 14 migrations in the repository today are like that (no `DROP TABLE`, `DROP COLUMN`, `RENAME` or `ALTER COLUMN` in any of them). A release that breaks this says so in its release notes with **stop all replicas first**, and you then scale to zero before deploying. This is a commitment for the 0.x line, recorded as D-109; it is a policy, not something the code can check.
+**Policy.** Migrations are additive: they add tables, columns (nullable or with defaults) and indexes, and do not drop, rename or retype anything the previous release reads or writes. The 14 migrations of 0.6.0 are like that (no `DROP TABLE`, `DROP COLUMN`, `RENAME` or `ALTER COLUMN` in any of them). A release that breaks this says so in its release notes with **stop all replicas first**, and you then scale to zero before deploying. This is a commitment for the 0.x line, recorded as D-109; it is a policy, not something the code can check. **The environments release (migration `0016`) breaks it:** see the next section.
 
 Evidence for "the previous version keeps working on the new schema for one minor", **measured** on 2026-11-18: with a database migrated by the 0.6.0 image (14 migrations), the 0.5.0 image started against it, accepted 200 traces and 400 log lines, and stored them, while a 0.6.0 server ran on the same database and did the same. Only ingest was exercised, not the dashboard.
 
@@ -117,7 +117,18 @@ So a rolling upgrade (start the new replica, then stop an old one) is safe for a
 3. Change the image tag and digest, deploy.
 4. Check `/readyz` on the new replicas (it is 503 until every migration is applied).
 
-Roll back by deploying the previous tag: that works only if the new release's migrations were additive, which is the same policy, and the old server ignores migrations it does not know. For anything else, restore the backup.
+Roll back by deploying the previous tag (for an additive release): that works only if the new release's migrations were additive, which is the same policy, and the old server ignores migrations it does not know. For anything else, restore the backup.
+
+### The environments release: stop all replicas first
+
+Migration `0016_environments.sql` replaces the primary keys of `route_minutes` and `class_minutes` with unique keys that include `environment`. A server from before this release still upserts them with the old `ON CONFLICT` columns, which PostgreSQL rejects after the migration (`there is no unique or exclusion constraint matching the ON CONFLICT specification`): an old replica still taking traffic fails its ingest transactions. A rolling update therefore must not be used for this release, whatever the chart or stack default is. Upgrade like this:
+
+1. Back up with `pg_dump` (above). This is the only way back.
+2. Scale the server to zero and wait until nothing runs: `docker compose stop`, `docker service scale nestrix_server=0` (Swarm), or `kubectl -n nestrix scale deploy/nestrix-server --replicas=0` (Helm).
+3. Deploy the new tag and digest with one replica so the migration runs alone: Swarm `docker stack deploy` then `docker service scale nestrix_server=1`; Helm `helm upgrade --set replicaCount=1 ...`. With no old replica left, the chart's `RollingUpdate` strategy and the stack's `start-first` order do no harm; they are not changed. Wait for `/readyz`.
+4. Scale back up (`docker service scale nestrix_server=2`; `helm upgrade` without the `replicaCount` override).
+
+Ingest is down between steps 2 and 3. To roll back, stop the new replicas, restore the backup and start the previous version: it cannot run on the migrated schema (its rollup writes fail), so deploying the previous tag is not a rollback for this release. The regression test `apps/server/test/storage/old-writer-compat.test.ts` runs the 0.6.0 statements against the new schema and fails if this changes.
 
 ## TLS and the reverse proxy
 

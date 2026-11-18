@@ -37,7 +37,7 @@ Point your apps at it with `OTEL_EXPORTER_OTLP_ENDPOINT=https://nestrix.example.
 
 ## Upgrade
 
-Read the release notes, back up (below), read the new digest (`docker buildx imagetools inspect ghcr.io/nestrix-js/nestrix-server:<version>`), change the tag and digest in `stack.yml`, and `docker stack deploy` again. If the notes say "stop all replicas first": `docker service scale nestrix_server=0` before deploying.
+Read the release notes, back up (below), read the new digest (`docker buildx imagetools inspect ghcr.io/nestrix-js/nestrix-server:<version>`), change the tag and digest in `stack.yml`, and `docker stack deploy` again. If the notes say "stop all replicas first" (the environments release, migration 0016, does): `docker service scale nestrix_server=0` before deploying, deploy with the new tag, `docker service scale nestrix_server=1`, wait for `/readyz`, then scale to 2. `order: start-first` stays as it is: it does no harm with no old replica running. Full steps: production.md, "The environments release".
 
 ## Backup and restore
 

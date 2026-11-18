@@ -490,6 +490,17 @@ Partitions created after that inherit the index.
 
 ### Upgrading to environments (issue #28)
 
+**This release cannot be upgraded with a rolling update: stop every server replica first.** `0016` replaces the primary keys of `route_minutes` and `class_minutes` with unique keys that include `environment`. The 0.6.0 server upserts those tables with `ON CONFLICT (minute, service_name, method, route)` (and `(minute, service_name, class_name, method_name)`); once `0016` has run PostgreSQL rejects both (`there is no unique or exclusion constraint matching the ON CONFLICT specification`), so a 0.6.0 replica that is still taking traffic fails its ingest transactions and loses those batches. No key serves both writers (a unique index on the old columns would forbid the same route in two environments). `test/storage/old-writer-compat.test.ts` pins this. Every other statement of the 0.6.0 server still works on the new schema.
+
+Steps:
+
+1. Back up: `pg_dump --format=custom` as in the production guide, "Backup and restore". This is your way back.
+2. Stop all replicas. Plain Docker or compose: `docker compose stop nestrix`. Swarm: `docker service scale nestrix_server=0`. Helm: `kubectl -n nestrix scale deploy/nestrix-server --replicas=0`. Wait until no old container or pod is running.
+3. Start the new version. The chart's default `RollingUpdate` strategy is harmless once nothing runs, but start one replica first so the migration runs on its own: Swarm, change the tag and digest in `stack.yml`, `docker stack deploy` and then `docker service scale nestrix_server=1`; Helm, `helm upgrade --set replicaCount=1 ...` with the new `image.tag` and `image.digest`. Wait for `/readyz` (503 until every migration is applied).
+4. Scale back up: Swarm `docker service scale nestrix_server=2`; Helm `helm upgrade` again without the `replicaCount` override. Rolling updates are safe again for the next release unless its notes say otherwise.
+
+Ingest is down for the duration; SDKs buffer and retry within their own limits. To roll back, stop the new replicas, restore the backup into the database and start the previous version: it cannot run on the migrated schema, so deploying the previous tag over it is not a rollback.
+
 `0016_environments.sql` adds a nullable `environment` column to `spans`, `traces`, `route_minutes`, `class_minutes`, `logs`, `instances`, `alert_rules` and `slos` (catalog changes, no rewrite; each takes a brief `ACCESS EXCLUSIVE` lock), then builds a new unique key on `route_minutes` and `class_minutes` and drops their old primary keys. Those two tables hold one row per minute, service and route (or class method), far fewer than `spans`, so the build is normally seconds. It needs PostgreSQL 15 or later (`NULLS NOT DISTINCT`). A partitioned table's index cannot be built `CONCURRENTLY`, so the migration's build takes a `SHARE` lock on both tables and their partitions (reads go on, ingest's rollup writes wait). On a large install build the keys first without blocking writes, then upgrade; the migration finds the indexes by name (`CREATE UNIQUE INDEX IF NOT EXISTS`) and only drops the old primary keys. The pattern is the one of the `spans` and `traces` indexes above: one index per partition, `CONCURRENTLY`, then the parent's index `ON ONLY`, then attach each partition's:
 
 ```sql
