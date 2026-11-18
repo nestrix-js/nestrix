@@ -10,9 +10,11 @@
  * than `sampling.keepSlowerThanMs`, and dropped otherwise.
  *
  * Imports nothing from the SDK (rule 5); the class is generic over the span type. Every exported
- * function catches everything (rule 1). Bounded: at most {@link MAX_BUFFERED_SPANS} spans held and
- * {@link MAX_TAIL_TRACES} traces tracked in each map; the oldest trace goes first, and the spans it
- * held are counted as dropped.
+ * function catches everything (rule 1). Bounded: at most {@link MAX_BUFFERED_SPANS} spans and log
+ * lines held and {@link MAX_TAIL_TRACES} traces tracked in each map; the oldest trace goes first,
+ * and the spans it held are counted as dropped. Held log bodies also have a byte budget,
+ * {@link MAX_HELD_LOG_BYTES} for the process: a line that would go over it is dropped and counted
+ * (`droppedLogs`), so the held lines cost at most a few MiB, not 10,000 bodies of 8 KiB.
  */
 import { diagnostics } from "./diagnostics.js";
 import type { TraceLogInput } from "./logs/sink.js";
@@ -25,6 +27,20 @@ export const MAX_BUFFERED_SPANS = 10_000;
 export const MAX_TAIL_TRACES = 10_000;
 /** Log lines held for one undecided trace; more are dropped and counted. */
 export const MAX_HELD_LOGS_PER_TRACE = 50;
+/** Estimated bytes of the log lines held for undecided traces, in the whole process (4 MiB). */
+export const MAX_HELD_LOG_BYTES = 4 * 1024 * 1024;
+/** Estimated fixed cost of one held line besides its text (the object, ids, time, level). */
+const HELD_LOG_OVERHEAD_BYTES = 128;
+
+/**
+ * Estimated memory of a held log line: two bytes per UTF-16 code unit of its body and context
+ * (V8 may store Latin-1 text in one, so this over-counts, never under), plus a fixed overhead.
+ */
+export function heldLogBytes(log: TraceLogInput): number {
+  const body = typeof log.body === "string" ? log.body.length : 0;
+  const context = typeof log.context === "string" ? log.context.length : 0;
+  return HELD_LOG_OVERHEAD_BYTES + 2 * (body + context);
+}
 
 interface Pending<S> {
   /** Recorded local roots started and not yet ended. */
@@ -33,6 +49,8 @@ interface Pending<S> {
   spans: S[];
   /** Log lines written under the trace's recording spans, waiting for the decision. */
   logs: TraceLogInput[];
+  /** {@link heldLogBytes} of `logs`. */
+  logBytes: number;
   /** A span of the trace failed (D-94: status error, unless every exception on it is expected). */
   failed: boolean;
   /** A root that ended said keep: from then on spans are passed on at once. */
@@ -52,29 +70,40 @@ export class TailRegistry<S> {
   /** Sampled (head) traces in which a span failed before the root ended. */
   private readonly sampledFailed = new Set<string>();
   private bufferedSpans = 0;
+  /** {@link heldLogBytes} of every held line. */
+  private totalLogBytes = 0;
   /** Spans dropped because a bound was reached (not the spans the decision dropped). */
   droppedSpans = 0;
   /** Log lines dropped because a bound was reached (not the lines the decision dropped). */
   droppedLogs = 0;
   private readonly maxSpans: number;
   private readonly maxTraces: number;
+  private readonly maxLogBytes: number;
   private readonly onDropped: (count: number) => void;
 
   constructor(
     options: {
       maxSpans?: number;
       maxTraces?: number;
+      /** Byte budget of held log lines (default {@link MAX_HELD_LOG_BYTES}). */
+      maxLogBytes?: number;
       onDropped?: (count: number) => void;
     } = {},
   ) {
     this.maxSpans = options.maxSpans ?? MAX_BUFFERED_SPANS;
     this.maxTraces = options.maxTraces ?? MAX_TAIL_TRACES;
+    this.maxLogBytes = options.maxLogBytes ?? MAX_HELD_LOG_BYTES;
     this.onDropped = options.onDropped ?? (() => {});
   }
 
   /** Spans held now, for tests and diagnostics. */
   get buffered(): number {
     return this.bufferedSpans;
+  }
+
+  /** Estimated bytes of the log lines held now, for tests and diagnostics. */
+  get bufferedLogBytes(): number {
+    return this.totalLogBytes;
   }
 
   /** Undecided traces now, for tests and diagnostics. */
@@ -99,6 +128,7 @@ export class TailRegistry<S> {
       liveRoots: 1,
       spans: [],
       logs: [],
+      logBytes: 0,
       failed: false,
       keep: false,
       rootDecision: undefined,
@@ -166,15 +196,28 @@ export class TailRegistry<S> {
       return decision ? "pass" : "drop";
     }
     if (entry.keep) return "pass";
+    const bytes = heldLogBytes(log);
     if (
       entry.logs.length >= MAX_HELD_LOGS_PER_TRACE ||
-      !this.makeRoom(traceId, entry)
+      this.totalLogBytes + bytes > this.maxLogBytes
     ) {
+      if (entry.logs.length < MAX_HELD_LOGS_PER_TRACE) {
+        diagnostics.logOnce(
+          "tail-sampling.log-bytes",
+          `Log lines held for undecided traces reached their budget (${this.maxLogBytes} bytes), so further lines of undecided traces are dropped until some are decided. Lower the log volume, or raise sampleRate.`,
+        );
+      }
+      this.countDroppedLogs(1);
+      return "drop";
+    }
+    if (!this.makeRoom(traceId, entry)) {
       this.countDroppedLogs(1);
       return "drop";
     }
     entry.logs.push(log);
+    entry.logBytes += bytes;
     this.bufferedSpans++;
+    this.totalLogBytes += bytes;
     return "held";
   }
 
@@ -210,15 +253,11 @@ export class TailRegistry<S> {
       entry.keep = true;
       released.spans = entry.spans;
       released.logs = entry.logs;
-      this.bufferedSpans -= entry.spans.length + entry.logs.length;
-      entry.spans = [];
-      entry.logs = [];
+      this.release(entry);
     }
     if (entry.liveRoots === 0) {
       this.pending.delete(traceId);
-      this.bufferedSpans -= entry.spans.length + entry.logs.length;
-      entry.spans = [];
-      entry.logs = [];
+      this.release(entry);
       this.decide(traceId, entry.keep);
     }
     return released;
@@ -245,6 +284,16 @@ export class TailRegistry<S> {
     this.decided.clear();
     this.sampledFailed.clear();
     this.bufferedSpans = 0;
+    this.totalLogBytes = 0;
+  }
+
+  /** Takes what `entry` holds off the totals and empties it (the arrays are not mutated). */
+  private release(entry: Pending<S>): void {
+    this.bufferedSpans -= entry.spans.length + entry.logs.length;
+    this.totalLogBytes -= entry.logBytes;
+    entry.spans = [];
+    entry.logs = [];
+    entry.logBytes = 0;
   }
 
   private decide(traceId: string, keep: boolean): void {
@@ -271,11 +320,13 @@ export class TailRegistry<S> {
     if (found === undefined) return false;
     const [traceId, entry] = found;
     this.pending.delete(traceId);
-    this.bufferedSpans -= entry.spans.length + entry.logs.length;
+    const spans = entry.spans.length;
+    const logs = entry.logs.length;
+    this.release(entry);
     // Its later spans are not recorded (the sampler asks `isRecording`), and any that end are dropped.
     this.decide(traceId, false);
-    this.countDropped(entry.spans.length);
-    if (entry.logs.length > 0) this.countDroppedLogs(entry.logs.length);
+    this.countDropped(spans);
+    if (logs > 0) this.countDroppedLogs(logs);
     diagnostics.logOnce(
       "tail-sampling.evicted",
       `The tail-sampling buffer reached its bound (${this.maxSpans} spans or ${this.maxTraces} undecided traces), so the oldest undecided trace was dropped; such drops are counted in getExportStatus().traces.dropped. Lower the load, or raise sampleRate.`,
