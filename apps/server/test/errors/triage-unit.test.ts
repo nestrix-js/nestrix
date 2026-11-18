@@ -2,7 +2,11 @@
 import type { ErrorGroup } from "@nestrix-js/protocol";
 import { describe, expect, it } from "vitest";
 import { validateRuleInput } from "../../src/alerts/store.js";
-import { aggregate, regressionTime } from "../../src/errors/sync.js";
+import {
+  aggregate,
+  countedInChunk,
+  regressionTime,
+} from "../../src/errors/sync.js";
 import {
   combineTriage,
   keyHashOf,
@@ -338,5 +342,28 @@ describe("new_error_group rule input", () => {
       { metric: "new_error_group", threshold: 0, service_name: null },
     );
     expect(v.ok).toBe(false);
+  });
+});
+
+describe("countedInChunk (audit, D-103)", () => {
+  it("counts every occurrence read exactly once over meeting chunks", () => {
+    const overlap = 20;
+    // Chunk ends, some short, some longer than the overlap.
+    const ends = [0, 7, 30, 31, 55, 100, 104, 160, 200];
+    for (let start = 1; start < 200; start += 1) {
+      for (const length of [0, 1, 5, 19, 20, 21, 45, 120]) {
+        const o = { timeUnixMs: start + length, startUnixMs: start };
+        if (o.timeUnixMs > 200) continue;
+        let times = 0;
+        for (let k = 0; k + 1 < ends.length; k++) {
+          const wm = ends[k] as number;
+          const to = ends[k + 1] as number;
+          // What a run reads: spans started in [wm - overlap, to].
+          if (start < wm - overlap || start > to) continue;
+          if (countedInChunk(o, wm, to, overlap)) times++;
+        }
+        expect({ start, length, times }).toEqual({ start, length, times: 1 });
+      }
+    }
   });
 });

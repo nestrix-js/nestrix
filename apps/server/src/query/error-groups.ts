@@ -2,7 +2,8 @@
  * Error groups (P9-04): error occurrences grouped by (error type, normalised message, route).
  * Pure functions. `packages/nestjs/src/store/error-groups.ts` is the embedded copy
  * (the server cannot import this package's internals); keep the two in step, both have the same
- * unit tests.
+ * unit tests. One server-only difference: `ErrorOccurrence.startUnixMs` (the time the server's SQL
+ * bounds by) places an occurrence in the window, and the window ends exactly at `now`.
  */
 import type {
   ErrorGroup,
@@ -26,6 +27,12 @@ export interface ErrorOccurrence {
   readonly release?: string | undefined;
   /** The span's environment (standalone server, D-101); absent is unset. */
   readonly environment?: string | undefined;
+  /**
+   * Server only: the span's start (microsecond precision), the time its SQL reads are bounded by.
+   * When set, it decides which window, bucket and history an occurrence belongs to (`timeUnixMs`
+   * stays the shown time), so the grouping agrees with the rows the bounds selected (D-107).
+   */
+  readonly startUnixMs?: number | undefined;
 }
 
 const MAX_PATTERN = 300;
@@ -169,8 +176,11 @@ export function groupErrors(
   const releaseFirstSeen = new Map<string, number>();
   let oldest = fromUnixMs;
   for (const o of occurrences) {
-    if (o.timeUnixMs > now + bucketMs) continue;
-    if (o.timeUnixMs < oldest) oldest = o.timeUnixMs;
+    // The server's occurrences carry the start its SQL bounded by: they belong to the window only
+    // up to its end, exactly. The embedded copy keeps a bucket of slack on the exception time.
+    const at = o.startUnixMs ?? o.timeUnixMs;
+    if (o.startUnixMs !== undefined ? at > now : at > now + bucketMs) continue;
+    if (at < oldest) oldest = at;
     const pattern = o.message === undefined ? "" : normaliseMessage(o.message);
     const key = groupKeyOf(o.errorType, pattern, o.route);
     if (o.release !== undefined) {
@@ -196,7 +206,7 @@ export function groupErrors(
         }
       }
     }
-    if (o.timeUnixMs < fromUnixMs) {
+    if (at < fromUnixMs) {
       const b = before.get(key);
       if (b === undefined) {
         before.set(key, { firstMs: o.timeUnixMs, lastMs: o.timeUnixMs });
@@ -241,7 +251,7 @@ export function groupErrors(
     g.count++;
     const index = Math.min(
       buckets - 1,
-      Math.floor((o.timeUnixMs - fromUnixMs) / bucketMs),
+      Math.floor((at - fromUnixMs) / bucketMs),
     );
     g.series[index] = (g.series[index] ?? 0) + 1;
     if (o.timeUnixMs < g.firstSeenUnixMs) g.firstSeenUnixMs = o.timeUnixMs;
