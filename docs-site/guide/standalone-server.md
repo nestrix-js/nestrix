@@ -72,6 +72,7 @@ The server reads its configuration from the environment at start and validates i
 | `NESTRIX_MAX_CONNECTIONS` | `1024` | Node's `server.maxConnections`. |
 | `NESTRIX_WEBHOOK_ALLOWED_HOSTS` | empty | Comma-separated hosts that alert webhooks may reach although they resolve to private addresses. |
 | `NESTRIX_PUBLIC_URL` | unset | The dashboard's `http(s)` address, used for links in alert notifications. |
+| `NESTRIX_INDEXED_ATTRIBUTES` | unset | Comma-separated span attribute keys (at most 16, for example `tenant.id`) stored per trace at ingest, so traces and errors can be filtered with `attr.<key>=<value>`. Nothing is indexed without it; a key listed later is not backfilled. |
 
 ## Ingest authentication
 

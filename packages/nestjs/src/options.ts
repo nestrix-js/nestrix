@@ -330,6 +330,34 @@ export interface NestrixModuleOptions {
    * nothing and is counted; the request is never affected. The attribute goes through `redact`.
    */
   user?(request: unknown): string | number | undefined;
+  /**
+   * Reads attributes of a request, such as its tenant or API client, set on the server span
+   * (issue #27, D-102): `{ 'tenant.id': request.user?.tenantId, 'app.client_id': ... }`. Off by
+   * default: a tenant id can be personal data. Called with the same request object as `user`, at
+   * most once per sampled request: when the response has closed, or earlier when the handler
+   * queues a job and `contextPropagation.keys` lists a key (guards have run by then). Must be
+   * synchronous and return a plain object. Values: strings (cut to 256 characters), finite numbers,
+   * booleans; `undefined` skips the key. At most 32 keys; names start with a letter and use
+   * letters, digits, `_`, `.` and `-`; the `nestrix.`, `http.`, `url.`, `exception.` and other
+   * semantic-convention prefixes and `user.id` are refused. A throw, a promise or an invalid entry
+   * records nothing for it and is counted; the request is never affected. Values go through
+   * `redact`. For work without a request, call `setTraceAttributes()`.
+   */
+  context?(
+    request: unknown,
+  ): Record<string, string | number | boolean | undefined> | undefined;
+  /**
+   * Carries some `context` and `setTraceAttributes()` keys to the jobs a request queues, as W3C
+   * baggage in BullMQ's job metadata (`bullmqTelemetry()`), so the job's consumer span in the worker
+   * carries them too (D-102). Default: nothing is propagated. The worker process must list the same
+   * keys: only listed keys are read back from a job. With `outgoing: true` they are also sent in the
+   * `baggage` header of outgoing HTTP requests (`node:http`, `fetch`) to every downstream service,
+   * so leave it off unless those services are your own. At most 16 keys.
+   */
+  contextPropagation?: {
+    keys: string[];
+    outgoing?: boolean;
+  };
   /** Method spans (level 2). `false` turns them off. */
   methods?: false | NestrixMethodsOptions;
   /** Database and cache spans (level 3). */

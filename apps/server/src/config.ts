@@ -173,6 +173,12 @@ export interface ServerConfig {
    * break-glass admin). `false` is accepted only with OIDC configured.
    */
   readonly passwordLogin?: boolean;
+  /**
+   * `NESTRIX_INDEXED_ATTRIBUTES` (issue #27, D-102): span attribute keys stored per trace in an
+   * indexed column at ingest and offered as `attr.<key>=` filters. Empty by default: nothing is
+   * indexed. Keys arriving before a key was listed are not backfilled.
+   */
+  readonly indexedAttributes: readonly string[];
 }
 
 export const LOG_LEVEL_NAMES = [
@@ -209,6 +215,38 @@ export const DEFAULT_LOGS_MAX_PER_MINUTE = 30_000;
 export const DEFAULT_MAX_SPANS_PER_TRACE = 50_000;
 export const MIN_MAX_SPANS_PER_TRACE = 1_000;
 export const MAX_MAX_SPANS_PER_TRACE = 10_000_000;
+/** `NESTRIX_INDEXED_ATTRIBUTES` (D-102): at most this many keys, each matching the protocol's pattern. */
+export const MAX_INDEXED_ATTRIBUTES = 16;
+const INDEXED_ATTRIBUTE_KEY = /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/;
+
+/**
+ * The keys of `NESTRIX_INDEXED_ATTRIBUTES` (comma-separated, spaces ignored, duplicates dropped),
+ * with a message per problem in `errors`.
+ */
+export function parseIndexedAttributes(
+  raw: string | undefined,
+  errors: string[],
+): string[] {
+  const keys: string[] = [];
+  for (const entry of (raw ?? "").split(",")) {
+    const key = entry.trim();
+    if (key === "") continue;
+    if (!INDEXED_ATTRIBUTE_KEY.test(key)) {
+      errors.push(
+        `NESTRIX_INDEXED_ATTRIBUTES: "${key.slice(0, 64)}" is not an attribute name (a letter, then at most 127 letters, digits, '_', '.' or '-').`,
+      );
+      continue;
+    }
+    if (!keys.includes(key)) keys.push(key);
+  }
+  if (keys.length > MAX_INDEXED_ATTRIBUTES) {
+    errors.push(
+      `NESTRIX_INDEXED_ATTRIBUTES lists ${keys.length} keys; at most ${MAX_INDEXED_ATTRIBUTES} can be indexed.`,
+    );
+  }
+  return keys;
+}
+
 export const DEFAULT_METRICS_MAX_SERIES_PER_SERVICE = 2_000;
 export const DEFAULT_METRICS_MAX_SERIES = 20_000;
 export const DEFAULT_INGEST: Omit<
@@ -558,6 +596,10 @@ export function loadConfig(
   const trusted = parseTrustedProxies(present(env, "NESTRIX_TRUSTED_PROXIES"));
   if (!trusted.ok) errors.push(...trusted.errors);
   const trustedProxies = trusted.ok ? trusted.value : undefined;
+  const indexedAttributes = parseIndexedAttributes(
+    present(env, "NESTRIX_INDEXED_ATTRIBUTES"),
+    errors,
+  );
 
   // Issue #18 (D-105): `on` or `off` (default), nothing else.
   const metricsRaw = present(env, "NESTRIX_METRICS")?.trim().toLowerCase();
@@ -642,6 +684,7 @@ export function loadConfig(
       }),
       oidc,
       passwordLogin,
+      indexedAttributes: Object.freeze(indexedAttributes),
     }),
   };
 }

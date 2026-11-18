@@ -104,7 +104,10 @@ export interface TraceListQuery {
   readonly status?: "ok" | "error" | "4xx" | "5xx" | undefined;
   readonly minDurationMs?: number | undefined;
   readonly maxDurationMs?: number | undefined;
-  /** Case-insensitive substring of any span name in the trace, or of the route. */
+  /**
+   * Case-insensitive substring of any span name in the trace, or of the route; or exactly a
+   * request id recorded on the trace (its `x-request-id` request or response header, D-102).
+   */
   readonly search?: string | undefined;
   /**
    * `TraceSummary.type`, except `job`, which matches every trace with `hasJob` (any root): a
@@ -120,6 +123,8 @@ export interface TraceListQuery {
   /** The root started at or after / at or before this Unix time in milliseconds. */
   readonly fromUnixMs?: number | undefined;
   readonly toUnixMs?: number | undefined;
+  /** D-102: every `[key, value]` must equal the trace's attribute text (`traceAttributeText`). */
+  readonly attributes?: ReadonlyArray<readonly [string, string]> | undefined;
 }
 
 /** The filters of {@link TraceListQuery}, without paging. */
@@ -130,6 +135,8 @@ export interface ErrorListQuery {
   readonly before?: string | undefined;
   readonly after?: string | undefined;
   readonly route?: string | undefined;
+  /** D-102: the error's trace has these attribute values. */
+  readonly attributes?: ReadonlyArray<readonly [string, string]> | undefined;
 }
 
 /** Counters only grow, except the current sizes (`traces`, `spans`, `bytes`, ...). */
@@ -197,7 +204,11 @@ export interface TraceStore {
   getTraceLogs(traceId: string): TraceLogsResponse;
   listErrors(query: ErrorListQuery): ErrorListResponse;
   /** Error occurrences of the window grouped by (type, normalised message, route). */
-  groupErrors(windowMinutes: number, now?: number): ErrorGroupsResponse;
+  groupErrors(
+    windowMinutes: number,
+    now?: number,
+    attributes?: ReadonlyArray<readonly [string, string]>,
+  ): ErrorGroupsResponse;
   /**
    * Error events by weekday and hour (UTC) and per release over the last 7 days, as far as the
    * store holds them (`coveredFromUnixMs`). Never throws.
@@ -359,6 +370,68 @@ function randomId(): string {
 function stringAttr(record: SpanRecord, key: string): string | undefined {
   const value = record.attributes[key];
   return typeof value === "string" ? value : undefined;
+}
+
+/** An attribute's text as the filters compare it (D-102): strings, finite numbers, booleans. */
+function attributeTextOf(value: unknown): string | undefined {
+  if (typeof value === "string") return value === "" ? undefined : value;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value) : undefined;
+  }
+  if (typeof value === "boolean") return value ? "true" : "false";
+  return undefined;
+}
+
+/**
+ * The trace's value of attribute `key` (D-102), as the standalone server indexes it: the root's,
+ * else the first span's (in stored order) that has one.
+ */
+function traceAttributeText(
+  spans: readonly SpanRecord[],
+  root: SpanRecord | undefined,
+  key: string,
+): string | undefined {
+  if (root !== undefined) {
+    const own = attributeTextOf(root.attributes[key]);
+    if (own !== undefined) return own;
+  }
+  for (const span of spans) {
+    const text = attributeTextOf(span.attributes[key]);
+    if (text !== undefined) return text;
+  }
+  return undefined;
+}
+
+function matchesAttributes(
+  spans: readonly SpanRecord[],
+  root: SpanRecord | undefined,
+  filters: ReadonlyArray<readonly [string, string]> | undefined,
+): boolean {
+  if (filters === undefined) return true;
+  for (const [key, value] of filters) {
+    if (traceAttributeText(spans, root, key) !== value) return false;
+  }
+  return true;
+}
+
+/** Recorded request ids (D-102): `x-request-id`, as the header allowlist records it. */
+const REQUEST_ID_ATTRIBUTES = [
+  "http.request.header.x-request-id",
+  "http.response.header.x-request-id",
+];
+
+/** Whether `needle` is exactly one of the request ids recorded on the trace's spans. */
+function hasRequestId(spans: readonly SpanRecord[], needle: string): boolean {
+  // An always-redacted header is recorded as `REDACTED`: that is not anyone's request id.
+  if (needle === "REDACTED") return false;
+  for (const span of spans) {
+    for (const key of REQUEST_ID_ATTRIBUTES) {
+      const value = span.attributes[key];
+      if (value === needle) return true;
+      if (Array.isArray(value) && value.includes(needle)) return true;
+    }
+  }
+  return false;
 }
 
 /** Nest's levels as OTLP `SeverityNumber` (the values `logs/export.ts` sends). */
@@ -1073,9 +1146,15 @@ class Store implements TraceStore {
   private matcher(filter: TraceFilter): (entry: TraceEntry) => boolean {
     const query = filter;
     const method = query.method?.toUpperCase();
-    const search = query.search?.toLowerCase();
+    const rawSearch = query.search;
+    const search = rawSearch?.toLowerCase();
+    const attributes =
+      query.attributes !== undefined && query.attributes.length > 0
+        ? query.attributes
+        : undefined;
     return (entry: TraceEntry): boolean => {
       const root = entry.root as SpanRecord;
+      if (!matchesAttributes(entry.spans, root, attributes)) return false;
       const route = stringAttr(root, ATTR_ROUTE);
       if (
         query.fromUnixMs !== undefined &&
@@ -1150,7 +1229,8 @@ class Store implements TraceStore {
         for (const span of entry.spans) {
           if (span.name.toLowerCase().includes(search)) return true;
         }
-        return false;
+        // D-102: a request id a customer quotes, exactly as recorded.
+        return hasRequestId(entry.spans, rawSearch as string);
       }
       return true;
     };
@@ -1281,7 +1361,16 @@ class Store implements TraceStore {
 
   listErrors(query: ErrorListQuery): ErrorListResponse {
     try {
+      const attributes =
+        query.attributes !== undefined && query.attributes.length > 0
+          ? query.attributes
+          : undefined;
       const matches = (entry: ErrorEntry): boolean => {
+        if (
+          !matchesAttributes(entry.trace.spans, entry.trace.root, attributes)
+        ) {
+          return false;
+        }
         if (query.route === undefined) return true;
         const source = entry.trace.root ?? entry.span;
         return stringAttr(source, ATTR_ROUTE) === query.route;
@@ -1309,11 +1398,19 @@ class Store implements TraceStore {
   groupErrors(
     windowMinutes: number,
     now: number = Date.now(),
+    attributes?: ReadonlyArray<readonly [string, string]>,
   ): ErrorGroupsResponse {
     try {
+      const filters =
+        attributes !== undefined && attributes.length > 0
+          ? attributes
+          : undefined;
       const occurrences: ErrorOccurrence[] = [];
       for (const entry of this.errors) {
         if (entry.dead) continue;
+        if (!matchesAttributes(entry.trace.spans, entry.trace.root, filters)) {
+          continue;
+        }
         const item = this.errorItem(entry);
         const resourceService = entry.trace.resource["service.name"];
         const service =

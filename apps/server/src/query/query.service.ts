@@ -87,7 +87,7 @@ import {
 } from "./error-insights.js";
 import { occurrenceSql, TRACE_HAS_ERRORS_SQL } from "./error-sql.js";
 import { QUERY_OPTIONS, type ResolvedQueryOptions } from "./options.js";
-import type { Values } from "./params.js";
+import { attributeFiltersOf, type Values } from "./params.js";
 import {
   uncovered,
   withPreviousClasses,
@@ -154,6 +154,18 @@ const CLASS_KINDS: ReadonlySet<string> = new Set<ClassKind>([
 export class NotFoundError extends Error {}
 
 /** Unix nanoseconds (a `bigint` column, a string from `pg`) as fractional ms, to microseconds. */
+/**
+ * The `attr.<key>=<value>` filters of parsed values (D-102) as the JSON object `indexed_attributes`
+ * must contain, or `undefined` for none. Sent as a bind parameter, never spliced into the SQL.
+ */
+function attributesJson(v: Values): string | undefined {
+  const filters = attributeFiltersOf(v);
+  if (filters.length === 0) return undefined;
+  const object: Record<string, string> = {};
+  for (const [key, value] of filters) object[key] = value;
+  return JSON.stringify(object);
+}
+
 function msOf(ns: string | bigint | number): number {
   return Number(BigInt(ns) / 1000n) / 1000;
 }
@@ -468,6 +480,8 @@ export class QueryService {
       runtime: { available: false },
       // Issue #18 (D-105): historical runtime metrics, only with NESTRIX_METRICS=on.
       metrics: { available: this.config.metrics.enabled },
+      // D-102: the keys stored at ingest, and so accepted as `attr.<key>=` filters.
+      attributeFilters: [...this.config.indexedAttributes].sort(),
     };
   }
 
@@ -485,6 +499,11 @@ export class QueryService {
     if (v.release !== undefined)
       where.push(`release = ${params.add(v.release)}`);
     if (v.user !== undefined) where.push(`user_id = ${params.add(v.user)}`);
+    // D-102: `attr.<key>=<value>`, keys checked against NESTRIX_INDEXED_ATTRIBUTES by the parser.
+    const attributes = attributesJson(v);
+    if (attributes !== undefined) {
+      where.push(`indexed_attributes @> ${params.add(attributes)}::jsonb`);
+    }
     // D-94: any span failed (`traces.has_errors`), the root included.
     if (v.hasErrors === "true") where.push(TRACE_HAS_ERRORS_SQL);
     else if (v.hasErrors === "false") where.push(`NOT ${TRACE_HAS_ERRORS_SQL}`);
@@ -522,9 +541,12 @@ export class QueryService {
     }
     if (v.search !== undefined) {
       const needle = params.add(String(v.search).toLowerCase());
+      // D-102: or exactly a recorded request id (`x-request-id`), as the customer quotes it.
+      const exact = params.add([String(v.search)]);
       where.push(
         `(position(${needle} in lower(coalesce(http_route, ''))) > 0
-          OR EXISTS (SELECT 1 FROM unnest(span_names) AS n WHERE position(${needle} in lower(n)) > 0))`,
+          OR EXISTS (SELECT 1 FROM unnest(span_names) AS n WHERE position(${needle} in lower(n)) > 0)
+          OR request_ids @> ${exact}::text[])`,
       );
     }
     if (v.fromUnixMs !== undefined) {
@@ -655,6 +677,13 @@ export class QueryService {
         `EXISTS (SELECT 1 FROM traces t WHERE t.trace_id = s.trace_id AND t.http_route = ${params.add(v.route)})`,
       );
     }
+    // D-102: the error's trace has these indexed attribute values.
+    const attributes = attributesJson(v);
+    if (attributes !== undefined) {
+      where.push(
+        `EXISTS (SELECT 1 FROM traces t WHERE t.trace_id = s.trace_id AND t.indexed_attributes @> ${params.add(attributes)}::jsonb)`,
+      );
+    }
     const position = (cursor: ErrorPosition, operator: "<" | ">"): string =>
       `(s.start_time, s.trace_id, s.span_id) ${operator} (${params.add(cursor.ts)}::timestamptz, ${params.add(cursor.traceId)}, ${params.add(cursor.spanId)})`;
 
@@ -737,23 +766,29 @@ export class QueryService {
     scope: Scope,
     now: number = Date.now(),
     triage: TriageFilter = undefined,
+    filters?: Values,
   ): Promise<ErrorGroupsResponse> {
     const empty = groupErrors([], windowMinutes, now);
     const windowCap = windowMinutes > 60 ? LONG_WINDOW_ROW_CAP : WINDOW_ROW_CAP;
     // At least a day of history before the window, and the 7 days up to now for the short ones.
     const historyStart = Math.min(now - INSIGHTS_MS, empty.fromUnixMs - DAY_MS);
+    // D-102: the groups (and their history) of the traces with these attribute values only.
+    const attributes =
+      filters === undefined ? undefined : attributesJson(filters);
     const [inWindow, earlier, stored] = await Promise.all([
       this.errorOccurrences(
         new Date(empty.fromUnixMs),
         undefined,
         scope,
         windowCap,
+        { attributes },
       ),
       this.errorOccurrences(
         new Date(historyStart),
         new Date(empty.fromUnixMs),
         scope,
         HISTORY_ROW_CAP,
+        { attributes },
       ),
       loadTriaged(this.pool, scope),
     ]);
@@ -810,7 +845,11 @@ export class QueryService {
     before: Date | undefined,
     scope: Scope,
     limit: number,
-    options: { until?: Date; ascending?: boolean } = {},
+    options: {
+      until?: Date;
+      ascending?: boolean;
+      attributes?: string | undefined;
+    } = {},
   ): Promise<ErrorOccurrence[]> {
     const params = new Params();
     const fromParam = params.add(from);
@@ -825,6 +864,12 @@ export class QueryService {
       where.push(`s.start_time <= ${params.add(options.until)}`);
     }
     where.push(...scopeSql(scope, params.add, "s"));
+    // D-102: the error's trace has these indexed attribute values (a JSON object, a bind parameter).
+    if (options.attributes !== undefined) {
+      where.push(
+        `t.indexed_attributes @> ${params.add(options.attributes)}::jsonb`,
+      );
+    }
     const dir = options.ascending === true ? "ASC" : "DESC";
     const rows = await this.rows<
       ErrorRow & {

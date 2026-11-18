@@ -46,6 +46,7 @@ describe.skipIf(noDatabase)(`migrations ${skipReason}`, () => {
       "0013_traces_has_errors_index.sql",
       "0014_admin_sessions.sql",
       "0016_environments.sql",
+      "0017_traces_attributes.sql",
       "0018_error_triage.sql",
       "0019_dashboard_users.sql",
       "0020_metric_minutes.sql",

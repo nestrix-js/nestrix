@@ -227,6 +227,26 @@ function label(name: string): string {
   return JSON.stringify(name.length > 64 ? `${name.slice(0, 64)}…` : name);
 }
 
+/** `attr.<key>=<value>` query parameters (D-102; `@nestrix-js/protocol`'s attribute filter constants). */
+export const ATTRIBUTE_FILTER_PREFIX = "attr.";
+export const MAX_ATTRIBUTE_FILTERS = 4;
+export const MAX_ATTRIBUTE_FILTER_VALUE_LENGTH = 256;
+/** Why an attribute key cannot be filtered by (a phrase after the parameter's name), or `undefined`. */
+export type AttributeKeyCheck = (key: string) => string | undefined;
+
+/** The attribute filters of parsed values, as `[key, value]` pairs in query order. */
+export function attributeFiltersOf(
+  values: Values,
+): Array<readonly [string, string]> {
+  const out: Array<readonly [string, string]> = [];
+  for (const [name, value] of Object.entries(values)) {
+    if (name.startsWith(ATTRIBUTE_FILTER_PREFIX) && typeof value === "string") {
+      out.push([name.slice(ATTRIBUTE_FILTER_PREFIX.length), value]);
+    }
+  }
+  return out;
+}
+
 const INTEGER = /^-?\d{1,16}$/;
 const DECIMAL = /^-?\d{1,16}(?:\.\d{1,16})?$/;
 
@@ -285,6 +305,7 @@ function parseOne(
 export function parseQuery(
   target: unknown,
   spec: Readonly<Record<string, ParamSpec>>,
+  attributes?: AttributeKeyCheck,
 ): Parsed {
   try {
     const url = typeof target === "string" ? target : "";
@@ -295,9 +316,46 @@ export function parseQuery(
     const values: Values = {};
     const seen = new Set<string>();
     let count = 0;
+    let attributeCount = 0;
     for (const [name, text] of params) {
       if (++count > MAX_QUERY_PARAMS) {
         return { ok: false, message: "Too many query parameters." };
+      }
+      if (
+        attributes !== undefined &&
+        name.startsWith(ATTRIBUTE_FILTER_PREFIX) &&
+        !Object.hasOwn(spec, name)
+      ) {
+        // D-102: `attr.<key>=<value>`, at most MAX_ATTRIBUTE_FILTERS, keys checked by the backend.
+        if (seen.has(name)) {
+          return {
+            ok: false,
+            message: `Query parameter ${label(name)} is given more than once.`,
+          };
+        }
+        seen.add(name);
+        if (++attributeCount > MAX_ATTRIBUTE_FILTERS) {
+          return {
+            ok: false,
+            message: `At most ${MAX_ATTRIBUTE_FILTERS} attribute filters (attr.<key>) can be given.`,
+          };
+        }
+        const problem = attributes(name.slice(ATTRIBUTE_FILTER_PREFIX.length));
+        if (problem !== undefined) {
+          return {
+            ok: false,
+            message: `Query parameter ${label(name)} ${problem}.`,
+          };
+        }
+        if (text.length > MAX_ATTRIBUTE_FILTER_VALUE_LENGTH) {
+          return {
+            ok: false,
+            message: `Query parameter ${label(name)} must be at most ${MAX_ATTRIBUTE_FILTER_VALUE_LENGTH} characters.`,
+          };
+        }
+        // An empty filter is no filter, as for every string parameter.
+        if (text !== "") values[name] = text;
+        continue;
       }
       if (!Object.hasOwn(spec, name)) {
         return {

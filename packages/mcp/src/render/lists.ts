@@ -274,6 +274,15 @@ export function renderOverview(input: OverviewInput): string {
   lines.push(
     `CPU profiler: ${meta.profiler.available ? (meta.profiler.running ? "available, a capture is running" : "available (start_profile)") : "not available here (embedded dashboards only)"}.`,
   );
+  // D-102: the keys find_traces and list_errors accept in `attributes`.
+  const attributeFilters = (meta.attributeFilters ?? [])
+    .slice(0, 32)
+    .map((k) => clean(k, 128));
+  if (attributeFilters.length > 0) {
+    lines.push(
+      `Attribute filters (find_traces and list_errors attributes): ${attributeFilters.join(", ")}.`,
+    );
+  }
   for (const w of meta.warnings)
     lines.push(`Warning: ${clean(w.message, 300)}`);
 

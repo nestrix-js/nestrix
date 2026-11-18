@@ -9,6 +9,9 @@ describe("resolveOptions defaults", () => {
     expect(r).toEqual({
       enabled: true,
       serviceName: undefined,
+      // D-102: no context function, nothing propagated.
+      context: undefined,
+      contextPropagation: { keys: [], outgoing: false },
       resourceAttributes: {},
       sampleRate: 1,
       maxSpansPerTrace: 10_000,

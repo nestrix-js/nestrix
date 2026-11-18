@@ -106,6 +106,21 @@ export type StandaloneParamsSpec<T extends { windowMinutes: unknown }> = Omit<
 > &
   typeof standaloneRangeParams;
 
+/**
+ * Attribute filters (issue #27, D-102): `attr.<key>=<value>` on the trace list, the timeline, the
+ * error list and the error groups, for example `attr.tenant.id=acme`. The value is compared exactly
+ * with the attribute's text (a number or boolean as its decimal or `true`/`false` text) on the
+ * trace's root span, or, when the root has none, on the first span of the trace that has it. At
+ * most {@link MAX_ATTRIBUTE_FILTERS} per request, all of which must match. Which keys are accepted:
+ * `MetaResponse.attributeFilters`; the standalone server accepts only its
+ * `NESTRIX_INDEXED_ATTRIBUTES` (an unknown key is a `400`), an embedded dashboard any key that
+ * matches {@link ATTRIBUTE_FILTER_KEY_PATTERN}. Older backends answer `400` (unknown parameter).
+ */
+export const ATTRIBUTE_FILTER_PREFIX = "attr.";
+export const MAX_ATTRIBUTE_FILTERS = 4;
+export const MAX_ATTRIBUTE_FILTER_VALUE_LENGTH = 256;
+export const ATTRIBUTE_FILTER_KEY_PATTERN = "^[A-Za-z][A-Za-z0-9_.-]{0,127}$";
+
 /** `GET <path>/api/v1/traces` */
 export const traceListParams = {
   limit: { kind: "int", min: 1, max: 200, default: 50 },
@@ -116,6 +131,10 @@ export const traceListParams = {
   status: { kind: "enum", values: ["ok", "error", "4xx", "5xx"] },
   minDurationMs: { kind: "number", min: 0, max: 86_400_000 },
   maxDurationMs: { kind: "number", min: 0, max: 86_400_000 },
+  /**
+   * Case-insensitive text in a span name or the route; an exact request id (the root's recorded
+   * `x-request-id` request or response header) also matches (D-102).
+   */
   search: { kind: "string", maxLength: 200 },
   /**
    * `http`, `scheduled` and `other` match the trace's root (`TraceSummary.type`). `job` matches

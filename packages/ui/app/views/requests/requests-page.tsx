@@ -27,10 +27,15 @@ import {
 } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
-import { type RequestFilters, requestFilterParsers } from "@/lib/params";
+import {
+  attributeParams,
+  type RequestFilters,
+  requestFilterParsers,
+} from "@/lib/params";
 import { useService } from "@/lib/service";
 import { useCursorList } from "@/lib/use-cursor-list";
 import { windowChoices, windowLabel } from "@/lib/windows";
+import { AttributeFilter } from "@/views/requests/attribute-filter";
 import { columnLabels, columnsFor } from "@/views/requests/columns";
 import { DebouncedInput } from "@/views/requests/debounced-input";
 import { RequestTimeline } from "@/views/requests/request-timeline";
@@ -86,6 +91,7 @@ export function filtersToParams(filters: RequestFilters): QueryParams {
     hasErrors: filters.hasErrors ?? undefined,
     fromUnixMs: filters.fromUnixMs ?? undefined,
     toUnixMs: filters.toUnixMs ?? undefined,
+    ...attributeParams(filters.attrKey, filters.attrValue),
   };
 }
 
@@ -207,7 +213,7 @@ export function RequestsPage() {
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <DebouncedInput
           aria-label="Search"
-          placeholder="Search name or route"
+          placeholder="Search name, route or request id"
           className="h-7 w-full min-w-40 sm:w-64"
           value={filters.search ?? ""}
           onCommit={(v) => void setFilters({ search: v === "" ? null : v })}
@@ -265,6 +271,11 @@ export function RequestsPage() {
         </select>
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <AttributeFilter
+          attrKey={filters.attrKey}
+          attrValue={filters.attrValue}
+          onChange={(next) => void setFilters(next)}
+        />
         <DebouncedInput
           aria-label="Release"
           placeholder="Release"

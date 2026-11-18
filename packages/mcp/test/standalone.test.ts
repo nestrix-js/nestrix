@@ -203,6 +203,47 @@ describe("standalone server", () => {
     expect(out.text).toContain("route=/orders");
   });
 
+  it("find_traces and list_errors send attributes as attr.<key> parameters (D-102)", async () => {
+    const out = await mcp.call("find_traces", {
+      attributes: { "tenant.id": "acme", "app.client_id": "c-1" },
+    });
+    expect(out.isError).toBe(false);
+    const req = mock.seen
+      .filter((s) => s.url.startsWith("/api/v1/traces"))
+      .at(-1);
+    const params = new URL(req?.url ?? "", "http://x").searchParams;
+    expect(Object.fromEntries(params)).toEqual({
+      "attr.tenant.id": "acme",
+      "attr.app.client_id": "c-1",
+      limit: "20",
+    });
+    expect(out.text).toContain("attr.tenant.id=acme");
+    await mcp.call("list_errors", { attributes: { "tenant.id": "acme" } });
+    const errors = mock.seen
+      .filter((s) => s.url.startsWith("/api/v1/errors"))
+      .at(-1);
+    expect(
+      new URL(errors?.url ?? "", "http://x").searchParams.get("attr.tenant.id"),
+    ).toBe("acme");
+  });
+
+  it("find_traces refuses a malformed attribute name or a fifth filter before any request", async () => {
+    for (const attributes of [
+      { "bad key": "x" },
+      { a: "1", b: "1", c: "1", d: "1", e: "1" },
+    ]) {
+      const before = mock.seen.length;
+      const result = await mcp.client
+        .callTool({ name: "find_traces", arguments: { attributes } })
+        .catch((e: unknown) => e);
+      const failed =
+        result instanceof Error ||
+        (result as { isError?: boolean }).isError === true;
+      expect(failed).toBe(true);
+      expect(mock.seen.length).toBe(before);
+    }
+  });
+
   it("get_trace renders the tree and names the repeated statement", async () => {
     const out = await mcp.call("get_trace", { traceId: nPlusOneTrace.traceId });
     expect(out.isError).toBe(false);

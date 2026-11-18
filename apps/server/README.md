@@ -163,6 +163,7 @@ Read once from the environment at start and validated. A bad value exits with on
 | `NESTRIX_METRICS` | `off` | `on` or `off`. `on` accepts Nestrix's runtime metrics on `POST /v1/metrics` and serves them from `GET /api/v1/metrics/*`; see "Historical metrics (optional)". |
 | `NESTRIX_METRICS_MAX_SERIES_PER_SERVICE` | `2000` | Whole number, 10 to 1 000 000. Active metric series per service, per server process. |
 | `NESTRIX_METRICS_MAX_SERIES` | `20000` | Whole number, 10 to 10 000 000. Active metric series in all, per server process. |
+| `NESTRIX_INDEXED_ATTRIBUTES` | unset (nothing indexed) | Comma-separated span attribute keys (`tenant.id,app.client_id`), at most 16, each a letter then letters, digits, `_`, `.` or `-`. Their values are stored per trace at ingest and can then filter the trace list, the timeline, the errors and the error groups with `attr.<key>=<value>` (dashboard, query API, MCP tools). A key not listed is a `400`. Only spans ingested while a key is listed are indexed: adding a key later does not backfill. An invalid entry is a configuration error. See "Attribute filters". |
 | `NESTRIX_MAX_SPANS_PER_TRACE` | `50000` | Whole number, 1 000 to 10 000 000. Spans stored per trace; see "Span limit per trace". |
 | `NESTRIX_MAX_CONNECTIONS` | `1024` | Whole number, 1 to 1 000 000. Node's `server.maxConnections`. |
 | `NESTRIX_WEBHOOK_ALLOWED_HOSTS` | empty | Comma-separated host names or IP addresses (no scheme, port or path) that alert webhooks may reach although they resolve to private addresses. |
@@ -181,6 +182,12 @@ NESTRIX_INGEST_KEYS=production:<key-1>,staging:<key-2>,<key-3-unbound>
 ```
 
 Anything sent with a bound key is stored under that environment, whatever its resource says, and so is that app's remote-profiling check-in. An entry with a `:` is always read as `<environment>:<key>` (1 to 64 letters, digits, `.`, `_` or `-`; `unset` is refused), so a key that contains a `:` cannot be used. Not available yet: keys managed in the dashboard, and retention per environment.
+
+## Attribute filters
+
+Apps set attributes such as a tenant id with the `context` option or `setTraceAttributes()` of `@nestrix-js/nestjs` (its README, "Tenants, request ids and other attributes"). The server stores nothing extra for them unless `NESTRIX_INDEXED_ATTRIBUTES` lists the key: then each trace's value (its root span's, else the first span's that has the key, as text) goes into `traces.indexed_attributes`, and `attr.<key>=<value>` matches it exactly. `meta.attributeFilters` lists the indexed keys, and the dashboard offers them as a filter. Up to 4 filters per request; values up to 256 characters.
+
+Request ids: the recorded `x-request-id` request and response header values of a trace's spans (the app's default header allowlist records them) are kept in `traces.request_ids`, at most 16 per trace, so the trace list's `search` finds a trace by the exact id a customer quotes. This is a copy of a value already stored on the span, not a new one.
 
 ## Admin login
 
@@ -486,6 +493,10 @@ CREATE INDEX traces_has_errors_seq_idx ON ONLY traces (seq DESC)
 -- for each partition:
 ALTER INDEX traces_has_errors_seq_idx ATTACH PARTITION traces_pYYYYMMDD_has_errors_idx;
 ```
+
+### Upgrading to attribute filters (issue #27)
+
+`0017_traces_attributes.sql` adds two nullable columns with no default, `traces.indexed_attributes` and `traces.request_ids`, and a partial GIN index on each, in one transaction. The `ACCESS EXCLUSIVE` lock of the `ADD COLUMN`s is held while the indexes build, so the trace list and ingest's trace writes wait until they are built. Every existing row is `NULL` in both columns and the indexes are partial, so the build is one scan of `traces` (a row per trace, not per span) that adds no entries: seconds on a small install. On a large one, create the columns and indexes first as for `0013` above (the columns, then per partition `CREATE INDEX CONCURRENTLY ... USING gin (indexed_attributes jsonb_path_ops) WHERE indexed_attributes IS NOT NULL` and the same `USING gin (request_ids) WHERE request_ids IS NOT NULL`, then `traces_indexed_attributes_idx` and `traces_request_ids_idx` `ON ONLY traces` and `ATTACH PARTITION`); every statement in the migration is `IF NOT EXISTS`. Traces stored before the upgrade have no indexed attributes and no request ids, so the filters and the request-id search do not find them.
 
 ## Security notes
 

@@ -144,6 +144,11 @@ export const traces = pgTable(
       .default(0),
     services: text("services").array().notNull(),
     spanNames: text("span_names").array().notNull(),
+    /** `NESTRIX_INDEXED_ATTRIBUTES` values as text, by key (migration 0017, D-102); `NULL`: none. */
+    indexedAttributes:
+      jsonb("indexed_attributes").$type<Record<string, string>>(),
+    /** Recorded `x-request-id` values (migration 0017, D-102); `NULL`: none. */
+    requestIds: text("request_ids").array(),
     updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
     /** `deployment.environment.name` of the root's resource, or the ingest key's (migration 0016, D-101); `NULL` is unset. */
     environment: text("environment"),

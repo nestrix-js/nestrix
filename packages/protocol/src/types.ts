@@ -121,6 +121,13 @@ export interface MetaResponse {
    * embedded dashboard and older servers: treat as `admin` (the server decides anyway).
    */
   access?: MetaAccess;
+  /**
+   * Attribute keys the trace and error lists can be filtered by with `attr.<key>=` (D-102),
+   * sorted: the standalone server's `NESTRIX_INDEXED_ATTRIBUTES`; on an embedded dashboard, the
+   * keys the app's `context` option and `setTraceAttributes()` have set and `contextPropagation`
+   * lists. Empty or absent: none (absent from older backends).
+   */
+  attributeFilters?: string[];
 }
 
 /** One environment the standalone server holds data for (`MetaResponse.environments`). */
