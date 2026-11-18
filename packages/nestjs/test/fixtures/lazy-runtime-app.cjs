@@ -4,6 +4,7 @@
 // closes the app (which flushes the export) and prints one JSON line.
 //
 // argv[2]: the OTLP base endpoint of the test's receiver. argv[3]: "async" for forRootAsync.
+// argv[4]: "log" to keep Nest's logger on with `['error', 'warn']` only (it is off otherwise).
 require("reflect-metadata");
 const {
   Controller,
@@ -61,7 +62,7 @@ Module({
 
 async function main() {
   const app = await NestFactory.create(AppModule, {
-    logger: false,
+    logger: process.argv[4] === "log" ? ["error", "warn"] : false,
     instrument: NestrixInstrument,
   });
   await app.listen(0, "127.0.0.1");

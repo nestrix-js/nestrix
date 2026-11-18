@@ -14,7 +14,7 @@ import type {
   DashboardLogger,
   DashboardUnavailable,
 } from "./dashboard/mount.js";
-import { diagnostics } from "./diagnostics.js";
+import { diagnostics, logErrorOnce } from "./diagnostics.js";
 import { NestrixInterceptor } from "./http/interceptor.js";
 import type { LogExportHandle } from "./logs/export.js";
 import { configureMethods, markNestrixInternal } from "./methods/registry.js";
@@ -69,9 +69,10 @@ export class NestrixCore
     this.runtime = options.enabled ? runtime : undefined;
     const rt = this.runtime;
     if (options.enabled && rt === undefined) {
-      diagnostics.logOnce(
+      // Error level: the whole of Nestrix is off, which `logger: ['error', 'warn']` must still show.
+      logErrorOnce(
         "core.runtime-missing",
-        "Nestrix could not load its OpenTelemetry setup, so it records nothing in this app. Please report this.",
+        "Nestrix could not load its OpenTelemetry setup, so it records, exports and serves nothing in this app. Please report this.",
       );
     }
     let telemetry: TelemetryHandle | undefined;
