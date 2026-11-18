@@ -1,0 +1,176 @@
+# Nestrix standalone server on Docker Swarm: the server (2 replicas), PostgreSQL, and Caddy for TLS.
+# README.md in this directory has the commands. docs-site/guide/production.md has the reasoning.
+#
+#   export NESTRIX_DOMAIN=nestrix.example.com
+#   docker stack deploy --detach=false -c deploy/swarm/stack.yml nestrix
+#
+# Images are pinned by version and digest. To move to a newer release read its digest (see
+# "Pinned images" in production.md), change both here, and deploy again.
+#
+# Before the first deploy: the five secrets (README.md), the node labels, and DNS for
+# $NESTRIX_DOMAIN. To use your own PostgreSQL instead of the bundled one, see "External
+# PostgreSQL" in README.md (delete the `postgres` service and the db_password secret).
+
+x-server-image: &server-image ghcr.io/nestrix-js/nestrix-server:0.6.0@sha256:c9fb43475334430c5bdd30e9302a9009abe12951932380c3951a6483d96822f6
+
+services:
+  server:
+    image: *server-image
+    environment:
+      # The password comes from a file; the URL names the user and the database only.
+      DATABASE_URL: postgres://nestrix@postgres:5432/nestrix
+      DATABASE_PASSWORD_FILE: /run/secrets/nestrix_db_password
+      NESTRIX_INGEST_KEYS_FILE: /run/secrets/nestrix_ingest_keys
+      NESTRIX_ADMIN_PASSWORD_FILE: /run/secrets/nestrix_admin_password
+      # The same on every replica, so a sign-in on one is accepted by the other.
+      NESTRIX_SESSION_SECRET_FILE: /run/secrets/nestrix_session_secret
+      NESTRIX_PUBLIC_URL: https://${NESTRIX_DOMAIN:?set NESTRIX_DOMAIN, for example nestrix.example.com}
+      NESTRIX_RETENTION_DAYS: ${NESTRIX_RETENTION_DAYS:-7}
+      # The overlay network below: only Caddy (and the services you attach) can reach the server on
+      # it, so the proxy's address range is the one place X-Forwarded-For is believed.
+      NESTRIX_TRUSTED_PROXIES: 10.201.0.0/24
+    secrets:
+      - nestrix_db_password
+      - nestrix_ingest_keys
+      - nestrix_admin_password
+      - nestrix_session_secret
+    networks: [nestrix]
+    healthcheck:
+      # /readyz: the database answers, every migration is applied, today's partitions exist.
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4318/readyz').then(r=>process.exit(r.status===200?0:1),()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      start_period: 30s
+      retries: 3
+    # The server drains its write queue for up to 10 s and its webhook sender for up to 10 s on
+    # SIGTERM, then closes the pool. Swarm's default of 10 s would cut that short.
+    stop_grace_period: 30s
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        monitor: 30s
+        failure_action: rollback
+        # start-first keeps ingest answering while a replica is replaced. It is safe only while the
+        # release's migrations are additive, which the release notes say (production.md, "Upgrades");
+        # for a release that says "stop all replicas first", run `docker service scale nestrix_server=0`
+        # before `docker stack deploy`.
+        order: start-first
+      rollback_config:
+        parallelism: 1
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 0
+      # From the sizing table in production.md: about 0.03 core per 1 000 spans/s, 300 to 470 MiB
+      # under load. These suit up to roughly 10 000 spans/s across both replicas.
+      resources:
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+        limits:
+          cpus: "1.0"
+          memory: 768M
+
+  postgres:
+    image: postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
+    environment:
+      POSTGRES_USER: nestrix
+      POSTGRES_DB: nestrix
+      POSTGRES_PASSWORD_FILE: /run/secrets/nestrix_db_password
+    # max_connections: each server replica holds a pool of up to 10 connections, so 2 replicas
+    # need up to 20. 100 leaves room for psql, pg_dump and more replicas. The rest are the settings in production.md, "PostgreSQL".
+    command:
+      - postgres
+      - -c
+      - max_connections=100
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - autovacuum_vacuum_scale_factor=0.05
+      - -c
+      - autovacuum_analyze_scale_factor=0.05
+    secrets:
+      - nestrix_db_password
+    networks: [nestrix]
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nestrix -d nestrix"]
+      interval: 5s
+      timeout: 3s
+      start_period: 30s
+      retries: 10
+    # The image stops PostgreSQL with SIGINT (a fast shutdown that ends with a checkpoint): give it time.
+    stop_grace_period: 60s
+    deploy:
+      replicas: 1
+      # A local volume lives on one node: keep the database on it.
+      #   docker node update --label-add nestrix-db=true <node>
+      placement:
+        constraints: ["node.labels.nestrix-db == true"]
+      update_config:
+        order: stop-first # one database, never two on one volume
+      resources:
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+        limits:
+          cpus: "2.0"
+          memory: 2G
+
+  proxy:
+    image: caddy:2.11.9@sha256:4851e54a46b206517c574821bb5cc67f170d2156041e9fbc4c9193b45e84a75b
+    environment:
+      NESTRIX_DOMAIN: ${NESTRIX_DOMAIN:?set NESTRIX_DOMAIN}
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    networks: [nestrix]
+    ports:
+      # Host mode, not the ingress routing mesh: the mesh replaces the client's address with its
+      # own, which would give every visitor one shared login limit.
+      - { target: 80, published: 80, protocol: tcp, mode: host }
+      - { target: 443, published: 443, protocol: tcp, mode: host }
+    volumes:
+      - caddy_data:/data # the certificates; losing it means a new request to the CA
+    deploy:
+      replicas: 1
+      placement:
+        constraints: ["node.labels.nestrix-edge == true"]
+      update_config:
+        order: stop-first # host-mode ports cannot be bound twice
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+networks:
+  nestrix:
+    driver: overlay
+    attachable: true # so `docker run --network` can reach the server for a restore or a check
+    ipam:
+      config:
+        - subnet: 10.201.0.0/24
+
+volumes:
+  pgdata:
+  caddy_data:
+
+configs:
+  caddyfile:
+    file: ./Caddyfile
+
+secrets:
+  nestrix_db_password: { external: true }
+  nestrix_ingest_keys: { external: true }
+  nestrix_admin_password: { external: true }
+  nestrix_session_secret: { external: true }

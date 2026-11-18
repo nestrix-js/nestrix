@@ -13,6 +13,7 @@
       "!**/coverage",
       "!**/*.generated.*",
       "!benchmarks/results",
+      "!deploy/helm/*/templates",
       "!apps/server/src/proto/gen",
       "!apps/server/test/ingest/fixtures/*.json",
       "!**/*.tsbuildinfo",

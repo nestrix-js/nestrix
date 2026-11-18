@@ -1,0 +1,12 @@
+apiVersion: v2
+name: nestrix-server
+description: The standalone Nestrix server (OTLP ingest, PostgreSQL storage, query API and dashboard), with an optional single-node PostgreSQL.
+type: application
+# The chart's own version. Raise it when the chart changes; it is not the server's version.
+version: 0.1.0
+# The server release the default image values point to (the image tag in values.yaml).
+appVersion: "0.6.0"
+home: https://github.com/nestrix-js/nestrix
+sources:
+  - https://github.com/nestrix-js/nestrix
+keywords: [observability, opentelemetry, tracing, nestjs]

@@ -1,0 +1,20 @@
+Nestrix server {{ .Chart.AppVersion }} is installing as {{ include "nestrix-server.fullname" . }}.
+
+Check it:
+  kubectl rollout status deploy/{{ include "nestrix-server.fullname" . }}
+  kubectl port-forward svc/{{ include "nestrix-server.fullname" . }} 4318:{{ .Values.service.port }}
+  curl -s localhost:4318/readyz        # {"status":"ok"}
+
+Send traces from your services with
+  OTEL_EXPORTER_OTLP_ENDPOINT=http://{{ include "nestrix-server.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}
+  OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer <one of the keys in the Secret's {{ .Values.existingSecret.keys.ingestKeys }}>
+{{- if not .Values.ingress.enabled }}
+
+No Ingress is enabled: the dashboard is reachable only through port-forward. Enable `ingress` with TLS
+before exposing it; the admin cookie is Secure and will not work over plain HTTP.
+{{- end }}
+{{- if not .Values.config.trustedProxies }}
+
+config.trustedProxies is empty: the login rate limit keys on the connection, so every visitor behind
+the ingress shares one limit. Set it to your ingress controller's pod CIDR.
+{{- end }}

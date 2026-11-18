@@ -11,8 +11,10 @@ The server is built and tested in the repository. It is private (not on npm). Th
 Without cloning the repository:
 
 ```bash
-docker pull ghcr.io/nestrix-js/nestrix-server:latest
+docker pull ghcr.io/nestrix-js/nestrix-server:0.6.0@sha256:c9fb43475334430c5bdd30e9302a9009abe12951932380c3951a6483d96822f6
 ```
+
+The reference above is pinned to a version and digest; [Running in production](/guide/production) says how to read the digest of a release and gives sizing, storage growth, backup, upgrades and TLS. A [Docker Swarm stack](https://github.com/nestrix-js/nestrix/tree/main/deploy/swarm) and a [Helm chart](https://github.com/nestrix-js/nestrix/tree/main/deploy/helm/nestrix-server) are in the repository.
 
 `examples/standalone/` in the repository has a compose file with PostgreSQL, this image and two services (one running two replicas), and a snippet for adding the server to an existing compose project.
 
@@ -151,4 +153,4 @@ One preliminary run on a laptop ingested about 20 000 spans per second with noth
 
 ## Upgrading
 
-Migrations run at start under an advisory lock. Back up the database before upgrading; there is no downgrade.
+Migrations run at start under an advisory lock. Back up the database before upgrading; there is no downgrade. The rolling-upgrade policy and the backup procedure are in [Running in production](/guide/production#upgrades).
