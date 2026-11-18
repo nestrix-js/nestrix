@@ -45,6 +45,7 @@ describe.skipIf(noDatabase)(`migrations ${skipReason}`, () => {
       "0012_traces_has_errors.sql",
       "0013_traces_has_errors_index.sql",
       "0014_admin_sessions.sql",
+      "0018_error_triage.sql",
       "0021_logs_search.sql",
     ];
     const applied = [...a.applied, ...b.applied];
@@ -107,6 +108,7 @@ describe.skipIf(noDatabase)(`migrations ${skipReason}`, () => {
       PgBigInt53: "int8",
       PgBigInt64: "int8",
       PgInteger: "int4",
+      PgSmallInt: "int2",
       PgBoolean: "bool",
       PgDoublePrecision: "float8",
       PgJsonb: "jsonb",

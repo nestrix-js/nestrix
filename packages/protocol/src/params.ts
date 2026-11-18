@@ -169,6 +169,15 @@ export const errorGroupParams = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  /**
+   * Standalone server: which stored triage states to list. Unset: every group but the ignored
+   * ones. `open` includes groups the server has no stored state for. The embedded dashboard
+   * accepts and ignores it.
+   */
+  triage: {
+    kind: "enum",
+    values: ["all", "open", "resolved", "regressed", "ignored"],
+  },
 } as const;
 export type ErrorGroupParamsSpec = typeof errorGroupParams;
 

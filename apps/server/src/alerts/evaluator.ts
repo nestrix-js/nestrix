@@ -17,6 +17,7 @@
  */
 import type { Pool, PoolClient } from "pg";
 import { ADVISORY_CLASS, ALERTS_LOCK } from "../storage/locks.js";
+import { claimErrorGroups } from "./error-group-rule.js";
 import { METRICS } from "./metrics.js";
 import { type StoredState, transition } from "./state.js";
 import { type AlertRuleRow, buildPayload, type EventKind } from "./store.js";
@@ -146,7 +147,7 @@ export class AlertEvaluator {
         try {
           const n = await this.evaluateRule(client, Number(id), nowMs);
           evaluated++;
-          if (n !== undefined) notifications.push(n);
+          notifications.push(...n);
         } catch (error) {
           await client.query("ROLLBACK").catch(() => undefined);
           this.report(`alert rule ${id}: evaluation failed`, error);
@@ -185,12 +186,12 @@ export class AlertEvaluator {
     };
   }
 
-  /** One rule in one transaction. Returns the notification to send after the commit, if any. */
+  /** One rule in one transaction. Returns the notifications to send after the commit. */
   private async evaluateRule(
     client: PoolClient,
     id: number,
     nowMs: number,
-  ): Promise<PendingNotification | undefined> {
+  ): Promise<PendingNotification[]> {
     await client.query("BEGIN");
     // FOR SHARE: an API update or delete of this rule waits for the evaluation to commit.
     const ruleRes = await client.query<AlertRuleRow>(
@@ -200,7 +201,10 @@ export class AlertEvaluator {
     const rule = ruleRes.rows[0];
     if (rule === undefined) {
       await client.query("COMMIT");
-      return undefined;
+      return [];
+    }
+    if (rule.metric === "new_error_group") {
+      return this.evaluateErrorGroups(client, rule, nowMs);
     }
     const stateRes = await client.query<{
       state: StoredState["state"];
@@ -221,7 +225,7 @@ export class AlertEvaluator {
         : await metric(
             client,
             {
-              serviceName: rule.service_name,
+              serviceName: rule.service_name ?? "",
               route: rule.route,
               windowMinutes: rule.window_minutes,
               minRequests: rule.min_requests,
@@ -272,7 +276,44 @@ export class AlertEvaluator {
       };
     }
     await client.query("COMMIT");
-    return notification;
+    return notification === undefined ? [] : [notification];
+  }
+
+  /**
+   * A `new_error_group` rule (error-group-rule.ts): no state machine, one notification for each
+   * group the rule has not seen yet. Its state row only records that it was evaluated.
+   */
+  private async evaluateErrorGroups(
+    client: PoolClient,
+    rule: AlertRuleRow,
+    nowMs: number,
+  ): Promise<PendingNotification[]> {
+    const claimed = await claimErrorGroups(client, rule, nowMs);
+    await client.query(
+      `INSERT INTO alert_state (rule_id, state, since, last_value, last_evaluated_at)
+       VALUES ($1, 'ok', $2, NULL, $2)
+       ON CONFLICT (rule_id) DO UPDATE SET last_evaluated_at = EXCLUDED.last_evaluated_at`,
+      [rule.id, new Date(nowMs)],
+    );
+    await client.query("COMMIT");
+    return claimed.map((c) => ({
+      eventId: c.eventId,
+      ruleId: Number(rule.id),
+      url: rule.webhook_url,
+      secret: rule.secret,
+      body: JSON.stringify(
+        buildPayload(
+          rule,
+          c.eventId,
+          "firing",
+          null,
+          c.startedAtMs,
+          nowMs,
+          this.options.publicUrl,
+          c.group,
+        ),
+      ),
+    }));
   }
 
   /** Never rejects: the timer does not wait for deliveries, so a rejection would go unhandled. */

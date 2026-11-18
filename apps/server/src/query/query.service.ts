@@ -55,6 +55,11 @@ import type {
 import type pg from "pg";
 import type { ServerConfig } from "../config.js";
 import { SERVER_CONFIG } from "../config.module.js";
+import {
+  loadTriaged,
+  type TriageFilter,
+  triageView,
+} from "../errors/triage.js";
 import { primaryException } from "../storage/error-facts.js";
 import {
   addHistograms,
@@ -690,9 +695,10 @@ export class QueryService {
     windowMinutes: number,
     service: string | undefined,
     now: number = Date.now(),
+    triage: TriageFilter = undefined,
   ): Promise<ErrorGroupsResponse> {
     const empty = groupErrors([], windowMinutes, now);
-    const [inWindow, earlier] = await Promise.all([
+    const [inWindow, earlier, stored] = await Promise.all([
       this.errorOccurrences(
         new Date(empty.fromUnixMs),
         undefined,
@@ -705,6 +711,7 @@ export class QueryService {
         service,
         HISTORY_ROW_CAP,
       ),
+      loadTriaged(this.pool, service),
     ]);
     // Newest first: a full page means older rows were left out.
     const oldestRead = earlier[earlier.length - 1]?.timeUnixMs;
@@ -712,20 +719,32 @@ export class QueryService {
       earlier.length >= HISTORY_ROW_CAP && oldestRead !== undefined
         ? oldestRead
         : now - INSIGHTS_MS;
-    return groupErrors(
+    // The stored triage state (issue #26, D-103): ignored groups are dropped before the list is
+    // cut to 100, the rest carry their stored state beside the computed one.
+    const view = triageView(stored, triage);
+    const response = groupErrors(
       [...inWindow, ...earlier],
       windowMinutes,
       now,
       historyFrom,
+      (group) => view.include(group),
     );
+    for (const group of response.groups) view.annotate(group);
+    response.ignoredCount = view.ignoredCount;
+    return response;
   }
 
-  /** Error spans from `from` (and before `before`), newest first, as occurrences with their release. */
-  private async errorOccurrences(
+  /**
+   * Error spans from `from` (and before `before`, up to and including `until`), as occurrences with
+   * their release: newest first, or oldest first with `ascending`. The error-group sync reads the
+   * same occurrences the lists do through this method.
+   */
+  async errorOccurrences(
     from: Date,
     before: Date | undefined,
     service: string | undefined,
     limit: number,
+    options: { until?: Date; ascending?: boolean } = {},
   ): Promise<ErrorOccurrence[]> {
     const params = new Params();
     const fromParam = params.add(from);
@@ -736,9 +755,13 @@ export class QueryService {
     if (before !== undefined) {
       where.push(`s.start_time < ${params.add(before)}`);
     }
+    if (options.until !== undefined) {
+      where.push(`s.start_time <= ${params.add(options.until)}`);
+    }
     if (service !== undefined) {
       where.push(`s.service_name = ${params.add(service)}`);
     }
+    const dir = options.ascending === true ? "ASC" : "DESC";
     const rows = await this.rows<
       ErrorRow & {
         service_name: string | null;
@@ -755,7 +778,7 @@ export class QueryService {
               t.release AS root_release
          FROM spans s LEFT JOIN traces t ON t.trace_id = s.trace_id
         WHERE ${where.join(" AND ")}
-        ORDER BY s.start_time DESC, s.trace_id DESC, s.span_id DESC
+        ORDER BY s.start_time ${dir}, s.trace_id ${dir}, s.span_id ${dir}
         LIMIT ${limit}`,
       params.values,
     );

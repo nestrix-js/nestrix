@@ -6,6 +6,7 @@ import type {
   ModuleMetadata,
   ValueProvider,
 } from "@nestjs/common";
+import type { ErrorSyncOptions } from "../errors/sync.js";
 
 /** How the query API's guard is provided: any Nest provider shape, without `provide`. */
 export type QueryGuardProvider =
@@ -24,6 +25,8 @@ export interface QueryModuleOptions {
    * in ms. Default 5000; 0 recounts on every request.
    */
   statsCacheMs?: number;
+  /** The error-group sync (issue #26); tests set `schedule: false` and call `runOnce`. */
+  errorSync?: ErrorSyncOptions;
 }
 
 export interface ResolvedQueryOptions {

@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import type { ApiError, QuerySort } from "@nestrix-js/protocol";
+import type { TriageFilter } from "../errors/triage.js";
 import { QUERY_HEADERS, QueryExceptionFilter } from "./exception.filter.js";
 import { ExplainService } from "./explain.service.js";
 import { QueryGuardGate } from "./guard.js";
@@ -166,6 +167,8 @@ export class QueryController {
     return this.query.errorGroups(
       v.windowMinutes as number,
       v.service as string | undefined,
+      undefined,
+      v.triage as TriageFilter,
     );
   }
 

@@ -62,6 +62,19 @@ export function normaliseMessage(message: string): string {
   return out.length > MAX_PATTERN ? `${out.slice(0, MAX_PATTERN)}...` : out;
 }
 
+/**
+ * The key of a group: what `ErrorGroup.key` is, and what the stored triage state is keyed by
+ * (`errors/triage.ts`). The one definition of a group's identity; issue #28 adds the environment
+ * here.
+ */
+export function groupKeyOf(
+  errorType: string | undefined,
+  pattern: string,
+  route: string | undefined,
+): string {
+  return JSON.stringify([errorType ?? null, pattern, route ?? null]);
+}
+
 /** Bucket size and count of a window: one minute for 15 minutes, five minutes for 60. */
 function bucketsOf(windowMinutes: number): { bucketMs: number; count: number } {
   const bucketMs = windowMinutes <= 15 ? 60_000 : 300_000;
@@ -132,13 +145,15 @@ export function stateOf(input: {
  * first, then most recent first, at most 100. Occurrences before the window do not make groups;
  * they give the groups of the window their history: first seen ever, `state`, releases (P15-02).
  * `historyFromUnixMs` is the start of the history the caller read (default: the oldest
- * occurrence given); it is reported as `history`.
+ * occurrence given); it is reported as `history`. `include` (server only) drops groups before the
+ * list is cut to 100, so ignored groups do not use up its places.
  */
 export function groupErrors(
   occurrences: Iterable<ErrorOccurrence>,
   windowMinutes: number,
   now: number,
   historyFromUnixMs?: number,
+  include?: (group: ErrorGroup) => boolean,
 ): ErrorGroupsResponse {
   const { bucketMs, count: buckets } = bucketsOf(windowMinutes);
   const fromUnixMs = (Math.floor(now / bucketMs) - buckets + 1) * bucketMs;
@@ -151,7 +166,7 @@ export function groupErrors(
     if (o.timeUnixMs > now + bucketMs) continue;
     if (o.timeUnixMs < oldest) oldest = o.timeUnixMs;
     const pattern = o.message === undefined ? "" : normaliseMessage(o.message);
-    const key = JSON.stringify([o.errorType ?? null, pattern, o.route ?? null]);
+    const key = groupKeyOf(o.errorType, pattern, o.route);
     if (o.release !== undefined) {
       const seen = releaseFirstSeen.get(o.release);
       if (seen === undefined || o.timeUnixMs < seen)
@@ -273,7 +288,7 @@ export function groupErrors(
       bucketMs,
       releaseFirstSeen,
     });
-    result.push(group);
+    if (include === undefined || include(group)) result.push(group);
   }
   result.sort(
     (a, b) =>
