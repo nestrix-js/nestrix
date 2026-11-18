@@ -130,7 +130,7 @@ describe("loadConfig", () => {
 
   it("requires DATABASE_URL", () => {
     expect(errors({})).toEqual([
-      "DATABASE_URL is required, e.g. postgres://localhost:5432/nestrix.",
+      "DATABASE_URL (or DATABASE_URL_FILE) is required, e.g. postgres://localhost:5432/nestrix.",
     ]);
     expect(errors({ DATABASE_URL: "not a url" })[0]).toMatch(/postgres:\/\//);
   });
