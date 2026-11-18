@@ -19,6 +19,10 @@ import type {
 } from "./options.js";
 import { parseResourceAttributesEnv } from "./otel/resource-env.js";
 import {
+  compileOutgoingPathRedactors,
+  type OutgoingPathRedactor,
+} from "./privacy.js";
+import {
   DEFAULT_MAX_SPANS_PER_TRACE,
   MIN_MAX_SPANS_PER_TRACE,
 } from "./trace-limit.js";
@@ -67,6 +71,12 @@ export interface ResolvedOptions {
     readonly requestHeaders: readonly string[];
     readonly responseHeaders: readonly string[];
     readonly redactQueryKeys: readonly string[];
+    /** D-97. `'raw'` (default) or `'template'`. */
+    readonly recordPath: "raw" | "template";
+    /** The user's additions; `buildRedactedPathParams` adds the defaults. */
+    readonly redactPathParams: readonly string[];
+    /** Compiled `http.redactOutgoingPath` entries, in order. */
+    readonly redactOutgoingPath: readonly OutgoingPathRedactor[];
   };
   readonly redact: RedactHook | undefined;
   /** Raw `OTEL_RESOURCE_ATTRIBUTES`; parsed by the telemetry setup (SDK 3 does not read it). */
@@ -750,11 +760,7 @@ export function resolveOptions(
       paths: Object.freeze([...(o.ignore?.paths ?? [])]),
       outgoing: Object.freeze([...(o.ignore?.outgoing ?? [])]),
     }),
-    http: Object.freeze({
-      requestHeaders: Object.freeze([...(o.http?.requestHeaders ?? [])]),
-      responseHeaders: Object.freeze([...(o.http?.responseHeaders ?? [])]),
-      redactQueryKeys: Object.freeze([...(o.http?.redactQueryKeys ?? [])]),
-    }),
+    http: resolveHttp(o.http),
     redact: o.redact,
     otelResourceAttributes: blank(env.OTEL_RESOURCE_ATTRIBUTES),
     ui: resolveUi(o.ui, env),
@@ -772,6 +778,51 @@ export function resolveOptions(
     integrations: resolveIntegrations(o.integrations),
   };
   return Object.freeze(resolved);
+}
+
+function resolveStringList(name: string, value: unknown): readonly string[] {
+  if (value === undefined) return Object.freeze([]);
+  if (!Array.isArray(value) || value.some((v) => typeof v !== "string")) {
+    invalid(`${name} must be an array of strings`);
+  }
+  return Object.freeze([...(value as string[])]);
+}
+
+/**
+ * `http` (P1-02; D-97 for `recordPath`, `redactPathParams`, `redactOutgoingPath`). The header and
+ * query lists are kept as given (they were never validated, and still are not); the D-97 options
+ * throw at `forRoot()` on a value they cannot use.
+ */
+export function resolveHttp(http: unknown): ResolvedOptions["http"] {
+  if (http !== undefined && (http === null || typeof http !== "object")) {
+    invalid("http must be an object");
+  }
+  const h = (http ?? {}) as NonNullable<NestrixModuleOptions["http"]>;
+  const recordPath: unknown = h.recordPath ?? "raw";
+  if (recordPath !== "raw" && recordPath !== "template") {
+    invalid(`http.recordPath must be 'raw' or 'template'`);
+  }
+  let redactOutgoingPath: readonly OutgoingPathRedactor[] = Object.freeze([]);
+  const outgoing: unknown = h.redactOutgoingPath;
+  if (outgoing !== undefined) {
+    if (!Array.isArray(outgoing)) {
+      invalid("http.redactOutgoingPath must be an array");
+    }
+    const compiled = compileOutgoingPathRedactors(outgoing);
+    if ("error" in compiled) invalid(compiled.error);
+    redactOutgoingPath = Object.freeze(compiled);
+  }
+  return Object.freeze({
+    requestHeaders: Object.freeze([...(h.requestHeaders ?? [])]),
+    responseHeaders: Object.freeze([...(h.responseHeaders ?? [])]),
+    redactQueryKeys: Object.freeze([...(h.redactQueryKeys ?? [])]),
+    recordPath,
+    redactPathParams: resolveStringList(
+      "http.redactPathParams",
+      h.redactPathParams,
+    ),
+    redactOutgoingPath,
+  });
 }
 
 const ENHANCER_KINDS: readonly NestrixEnhancerKind[] = [

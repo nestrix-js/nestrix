@@ -45,15 +45,19 @@ import type { UrlMatcher } from "../options.js";
 import { describeForeignRouteHook } from "../otel/detect.js";
 import {
   buildHeaderAllowlist,
+  buildRedactedPathParams,
   buildRedactedQueryKeys,
   collectHeaderAttributes,
   DEFAULT_REQUEST_HEADERS,
   DEFAULT_RESPONSE_HEADERS,
   type HeadersInput,
   headerAttributes,
+  REDACTED,
   REQUEST_HEADER_PREFIX,
   RESPONSE_HEADER_PREFIX,
+  redactPathParams,
   redactQuery,
+  routeHasListedParam,
   splitUrl,
 } from "../privacy.js";
 import type {
@@ -297,6 +301,8 @@ export class HttpServerInstrumentation {
   private readonly requestHeaders: ReadonlySet<string>;
   private readonly responseHeaders: ReadonlySet<string>;
   private readonly queryKeys: ReadonlySet<string>;
+  private readonly pathParams: ReadonlySet<string>;
+  private readonly recordTemplate: boolean;
   private readonly user: NestrixUserFunction | undefined;
 
   constructor(
@@ -316,6 +322,8 @@ export class HttpServerInstrumentation {
       options.http.responseHeaders,
     );
     this.queryKeys = buildRedactedQueryKeys(options.http.redactQueryKeys);
+    this.pathParams = buildRedactedPathParams(options.http.redactPathParams);
+    this.recordTemplate = options.http.recordPath === "template";
     this.user = options.user;
   }
 
@@ -405,9 +413,11 @@ export class HttpServerInstrumentation {
     const scheme = rawReq.socket?.encrypted ? "https" : "http";
     const attributes: Attributes = {
       [ATTR_HTTP_REQUEST_METHOD]: known ? received : "_OTHER",
-      [ATTR_URL_PATH]: path,
       [ATTR_URL_SCHEME]: scheme,
     };
+    // D-97: with `recordPath: 'template'` no request value is recorded before the route is
+    // known; `finish` writes the template, or nothing for an unmatched request.
+    if (!this.recordTemplate) attributes[ATTR_URL_PATH] = path;
     if (!known) attributes[ATTR_HTTP_REQUEST_METHOD_ORIGINAL] = received;
     if (query !== undefined) attributes[ATTR_URL_QUERY] = query;
     if (typeof rawReq.httpVersion === "string") {
@@ -451,6 +461,7 @@ export class HttpServerInstrumentation {
         dashboard !== undefined || this.metrics !== undefined
           ? performance.now()
           : 0,
+      path,
     };
     setStateForRequest(rawReq, state);
     // The listener holds the state itself: on a client abort it runs outside the request's
@@ -602,6 +613,43 @@ export class HttpServerInstrumentation {
     }
   }
 
+  /**
+   * D-97: rewrites `url.path` once the route is known. `'template'`: the route after the 404
+   * rule, or nothing. `'raw'`: listed parameters `REDACTED`, using the last route the hook
+   * reported even when the 404 rule drops it from `http.route` (a handler whose version or host
+   * filter declined still had the request's value in its parameter). On a failure the attribute
+   * is overwritten with the route template, or with `REDACTED` when there is none: never left raw.
+   */
+  private recordUrlPath(state: RequestState, route: string | undefined): void {
+    try {
+      maybeFault("url-path");
+      if (this.recordTemplate) {
+        if (route !== undefined) state.span.setAttribute(ATTR_URL_PATH, route);
+        return;
+      }
+      const raw = state.path;
+      if (
+        raw === undefined ||
+        !routeHasListedParam(state.route, this.pathParams)
+      ) {
+        return;
+      }
+      state.span.setAttribute(
+        ATTR_URL_PATH,
+        redactPathParams(raw, state.route, this.pathParams),
+      );
+    } catch (error) {
+      this.diagnostics.countFailure("http.url-path", error);
+      try {
+        if (!this.recordTemplate) {
+          state.span.setAttribute(ATTR_URL_PATH, state.route ?? REDACTED);
+        }
+      } catch {
+        // Counted above; `finish` still ends the span.
+      }
+    }
+  }
+
   private isIgnored(path: string): boolean {
     for (const matcher of this.ignore) {
       try {
@@ -642,6 +690,9 @@ export class HttpServerInstrumentation {
         state.route !== undefined && !(status === 404 && !state.reached)
           ? state.route
           : undefined;
+
+      // First, before anything that could throw, so a later failure cannot leave the raw path.
+      this.recordUrlPath(state, route);
 
       const stats = this.dashboard?.stats;
       if (stats !== undefined) this.recordStats(stats, state, status, route);
@@ -695,6 +746,9 @@ export class HttpServerInstrumentation {
       endNestrixSpan(span);
     } catch (error) {
       this.diagnostics.countFailure("http.close-listener", error);
+      // D-97: never export the raw path because something else failed. Its own guard; the
+      // template mode records no `url.path` here (the 404 rule was not applied).
+      this.recordUrlPath(state, undefined);
       try {
         // Never leave the span open because an attribute failed.
         state.ended = true;
