@@ -4,7 +4,17 @@
 // not the outgoing request's `url.full` once `http.redactOutgoingPath` covers it. Each test scans
 // every exported span's serialised content for the secret.
 import http from "node:http";
-import { Controller, Get, Param } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  type MiddlewareConsumer,
+  Module,
+  type NestMiddleware,
+  type NestModule,
+  Param,
+  Post,
+} from "@nestjs/common";
 import {
   type BootedApp,
   bootApp,
@@ -17,6 +27,7 @@ import {
   resetDiagnosticsForTests,
 } from "../src/diagnostics.js";
 import { type FaultSite, faultInjection } from "../src/http/request-state.js";
+import { NestrixModule } from "../src/nestrix.module.js";
 import type { NestrixModuleOptions } from "../src/options.js";
 import { ADAPTERS, registerHostContext, rootModule } from "./http-fixture.js";
 import { type EchoServer, sleep, startEchoServer } from "./outbound-helpers.js";
@@ -69,6 +80,45 @@ class ItemsController {
   }
 }
 
+@Controller("guarded")
+class GuardedController {
+  @Get(":token")
+  one(): string {
+    return "never reached: the middleware answers first";
+  }
+
+  @Post(":token")
+  create(@Body() body: unknown): unknown {
+    return body;
+  }
+}
+
+/** Answers 401 before routing, like an auth middleware. */
+class DenyMiddleware implements NestMiddleware {
+  use(
+    _req: unknown,
+    res: { statusCode: number; end(): void },
+    _next: () => void,
+  ): void {
+    res.statusCode = 401;
+    res.end();
+  }
+}
+
+/** Nestrix, the controllers, and `DenyMiddleware` on `guarded/:token`. */
+function middlewareModule(options: NestrixModuleOptions) {
+  @Module({
+    imports: [NestrixModule.forRoot(options)],
+    controllers: [InvitationsController, GuardedController],
+  })
+  class Root implements NestModule {
+    configure(consumer: MiddlewareConsumer): void {
+      consumer.apply(DenyMiddleware).forRoutes("guarded/:token");
+    }
+  }
+  return Root;
+}
+
 const BASE: NestrixModuleOptions = {
   export: { otlp: false },
   http: { redactOutgoingPath: ["/v1/invitations/:token"] },
@@ -98,10 +148,11 @@ function serialise(span: ReadableSpan): string {
 async function boot(
   adapter: (typeof ADAPTERS)[number],
   options: NestrixModuleOptions,
+  extra: Parameters<typeof rootModule>[0] = [],
 ): Promise<BootedApp> {
   booted = await bootApp(adapter, {
     module: rootModule(
-      [InvitationsController, ItemsController],
+      [InvitationsController, ItemsController, ...extra],
       options,
       false,
     ),
@@ -209,6 +260,38 @@ describe.each(ADAPTERS)("path secrets on %s", (adapter) => {
     );
     expect(server.attributes["url.path"]).toBe("/invitations/REDACTED/preview");
     expectNoSecret(all);
+  });
+
+  it("raw mode, answered before routing (malformed JSON body, 400): no url.path, no secret", async () => {
+    const app = await boot(adapter, BASE, [GuardedController]);
+    const res = await fetch(`${app.baseUrl}/guarded/${SECRET}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not json",
+    });
+    expect(res.status).toBe(400);
+    const { server, all } = await settle(app, "POST");
+    expect(server.attributes["http.response.status_code"]).toBe(400);
+    expect(server.attributes["url.path"]).toBeUndefined();
+    expectNoSecret(all);
+  });
+
+  it("raw mode, a middleware answers 401 before routing: no url.path, no secret", async () => {
+    booted = await bootApp(adapter, { module: middlewareModule(BASE) });
+    const res = await fetch(`${booted.baseUrl}/guarded/${SECRET}`);
+    expect(res.status).toBe(401);
+    const { server, all } = await settle(booted, "GET");
+    expect(server.attributes["http.response.status_code"]).toBe(401);
+    expect(server.attributes["url.path"]).toBeUndefined();
+    expectNoSecret(all);
+  });
+
+  it("raw mode, a 404 that matched no route keeps its raw path", async () => {
+    const app = await boot(adapter, BASE);
+    const res = await fetch(`${app.baseUrl}/nowhere/${SECRET}`);
+    expect(res.status).toBe(404);
+    const { server } = await settle(app, "GET");
+    expect(server.attributes["url.path"]).toBe(`/nowhere/${SECRET}`);
   });
 
   it("a parameter not listed keeps its raw value", async () => {

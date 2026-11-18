@@ -554,15 +554,17 @@ interface ParsedRoute {
   readonly segments: readonly RouteSegment[];
 }
 
-const PARAM_NAME = /[:*]([A-Za-z_$][\w$]*)/g;
-const COMPLEX_ROUTE = /[(){}*?+]/;
+// `:name`, `*name`, and path-to-regexp 8's quoted form `:"name"` (escapes kept as written).
+const PARAM_NAME = /[:*](?:([A-Za-z_$][\w$]*)|"((?:[^"\\]|\\.)*)")/g;
+// `"` too: a quoted name can hold any character, so its segment cannot be read reliably.
+const COMPLEX_ROUTE = /[(){}*?+"]/;
 const MAX_PARSED_ROUTES = 2048;
 const parsedRoutes = new Map<string, ParsedRoute>();
 
 function namesIn(text: string): string[] {
   const names: string[] = [];
   for (const m of text.matchAll(PARAM_NAME)) {
-    names.push((m[1] as string).toLowerCase());
+    names.push((m[1] ?? m[2] ?? "").toLowerCase());
   }
   return names;
 }
@@ -739,7 +741,11 @@ export function compileOutgoingPathRedactors(
           error: `${where} must start with "/" or with an absolute URL's origin`,
         };
       }
-      origin = (m[1] as string).toLowerCase();
+      // The recorded `url.full` leaves out the scheme's default port; so does the pattern.
+      origin = (m[1] as string)
+        .toLowerCase()
+        .replace(/^(https:\/\/[^/]*?):443$/, "$1")
+        .replace(/^(http:\/\/[^/]*?):80$/, "$1");
       path = m[2] ?? "/";
     }
     if (path.includes("?") || path.includes("#")) {
@@ -747,6 +753,10 @@ export function compileOutgoingPathRedactors(
     }
     const parts = path.split("/").slice(1);
     if (parts.length > 0 && parts[parts.length - 1] === "") parts.pop();
+    if (parts.includes("")) {
+      // `redactByPattern` never matches an empty segment, so such a pattern would do nothing.
+      return { error: `${where} must not hold an empty segment ("//")` };
+    }
     const segments = parts.map((s): string | null | true =>
       s === "*" ? null : s.startsWith(":") ? true : s,
     );

@@ -21,6 +21,7 @@ import {
   rawExchange,
   rawRequest,
   registerHostContext,
+  requestSpans,
   rootModule,
   serverSpan,
   serverSpans,
@@ -376,8 +377,9 @@ describe.each(ADAPTERS)("HTTP server spans on %s", (adapter) => {
         const app = await boot();
         const received = await rawExchange(app.baseUrl, payload, options);
         expect(received).toMatch(/^HTTP\/1\.1 \d{3}/);
-        for (const path of paths) {
-          const span = await serverSpan(app, path);
+        // A request answered before routing (Fastify's 413 for the 4 MiB body) records no
+        // `url.path` (D-97), so it is found among the unrouted spans.
+        for (const span of await requestSpans(app, paths)) {
           expect(span.attributes["http.response.status_code"]).toEqual(
             expect.any(Number),
           );

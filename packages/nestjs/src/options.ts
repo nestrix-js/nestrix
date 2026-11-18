@@ -107,19 +107,20 @@ export interface NestrixHttpOptions {
   /** Extra query-string keys whose values are replaced by `REDACTED`. Added to the default list. */
   redactQueryKeys?: string[];
   /**
-   * What the server span records as `url.path` (D-97). `'raw'` (default): the path as sent, with
-   * the values of `redactPathParams` written as `REDACTED`. `'template'`: the matched route
-   * template (`/invitations/:token`, the same value as `http.route`); a request that matched no
-   * route (a 404) records no `url.path`, and a sampler or `onStart` sees none either, since the
-   * route is known only once the request is routed. `ignore.paths` always matches the raw path.
+   * What the server span records as `url.path` (D-97), written when the response closes (never at
+   * span start, so a sampler or `onStart` sees none). `'raw'` (default): the path as sent, with the
+   * values of `redactPathParams` written as `REDACTED` when a route matched; the raw path for a 404
+   * that matched no route; nothing for a request answered before routing with another status
+   * (a body parser's 400, a middleware's 401) or never answered. `'template'`: the matched route
+   * template (`/invitations/:token`, the same value as `http.route`), or nothing when no route
+   * matched. `ignore.paths` always matches the raw path.
    */
   recordPath?: "raw" | "template";
   /**
    * Extra route parameter names (`token` for `/invitations/:token`) whose values are written as
    * `REDACTED` in the server span's `url.path`, compared case-insensitively. Added to the default
    * list (`token`, `password`, `secret`, `jwt`, `session`, ...; README "Privacy"). Applied when the
-   * response closes, using the route Nest matched, so a request that matched no route keeps its
-   * raw path.
+   * response closes, using the route Nest matched; see `recordPath` for requests with no route.
    */
   redactPathParams?: string[];
   /**
