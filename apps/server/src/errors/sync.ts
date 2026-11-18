@@ -25,6 +25,9 @@
  *   `regressed` groups keep their state.
  * - Groups are kept: only `open` groups unseen for 90 days are deleted (hourly), so a group
  *   people decided about never expires with the spans it came from.
+ * - Groups are per (service, environment, key) (issue #28, D-101): the same error in staging and
+ *   production is two stored groups with their own state, releases and alerts. The environment
+ *   is the span's, stored as `''` when unset (migration 0018).
  * - Failures are caught and logged; nothing here can throw out of the timer.
  */
 import type { Pool } from "pg";
@@ -35,8 +38,9 @@ import {
 } from "../query/error-groups.js";
 import { INSIGHTS_MS } from "../query/error-insights.js";
 import type { QueryService } from "../query/query.service.js";
+import { ALL } from "../query/scope.js";
 import { ADVISORY_CLASS, ERROR_GROUPS_LOCK } from "../storage/locks.js";
-import { keyHashOf } from "./triage.js";
+import { keyHashOf, storedEnvironment } from "./triage.js";
 
 export interface ErrorSyncOptions {
   /** Default 30 000. */
@@ -82,6 +86,8 @@ interface ReleaseAgg {
 
 interface Agg {
   service: string;
+  /** Stored form: `''` is unset. */
+  environment: string;
   key: string;
   hash: string;
   errorType: string | undefined;
@@ -99,7 +105,10 @@ interface Agg {
   times: { ms: number; release: string | undefined }[];
 }
 
-/** Groups occurrences by (service, group key). `countAfterMs`: only later ones are counted. */
+/**
+ * Groups occurrences by (service, environment, group key). `countAfterMs`: only later ones are
+ * counted.
+ */
 export function aggregate(
   occurrences: readonly ErrorOccurrence[],
   countAfterMs: number,
@@ -109,11 +118,13 @@ export function aggregate(
     if (o.service === undefined) continue;
     const pattern = o.message === undefined ? "" : normaliseMessage(o.message);
     const key = groupKeyOf(o.errorType, pattern, o.route);
-    const id = `${o.service}\u0000${key}`;
+    const environment = storedEnvironment(o.environment);
+    const id = `${o.service}\u0000${environment}\u0000${key}`;
     let a = out.get(id);
     if (a === undefined) {
       a = {
         service: o.service,
+        environment,
         key,
         hash: keyHashOf(key),
         errorType: o.errorType,
@@ -302,7 +313,7 @@ export class ErrorGroupSync {
         let rows = await this.query.errorOccurrences(
           new Date(wm - this.o.overlapMs),
           undefined,
-          undefined,
+          ALL,
           this.o.rowCap,
           { until: new Date(to), ascending: true },
         );
@@ -377,20 +388,29 @@ export class ErrorGroupSync {
         const part = aggs.slice(i, i + BATCH);
         const res = await client.query<{
           service_name: string;
+          environment: string;
           key_hash: string;
           resolved_at: Date | null;
           resolved_in_release: string | null;
         }>(
-          `SELECT g.service_name, g.key_hash, g.resolved_at, g.resolved_in_release
+          `SELECT g.service_name, g.environment, g.key_hash, g.resolved_at, g.resolved_in_release
              FROM error_groups g
-             JOIN unnest($1::text[], $2::text[]) AS k(service_name, key_hash)
-               ON g.service_name = k.service_name AND g.key_hash = k.key_hash
+             JOIN unnest($1::text[], $2::text[], $3::text[]) AS k(service_name, environment, key_hash)
+               ON g.service_name = k.service_name AND g.environment = k.environment
+              AND g.key_hash = k.key_hash
             WHERE g.state = 'resolved' FOR UPDATE OF g`,
-          [part.map((a) => a.service), part.map((a) => a.hash)],
+          [
+            part.map((a) => a.service),
+            part.map((a) => a.environment),
+            part.map((a) => a.hash),
+          ],
         );
         for (const r of res.rows) {
           const a = part.find(
-            (x) => x.service === r.service_name && x.hash === r.key_hash,
+            (x) =>
+              x.service === r.service_name &&
+              x.environment === r.environment &&
+              x.hash === r.key_hash,
           );
           if (a === undefined || r.resolved_at === null) continue;
           const at = regressionTime(
@@ -406,11 +426,11 @@ export class ErrorGroupSync {
         await client.query(
           `INSERT INTO error_groups
              (service_name, key_hash, group_key, error_type, pattern, route,
-              first_seen, last_seen, first_release, last_release, occurrences)
+              first_seen, last_seen, first_release, last_release, occurrences, environment)
            SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[],
                                 $6::text[], $7::timestamptz[], $8::timestamptz[], $9::text[],
-                                $10::text[], $11::bigint[])
-           ON CONFLICT (service_name, key_hash) DO UPDATE SET
+                                $10::text[], $11::bigint[], $12::text[])
+           ON CONFLICT (service_name, environment, key_hash) DO UPDATE SET
              first_release = CASE WHEN EXCLUDED.first_seen < error_groups.first_seen
                                   THEN coalesce(EXCLUDED.first_release, error_groups.first_release)
                                   ELSE coalesce(error_groups.first_release, EXCLUDED.first_release) END,
@@ -432,6 +452,7 @@ export class ErrorGroupSync {
             part.map((a) => a.firstRelease ?? null),
             part.map((a) => a.lastRelease ?? null),
             part.map((a) => a.counted),
+            part.map((a) => a.environment),
           ],
         );
       }
@@ -442,10 +463,10 @@ export class ErrorGroupSync {
         const part = perRelease.slice(i, i + BATCH);
         await client.query(
           `INSERT INTO error_group_releases
-             (service_name, key_hash, release, first_seen, last_seen, occurrences)
+             (service_name, key_hash, release, first_seen, last_seen, occurrences, environment)
            SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::timestamptz[],
-                                $5::timestamptz[], $6::bigint[])
-           ON CONFLICT (service_name, key_hash, release) DO UPDATE SET
+                                $5::timestamptz[], $6::bigint[], $7::text[])
+           ON CONFLICT (service_name, environment, key_hash, release) DO UPDATE SET
              first_seen = least(error_group_releases.first_seen, EXCLUDED.first_seen),
              last_seen = greatest(error_group_releases.last_seen, EXCLUDED.last_seen),
              occurrences = error_group_releases.occurrences + EXCLUDED.occurrences`,
@@ -456,6 +477,7 @@ export class ErrorGroupSync {
             part.map((p) => iso(p.r.firstMs)),
             part.map((p) => iso(p.r.lastMs)),
             part.map((p) => p.r.counted),
+            part.map((p) => p.a.environment),
           ],
         );
       }
@@ -464,8 +486,9 @@ export class ErrorGroupSync {
           `UPDATE error_groups
               SET state = 'regressed', regressed_at = $3, regressed_detected_at = now(),
                   regressions = regressions + 1
-            WHERE service_name = $1 AND key_hash = $2 AND state = 'resolved'`,
-          [a.service, a.hash, new Date(atMs)],
+            WHERE service_name = $1 AND key_hash = $2 AND environment = $4
+              AND state = 'resolved'`,
+          [a.service, a.hash, new Date(atMs), a.environment],
         );
         regressed += res.rowCount ?? 0;
       }

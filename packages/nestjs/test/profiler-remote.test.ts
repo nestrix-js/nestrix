@@ -53,6 +53,7 @@ const IDENTITY: InstanceIdentity = {
   instanceId: "4a1f8a8e-3f7d-4c55-9a39-0d2a2d4a6b11",
   version: "1.2.3",
   host: "box-1",
+  environment: "production",
 };
 
 let server: FakeServer;
@@ -156,6 +157,7 @@ describe("check-in", () => {
       instanceId: IDENTITY.instanceId,
       version: "1.2.3",
       host: "box-1",
+      environment: "production",
       pid: process.pid,
       runtime: process.version,
       sdkVersion: PKG_VERSION,

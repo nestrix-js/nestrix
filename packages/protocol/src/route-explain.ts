@@ -23,6 +23,7 @@ export const routeExplainParams = {
   releaseA: { kind: "string", maxLength: 255 },
   releaseB: { kind: "string", maxLength: 255 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type RouteExplainParamsSpec = typeof routeExplainParams;
 

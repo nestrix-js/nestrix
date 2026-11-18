@@ -4,7 +4,7 @@
  * (`errors/sync.ts`) rather than from a metric and a threshold.
  *
  * Once per group and episode: the claim is an insert into `error_group_alerts`, whose primary key
- * is (rule, service, group, episode). Episode 0 is the group's first appearance and episode N its
+ * is (rule, service, environment, group, episode). Episode 0 is the group's first appearance and episode N its
  * Nth regression (`error_groups.regressions`). The claim, the `alert_events` row and the state
  * write are one transaction (the evaluator's, under its advisory lock), and the key makes a second
  * claim impossible even if two instances ever evaluated at once, or the process restarted between
@@ -17,11 +17,15 @@
  *   evaluator got to it is skipped.
  * - regressed: the group is `regressed` now, the regression was detected after the rule's
  *   creation and happened within the last 24 hours. An `ignored` group never notifies; un-ignoring it does not replay the past.
- * - Rule filters: `service` and `route`, both optional and exact.
+ * - Rule filters: `service`, `environment` and `route`, all optional and exact. A group is stored
+ *   per environment (D-101), so a rule scoped to `production` never notifies a staging group, and
+ *   a rule over every environment notifies each environment's group once. `environment` `unset`
+ *   matches the groups without one (stored as `''`).
  * - At most `PER_RUN` notifications per rule and run; the rest follow on the next runs.
  */
 import type { AlertErrorGroup } from "@nestrix-js/protocol";
 import type { PoolClient } from "pg";
+import { scopeEnvironment } from "../errors/triage.js";
 import type { AlertRuleRow } from "./store.js";
 
 const PER_RUN = 50;
@@ -38,6 +42,7 @@ interface ClaimRow {
   episode: number;
   at: Date;
   service_name: string;
+  environment: string;
   key_hash: string;
   group_key: string;
   error_type: string | null;
@@ -49,10 +54,11 @@ interface ClaimRow {
   last_seen: Date;
 }
 
-const FILTERS = `($3::text IS NULL OR g.service_name = $3) AND ($4::text IS NULL OR g.route = $4)`;
+const FILTERS = `($3::text IS NULL OR g.service_name = $3) AND ($4::text IS NULL OR g.route = $4)
+  AND ($7::text IS NULL OR g.environment = $7)`;
 const UNCLAIMED = (episode: string) => `NOT EXISTS (
   SELECT 1 FROM error_group_alerts a
-   WHERE a.rule_id = $5 AND a.service_name = g.service_name
+   WHERE a.rule_id = $5 AND a.service_name = g.service_name AND a.environment = g.environment
      AND a.key_hash = g.key_hash AND a.episode = ${episode})`;
 
 /** Claims the groups `rule` has not notified yet, and records one event for each. */
@@ -63,28 +69,28 @@ export async function claimErrorGroups(
 ): Promise<ClaimedGroup[]> {
   const claimed = await client.query<ClaimRow>(
     `WITH due AS (
-       SELECT g.service_name, g.key_hash, 0 AS episode, g.first_seen AS at
+       SELECT g.service_name, g.environment, g.key_hash, 0 AS episode, g.first_seen AS at
          FROM error_groups g
         WHERE g.state = 'open' AND g.created_at >= $1 AND g.first_seen > $2
           AND ${FILTERS} AND ${UNCLAIMED("0")}
        UNION ALL
-       SELECT g.service_name, g.key_hash, g.regressions, g.regressed_at
+       SELECT g.service_name, g.environment, g.key_hash, g.regressions, g.regressed_at
          FROM error_groups g
         WHERE g.state = 'regressed' AND g.regressed_detected_at >= $1 AND g.regressed_at > $2
           AND ${FILTERS} AND ${UNCLAIMED("g.regressions")}
      ), picked AS (
        SELECT * FROM due ORDER BY at LIMIT $6
      ), claimed AS (
-       INSERT INTO error_group_alerts (rule_id, service_name, key_hash, episode)
-       SELECT $5, service_name, key_hash, episode FROM picked
+       INSERT INTO error_group_alerts (rule_id, service_name, environment, key_hash, episode)
+       SELECT $5, service_name, environment, key_hash, episode FROM picked
        ON CONFLICT DO NOTHING
-       RETURNING service_name, key_hash, episode
+       RETURNING service_name, environment, key_hash, episode
      )
-     SELECT c.episode, p.at, g.service_name, g.key_hash, g.group_key, g.error_type, g.pattern, g.route,
-            g.last_release, g.resolved_in_release, g.first_seen, g.last_seen
+     SELECT c.episode, p.at, g.service_name, g.environment, g.key_hash, g.group_key, g.error_type,
+            g.pattern, g.route, g.last_release, g.resolved_in_release, g.first_seen, g.last_seen
        FROM claimed c
-       JOIN picked p USING (service_name, key_hash, episode)
-       JOIN error_groups g USING (service_name, key_hash)
+       JOIN picked p USING (service_name, environment, key_hash, episode)
+       JOIN error_groups g USING (service_name, environment, key_hash)
       ORDER BY p.at`,
     [
       rule.created_at,
@@ -93,6 +99,7 @@ export async function claimErrorGroups(
       rule.route,
       rule.id,
       PER_RUN,
+      scopeEnvironment(rule.environment) ?? null,
     ],
   );
   const out: ClaimedGroup[] = [];
@@ -105,8 +112,9 @@ export async function claimErrorGroups(
     const eventId = Number(ev.rows[0]?.id);
     await client.query(
       `UPDATE error_group_alerts SET event_id = $5
-        WHERE rule_id = $1 AND service_name = $2 AND key_hash = $3 AND episode = $4`,
-      [rule.id, r.service_name, r.key_hash, r.episode, eventId],
+        WHERE rule_id = $1 AND service_name = $2 AND key_hash = $3 AND episode = $4
+          AND environment = $6`,
+      [rule.id, r.service_name, r.key_hash, r.episode, eventId, r.environment],
     );
     out.push({
       eventId,
@@ -115,6 +123,7 @@ export async function claimErrorGroups(
         reason: r.episode === 0 ? "new" : "regressed",
         key: r.group_key,
         service: r.service_name,
+        environment: r.environment === "" ? null : r.environment,
         errorType: r.error_type,
         pattern: r.pattern,
         route: r.route,

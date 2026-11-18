@@ -21,7 +21,7 @@ describe("queriesSql", () => {
   const base = {
     from: new Date(0),
     to: new Date(1),
-    service: undefined,
+    scope: {},
     limit: 25,
   };
 
@@ -47,12 +47,30 @@ describe("queriesSql", () => {
     const q = queriesSql({
       ...base,
       sort: "total",
-      service: "x'; DROP TABLE spans; --",
+      scope: { service: "x'; DROP TABLE spans; --" },
     });
     expect(q.values[2]).toBe("x'; DROP TABLE spans; --");
     expect(q.text).toContain("s.service_name = $3");
     expect(q.text).toContain("LIMIT $4");
     expect(q.text).not.toContain("DROP");
+  });
+
+  it("adds the environment filter as a parameter, and unset as IS NULL", () => {
+    const q = queriesSql({
+      ...base,
+      sort: "total",
+      scope: { service: "shop", environment: "staging" },
+    });
+    expect(q.values.slice(2, 4)).toEqual(["shop", "staging"]);
+    expect(q.text).toContain("s.service_name = $3");
+    expect(q.text).toContain("s.environment = $4");
+    const unset = queriesSql({
+      ...base,
+      sort: "total",
+      scope: { environment: "unset" },
+    });
+    expect(unset.text).toContain("s.environment IS NULL");
+    expect(unset.values).toEqual([new Date(0), new Date(1), 25]);
   });
 });
 

@@ -77,13 +77,19 @@ interface LogRow {
   context: string | null;
   serviceName: string;
   truncated: boolean;
+  /** The resource's environment (D-101); `null` is unset. Not part of `hash`. */
+  environment: string | null;
   hash: string;
 }
 
 /** Why a line was not stored; the keys of `log_drops.reason`. */
 export type LogDropReason = "trace_cap" | "rate_cap" | "out_of_range";
 
-function rowOf(record: IngestLogRecord, serviceName: string): LogRow | null {
+function rowOf(
+  record: IngestLogRecord,
+  serviceName: string,
+  environment: string | null,
+): LogRow | null {
   const ns = record.timeUnixNano;
   if (ns <= 0n || ns > MAX_NS) return null;
   const spanId = record.spanId ?? null;
@@ -114,6 +120,7 @@ function rowOf(record: IngestLogRecord, serviceName: string): LogRow | null {
     context,
     serviceName,
     truncated: record.truncated === true,
+    environment,
     hash,
   };
 }
@@ -190,11 +197,11 @@ export class PostgresLogWriter {
     const seen = new Map<string, number>();
     let invalid = 0;
     for (const rl of batch.resourceLogs) {
-      const { serviceName } = deriveResource(rl.resource);
+      const { serviceName, environment } = deriveResource(rl.resource);
       for (const record of rl.records) {
         // The mapper already drops these in `trace` mode; the writer holds the rule too.
         if (!this.all && record.traceId === "") continue;
-        const row = rowOf(record, serviceName);
+        const row = rowOf(record, serviceName, environment);
         if (row === null) {
           invalid++;
           continue;
@@ -334,10 +341,10 @@ export class PostgresLogWriter {
     const result = await client.query(
       `INSERT INTO logs (
          trace_id, span_id, time, time_ns, severity_number, severity_text, body, context,
-         service_name, record_hash, truncated)
+         service_name, record_hash, truncated, environment)
        SELECT * FROM unnest(
          $1::text[], $2::text[], $3::timestamptz[], $4::bigint[], $5::int[], $6::text[],
-         $7::text[], $8::text[], $9::text[], $10::text[], $11::boolean[])
+         $7::text[], $8::text[], $9::text[], $10::text[], $11::boolean[], $12::text[])
        ON CONFLICT DO NOTHING`,
       [
         col((r) => r.traceId),
@@ -351,6 +358,7 @@ export class PostgresLogWriter {
         col((r) => r.serviceName),
         col((r) => r.hash),
         col((r) => r.truncated),
+        col((r) => r.environment),
       ],
     );
     return result.rowCount ?? 0;

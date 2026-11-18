@@ -397,6 +397,7 @@ test("standalone: the service is sent and the SLO budget rings show", async ({
     id,
     name,
     service: "orders",
+    environment: null,
     route: null,
     kind: "availability",
     latencyThresholdMs: null,

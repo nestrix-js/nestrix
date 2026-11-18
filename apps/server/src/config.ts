@@ -28,6 +28,12 @@ export interface IngestConfig {
   readonly auth: "keys" | "none" | "unconfigured";
   /** API keys, each at least 32 characters. Empty unless `auth` is `keys`. */
   readonly keys: readonly string[];
+  /**
+   * Issue #28, D-101: the environment each key of `keys` (same index) is bound to, or `null` for an
+   * unbound key. Records sent with a bound key are stored under its environment, whatever their
+   * resource claims (`<environment>:<key>` entries of `NESTRIX_INGEST_KEYS`, `parseIngestKeys`).
+   */
+  readonly keyEnvironments: readonly (string | null)[];
   /** Limit on the request body, applied to the compressed bytes and, separately, to the decompressed size. */
   readonly maxBodyBytes: number;
   /** Per key (per client address when `auth` is `none`). */
@@ -151,7 +157,10 @@ export const DEFAULT_LOGS_MAX_PER_MINUTE = 30_000;
 export const DEFAULT_MAX_SPANS_PER_TRACE = 50_000;
 export const MIN_MAX_SPANS_PER_TRACE = 1_000;
 export const MAX_MAX_SPANS_PER_TRACE = 10_000_000;
-export const DEFAULT_INGEST: Omit<IngestConfig, "auth" | "keys"> = {
+export const DEFAULT_INGEST: Omit<
+  IngestConfig,
+  "auth" | "keys" | "keyEnvironments"
+> = {
   // As the OpenTelemetry Collector's OTLP receiver. A single request at every cap below is
   // charged about 20 MiB + (400k + 100k) x 512 B = 264 MiB of the budget, so it always fits.
   maxBodyBytes: 20 * MIB,
@@ -311,17 +320,11 @@ export function loadConfig(
     errors.push("DATABASE_PASSWORD_FILE is set but DATABASE_URL is not.");
   }
 
-  const keys = (secret(env, "NESTRIX_INGEST_KEYS", errors, readFile) ?? "")
-    .split(",")
-    .map((k) => k.trim())
-    .filter((k) => k !== "");
-  keys.forEach((key, index) => {
-    if (key.length < MIN_INGEST_KEY_LENGTH) {
-      errors.push(
-        `NESTRIX_INGEST_KEYS: key ${index + 1} has ${key.length} characters; each key needs at least ${MIN_INGEST_KEY_LENGTH}.`,
-      );
-    }
-  });
+  const parsedKeys = parseIngestKeys(
+    secret(env, "NESTRIX_INGEST_KEYS", errors, readFile) ?? "",
+    errors,
+  );
+  const keys = parsedKeys.map((k) => k.key);
 
   const authOptOut = present(env, "NESTRIX_INGEST_AUTH")?.trim();
   if (authOptOut !== undefined && authOptOut !== "none") {
@@ -513,6 +516,9 @@ export function loadConfig(
         ...DEFAULT_INGEST,
         auth,
         keys: Object.freeze(auth === "keys" ? keys : []),
+        keyEnvironments: Object.freeze(
+          auth === "keys" ? parsedKeys.map((k) => k.environment) : [],
+        ),
       }),
       http: Object.freeze({ ...DEFAULT_HTTP, maxConnections }),
       adminPassword,
@@ -537,6 +543,73 @@ export function loadConfig(
       trustedProxies,
     }),
   };
+}
+
+/** An environment an ingest key can be bound to: 1 to 64 letters, digits, `.`, `_` or `-`, starting with a letter or digit. */
+export const INGEST_KEY_ENVIRONMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+export interface IngestKeyEntry {
+  readonly key: string;
+  /** `null`: unbound (records keep the environment their resource claims). */
+  readonly environment: string | null;
+}
+
+/**
+ * `NESTRIX_INGEST_KEYS` (issue #28, D-101): comma-separated entries, each a plain key or
+ * `<environment>:<key>`. Entries are trimmed and empty ones skipped. An entry with a `:` is always
+ * read as bound: the text before its first `:` is the environment (`INGEST_KEY_ENVIRONMENT`, not
+ * `unset`), the rest is the key, which may itself contain `:`. Every key needs 32 characters. The
+ * same key listed twice with different bindings is an error (which one applies would be a guess).
+ * Messages name the entry by its position, never its text, which may be (part of) a key.
+ */
+export function parseIngestKeys(
+  text: string,
+  errors: string[],
+): IngestKeyEntry[] {
+  const entries: IngestKeyEntry[] = [];
+  const bindingOf = new Map<
+    string,
+    { environment: string | null; n: number }
+  >();
+  const parts = text
+    .split(",")
+    .map((k) => k.trim())
+    .filter((k) => k !== "");
+  parts.forEach((entry, index) => {
+    const n = index + 1;
+    const colon = entry.indexOf(":");
+    let environment: string | null = null;
+    let key = entry;
+    if (colon >= 0) {
+      const name = entry.slice(0, colon);
+      key = entry.slice(colon + 1);
+      if (!INGEST_KEY_ENVIRONMENT.test(name) || name === "unset") {
+        errors.push(
+          `NESTRIX_INGEST_KEYS: entry ${n} contains ":", so it is read as <environment>:<key>, but its environment is not 1 to 64 letters, digits, ".", "_" or "-" starting with a letter or digit (and not "unset").`,
+        );
+        return;
+      }
+      environment = name;
+    }
+    if (key.length < MIN_INGEST_KEY_LENGTH) {
+      errors.push(
+        `NESTRIX_INGEST_KEYS: key ${n} has ${key.length} characters; each key needs at least ${MIN_INGEST_KEY_LENGTH}.`,
+      );
+      return;
+    }
+    const earlier = bindingOf.get(key);
+    if (earlier !== undefined) {
+      if (earlier.environment !== environment) {
+        errors.push(
+          `NESTRIX_INGEST_KEYS: entries ${earlier.n} and ${n} have the same key with different environments; list each key once.`,
+        );
+      }
+      return;
+    }
+    bindingOf.set(key, { environment, n });
+    entries.push({ key, environment });
+  });
+  return entries;
 }
 
 /**

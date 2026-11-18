@@ -7,10 +7,12 @@
 /**
  * `error_rate`: errors / requests as a fraction (0.05 is 5%). `p95_ms`: latency in ms.
  * `slo_burn_rate`: the burn rate of the rule's SLO over the rule's window (14.4 spends a 30-day
- * budget in 2 days); the rule has `sloId`, and takes its service and route from the SLO.
+ * budget in 2 days); the rule has `sloId`, and takes its service, environment and route from the
+ * SLO.
  * `new_error_group` (issue #26): notifies once for each error group seen for the first time and
- * once for each regression (a resolved group back); `service` and `route` are optional filters,
- * and the rule has no threshold, window or request minimum (they read 0, 5 and 1).
+ * once for each regression (a resolved group back); `service`, `environment` and `route` are
+ * optional filters, and the rule has no threshold, window or request minimum (they read 0, 5 and
+ * 1).
  */
 export type AlertMetric =
   | "error_rate"
@@ -27,6 +29,11 @@ export interface AlertRule {
   name: string;
   /** `null`: every service (only a `new_error_group` rule has no service). */
   service: string | null;
+  /**
+   * The environment scope (issue #28, D-101): `null` watches every environment, `"unset"` the data
+   * without an environment, any other value that `deployment.environment.name`.
+   */
+  environment: string | null;
   /** `null`: every route of the service. */
   route: string | null;
   metric: AlertMetric;
@@ -59,6 +66,8 @@ export interface AlertRuleCreate {
    * (optional: every service).
    */
   service?: string;
+  /** `null` or absent: every environment. Taken from the SLO for `slo_burn_rate`. */
+  environment?: string | null;
   route?: string | null;
   metric: AlertMetric;
   /** Required for, and only for, `slo_burn_rate`: the id of an existing SLO. */
@@ -124,6 +133,8 @@ export interface AlertErrorGroup {
   /** `ErrorGroup.key`. */
   key: string;
   service: string;
+  /** The group's environment (D-101); `null`: the spans had none. */
+  environment: string | null;
   errorType: string | null;
   /** The normalised message (numbers, ids and quoted strings replaced; see `ErrorGroup.pattern`). */
   pattern: string;
@@ -150,6 +161,11 @@ export interface AlertWebhookPayload {
   window: { minutes: number };
   /** The rule's service; for `new_error_group`, the group's. `null`: a test of a rule without one. */
   service: string | null;
+  /**
+   * The rule's environment scope; `null` is every environment (D-101). For `new_error_group`, the
+   * group's environment, `"unset"` when it has none.
+   */
+  environment: string | null;
   /** The rule's route; for `new_error_group`, the group's (`null`: it has none). */
   route: string | null;
   /** Present for `new_error_group`: the group that caused the notification. */

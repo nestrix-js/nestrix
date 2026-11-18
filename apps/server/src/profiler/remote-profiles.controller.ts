@@ -61,6 +61,7 @@ const CAPTURE_ID = /^[0-9a-f]{16}$/;
 
 const instancesSpec: Readonly<Record<string, ParamSpec>> = {
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 const listSpec: Readonly<Record<string, ParamSpec>> = {
   service: { kind: "string", maxLength: 256 },

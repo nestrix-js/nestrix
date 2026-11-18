@@ -135,6 +135,7 @@ describe.skipIf(noDatabase)(`error triage ${skipReason}`, () => {
     release: string,
     route = "/orders",
     service = "shop",
+    environment?: string,
   ): Promise<void> {
     const traceId = hex(16);
     const rootId = hex(8);
@@ -169,7 +170,12 @@ describe.skipIf(noDatabase)(`error triage ${skipReason}`, () => {
             ],
           }),
         ],
-        { "service.version": release },
+        {
+          "service.version": release,
+          ...(environment === undefined
+            ? {}
+            : { "deployment.environment.name": environment }),
+        },
       ),
     );
   }
@@ -182,10 +188,16 @@ describe.skipIf(noDatabase)(`error triage ${skipReason}`, () => {
     r: ErrorGroupsResponse,
     pattern: string,
   ): ErrorGroup | undefined => r.groups.find((g) => g.pattern === pattern);
-  const act = (action: string, key: string, service?: string) =>
+  const act = (
+    action: string,
+    key: string,
+    service?: string,
+    environment?: string,
+  ) =>
     server.call("POST", `/api/v1/errors/groups/${action}`, {
       key,
       ...(service === undefined ? {} : { service }),
+      ...(environment === undefined ? {} : { environment }),
     });
   const payloads = (): AlertWebhookPayload[] =>
     receiver.requests.map((r) => JSON.parse(r.body) as AlertWebhookPayload);
@@ -416,6 +428,120 @@ describe.skipIf(noDatabase)(`error triage ${skipReason}`, () => {
     const billingRule = got.find((p) => p.rule.name === "billing only");
     expect(billingRule?.errorGroup?.pattern).toBe("billing error");
     expect(got.filter((p) => p.rule.name === "billing only")).toHaveLength(1);
+  });
+
+  it("keeps groups, their triage and new_error_group alerts apart per environment (D-101)", async () => {
+    const prodRule = await server.call("POST", "/api/v1/alerts", {
+      name: "production groups",
+      metric: "new_error_group",
+      environment: "production",
+      webhookUrl: receiver.url,
+    });
+    expect(prodRule.status).toBe(201);
+    const prodRuleId = ((await prodRule.json()) as AlertRuleCreateResponse).rule
+      .id;
+    await sleep(50);
+    const sent = receiver.requests.length;
+    // One error, the same service, two environments. Its own service: a service seen with an
+    // environment changes how an env-less triage call creates rows (checked below).
+    await fail("env split", "1.0.0", "/env", "envshop", "staging");
+    await fail("env split", "1.0.0", "/env", "envshop", "production");
+    await settle();
+
+    const stored = await db.pool.query<{ environment: string }>(
+      "SELECT environment FROM error_groups WHERE pattern = 'env split' ORDER BY environment",
+    );
+    expect(stored.rows.map((r) => r.environment)).toEqual([
+      "production",
+      "staging",
+    ]);
+    // The rule over every environment notifies each environment's group once; the production
+    // rule only production's.
+    const got = payloads()
+      .slice(sent)
+      .filter((p) => p.errorGroup?.pattern === "env split");
+    const envsOf = (id: string) =>
+      got
+        .filter((p) => p.rule.id === id)
+        .map((p) => [p.environment, p.errorGroup?.environment])
+        .sort();
+    expect(envsOf(ruleId)).toEqual([
+      ["production", "production"],
+      ["staging", "staging"],
+    ]);
+    expect(envsOf(prodRuleId)).toEqual([["production", "production"]]);
+
+    // Lists are scoped like every query, and the group is one group over both.
+    const inEnv = (environment: string) =>
+      groups(`&environment=${environment}`).then((r) => find(r, "env split"));
+    const key = (await inEnv("staging"))?.key as string;
+    expect(key).toBeDefined();
+    expect((await inEnv("production"))?.key).toBe(key);
+    expect(await inEnv("unset")).toBeUndefined();
+    expect(await inEnv("other")).toBeUndefined();
+
+    // Resolving in staging leaves production open; the unscoped list shows the most urgent.
+    const resolved = await act("resolve", key, "envshop", "staging");
+    expect(resolved.status).toBe(200);
+    expect((await resolved.json()) as ErrorGroupTriageResponse).toMatchObject({
+      updated: 1,
+      triage: { state: "resolved" },
+    });
+    expect((await inEnv("staging"))?.triage?.state).toBe("resolved");
+    expect((await inEnv("production"))?.triage?.state).toBe("open");
+    expect(find(await groups(), "env split")?.triage?.state).toBe("open");
+    // Ignoring production's copy too: the unscoped list now shows staging's resolved state.
+    expect((await act("ignore", key, "envshop", "production")).status).toBe(
+      200,
+    );
+    expect(find(await groups(), "env split")?.triage?.state).toBe("resolved");
+    expect(await inEnv("production")).toBeUndefined();
+    expect((await groups("&environment=production")).ignoredCount).toBe(1);
+
+    // A newer release in staging regresses staging's copy only, and only the rule over every
+    // environment hears of it.
+    const before = receiver.requests.length;
+    await sleep(30);
+    await fail("env split", "1.1.0", "/env", "envshop", "staging");
+    await fail("env split", "1.1.0", "/env", "envshop", "production");
+    await settle();
+    const states = await db.pool.query<{ environment: string; state: string }>(
+      "SELECT environment, state FROM error_groups WHERE pattern = 'env split' ORDER BY environment",
+    );
+    expect(states.rows).toEqual([
+      { environment: "production", state: "ignored" },
+      { environment: "staging", state: "regressed" },
+    ]);
+    const later = payloads().slice(before);
+    expect(
+      later.map((p) => [p.rule.id, p.environment, p.errorGroup?.reason]),
+    ).toEqual([[ruleId, "staging", "regressed"]]);
+
+    // Triage of a group not stored yet: without an environment nothing can be created for a
+    // service that has environments; naming one creates it there.
+    const unseen = JSON.stringify(["Error", "not stored yet", "/env"]);
+    expect((await act("ignore", unseen, "envshop")).status).toBe(404);
+    expect((await act("ignore", unseen, "envshop", "staging")).status).toBe(
+      200,
+    );
+    const created = await db.pool.query<{ environment: string }>(
+      "SELECT environment FROM error_groups WHERE pattern = 'not stored yet'",
+    );
+    expect(created.rows).toEqual([{ environment: "staging" }]);
+    // `unset` names the copy without an environment, stored as ''.
+    expect((await act("ignore", unseen, "envshop", "unset")).status).toBe(200);
+    const both = await db.pool.query<{ environment: string }>(
+      "SELECT environment FROM error_groups WHERE pattern = 'not stored yet' ORDER BY environment",
+    );
+    expect(both.rows.map((r) => r.environment)).toEqual(["", "staging"]);
+    expect(
+      (
+        await server.call("POST", "/api/v1/errors/groups/ignore", {
+          key: unseen,
+          environment: "",
+        })
+      ).status,
+    ).toBe(400);
   });
 
   it("states survive a restart and the deletion of every span partition", async () => {

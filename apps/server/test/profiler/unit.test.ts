@@ -247,6 +247,7 @@ describe("body parsers", () => {
         service: "s",
         instanceId: "i",
         version: null,
+        environment: null,
         host: null,
         pid: null,
         runtime: null,

@@ -489,8 +489,9 @@ function RuleCard({
           </div>
           <p className="text-xs text-muted-foreground">
             <span className="font-mono">
-              {rule.service}
+              {rule.service ?? "every service"}
               {rule.route ? ` ${rule.route}` : ""}
+              {rule.environment !== null ? ` · ${rule.environment}` : ""}
             </span>
             {slo && ` · SLO "${slo.name}"`}
           </p>

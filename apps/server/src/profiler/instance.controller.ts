@@ -124,12 +124,17 @@ export class InstanceController {
     @Req() req: IncomingMessage,
     @Res() res: ServerResponse,
   ): Promise<void> {
-    return this.handle(req, res, async (principal) => {
+    return this.handle(req, res, async (principal, boundEnvironment) => {
       const read = await this.readJson(req, SMALL_BODY_LIMIT);
       if ("status" in read) return read;
       const parsed = parseCheckIn(read.value);
       if (!parsed.ok) return error(400, "bad_request", parsed.message);
-      const result = await this.store.checkIn(parsed.checkIn, principal);
+      // A key bound to an environment decides the instance's environment (D-101).
+      const checkIn =
+        boundEnvironment === undefined
+          ? parsed.checkIn
+          : { ...parsed.checkIn, environment: boundEnvironment };
+      const result = await this.store.checkIn(checkIn, principal);
       if (result.kind === "conflict") {
         return error(
           409,
@@ -212,7 +217,10 @@ export class InstanceController {
   private async handle(
     req: IncomingMessage,
     res: ServerResponse,
-    work: (principal: string) => Promise<Reply | undefined>,
+    work: (
+      principal: string,
+      environment: string | undefined,
+    ) => Promise<Reply | undefined>,
   ): Promise<void> {
     try {
       const admitted = this.receiver.admit(req);
@@ -226,7 +234,10 @@ export class InstanceController {
         return;
       }
       // Ownership follows the key's fingerprint, not its place in the list (`owner` is unset with auth off).
-      const reply = await work(admitted.owner ?? admitted.principal);
+      const reply = await work(
+        admitted.owner ?? admitted.principal,
+        admitted.environment,
+      );
       if (reply === undefined) return; // The client went away.
       this.reply(req, res, reply);
     } catch (failure) {

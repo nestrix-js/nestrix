@@ -36,14 +36,14 @@ function apiError(status: number, code: ApiErrorCode, message: string): never {
   throw new HttpException(body, status);
 }
 
-/** A body of `{ key, service? }` and nothing else. */
+/** A body of `{ key, service?, environment? }` and nothing else. */
 function parseBody(body: unknown) {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
     apiError(400, "bad_request", "The body must be a JSON object.");
   }
   const input = body as Record<string, unknown>;
   for (const k of Object.keys(input)) {
-    if (k !== "key" && k !== "service") {
+    if (k !== "key" && k !== "service" && k !== "environment") {
       apiError(400, "bad_request", `Unknown field: ${k.slice(0, 64)}.`);
     }
   }
@@ -62,7 +62,24 @@ function parseBody(body: unknown) {
     }
     service = input.service;
   }
-  return { key: input.key as string, parsed, service };
+  // The environment scope (issue #28, D-101): absent is every environment, `unset` the copy
+  // without one, any other value that environment.
+  let environment: string | undefined;
+  if (input.environment !== undefined) {
+    if (
+      typeof input.environment !== "string" ||
+      input.environment.length < 1 ||
+      input.environment.length > 256
+    ) {
+      apiError(
+        400,
+        "bad_request",
+        "environment must have 1 to 256 characters.",
+      );
+    }
+    environment = input.environment;
+  }
+  return { key: input.key as string, parsed, service, environment };
 }
 
 /**
@@ -91,10 +108,15 @@ export class ErrorTriageController {
       v.key,
       v.parsed,
       v.service,
+      v.environment,
       Date.now(),
     );
     if (done === undefined) {
-      apiError(404, "not_found", "No stored error group matches this key.");
+      apiError(
+        404,
+        "not_found",
+        "No stored error group matches this key. To triage a group the server has not stored yet, name its service (and its environment, when the service has environments).",
+      );
     }
     return done;
   }

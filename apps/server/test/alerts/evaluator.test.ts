@@ -184,6 +184,7 @@ describe.skipIf(noDatabase)(`alert evaluator ${skipReason}`, () => {
       threshold: 0.1,
       window: { minutes: 5 },
       service,
+      environment: null,
       route: null,
       startedAt: new Date(base).toISOString(),
       sentAt: new Date(base + 2 * MIN).toISOString(),

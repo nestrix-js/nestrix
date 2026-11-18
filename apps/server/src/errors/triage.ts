@@ -3,8 +3,10 @@
  * combine rows into what a list reports, and the writes behind the resolve, ignore and reopen
  * routes. The sync that fills the table is `sync.ts`.
  *
- * A group is stored per (service, group key); the key is `groupKeyOf` of `query/error-groups.ts`
- * (the one place that defines a group's identity), hashed so the primary key stays small.
+ * A group is stored per (service, environment, group key); the key is `groupKeyOf` of
+ * `query/error-groups.ts` (the one place that defines a group's identity), hashed so the primary
+ * key stays small. The environment (issue #28, D-101) is stored as `''` when unset (migration
+ * 0018 says why), so triage in one environment never changes another's copy of the group.
  */
 import { createHash } from "node:crypto";
 import type {
@@ -14,19 +16,46 @@ import type {
 } from "@nestrix-js/protocol";
 import type { Pool, PoolClient } from "pg";
 import { groupKeyOf } from "../query/error-groups.js";
+import { type Scope, UNSET_ENVIRONMENT } from "../query/scope.js";
 
 export type TriageAction = "resolve" | "ignore" | "reopen";
 
 export const keyHashOf = (key: string): string =>
   createHash("sha256").update(key).digest("hex");
 
-/** Map key of a stored row: service and key hash. */
-export const rowKey = (service: string, hash: string): string =>
-  `${service}\u0000${hash}`;
+/** The stored form of a record's environment: `''` for none (`null` or absent). */
+export const storedEnvironment = (
+  environment: string | null | undefined,
+): string => environment ?? "";
+
+/**
+ * The stored form of a scope's environment: `undefined` for every environment, `''` for `unset`,
+ * the name otherwise.
+ */
+export const scopeEnvironment = (
+  environment: string | null | undefined,
+): string | undefined => {
+  if (environment === undefined || environment === null) return undefined;
+  return environment === UNSET_ENVIRONMENT ? "" : environment;
+};
+
+/** Map key of a stored row: service, stored environment and key hash. */
+export const rowKey = (
+  service: string,
+  environment: string,
+  hash: string,
+): string => `${service}\u0000${environment}\u0000${hash}`;
+
+/** Where a group was seen: one service in one environment (`''` unset). */
+export interface GroupPlace {
+  service: string;
+  environment: string;
+}
 
 /** The columns of `error_groups` the query API reads. */
 export interface TriageRow {
   service_name: string;
+  environment: string;
   key_hash: string;
   state: ErrorGroupTriageState;
   resolved_at: Date | null;
@@ -36,22 +65,38 @@ export interface TriageRow {
 }
 
 const TRIAGE_COLUMNS =
-  "service_name, key_hash, state, resolved_at, resolved_in_release, regressed_at, ignored_at";
+  "service_name, environment, key_hash, state, resolved_at, resolved_in_release, regressed_at, ignored_at";
 /** More stored non-open groups than this are not all read (a person triages tens, not thousands). */
 const TRIAGED_CAP = 10_000;
 
-/** Every stored group that is not open (what lists need: they treat a missing row as open). */
+/**
+ * Every stored group in `scope` that is not open (what lists need: they treat a missing row as
+ * open).
+ */
 export async function loadTriaged(
   db: Pool | PoolClient,
-  service: string | undefined,
+  scope: Scope,
 ): Promise<Map<string, TriageRow>> {
+  const values: unknown[] = [TRIAGED_CAP];
+  const where = ["state <> 'open'"];
+  if (scope.service !== undefined) {
+    values.push(scope.service);
+    where.push(`service_name = $${values.length}`);
+  }
+  const environment = scopeEnvironment(scope.environment);
+  if (environment !== undefined) {
+    values.push(environment);
+    where.push(`environment = $${values.length}`);
+  }
   const { rows } = await db.query<TriageRow>(
     `SELECT ${TRIAGE_COLUMNS} FROM error_groups
-      WHERE state <> 'open' ${service === undefined ? "" : "AND service_name = $2"}
+      WHERE ${where.join(" AND ")}
       LIMIT $1`,
-    service === undefined ? [TRIAGED_CAP] : [TRIAGED_CAP, service],
+    values,
   );
-  return new Map(rows.map((r) => [rowKey(r.service_name, r.key_hash), r]));
+  return new Map(
+    rows.map((r) => [rowKey(r.service_name, r.environment, r.key_hash), r]),
+  );
 }
 
 const PRIORITY: Record<ErrorGroupTriageState, number> = {
@@ -77,13 +122,13 @@ function triageOf(row: TriageRow): ErrorGroupTriage {
 }
 
 /**
- * The state of a group over the services it was seen in: the most urgent of its stored copies
- * (`regressed`, then `open`, then `resolved`, then `ignored`). A service with no stored non-open
- * row counts as open. `rows` holds the non-open rows only (`loadTriaged`).
+ * The state of a group over the places (service and environment) it was seen in: the most urgent
+ * of its stored copies (`regressed`, then `open`, then `resolved`, then `ignored`). A place with
+ * no stored non-open row counts as open. `rows` holds the non-open rows only (`loadTriaged`).
  */
 export function combineTriage(
   rows: ReadonlyMap<string, TriageRow>,
-  services: readonly string[],
+  places: readonly GroupPlace[],
   key: string,
 ): ErrorGroupTriage {
   const hash = keyHashOf(key);
@@ -92,9 +137,9 @@ export function combineTriage(
     if (best === undefined || PRIORITY[t.state] < PRIORITY[best.state])
       best = t;
   };
-  if (services.length === 0) consider({ state: "open" });
-  for (const service of services) {
-    const row = rows.get(rowKey(service, hash));
+  if (places.length === 0) consider({ state: "open" });
+  for (const { service, environment } of places) {
+    const row = rows.get(rowKey(service, environment, hash));
     consider(row === undefined ? { state: "open" } : triageOf(row));
   }
   return best ?? { state: "open" };
@@ -120,17 +165,20 @@ export function passesFilter(
 /**
  * What `GET errors/groups` does with the stored states: the `include` predicate for `groupErrors`
  * (which drops groups before the list is cut), the annotation of the groups that remain, and the
- * count of ignored groups left out.
+ * count of ignored groups left out. `placesOf` names where a group was seen in the window; by
+ * default its services in the unset environment.
  */
 export function triageView(
   rows: ReadonlyMap<string, TriageRow>,
   filter: TriageFilter,
+  placesOf: (group: ErrorGroup) => readonly GroupPlace[] = (group) =>
+    group.services.map((service) => ({ service, environment: "" })),
 ) {
   let ignoredCount = 0;
   const states = new Map<string, ErrorGroupTriage>();
   return {
     include(group: ErrorGroup): boolean {
-      const triage = combineTriage(rows, group.services, group.key);
+      const triage = combineTriage(rows, placesOf(group), group.key);
       if (!passesFilter(filter, triage.state)) {
         if (filter === undefined && triage.state === "ignored") ignoredCount++;
         return false;
@@ -180,11 +228,16 @@ export function parseGroupKey(key: unknown): ParsedKey | undefined {
 // ---- writes ------------------------------------------------------------------------------------
 
 /**
- * Applies `action` to a group (every service that has it, or `service` only) and returns what
- * was stored afterwards; undefined when no service has the group. A stored row that does not exist
- * yet (the sync has not seen the group: it runs a few seconds behind ingest) is created for a
- * named `service`, so a person can act on a group they just saw in a list; the sync merges the
- * real first and last occurrence into it.
+ * Applies `action` to a group (every service and environment that has it, or only those `service`
+ * and `environment` name) and returns what was stored afterwards; undefined when no stored copy
+ * matches. `environment` is a scope value (D-101): `undefined` every environment, `unset` the
+ * copy without one, any other value that environment. A stored row that does not exist yet (the
+ * sync has not seen the group: it runs a few seconds behind ingest) is created for a named
+ * `service`, so a person can act on a group they just saw in a list; the sync merges the real
+ * first and last occurrence into it. It is created in `environment`, or, when none is named, in
+ * the unset environment if the service was never seen with one (`service_environments`), which
+ * is what a client that predates environments means; otherwise nothing is created (the call
+ * cannot know which environment's group was meant).
  *
  * Resolving records the release of the group's latest occurrence: a later occurrence in another
  * release is a regression (`sync.ts`). Rows are locked first, so a sync run applying a regression
@@ -196,21 +249,34 @@ export async function applyTriage(
   key: string,
   parsed: ParsedKey,
   service: string | undefined,
+  environment: string | undefined,
   nowMs: number,
 ): Promise<{ updated: number; triage: ErrorGroupTriage } | undefined> {
   const hash = keyHashOf(key);
   const at = new Date(nowMs);
+  const env = scopeEnvironment(environment);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    if (service !== undefined) {
+    let createIn = env;
+    if (service !== undefined && createIn === undefined) {
+      const named = await client.query(
+        `SELECT 1 FROM service_environments
+          WHERE service_name = $1 AND environment IS NOT NULL LIMIT 1`,
+        [service],
+      );
+      if ((named.rowCount ?? 0) === 0) createIn = "";
+    }
+    if (service !== undefined && createIn !== undefined) {
       await client.query(
         `INSERT INTO error_groups
-           (service_name, key_hash, group_key, error_type, pattern, route, first_seen, last_seen)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
-         ON CONFLICT (service_name, key_hash) DO NOTHING`,
+           (service_name, environment, key_hash, group_key, error_type, pattern, route,
+            first_seen, last_seen)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+         ON CONFLICT (service_name, environment, key_hash) DO NOTHING`,
         [
           service,
+          createIn,
           hash,
           key,
           parsed.errorType,
@@ -220,18 +286,27 @@ export async function applyTriage(
         ],
       );
     }
+    const params: unknown[] = [hash];
+    const conditions = ["key_hash = $1"];
+    if (service !== undefined) {
+      params.push(service);
+      conditions.push(`service_name = $${params.length}`);
+    }
+    if (env !== undefined) {
+      params.push(env);
+      conditions.push(`environment = $${params.length}`);
+    }
+    const where = conditions.join(" AND ");
     const locked = await client.query<{ service_name: string }>(
       `SELECT service_name FROM error_groups
-        WHERE key_hash = $1 ${service === undefined ? "" : "AND service_name = $2"}
-        ORDER BY service_name FOR UPDATE`,
-      service === undefined ? [hash] : [hash, service],
+        WHERE ${where}
+        ORDER BY service_name, environment FOR UPDATE`,
+      params,
     );
     if (locked.rows.length === 0) {
       await client.query("ROLLBACK");
       return undefined;
     }
-    const where = `key_hash = $1 ${service === undefined ? "" : "AND service_name = $2"}`;
-    const params = service === undefined ? [hash] : [hash, service];
     const next = params.length + 1;
     let set: string;
     if (action === "resolve") {
@@ -247,13 +322,19 @@ export async function applyTriage(
     );
     await client.query("COMMIT");
     const rows = new Map(
-      res.rows.map((r) => [rowKey(r.service_name, r.key_hash), r]),
+      res.rows.map((r) => [
+        rowKey(r.service_name, r.environment, r.key_hash),
+        r,
+      ]),
     );
     return {
       updated: res.rows.length,
       triage: combineTriage(
         rows,
-        res.rows.map((r) => r.service_name),
+        res.rows.map((r) => ({
+          service: r.service_name,
+          environment: r.environment,
+        })),
         key,
       ),
     };

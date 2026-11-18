@@ -27,6 +27,7 @@ export const matching: TraceListParamsSpec = {
   user: { kind: "string", maxLength: 256 },
   hasErrors: { kind: "enum", values: ["true", "false"] },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
   fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
   toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
 };
@@ -37,6 +38,7 @@ export const matchingErrors: ErrorListParamsSpec = {
   after: { kind: "cursor", maxLength: 256 },
   route: { kind: "string", maxLength: 512 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
 export const matchingRoutes: RouteStatsParamsSpec = {
@@ -48,6 +50,7 @@ export const matchingRoutes: RouteStatsParamsSpec = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
 export const matchingTrace: TraceParamsSpec = {

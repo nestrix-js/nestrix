@@ -3,6 +3,8 @@
  * newest first. A read of what the writer stored (`NESTRIX_LOGS` decides what that is), so it is
  * always available.
  *
+ * - Scope: `service` and `environment` (D-101) through `scopeSql`, like every other query; a
+ *   line's environment is its resource's, or its ingest key's (trace-less lines included).
  * - Window: `fromUnixMs` (default: 24 hours before now) to `toUnixMs` (default: open). The `time`
  *   column (the partition key) bounds the scan, so partitions outside the window are not read.
  * - `text`: `match=words` is PostgreSQL full text search (`to_tsvector('simple', body)`, GIN
@@ -25,6 +27,7 @@ import type { ServerConfig } from "../config.js";
 import { SERVER_CONFIG } from "../config.module.js";
 import { STORAGE_POOL } from "../storage/storage.module.js";
 import type { Values } from "./params.js";
+import { scopeOf, scopeSql } from "./scope.js";
 
 export const STATEMENT_TIMEOUT_MS = 15_000;
 const DEFAULT_WINDOW_MS = 24 * 3_600_000;
@@ -84,19 +87,6 @@ interface Row {
   trace_exists: boolean;
 }
 
-/**
- * The service filter, in one place so a sibling column (such as `environment`) can join it.
- * Returns the SQL conditions to AND, adding their values to `add`.
- */
-function serviceConditions(
-  v: Values,
-  add: (value: unknown) => string,
-): string[] {
-  return typeof v.service === "string"
-    ? [`service_name = ${add(v.service)}`]
-    : [];
-}
-
 @Injectable()
 export class LogSearchService {
   constructor(
@@ -126,7 +116,8 @@ export class LogSearchService {
     const where: string[] = [`l.time >= to_timestamp(${add(from / 1000)})`];
     if (to !== undefined)
       where.push(`l.time <= to_timestamp(${add(to / 1000)})`);
-    where.push(...serviceConditions(v, add).map((c) => c.replace(/^/, "l.")));
+    // The data scope (issue #28, D-101): service and environment, the way every query applies it.
+    where.push(...scopeSql(scopeOf(v), add, "l"));
     if (typeof v.severity === "string") {
       where.push(`l.severity_number >= ${add(SEVERITY_MIN[v.severity])}`);
     }

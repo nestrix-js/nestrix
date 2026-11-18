@@ -22,6 +22,7 @@ export const overviewParams = {
   },
   apdexMs: { kind: "int", min: 10, max: 10000, default: 300 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type OverviewParamsSpec = typeof overviewParams;
 

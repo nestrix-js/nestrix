@@ -24,9 +24,17 @@ import {
 } from "../storage/helpers.js";
 import { type QueryServer, startQueryServer } from "./helpers.js";
 
-function batch(records: IngestLogRecord[], service = "shop"): IngestLogBatch {
+function batch(
+  records: IngestLogRecord[],
+  service = "shop",
+  environment?: string,
+): IngestLogBatch {
+  const resource: Record<string, string> = { "service.name": service };
+  if (environment !== undefined) {
+    resource["deployment.environment.name"] = environment;
+  }
   return {
-    resourceLogs: [{ resource: { "service.name": service }, records }],
+    resourceLogs: [{ resource, records }],
     rejectedLogRecords: 0,
   };
 }
@@ -244,6 +252,46 @@ describe.skipIf(noDatabase)(`log search, all mode ${skipReason}`, () => {
     );
     expect(p2.items.map((i) => i.level)).toEqual(["WARN", "ERROR"]);
     expect(p2.older).toBeNull();
+  });
+
+  it("scopes by environment like every query (D-101), trace-less lines included", async () => {
+    const trace = hex(16);
+    await sink.writeLogs(
+      batch([line(1, { body: "envscope alpha" })], "envsvc", "staging"),
+    );
+    await sink.writeLogs(
+      batch(
+        [line(2, { body: "envscope beta", traceId: trace })],
+        "envsvc",
+        "production",
+      ),
+    );
+    await sink.writeLogs(
+      batch([line(3, { body: "envscope gamma" })], "envsvc"),
+    );
+    const bodies = async (q: string) =>
+      (await search(`?text=envscope${q}`)).items.map((i) => i.message).sort();
+    expect(await bodies("")).toEqual([
+      "envscope alpha",
+      "envscope beta",
+      "envscope gamma",
+    ]);
+    expect(await bodies("&environment=staging")).toEqual(["envscope alpha"]);
+    expect(await bodies("&environment=production")).toEqual(["envscope beta"]);
+    expect(await bodies("&environment=unset")).toEqual(["envscope gamma"]);
+    expect(await bodies("&environment=staging&service=envsvc")).toEqual([
+      "envscope alpha",
+    ]);
+    expect(await bodies("&environment=staging&service=other")).toEqual([]);
+    expect(await bodies("&environment=nowhere")).toEqual([]);
+    const stored = await db.pool.query<{ environment: string | null }>(
+      "SELECT environment FROM logs WHERE body LIKE 'envscope%' ORDER BY body",
+    );
+    expect(stored.rows.map((r) => r.environment)).toEqual([
+      "staging",
+      "production",
+      null,
+    ]);
   });
 
   it("flags whether the trace exists", async () => {

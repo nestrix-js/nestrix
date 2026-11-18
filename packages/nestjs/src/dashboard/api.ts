@@ -96,6 +96,7 @@ export const traceListSpec: TraceListParamsSpec = {
   user: { kind: "string", maxLength: 256 },
   hasErrors: { kind: "enum", values: ["true", "false"] },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
   fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
   toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
 };
@@ -109,6 +110,7 @@ export const dependencySpec: DependencyParamsSpec = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
 export const traceTimelineSpec: TraceTimelineParamsSpec = {
@@ -128,6 +130,7 @@ export const traceTimelineSpec: TraceTimelineParamsSpec = {
   user: { kind: "string", maxLength: 256 },
   hasErrors: { kind: "enum", values: ["true", "false"] },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
 export const errorListSpec: ErrorListParamsSpec = {
@@ -136,6 +139,7 @@ export const errorListSpec: ErrorListParamsSpec = {
   after: { kind: "cursor", maxLength: 256 },
   route: { kind: "string", maxLength: 512 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
 export const errorGroupSpec: ErrorGroupParamsSpec = {
@@ -152,11 +156,13 @@ export const errorGroupSpec: ErrorGroupParamsSpec = {
     kind: "enum",
     values: ["all", "open", "resolved", "regressed", "ignored"],
   },
+  environment: { kind: "string", maxLength: 256 },
 };
 
 export const errorInsightsSpec: ErrorInsightsParamsSpec = {
   route: { kind: "string", maxLength: 512 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
 export const overviewSpec: OverviewParamsSpec = {
@@ -169,6 +175,7 @@ export const overviewSpec: OverviewParamsSpec = {
   },
   apdexMs: { kind: "int", min: 10, max: 10000, default: 300 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
 export const routeStatsSpec: RouteStatsParamsSpec = {
@@ -180,6 +187,7 @@ export const routeStatsSpec: RouteStatsParamsSpec = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
 export const routeHistogramSpec: RouteHistogramParamsSpec = {
@@ -193,6 +201,7 @@ export const routeHistogramSpec: RouteHistogramParamsSpec = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
 export const routeCompareSpec: RouteCompareParamsSpec = {
@@ -207,6 +216,7 @@ export const routeCompareSpec: RouteCompareParamsSpec = {
   releaseA: { kind: "string", maxLength: 255 },
   releaseB: { kind: "string", maxLength: 255 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
 export const routeExplainSpec: RouteExplainParamsSpec = {
@@ -222,6 +232,7 @@ export const routeExplainSpec: RouteExplainParamsSpec = {
   releaseA: { kind: "string", maxLength: 255 },
   releaseB: { kind: "string", maxLength: 255 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
 export const classStatsSpec: ClassStatsParamsSpec = {
@@ -233,6 +244,7 @@ export const classStatsSpec: ClassStatsParamsSpec = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
 export const appMapSpec: AppMapParamsSpec = {
@@ -244,6 +256,7 @@ export const appMapSpec: AppMapParamsSpec = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
 export const queryStatsSpec: QueryStatsParamsSpec = {
@@ -255,6 +268,7 @@ export const queryStatsSpec: QueryStatsParamsSpec = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
   sort: { kind: "enum", values: ["total", "count", "p95", "max"] },
   limit: { kind: "int", min: 1, max: 200, default: 50 },
 };
@@ -427,9 +441,17 @@ const NO_PROFILER: MetaResponse["profiler"] = Object.freeze({
   running: false,
 });
 
-/** True when a `service` filter excludes this application (it names another service). */
+/**
+ * True when a `service` or `environment` filter excludes this application: it names another
+ * service, or another environment (`unset` matches an application without one; issue #28, D-101).
+ */
 function otherService(v: Values, sources: ApiSources): boolean {
-  return v.service !== undefined && v.service !== sources.service.name;
+  if (v.service !== undefined && v.service !== sources.service.name) {
+    return true;
+  }
+  if (v.environment === undefined) return false;
+  const own = sources.service.environment;
+  return v.environment === "unset" ? own !== undefined : v.environment !== own;
 }
 
 const EMPTY_PAGE = { items: [], head: null, older: null, reset: false };

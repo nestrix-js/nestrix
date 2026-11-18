@@ -11,6 +11,7 @@ import type {
   AlertRuleCreate,
   AlertWebhookPayload,
 } from "@nestrix-js/protocol";
+import { UNSET_ENVIRONMENT } from "../storage/derive.js";
 import { webhookUrlProblem } from "./webhook.js";
 
 export type EventKind = "firing" | "resolved" | "test";
@@ -21,6 +22,8 @@ export interface AlertRuleRow {
   name: string;
   /** NULL only for `new_error_group`: every service. */
   service_name: string | null;
+  /** `null` every environment, `unset` the rows without one (D-101). */
+  environment: string | null;
   route: string | null;
   metric: AlertMetric;
   slo_id: string | null;
@@ -72,6 +75,7 @@ export function toApiRule(
     id: String(rule.id),
     name: rule.name,
     service: rule.service_name,
+    environment: rule.environment,
     route: rule.route,
     metric: rule.metric,
     sloId: rule.slo_id === null ? null : String(rule.slo_id),
@@ -119,6 +123,7 @@ export function buildPayload(
     | "threshold"
     | "window_minutes"
     | "service_name"
+    | "environment"
     | "route"
   >,
   eventId: number,
@@ -142,6 +147,10 @@ export function buildPayload(
     threshold: rule.threshold,
     window: { minutes: rule.window_minutes },
     service: errorGroup?.service ?? rule.service_name,
+    environment:
+      errorGroup === undefined
+        ? rule.environment
+        : (errorGroup.environment ?? UNSET_ENVIRONMENT),
     route: errorGroup === undefined ? rule.route : errorGroup.route,
     ...(errorGroup === undefined ? {} : { errorGroup }),
     startedAt: new Date(startedAtMs).toISOString(),
@@ -154,6 +163,7 @@ export function buildPayload(
 export interface RuleFields {
   name?: string;
   service_name?: string | null;
+  environment?: string | null;
   route?: string | null;
   metric?: AlertMetric;
   slo_id?: number | null;
@@ -172,6 +182,7 @@ export type Validation =
 const KEYS = new Set<keyof AlertRuleCreate>([
   "name",
   "service",
+  "environment",
   "route",
   "metric",
   "sloId",
@@ -298,6 +309,15 @@ export function validateRuleInput(
     if (typeof v !== "string") return fail(v.error);
     fields.service_name = v;
   }
+  if (Object.hasOwn(input, "environment")) {
+    if (input.environment === null || input.environment === undefined) {
+      fields.environment = null;
+    } else {
+      const v = text(input.environment, "environment", 256);
+      if (typeof v !== "string") return fail(v.error);
+      fields.environment = v;
+    }
+  }
   if (has("route") || Object.hasOwn(input, "route")) {
     if (input.route === null || input.route === undefined) {
       fields.route = null;
@@ -402,9 +422,13 @@ export function validateRuleInput(
     if (fields.slo_id === undefined && existing?.slo_id == null) {
       return fail("sloId is required for slo_burn_rate.");
     }
-    if (fields.service_name !== undefined || fields.route !== undefined) {
+    if (
+      fields.service_name !== undefined ||
+      fields.environment !== undefined ||
+      fields.route !== undefined
+    ) {
       return fail(
-        "service and route of a slo_burn_rate rule come from its SLO.",
+        "service, environment and route of a slo_burn_rate rule come from its SLO.",
       );
     }
   } else {

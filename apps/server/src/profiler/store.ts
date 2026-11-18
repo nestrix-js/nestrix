@@ -100,6 +100,8 @@ export interface CheckIn {
   runningCaptureId: string | null;
   /** `null` when the check-in carried no usable sample. */
   runtimeSample: CheckInRuntime | null;
+  /** The instance's environment, or the ingest key's (D-101); `null` is unset. */
+  environment: string | null;
 }
 
 /** What `complete` stores. */
@@ -280,16 +282,17 @@ export class RemoteProfileStore
       const upsert = await client.query(
         `INSERT INTO instances (service, instance_id, version, host, pid, runtime, sdk_version, principal,
                                 cpu_percent, event_loop_p99_ms, heap_used_bytes, rss_bytes,
-                                runtime_sampled_at)
+                                runtime_sampled_at, environment)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                 CASE WHEN $13::boolean THEN now() END)
+                 CASE WHEN $13::boolean THEN now() END, $14)
          ON CONFLICT (service, instance_id) DO UPDATE
             SET version = EXCLUDED.version, host = EXCLUDED.host, pid = EXCLUDED.pid,
                 runtime = EXCLUDED.runtime, sdk_version = EXCLUDED.sdk_version, last_seen = now(),
                 principal = EXCLUDED.principal,
                 cpu_percent = EXCLUDED.cpu_percent, event_loop_p99_ms = EXCLUDED.event_loop_p99_ms,
                 heap_used_bytes = EXCLUDED.heap_used_bytes, rss_bytes = EXCLUDED.rss_bytes,
-                runtime_sampled_at = EXCLUDED.runtime_sampled_at
+                runtime_sampled_at = EXCLUDED.runtime_sampled_at,
+                environment = EXCLUDED.environment
           WHERE instances.principal = EXCLUDED.principal
              OR instances.principal LIKE 'key:%'
          RETURNING 1`,
@@ -307,6 +310,7 @@ export class RemoteProfileStore
           checkIn.runtimeSample?.heapUsedBytes ?? null,
           checkIn.runtimeSample?.rssBytes ?? null,
           checkIn.runtimeSample !== null,
+          checkIn.environment ?? null,
         ],
       );
       if (upsert.rowCount === 0) return { kind: "conflict" };

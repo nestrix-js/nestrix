@@ -64,6 +64,12 @@ export interface ErrorGroupTriage {
 export interface ErrorGroupTriageRequest {
   key: string;
   service?: string;
+  /**
+   * The environment (issue #28, D-101): absent acts on the group in every environment, `unset` on
+   * the copy without one, any other value on that environment's. A group is triaged per service
+   * and environment.
+   */
+  environment?: string;
 }
 
 export interface ErrorGroupTriageResponse {

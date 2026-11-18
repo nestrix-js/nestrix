@@ -25,6 +25,7 @@ describe("package entry", () => {
         "errorInsightsParams",
         "dependencyParams",
         "errorListParams",
+        "logSearchParams",
         "metaParams",
         "overviewParams",
         "profileIdParams",

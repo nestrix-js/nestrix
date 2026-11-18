@@ -55,10 +55,12 @@ describe("parsers built from the protocol specs", () => {
 
   it("has a parser for every filter the traces endpoint takes, and none for cursors or limit; the service has its own", () => {
     const filters = Object.keys(traceListParams).filter(
-      (k) => !["limit", "before", "after", "service"].includes(k),
+      (k) =>
+        !["limit", "before", "after", "service", "environment"].includes(k),
     );
     expect(Object.keys(requestFilterParsers).sort()).toEqual(filters.sort());
     expect(Object.keys(traceListParams)).toContain("service");
+    expect(Object.keys(traceListParams)).toContain("environment");
     expect(serviceParser.parse("orders")).toBe("orders");
     expect(serviceParser.parse("x".repeat(257))).toBeNull();
   });

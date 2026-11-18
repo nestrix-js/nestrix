@@ -23,6 +23,8 @@ export interface ErrorOccurrence {
   readonly service?: string | undefined;
   /** `service.version` of the trace's resource (P15-02). */
   readonly release?: string | undefined;
+  /** The span's environment (standalone server, D-101); absent is unset. */
+  readonly environment?: string | undefined;
 }
 
 const MAX_PATTERN = 300;

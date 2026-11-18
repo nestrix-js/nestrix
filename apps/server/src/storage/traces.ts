@@ -19,7 +19,8 @@
  * that arrives, and on its earliest span otherwise.
  *
  * Row fields from the root: name, kind, service, start, duration, method, route, status code,
- * error (status error), trace type, release (`service.version` of the root's resource).
+ * error (status error), trace type, release (`service.version` of the root's resource),
+ * environment (the root's, D-101).
  * `has_errors` (D-94): any span failed (`SpanRow.isFailure`), merged by OR; a row from before
  * migration 0012 (`NULL`) starts from `error_count > 0`. `user_id`
  * is the root's `user.id`, else the first `user.id` seen in the trace. Aggregates: span and error
@@ -209,7 +210,7 @@ export async function upsertTraces(
          trace_id, partition_time, seq, root_span_id, root_parent_span_id, resource_id,
          service_name, name, kind, start_time, start_ns, duration_ns, http_method, http_route,
          http_status, is_error, trace_type, release, user_id, span_count, error_count,
-         services, span_names, has_job, has_errors)
+         services, span_names, has_job, has_errors, environment)
        SELECT u.trace_id, u.partition_time, coalesce(u.seq, nextval('traces_seq')),
               u.root_span_id, u.root_parent_span_id, u.resource_id, u.service_name, u.name,
               u.kind, u.start_time, u.start_ns, u.duration_ns, u.http_method, u.http_route,
@@ -217,22 +218,23 @@ export async function upsertTraces(
               u.error_count,
               ARRAY(SELECT jsonb_array_elements_text(u.services::jsonb)),
               ARRAY(SELECT jsonb_array_elements_text(u.span_names::jsonb)),
-              u.has_job, u.has_errors
+              u.has_job, u.has_errors, u.environment
          FROM unnest(
            $1::text[], $2::timestamptz[], $3::bigint[], $4::text[], $5::text[], $6::bigint[],
            $7::text[], $8::text[], $9::text[], $10::timestamptz[], $11::bigint[], $12::bigint[],
            $13::text[], $14::text[], $15::int[], $16::boolean[], $17::text[], $18::text[],
            $19::text[], $20::int[], $21::int[], $22::text[], $23::text[], $24::boolean[],
-           $25::boolean[]
+           $25::boolean[], $26::text[]
          ) AS u(trace_id, partition_time, seq, root_span_id, root_parent_span_id, resource_id,
                 service_name, name, kind, start_time, start_ns, duration_ns, http_method,
                 http_route, http_status, is_error, trace_type, release, user_id, span_count,
-                error_count, services, span_names, has_job, has_errors)
+                error_count, services, span_names, has_job, has_errors, environment)
        ON CONFLICT (trace_id, partition_time) DO UPDATE SET
          root_span_id = EXCLUDED.root_span_id,
          root_parent_span_id = EXCLUDED.root_parent_span_id,
          resource_id = EXCLUDED.resource_id,
          service_name = EXCLUDED.service_name,
+         environment = EXCLUDED.environment,
          name = EXCLUDED.name,
          kind = EXCLUDED.kind,
          start_time = EXCLUDED.start_time,
@@ -278,6 +280,7 @@ export async function upsertTraces(
         col((u) => JSON.stringify(u.spanNames)),
         col((u) => u.hasJob),
         col((u) => u.hasErrors),
+        col((_, r) => r.environment),
       ],
     );
   }

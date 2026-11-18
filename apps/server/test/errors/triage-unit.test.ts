@@ -20,12 +20,14 @@ function row(
   service: string,
   key: string,
   state: TriageRow["state"],
+  environment = "",
 ): [string, TriageRow] {
   const hash = keyHashOf(key);
   return [
-    rowKey(service, hash),
+    rowKey(service, environment, hash),
     {
       service_name: service,
+      environment,
       key_hash: hash,
       state,
       resolved_at: new Date(1000),
@@ -66,6 +68,10 @@ describe("parseGroupKey", () => {
   });
 });
 
+/** Places in the unset environment. */
+const at = (...services: string[]) =>
+  services.map((service) => ({ service, environment: "" }));
+
 describe("combineTriage", () => {
   const rows = new Map([
     row("a", KEY, "ignored"),
@@ -73,28 +79,45 @@ describe("combineTriage", () => {
     row("c", KEY, "regressed"),
   ]);
   it("a missing row is open", () => {
-    expect(combineTriage(new Map(), ["a"], KEY)).toEqual({ state: "open" });
+    expect(combineTriage(new Map(), at("a"), KEY)).toEqual({ state: "open" });
   });
   it("is ignored only when every service ignored it", () => {
-    expect(combineTriage(rows, ["a"], KEY).state).toBe("ignored");
-    expect(combineTriage(rows, ["a", "x"], KEY).state).toBe("open");
-    expect(combineTriage(rows, ["a", "b"], KEY).state).toBe("resolved");
-    expect(combineTriage(rows, ["a", "b", "x"], KEY).state).toBe("open");
-    expect(combineTriage(rows, ["a", "b", "c", "x"], KEY).state).toBe(
+    expect(combineTriage(rows, at("a"), KEY).state).toBe("ignored");
+    expect(combineTriage(rows, at("a", "x"), KEY).state).toBe("open");
+    expect(combineTriage(rows, at("a", "b"), KEY).state).toBe("resolved");
+    expect(combineTriage(rows, at("a", "b", "x"), KEY).state).toBe("open");
+    expect(combineTriage(rows, at("a", "b", "c", "x"), KEY).state).toBe(
       "regressed",
     );
   });
+  it("keeps environments apart (D-101): a copy resolved in one leaves the other open", () => {
+    const envRows = new Map([
+      row("a", KEY, "resolved", "staging"),
+      row("a", KEY, "ignored", "production"),
+    ]);
+    const one = (environment: string) => [{ service: "a", environment }];
+    expect(combineTriage(envRows, one("staging"), KEY).state).toBe("resolved");
+    expect(combineTriage(envRows, one("production"), KEY).state).toBe(
+      "ignored",
+    );
+    // Unset is its own environment: neither stored copy applies to it.
+    expect(combineTriage(envRows, one(""), KEY).state).toBe("open");
+    expect(
+      combineTriage(envRows, [...one("staging"), ...one("production")], KEY)
+        .state,
+    ).toBe("resolved");
+  });
   it("reports only the fields of the state", () => {
-    expect(combineTriage(rows, ["a"], KEY)).toEqual({
+    expect(combineTriage(rows, at("a"), KEY)).toEqual({
       state: "ignored",
       ignoredAtUnixMs: 3000,
     });
-    expect(combineTriage(rows, ["b"], KEY)).toEqual({
+    expect(combineTriage(rows, at("b"), KEY)).toEqual({
       state: "resolved",
       resolvedAtUnixMs: 1000,
       resolvedInRelease: "1.0.0",
     });
-    expect(combineTriage(rows, ["c"], KEY)).toEqual({
+    expect(combineTriage(rows, at("c"), KEY)).toEqual({
       state: "regressed",
       resolvedAtUnixMs: 1000,
       resolvedInRelease: "1.0.0",
@@ -192,6 +215,30 @@ describe("aggregate", () => {
       lastMs: 300,
       counted: 1,
     });
+  });
+  it("aggregates per environment (D-101), unset stored as ''", () => {
+    const occ = (timeUnixMs: number, environment?: string) => ({
+      traceId: "t",
+      spanId: "s",
+      timeUnixMs,
+      errorType: "Error",
+      message: "boom",
+      route: "/u",
+      service: "shop",
+      environment,
+    });
+    const out = [
+      ...aggregate(
+        [occ(100, "staging"), occ(200, "production"), occ(300), occ(400)],
+        0,
+      ).values(),
+    ];
+    expect(out.map((a) => [a.environment, a.counted]).sort()).toEqual([
+      ["", 2],
+      ["production", 1],
+      ["staging", 1],
+    ]);
+    expect(new Set(out.map((a) => a.hash)).size).toBe(1);
   });
 });
 

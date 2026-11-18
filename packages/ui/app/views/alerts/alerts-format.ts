@@ -6,7 +6,10 @@ import type {
   AlertRuleUpdate,
 } from "@nestrix-js/protocol";
 
-/** The metrics this page has a form for. A rule of any other kind is shown read-only. */
+/**
+ * The metrics this page has a form for. A rule of any other kind (`new_error_group`, or a kind a
+ * newer server added) is shown read-only.
+ */
 export const KNOWN_METRICS: readonly AlertMetric[] = [
   "error_rate",
   "p95_ms",
@@ -17,6 +20,7 @@ export const METRIC_LABEL: Record<AlertMetric, string> = {
   error_rate: "Error rate",
   p95_ms: "p95 latency",
   slo_burn_rate: "SLO burn rate",
+  new_error_group: "New error group",
 };
 
 /** True for a metric the form can edit; false for a kind a newer server added. */
@@ -25,7 +29,9 @@ export function isKnownMetric(metric: string): metric is AlertMetric {
 }
 
 export function metricLabel(metric: string): string {
-  return isKnownMetric(metric) ? METRIC_LABEL[metric] : metric;
+  return Object.hasOwn(METRIC_LABEL, metric)
+    ? METRIC_LABEL[metric as AlertMetric]
+    : metric;
 }
 
 function trim(fixed: string): string {
@@ -207,7 +213,7 @@ export function formFromRule(
   return {
     name: rule.name,
     metric: rule.metric,
-    service: rule.service,
+    service: rule.service ?? "",
     route: rule.route ?? "",
     sloId: rule.sloId ?? "",
     threshold: thresholdText(rule.metric, rule.threshold),

@@ -17,6 +17,7 @@ const rule = (over: Partial<AlertRule> = {}): AlertRule => ({
   id: "1",
   name: "checkout errors",
   service: "checkout",
+  environment: null,
   route: null,
   metric: "error_rate",
   sloId: null,

@@ -140,7 +140,7 @@ Read once from the environment at start and validated. A bad value exits with on
 | `NESTRIX_LOG_FORMAT` | `json` when `NODE_ENV=production` (the image sets it), else `text` | `json`: one JSON object per line (`level`, `timestamp`, `pid`, `context`, `message`), no colours. `text`: Nest's text lines. |
 | `NESTRIX_LOG_LEVEL` | `info` | `verbose`, `debug`, `info`, `warn`, `error` or `fatal` (`log` is accepted for `info`). At `info` and above the lines that list every mapped route are not written; `debug` and `verbose` show them. |
 | `PORT` | `4318` | Whole number, 1 to 65535. |
-| `NESTRIX_INGEST_KEYS` | none | Comma-separated keys, each at least 32 characters. Or `NESTRIX_INGEST_KEYS_FILE`. |
+| `NESTRIX_INGEST_KEYS` | none | Comma-separated keys, each at least 32 characters, optionally bound to an environment as `<environment>:<key>` (see "Environments"). Or `NESTRIX_INGEST_KEYS_FILE`. |
 | `NESTRIX_INGEST_AUTH` | unset | Only `none` is accepted: an explicit opt-out of ingest authentication, logged as a warning on every start. Setting it together with `NESTRIX_INGEST_KEYS` is an error. |
 | `NESTRIX_ADMIN_PASSWORD` | none | At least 12 characters. Or `NESTRIX_ADMIN_PASSWORD_FILE`. Without it the UI, `/login` and the query API answer 503 and a log line says why; ingest still works. |
 | `NESTRIX_SESSION_SECRET` | random per start | At least 32 characters. Or `NESTRIX_SESSION_SECRET_FILE`. With the admin password, the session signing key. Set it (the same value on every instance) so sessions survive restarts and work on every instance; unset, sessions end at restart and work only on the instance that issued them. See "Admin login". |
@@ -156,6 +156,18 @@ Read once from the environment at start and validated. A bad value exits with on
 | `NESTRIX_PUBLIC_URL` | unset | `http://` or `https://` address of the dashboard, without credentials, query or fragment. Put in alert notifications as a link. |
 
 Not configurable by environment: the ingest limits and rate limit below, and the HTTP timeouts (`requestTimeout` 60 s, `headersTimeout` 20 s).
+
+## Environments
+
+Send staging and production (and several products) to one server and look at each separately. The environment of a record is the resource's `deployment.environment.name` (else the deprecated `deployment.environment`); the dashboard shows an Environment selector when the server holds more than one, every query takes `environment` beside `service`, and the MCP tools take it too. Without it every environment is shown together. The value `unset` selects the data without an environment, which includes everything stored before the upgrade. Alert rules and SLOs have an `environment` field (`null` watches every environment, as before).
+
+An app's resource attribute is only a claim. To make "a staging key cannot write production data" true, bind each key to an environment:
+
+```
+NESTRIX_INGEST_KEYS=production:<key-1>,staging:<key-2>,<key-3-unbound>
+```
+
+Anything sent with a bound key is stored under that environment, whatever its resource says, and so is that app's remote-profiling check-in. An entry with a `:` is always read as `<environment>:<key>` (1 to 64 letters, digits, `.`, `_` or `-`; `unset` is refused), so a key that contains a `:` cannot be used. Not available yet: keys managed in the dashboard, and retention per environment.
 
 ## Admin login
 
@@ -215,7 +227,7 @@ The 20 MiB limit matches the OpenTelemetry Collector's OTLP receiver. A batch of
 
 ### Log search
 
-With `NESTRIX_LOGS=all` the server stores every log record it receives, with or without a trace id, and the dashboard gets a Logs page (`GET /api/v1/logs`, also readable with an API token and through the MCP tool `search_logs`). The default `trace` keeps the behaviour above; the page and route still work and search what is stored. Filters: service, minimum severity, text, trace id and a time range (default last 24 hours); results are newest first and paged with a cursor. `text` matches whole words by default (PostgreSQL full text search; quotes, `or` and `-word` work); `match=substring` is a case-insensitive scan of the time range, so narrow the range first (a scan over 15 seconds answers 503). Lines are cut to 8,192 characters and marked truncated; lines not stored because of the per-trace cap, the per-minute cap or the retention window are counted and shown next to the results. A line with a trace id links to the trace when that trace is stored. Storage is bounded by `NESTRIX_LOG_RETENTION_DAYS` and the two caps.
+With `NESTRIX_LOGS=all` the server stores every log record it receives, with or without a trace id, and the dashboard gets a Logs page (`GET /api/v1/logs`, also readable with an API token and through the MCP tool `search_logs`). The default `trace` keeps the behaviour above; the page and route still work and search what is stored. Filters: service, [environment](#environments), minimum severity, text, trace id and a time range (default last 24 hours); results are newest first and paged with a cursor. `text` matches whole words by default (PostgreSQL full text search; quotes, `or` and `-word` work); `match=substring` is a case-insensitive scan of the time range, so narrow the range first (a scan over 15 seconds answers 503). Lines are cut to 8,192 characters and marked truncated; lines not stored because of the per-trace cap, the per-minute cap or the retention window are counted and shown next to the results. A line with a trace id links to the trace when that trace is stored. Storage is bounded by `NESTRIX_LOG_RETENTION_DAYS` and the two caps.
 
 Upgrade note: migration 0021 builds four indexes on `logs`. A partitioned table's indexes cannot be built concurrently, so log writes wait while it runs (reads and span ingest do not); a large install can pre-build them per partition with `CREATE INDEX CONCURRENTLY`, then `CREATE INDEX ... ON ONLY logs` and `ALTER INDEX ... ATTACH PARTITION` (the file's statements are `IF NOT EXISTS`, so they then do nothing). See the comments in `migrations/0021_logs_search.sql`.
 
@@ -270,7 +282,8 @@ One job that fans out can put millions of spans in a single trace. The server st
 
 The server stores a triage state per error group (`open`, `resolved`, `regressed`, `ignored`), kept apart from the computed new, ongoing and quiet states and independent of span retention. A background sync (every 30 s, one instance at a time) records each group from the stored error spans, with its first and last seen and its counts per release.
 
-- `POST /api/v1/errors/groups/resolve`, `/ignore` and `/reopen` with `{"key": "<ErrorGroup.key>", "service": "<optional>"}` (admin session and a same-origin `Origin`, like the alert routes; an API token never reaches them). Without `service` the action applies to the group in every service.
+- `POST /api/v1/errors/groups/resolve`, `/ignore` and `/reopen` with `{"key": "<ErrorGroup.key>", "service": "<optional>", "environment": "<optional>"}` (admin session and a same-origin `Origin`, like the alert routes; an API token never reaches them). Without `service` the action applies to the group in every service, without `environment` in every environment (`unset`: the copy without one).
+- Groups are kept per service and [environment](#environments): resolving a group in staging leaves production's copy open, and a regression in one environment changes only that one. The dashboard acts in the selected environment. A list over several environments shows the most urgent state of the copies it covers.
 - Resolving remembers the release of the group's latest occurrence. If the group is seen again in another release (or in any release when one is unknown), it becomes `regressed` and stays so until you resolve, ignore or reopen it. The same release after the resolution does not regress it.
 - Ignored groups are left out of `GET /api/v1/errors/groups` (`ignoredCount` says how many), of counts and of alerts until reopened. `?triage=all|open|resolved|regressed|ignored` lists other views.
 - The `new_error_group` alert rule (above) notifies about new and regressed groups.
@@ -280,7 +293,7 @@ The server stores a triage state per error group (`open`, `resolved`, `regressed
 Alert rules are managed on the dashboard's **Alerts** page or through the API (`/api/v1/alerts`, admin session required). The page lists each rule with its service and route, metric, threshold, window, pending duration, minimum requests and state (firing, pending, resolved, no data, disabled); creates, edits and deletes rules (a burn-rate rule picks its SLO from a list); sends a test notification; and shows each rule's delivery history (status, HTTP status, error category, time, never a secret). The signing secret of a new rule is shown once, when it is created; the list shows only the origin of a webhook URL, because the path of such a URL is often a secret. A rule watches one service, optionally one route, over a window of 5 to 60 minutes:
 
 - `metric`: `error_rate` (a fraction; 0.05 is 5%), `p95_ms`, or `slo_burn_rate` (give `sloId`; the rule takes its service and route from that [SLO](#slos) and fires when the SLO's burn rate over the rule's window is above `threshold`), compared with `>` to a `threshold`.
-- `new_error_group` (issue #26): no `threshold`, `windowMinutes`, `forMinutes` or `minRequests` (they are refused); `service` and `route` are optional filters. One webhook is sent for each error group seen for the first time after the rule was created, and one for each regression of a resolved group (`errorGroup.reason` is `new` or `regressed` in the payload). Each is sent once, across instances and restarts. Ignored groups never alert.
+- `new_error_group` (issue #26): no `threshold`, `windowMinutes`, `forMinutes` or `minRequests` (they are refused); `service`, `environment` and `route` are optional filters. One webhook is sent for each error group seen for the first time after the rule was created, and one for each regression of a resolved group (`errorGroup.reason` is `new` or `regressed` in the payload). Each is sent once, across instances and restarts. Ignored groups never alert.
 - `forMinutes` (0 to 60, default 2): how long the condition must hold before the alert fires.
 - `minRequests` (default 10): fewer requests in the window is "no data", which changes nothing, so a dead service does not resolve a firing alert.
 - States: `ok`, `pending`, `firing`. A notification is sent when a rule starts firing and when it resolves. Rules are evaluated every 60 seconds by one instance at a time.
@@ -396,6 +409,19 @@ ALTER INDEX spans_parent_idx ATTACH PARTITION spans_pYYYYMMDD_parent_idx;
 ```
 
 Partitions created after that inherit the index.
+
+### Upgrading to environments (issue #28)
+
+`0016_environments.sql` adds a nullable `environment` column to `spans`, `traces`, `route_minutes`, `class_minutes`, `logs`, `instances`, `alert_rules` and `slos` (catalog changes, no rewrite; each takes a brief `ACCESS EXCLUSIVE` lock), then builds a new unique key on `route_minutes` and `class_minutes` and drops their old primary keys. Those two tables hold one row per minute, service and route (or class method), far fewer than `spans`, so the build is normally seconds. It needs PostgreSQL 15 or later (`NULLS NOT DISTINCT`). On a large install build the keys first, without blocking writes; the migration then finds them and the old key is dropped at the end:
+
+```sql
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS route_minutes_env_key
+  ON route_minutes (minute, service_name, environment, method, route) NULLS NOT DISTINCT;
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS class_minutes_env_key
+  ON class_minutes (minute, service_name, environment, class_name, method_name) NULLS NOT DISTINCT;
+```
+
+(Add the `environment` columns first: `ALTER TABLE route_minutes ADD COLUMN IF NOT EXISTS environment text;` and the same for `class_minutes`.) The first batches written after the upgrade by an older server replica would fail on the new key, so upgrade every replica together.
 
 ### Upgrading to the `hasErrors` filter: the `traces` index
 
