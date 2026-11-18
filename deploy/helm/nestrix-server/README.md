@@ -2,7 +2,7 @@
 
 Runs the standalone Nestrix server (default 2 replicas) and, by default, a single-node PostgreSQL StatefulSet. The reasoning for every number is in [docs-site/guide/production.md](../../../docs-site/guide/production.md).
 
-What the chart sets: the image pinned by version and digest; secrets mounted as files and passed through the `*_FILE` variables (the chart never takes a secret value); `/livez` liveness, `/readyz` readiness and startup probes; a `preStop` sleep and a 30 s grace period for the server's drain; rolling updates with `maxUnavailable: 0`; a PodDisruptionBudget; requests and limits from the sizing guide; a non-root, read-only-root-filesystem, no-capabilities security context for the server.
+What the chart sets: the image pinned by version and digest; secrets mounted as files and passed through the `*_FILE` variables (the chart never takes a secret value); `/livez` liveness, `/readyz` readiness and startup probes; a `preStop` sleep and a 30 s grace period for the server's drain; rolling updates with `maxUnavailable: 0`; a PodDisruptionBudget; each pod mounts only the Secret keys it reads (the bundled PostgreSQL gets the database password and nothing else); requests and limits from the sizing guide; a non-root, read-only-root-filesystem, no-capabilities security context for the server.
 
 Needs Kubernetes with a default StorageClass (for the bundled PostgreSQL) and Helm 3.
 

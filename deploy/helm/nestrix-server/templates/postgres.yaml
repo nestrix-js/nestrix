@@ -88,6 +88,11 @@ spec:
           secret:
             secretName: {{ include "nestrix-server.secretName" . }}
             defaultMode: 0440
+            # Only the database password: this pod must not see the dashboard password, the
+            # ingest keys or the session secret that live in the same Secret.
+            items:
+              - key: {{ .Values.existingSecret.keys.dbPassword | quote }}
+                path: {{ .Values.existingSecret.keys.dbPassword | quote }}
       {{- with .Values.postgresql.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

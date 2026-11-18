@@ -48,7 +48,7 @@ Before merging the version PR, check that the changelogs read well and that CI i
 The standalone server (`apps/server`, private, not on npm) ships as a Docker image on GHCR:
 `ghcr.io/nestrix-js/nestrix-server`. The `server-image` job in `release.yml` builds
 `apps/server/Dockerfile` for `linux/amd64` and `linux/arm64` (arm64 under QEMU, so it is slow) and
-pushes two tags: the version (for example `0.1.0`) and the npm dist-tag (the pre tag while
+pushes two tags after a release: the version (for example `0.1.0`) and the npm dist-tag (the pre tag while
 `.changeset/pre.json` exists, `latest` for a stable version; `0.1.0` was the first stable one). The image carries OCI labels (source,
 version, revision, licence `Apache-2.0`, description) and BuildKit provenance (`mode=max`) and SBOM
 attestations, stored in the registry beside it. The job is the only one with `packages: write`; it
@@ -58,8 +58,11 @@ It runs after the `publish` job when that job published something. To publish th
 existing release (a failed run, or a release made before this job existed), run the workflow by hand
 from `main`: Actions, Release, Run workflow, with `version` set (for example `0.1.0`; empty
 means the version in `packages/nestjs/package.json`). With a version set, the job builds from that
-release's git tag `@nestrix-js/nestjs@<version>`, not from the tip of `main`. Re-running for a
-version overwrites its tags.
+release's git tag `@nestrix-js/nestjs@<version>`, not from the tip of `main`. A manual run pushes
+the version tag only and never `latest` (or the pre tag), so backfilling an old release cannot move
+`latest` backwards; `latest` moves only with a release run. Re-running for a version overwrites that version's
+tag. The `org.opencontainers.image.revision` label is the commit that was checked out (the release
+tag's commit on a backfill), not the commit the workflow was started from.
 
 **Owner, once:** GHCR may create the package private on the first push. Pulling without logging in
 needs it public: open <https://github.com/orgs/nestrix-js/packages/container/nestrix-server/settings>,

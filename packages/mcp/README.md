@@ -42,8 +42,9 @@ Everything except `start_profile` only reads.
 | `NESTRIX_URL` | Required. Base URL of the dashboard or server. A trailing slash is ignored. |
 | `NESTRIX_TOKEN` | Required. Sent as `Authorization: Bearer <token>`, never in a URL and never logged. |
 | `NESTRIX_TIMEOUT_MS` | Optional. Per-request timeout, 100 to 120000, default 10000. |
+| `NESTRIX_ALLOW_INSECURE_HTTP` | Optional. `1` allows `http://` to a host that is not this machine. Off by default. |
 
-Use `https://` for anything that is not on your own machine: the token otherwise travels unencrypted (the program warns on stderr).
+Use `https://` for anything that is not on your own machine. The program refuses to start when `NESTRIX_URL` is `http://` to a host other than `localhost`, `127.0.0.0/8` or `::1`, because the token would travel unencrypted. If the network is one you trust (a private cluster network, say), set `NESTRIX_ALLOW_INSECURE_HTTP=1`; the program then starts and warns on stderr.
 
 ## Client configuration
 

@@ -14,7 +14,7 @@ export class ConfigError extends Error {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
-/** Reads `NESTRIX_URL`, `NESTRIX_TOKEN` and `NESTRIX_TIMEOUT_MS`. Throws `ConfigError`. */
+/** Reads `NESTRIX_URL`, `NESTRIX_TOKEN`, `NESTRIX_TIMEOUT_MS` and `NESTRIX_ALLOW_INSECURE_HTTP`. Throws `ConfigError`. */
 export function loadConfig(
   env: Readonly<Record<string, string | undefined>>,
 ): McpConfig {
@@ -52,6 +52,18 @@ export function loadConfig(
   if (!/^[\x21-\x7e]+$/.test(token)) {
     throw new ConfigError(
       "NESTRIX_TOKEN contains whitespace, control or non-ASCII characters, so it cannot be sent as an HTTP header. Check it for a stray newline or a bad copy-paste (the value is not shown).",
+    );
+  }
+
+  // The token is sent as a bearer on every request: never over plain http to another machine
+  // unless the person said so.
+  if (
+    parsed.protocol === "http:" &&
+    !isLoopbackUrl(url) &&
+    env.NESTRIX_ALLOW_INSECURE_HTTP?.trim() !== "1"
+  ) {
+    throw new ConfigError(
+      "NESTRIX_URL is plain http:// to a host that is not this machine, so NESTRIX_TOKEN would travel unencrypted. Use https://, or set NESTRIX_ALLOW_INSECURE_HTTP=1 if the network is trusted (for example a private cluster network).",
     );
   }
 
