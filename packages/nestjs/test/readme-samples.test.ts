@@ -66,6 +66,7 @@ const OPTIONS = [
   "export.queue.maxQueueSize",
   "export.queue.maxExportBatchSize",
   "export.queue.scheduledDelayMillis",
+  "export.onFailure",
   "ignore",
   "ignore.paths",
   "ignore.outgoing",

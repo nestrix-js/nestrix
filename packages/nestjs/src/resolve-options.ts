@@ -3,6 +3,7 @@ import {
   secretDigests,
 } from "./dashboard/startup-token.js";
 import type { ExpectedRule } from "./errors/exception.js";
+import type { NestrixExportFailureCallback } from "./export-status.js";
 import { isDisabledByEnv } from "./kill-switch.js";
 import {
   DEFAULT_METHODS,
@@ -64,6 +65,8 @@ export interface ResolvedOptions {
     };
     /** `export.profiler` (P10-01, D-76). `false` when the option is off. */
     readonly profiler: ResolvedRemoteProfiler | false;
+    /** `export.onFailure` (D-110), checked to be a function; `undefined` when unset. */
+    readonly onFailure: NestrixExportFailureCallback | undefined;
   };
   readonly ignore: {
     readonly paths: readonly UrlMatcher[];
@@ -640,6 +643,17 @@ export function resolveUser(user: unknown): NestrixUserFunction | undefined {
   return user as NestrixUserFunction;
 }
 
+/** `export.onFailure` (D-110): a function or absent. Throws on anything else. */
+export function resolveOnFailure(
+  onFailure: unknown,
+): NestrixExportFailureCallback | undefined {
+  if (onFailure === undefined) return undefined;
+  if (typeof onFailure !== "function") {
+    invalid(`export.onFailure must be a function, got ${typeof onFailure}`);
+  }
+  return onFailure as NestrixExportFailureCallback;
+}
+
 function checkBoolean(name: string, value: unknown): void {
   if (value !== undefined && typeof value !== "boolean") {
     invalid(`${name} must be a boolean, got ${typeof value}`);
@@ -780,6 +794,7 @@ export function resolveOptions(
       otlp: resolveOtlp(o, env),
       queue: Object.freeze(queue),
       profiler: resolveRemoteProfiler(o, env),
+      onFailure: resolveOnFailure(o.export?.onFailure),
     }),
     ignore: Object.freeze({
       paths: Object.freeze([...(o.ignore?.paths ?? [])]),

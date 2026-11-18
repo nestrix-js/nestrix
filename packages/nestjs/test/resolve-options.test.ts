@@ -20,6 +20,7 @@ describe("resolveOptions defaults", () => {
           scheduledDelayMillis: 5000,
         },
         profiler: false,
+        onFailure: undefined,
       },
       ignore: { paths: [], outgoing: [] },
       http: {
@@ -50,6 +51,18 @@ describe("resolveOptions defaults", () => {
       },
       errors: { expected: undefined },
     });
+  });
+
+  it("export.onFailure: a function or absent; anything else throws (D-110)", () => {
+    const fn = () => {};
+    expect(
+      resolveOptions({ export: { onFailure: fn } }, {}).export.onFailure,
+    ).toBe(fn);
+    for (const bad of ["x", 1, null, {}, true]) {
+      expect(() =>
+        resolveOptions({ export: { onFailure: bad as never } }, {}),
+      ).toThrow(/export.onFailure must be a function/);
+    }
   });
 
   it("errors.expected: false, a function or class matchers; anything else throws (D-94)", () => {

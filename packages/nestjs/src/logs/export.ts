@@ -114,7 +114,11 @@ async function bounded(work: () => unknown, ms: number): Promise<void> {
 export function setupLogExport(
   options: Pick<
     ResolvedOptions,
-    "logs" | "serviceName" | "resourceAttributes" | "otelResourceAttributes"
+    | "logs"
+    | "export"
+    | "serviceName"
+    | "resourceAttributes"
+    | "otelResourceAttributes"
   >,
   diagnostics: TelemetryDiagnostics,
   loader: LogExportLoader = loadModules,
@@ -184,7 +188,10 @@ export function setupLogExport(
         // False when a host provider holds the slot: use it, drop ours.
         if (logs.setGlobalLoggerProvider(provider)) {
           state.provider = provider;
-          activateExport("logs");
+          activateExport("logs", {
+            onFailure: options.export.onFailure,
+            diagnostics,
+          });
         } else void settle(() => provider.shutdown());
         const logger = logs.getLogger("@nestrix-js/nestjs");
         state.sink = {

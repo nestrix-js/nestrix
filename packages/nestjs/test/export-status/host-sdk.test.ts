@@ -7,7 +7,7 @@ import { context, metrics, propagation, trace } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import { TracerProvider } from "@opentelemetry/sdk-trace";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDiagnosticsForTests } from "../../src/diagnostics.js";
 import { resetExportStatusForTests } from "../../src/export-status.js";
 import { getExportStatus } from "../../src/index.js";
@@ -53,11 +53,15 @@ describe("export status with a host-owned SDK", () => {
   it("stays inactive, adds no instrument to the host's MeterProvider and sends nothing", async () => {
     const host = hostMeterProvider();
     metrics.setGlobalMeterProvider(host.provider);
+    const onFailure = vi.fn();
     const booted = await bootOwned(
       "node",
       metricsModule({
         logs: { export: true },
-        export: { otlp: { endpoint: sink.base, timeoutMillis: 500 } },
+        export: {
+          otlp: { endpoint: sink.base, timeoutMillis: 500 },
+          onFailure,
+        },
       }),
     );
     app = booted.app;
@@ -72,6 +76,8 @@ describe("export status with a host-owned SDK", () => {
     expect(names).toContain("http.server.request.duration");
     expect(names.filter((n) => n.startsWith("nestrix.export."))).toEqual([]);
     expect(sink.hits).toEqual({});
+    // D-110: the host's SDK exports; Nestrix sees none of it, so export.onFailure is never called.
+    expect(onFailure).not.toHaveBeenCalled();
     await host.provider.shutdown();
   });
 

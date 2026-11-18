@@ -139,6 +139,10 @@ New in 0.7 (#61). `?state=` values are recorded as `REDACTED`, like `code`: OAut
 
 ## Added
 
+### `export.onFailure`: a callback per failed export
+
+New in 0.7 (#60, D-110). `export.onFailure({ signal, reason, httpStatus, error? })` is called once per failed export of Nestrix's own pipeline, after the exporter's retries, so a metrics registry of your own can count failures without polling `getExportStatus()`. Synchronous; a throw changes nothing. Not called with a host-owned SDK.
+
 ### `emitLog()`: logs from your own logger
 
 Until now only `NestrixLogger` lines were exported to `/v1/logs` and kept next to their trace. `emitLog({ level, message, context?, error?, attributes? })` sends a record from any logger through the same path and rules (D-89): call it from your `ConsoleLogger` subclass's print path, or from a pino destination, with the message your logger already redacted. Nothing changes for apps that do not call it, and `NestrixLogger` behaves as before. See [Logs from your own logger](../packages/nestjs/README.md#logs-from-your-own-logger).

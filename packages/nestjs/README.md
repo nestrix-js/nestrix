@@ -513,6 +513,12 @@ All three must be positive integers.
 |---|---|---|
 | `export.profiler` | `false` | Lets the [standalone server](../../apps/server/README.md) take CPU profiles of this instance ([remote profiling](#remote-profiling-from-the-standalone-server)). Needs a base endpoint: `export.otlp.endpoint` or `OTEL_EXPORTER_OTLP_ENDPOINT` (a full `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` alone is not enough), and `export.otlp` not `false`; otherwise one line says it is off. With a base from `export.otlp.endpoint` it sends the same headers as the trace export. With a base from `OTEL_EXPORTER_OTLP_ENDPOINT` it sends only `OTEL_EXPORTER_OTLP_HEADERS` and `export.otlp.headers`, never `OTEL_EXPORTER_OTLP_TRACES_HEADERS`, because that variable belongs to the traces URL (which may be your Nestrix server, with a Collector as the generic endpoint) and the ingest key must not reach another host. To check in with a server, set `export.otlp.endpoint`. A non-boolean throws. |
 
+### `export.onFailure`
+
+| Option | Default | |
+|---|---|---|
+| `export.onFailure` | unset | `({ signal, reason, httpStatus, error? }) => void`, called once per failed export of Nestrix's own pipeline (traces, logs and metrics) after the exporter's own retries: exactly when `getExportStatus()`'s `failures` total for that signal goes up ([Export health](#export-health-getexportstatus)). Not called when your own OpenTelemetry SDK owns the signal. A non-function throws. |
+
 ### `ignore`
 
 | Option | Default | |
@@ -1437,6 +1443,37 @@ export class HealthController {
 ```
 
 **Metrics.** The same counts are reported as two observable counters, `nestrix.export.failures` (attributes `signal`, `reason`) and `nestrix.export.dropped` (attribute `signal`), on the registered `MeterProvider`, so a Prometheus bridge or your own `MeterProvider` can alert on them. They exist only while Nestrix owns the trace export. When the metric export itself fails, its own failures are sent with the next export that succeeds; they cause no extra export.
+
+**A callback per failed export: `export.onFailure`.** To count failed exports in metrics of your own (a `prom-client` registry, for example) without polling `getExportStatus()`, pass `export.onFailure`. It is called once per failed export, after the exporter's own retries, so exactly as often as the `failures` total of that signal goes up, for traces, logs and metrics alike, including the 404 that stops metric export. It receives a frozen object: `signal`, `reason` and `httpStatus` as in `lastFailure`, and `error`, the exporter's own error when it gave one (it can include the endpoint's response text, so log it with care). It is not called for a successful export or for spans dropped from the full queue (read `dropped` for those).
+
+<!-- sample: export-failure-counter -->
+
+```ts
+import { Module } from "@nestjs/common";
+import { Counter } from "prom-client";
+import { NestrixModule } from "@nestrix-js/nestjs";
+
+const failedExports = new Counter({
+  name: "telemetry_export_failures_total",
+  help: "Telemetry exports that failed after the exporter's retries",
+  labelNames: ["signal", "reason"],
+});
+
+@Module({
+  imports: [
+    NestrixModule.forRoot({
+      export: {
+        // Called once per failed export, on the exporter's timer: keep it synchronous and cheap.
+        onFailure: ({ signal, reason }) =>
+          failedExports.inc({ signal, reason }),
+      },
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+The callback runs on the exporter's timer, never in a request. Keep it synchronous: Nestrix does not wait for a returned promise. A callback that throws, or whose promise rejects, changes nothing about the export or your app; the failure is counted and logged once, like Nestrix's own faults. It works the same with `forRoot` and `forRootAsync`. With your own OpenTelemetry SDK owning the provider it is never called, because Nestrix does not see your exporters' results; with several Nestrix modules in one process, the one that set up the export (the first) is the one whose callback runs.
 
 **An endpoint that does not accept metrics.** When the metrics URL answers 404, 405 or 501 (the Nestrix standalone server, Jaeger), Nestrix logs one line and stops exporting metrics until the app restarts; traces and logs carry on. `getExportStatus().metrics.state` is then `stopped`.
 
