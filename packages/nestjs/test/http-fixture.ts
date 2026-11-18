@@ -161,6 +161,50 @@ export function serverSpans(booted: BootedApp, path: string): ReadableSpan[] {
     );
 }
 
+/**
+ * Server spans with no `url.path`: requests answered without a Nest route and with a status other
+ * than 404, or none (a body parser's 400, Fastify's 413, a raw adapter route); D-97.
+ */
+export function unroutedServerSpans(booted: BootedApp): ReadableSpan[] {
+  return booted
+    .spans()
+    .filter(
+      (s) =>
+        s.kind === SpanKind.SERVER && s.attributes["url.path"] === undefined,
+    );
+}
+
+/**
+ * Waits for one server span per path: the span whose `url.path` is the path, or, for a path that
+ * has none, the next span from {@link unroutedServerSpans} (in export order).
+ */
+export async function requestSpans(
+  booted: BootedApp,
+  paths: readonly string[],
+  timeoutMs = 3000,
+): Promise<ReadableSpan[]> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const unrouted = unroutedServerSpans(booted);
+    const out: ReadableSpan[] = [];
+    for (const path of paths) {
+      const found = serverSpans(booted, path);
+      const span = found[found.length - 1] ?? unrouted.shift();
+      if (span !== undefined) out.push(span);
+    }
+    if (out.length === paths.length) return out;
+    if (Date.now() > deadline) {
+      throw new Error(
+        `no server spans for ${paths.join(", ")}; have: ${booted
+          .spans()
+          .map((s) => `${s.name} ${String(s.attributes["url.path"])}`)
+          .join(", ")}`,
+      );
+    }
+    await sleep(10);
+  }
+}
+
 /** Waits for the single server span of `path`. */
 export async function serverSpan(
   booted: BootedApp,

@@ -19,7 +19,7 @@ A table is checked against `packages/nestjs/src/options.ts` by `docs-site/script
 | `integrations` | an object | Database and cache spans (level 3). See [`integrations`](#integrations). |
 | `export` | an object | OTLP export and its queue. See [`export`](#export). |
 | `ignore` | none | Requests that get no span. See [`ignore`](#ignore). |
-| `http` | none | Extra allowlisted headers and redacted query keys. See [`http`](#http). |
+| `http` | none | Extra allowlisted headers, redacted query keys and route parameters, and what `url.path` records. See [`http`](#http). |
 | `redact` | none | A synchronous hook that sees every exported span and every span the dashboard stores. See [`redact`](#redact). |
 | `ui` | `'auto'` | The embedded dashboard: `false`, `'auto'` or an object. See [`ui`](#ui). |
 | `store` | an object | Limits of the dashboard's in-memory store. See [`store`](#store). |
@@ -76,19 +76,22 @@ All three queue values must be positive integers.
 | Option | Default | Description |
 |---|---|---|
 | `ignore.paths` | none | Incoming requests that get no server span. Matched against the request path without the query string. A string must equal the path exactly: `"/health"` does not match `"/health/live"`. |
-| `ignore.outgoing` | none | Outgoing requests that get no client span and no `traceparent`. Matched against the recorded `url.full` (credentials removed, listed query values already `REDACTED`). A string is a **prefix**, for example `"https://o123.ingest.sentry.io/"`. |
+| `ignore.outgoing` | none | Outgoing requests that get no client span and no `traceparent`. Matched against the recorded `url.full` (credentials removed, listed query values already `REDACTED`; the path as sent, before `http.redactOutgoingPath`). A string is a **prefix**, for example `"https://o123.ingest.sentry.io/"`. |
 
 A matcher is a string, a `RegExp` or a function that receives the path or URL and returns `true` to match. A matcher that throws counts as a match, and the failure is counted.
 
 ## `http`
 
-These add to the [privacy defaults](/faq#privacy); they never replace them.
+The lists add to the [privacy defaults](/faq#privacy); they never replace them.
 
 | Option | Default | Description |
 |---|---|---|
 | `http.requestHeaders` | none | Extra request headers recorded as `http.request.header.<name>`. |
 | `http.responseHeaders` | none | Extra response headers recorded as `http.response.header.<name>`. |
 | `http.redactQueryKeys` | none | Extra query-string keys whose values are replaced by `REDACTED`. |
+| `http.recordPath` | `'raw'` | What the server span records as `url.path`. `'raw'`: the path as sent, with the values of `http.redactPathParams` written as `REDACTED`. `'template'`: the matched route template (`/invitations/:token`, the same value as `http.route`); a request that matched no route (a 404) records no `url.path`. `ignore.paths` always matches the raw path. |
+| `http.redactPathParams` | none | Extra route parameter names (`token` for `/invitations/:token`) whose values are written as `REDACTED` in `url.path`, case-insensitive. Added to the default list (see Privacy). |
+| `http.redactOutgoingPath` | none | Path patterns whose `:name` segments are written as `REDACTED` in an outgoing request's `url.full`: `'/v1/invitations/:token'`, or with an origin, `'https://api.example.com/v1/invitations/:token'`. `*` matches any one segment; other segments must be equal; a pattern matches the start of the path. A `RegExp` runs on the path, and each capture group (or the whole match) becomes `REDACTED`. |
 
 ## `redact`
 

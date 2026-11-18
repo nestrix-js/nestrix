@@ -106,6 +106,35 @@ export interface NestrixHttpOptions {
   responseHeaders?: string[];
   /** Extra query-string keys whose values are replaced by `REDACTED`. Added to the default list. */
   redactQueryKeys?: string[];
+  /**
+   * What the server span records as `url.path` (D-97), written when the response closes (never at
+   * span start, so a sampler or `onStart` sees none). `'raw'` (default): the path as sent, with the
+   * values of `redactPathParams` written as `REDACTED` when a route matched; with no route, the raw
+   * path for a status below 400 (static files, raw adapter routes) or a 404, and nothing for any
+   * other status from 400 (a body parser's 400, a middleware's 401, a 413) or no response. Not
+   * covered: a pre-router middleware answering 2xx/3xx itself (a redirect) on a token-bearing
+   * path keeps the raw path; `'template'` covers it. `'template'`: the matched route
+   * template (`/invitations/:token`, the same value as `http.route`), or nothing when no route
+   * matched. `ignore.paths` always matches the raw path.
+   */
+  recordPath?: "raw" | "template";
+  /**
+   * Extra route parameter names (`token` for `/invitations/:token`) whose values are written as
+   * `REDACTED` in the server span's `url.path`, compared case-insensitively. Added to the default
+   * list (`token`, `password`, `secret`, `jwt`, `session`, ...; README "Privacy"). Applied when the
+   * response closes, using the route Nest matched; see `recordPath` for requests with no route.
+   */
+  redactPathParams?: string[];
+  /**
+   * Path patterns for outgoing requests whose matching segments are written as `REDACTED` in the
+   * client span's `url.full` (D-97). A string is a path, optionally after an origin:
+   * `'/v1/invitations/:token'` or `'https://api.example.com/v1/invitations/:token'`; `:name`
+   * segments are redacted, `*` matches any one segment, other segments must be equal, and the
+   * pattern matches the start of the path in whole segments. A `RegExp` runs on the path; each
+   * capture group's text (or the whole match, with no group) becomes `REDACTED`, every match with
+   * `g`. `ignore.outgoing` still sees the path as sent. Default: none.
+   */
+  redactOutgoingPath?: (string | RegExp)[];
 }
 
 /** Built-in token authentication for the dashboard (architecture §4.7). Compared in constant time. */
