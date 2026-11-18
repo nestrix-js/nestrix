@@ -40,6 +40,13 @@ jobs:
           pnpm update -r "@nestjs/*@^12" \
             --filter '!@nestrix-js/conformance-*' --filter '!@nestrix-js/spike-p0-s1*' \
             --filter '!spike-p0-s6' --filter '!@nestrix-spikes/p0-s4'
+          # The excluded workspaces keep @nestjs/microservices and platform-express at their
+          # pinned versions, and pnpm fills the optional peers of the updated @nestjs/core from
+          # them. The result is several @nestjs/core instances (12.5.1 with peers at 12.4.2 next
+          # to 12.5.1 with peers at 12.5.1) and TS2769 "Property 'return503OnClosing' is private
+          # in type ..." where an example passes an adapter to NestFactory.create. dedupe
+          # collapses them to one instance; users never have two.
+          pnpm dedupe
           pnpm list -r --depth 0 | grep '@nestjs/' || true
       # The conformance suite imports the built fixture app (examples/express-esm).
       - run: pnpm build
@@ -64,5 +71,12 @@ jobs:
           pnpm update -r "@nestjs/*@^12" \
             --filter '!@nestrix-js/conformance-*' --filter '!@nestrix-js/spike-p0-s1*' \
             --filter '!spike-p0-s6' --filter '!@nestrix-spikes/p0-s4'
+          # The excluded workspaces keep @nestjs/microservices and platform-express at their
+          # pinned versions, and pnpm fills the optional peers of the updated @nestjs/core from
+          # them. The result is several @nestjs/core instances (12.5.1 with peers at 12.4.2 next
+          # to 12.5.1 with peers at 12.5.1) and TS2769 "Property 'return503OnClosing' is private
+          # in type ..." where an example passes an adapter to NestFactory.create. dedupe
+          # collapses them to one instance; users never have two.
+          pnpm dedupe
           pnpm list -r --depth 0 | grep '@nestjs/' || true
       - run: pnpm verify
