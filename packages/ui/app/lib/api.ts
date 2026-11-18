@@ -110,6 +110,7 @@ let activeEnvironment: string | undefined;
 export function setActiveEnvironment(environment: string | undefined): void {
   activeEnvironment = environment;
 }
+export const getActiveEnvironment = (): string | undefined => activeEnvironment;
 
 /** The read endpoints that accept `environment` beside `service`. */
 const ENVIRONMENT_ENDPOINTS = new Set([

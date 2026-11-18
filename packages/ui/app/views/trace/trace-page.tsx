@@ -11,7 +11,9 @@ import {
   SourceLabel,
 } from "@/components/kit";
 import { ApiRequestError, getTrace, getTraceLogs } from "@/lib/api";
+import { useEnvironment } from "@/lib/environment";
 import { formatDuration } from "@/lib/format";
+import { useService } from "@/lib/service";
 import { summarizeDropped } from "@/lib/trace-omitted";
 import { routeDetailHref } from "@/views/route/route-detail";
 import { CopyButton } from "@/views/trace/copy-button";
@@ -63,6 +65,8 @@ function Fact({
 }
 
 export function TracePage({ traceId }: { traceId: string }) {
+  const [service] = useService();
+  const [environment] = useEnvironment();
   const query = useQuery({
     queryKey: ["trace", traceId],
     queryFn: () => getTrace(traceId),
@@ -170,7 +174,12 @@ export function TracePage({ traceId }: { traceId: string }) {
           </div>
           {summary.route !== undefined && (
             <Link
-              to={routeDetailHref(summary.method, summary.route) as "/"}
+              to={
+                routeDetailHref(summary.method, summary.route, {
+                  service,
+                  environment,
+                }) as "/"
+              }
               data-testid="trace-route-link"
               className="text-sm underline underline-offset-4"
             >

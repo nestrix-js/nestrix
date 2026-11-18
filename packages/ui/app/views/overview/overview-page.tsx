@@ -38,6 +38,7 @@ import {
   getRuntime,
   getSlos,
 } from "@/lib/api";
+import { useEnvironment } from "@/lib/environment";
 import { formatDuration } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser } from "@/lib/params";
@@ -632,6 +633,7 @@ function RoutesCard({
   covered: boolean;
 }) {
   const [service] = useService();
+  const [environment] = useEnvironment();
   const [paused] = usePaused();
   const compare = useQuery({
     queryKey: ["routes", "compare", "window", windowMinutes, service],
@@ -710,7 +712,16 @@ function RoutesCard({
                   >
                     <td className="py-2 pr-2 font-mono">
                       <Link
-                        to={routeDetailHref(row.method, row.route) as "/"}
+                        to={
+                          routeDetailHref(row.method, row.route, {
+                            service,
+                            environment,
+                            windowMinutes:
+                              windowMinutes === DEFAULT_WINDOW
+                                ? undefined
+                                : windowMinutes,
+                          }) as "/"
+                        }
                         className="hover:underline"
                       >
                         <span className="mr-2 text-muted-foreground">

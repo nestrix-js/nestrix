@@ -6,6 +6,7 @@ import {
   applyOlder,
   type CursorPage,
   type CursorState,
+  cursorListKey,
   emptyCursorState,
 } from "@/lib/cursor-list";
 
@@ -115,5 +116,26 @@ describe("cursor list", () => {
     const start = applyInitial(page([5]));
     const s = applyHead(start, page([], { reset: true }));
     expect(s).toEqual({ items: [], head: null, older: null, loaded: true });
+  });
+});
+
+describe("cursorListKey", () => {
+  it("differs by environment, so a switch starts a new store", () => {
+    const params = { service: "orders" };
+    const production = cursorListKey("traces", params, "production");
+    expect(production).not.toBe(cursorListKey("traces", params, "staging"));
+    expect(production).not.toBe(cursorListKey("traces", params, undefined));
+    expect(cursorListKey("traces", params, "unset")).not.toBe(
+      cursorListKey("traces", params, undefined),
+    );
+  });
+
+  it("stays the same for the same name, filters and environment", () => {
+    expect(cursorListKey("errors", { route: "/a" }, "staging")).toBe(
+      cursorListKey("errors", { route: "/a" }, "staging"),
+    );
+    expect(cursorListKey("errors", { route: "/a" }, "staging")).not.toBe(
+      cursorListKey("traces", { route: "/a" }, "staging"),
+    );
   });
 });

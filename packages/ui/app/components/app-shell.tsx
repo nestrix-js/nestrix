@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Activity, LogOut, Pause, Play } from "lucide-react";
 import type * as React from "react";
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef } from "react";
 
 import { Chip } from "@/components/kit/chip";
 import { Button } from "@/components/ui/button";
@@ -255,7 +255,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
       </header>
-      <main className={cn(PAGE_COLUMN, "space-y-6 py-6")}>{children}</main>
+      <main className={cn(PAGE_COLUMN, "space-y-6 py-6")}>
+        {/* A switch of environment remounts the page: no list, store or cached answer of the old one stays. */}
+        <Fragment key={selectedEnvironment ?? ""}>{children}</Fragment>
+      </main>
     </div>
   );
 }

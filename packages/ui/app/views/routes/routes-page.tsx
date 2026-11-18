@@ -27,13 +27,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getMeta, getRouteCompare, getRoutes } from "@/lib/api";
+import { useEnvironment } from "@/lib/environment";
 import { formatDuration } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser, stringParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
 import { windowChoices, windowLabel } from "@/lib/windows";
-import { routeDetailHref } from "@/views/route/route-detail";
+import {
+  type RouteDetailScope,
+  routeDetailHref,
+} from "@/views/route/route-detail";
 import { ComparePanel } from "@/views/routes/compare-panel";
 import { RouteHistogram } from "@/views/routes/route-histogram";
 import {
@@ -136,9 +140,11 @@ function RouteRow({
   maxCount,
   maxP95,
   compareRow,
+  scope,
   onSelect,
 }: {
   r: RouteStats;
+  scope: RouteDetailScope;
   active: boolean;
   maxCount: number;
   maxP95: number;
@@ -219,7 +225,7 @@ function RouteRow({
       </TableCell>
       <TableCell className="text-right">
         <Link
-          to={routeDetailHref(r.method, r.route) as "/"}
+          to={routeDetailHref(r.method, r.route, scope) as "/"}
           data-testid="route-details-link"
           aria-label={`Details of ${routeKey(r)}`}
           className="text-sm underline underline-offset-4"
@@ -238,6 +244,7 @@ export function RoutesPage() {
   const [paused] = usePaused();
 
   const [service] = useService();
+  const [environment] = useEnvironment();
   const stats = useQuery({
     queryKey: ["routes", "stats", windowMinutes, service],
     queryFn: () => getRoutes({ windowMinutes, service }),
@@ -519,6 +526,14 @@ export function RoutesPage() {
                         maxCount={maxCount}
                         maxP95={maxP95}
                         compareRow={compareRows.get(routeKey(r))}
+                        scope={{
+                          service,
+                          environment,
+                          windowMinutes:
+                            windowMinutes === DEFAULT_WINDOW
+                              ? undefined
+                              : windowMinutes,
+                        }}
                         onSelect={() => select(r, active)}
                       />
                     );
