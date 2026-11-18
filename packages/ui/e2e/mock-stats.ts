@@ -12,6 +12,7 @@ const ERROR_TYPES = ["BadGatewayException", "TimeoutError", "TypeError"];
 
 interface Stored extends ErrorItem {
   seq: number;
+  environment?: string;
 }
 
 export class ErrorStore {
@@ -37,7 +38,7 @@ export class ErrorStore {
   }
 
   /** Errors with the id `seq` as in `errorId(seq)`; routes cycle, types cycle. */
-  push(count: number): void {
+  push(count: number, environment?: string): void {
     for (let i = 0; i < count; i++) {
       const seq = ++this.seq;
       const route = ERROR_ROUTES[seq % ERROR_ROUTES.length] as string;
@@ -54,6 +55,7 @@ export class ErrorStore {
         message: `Error number ${seq}${seq % 4 === 0 ? ` ${"and a long explanation ".repeat(12)}end` : ""}`,
         timeUnixMs: Date.now() - 1000 + seq,
         cursor: `e${this.epoch()}.${seq}`,
+        ...(environment === undefined ? {} : { environment }),
       });
     }
   }
@@ -69,7 +71,16 @@ export class ErrorStore {
   answer(q: URLSearchParams): { status: number; body: unknown } {
     if (this.fixed) return { status: 200, body: this.fixed };
     for (const key of q.keys())
-      if (!["limit", "before", "after", "route", "service"].includes(key))
+      if (
+        ![
+          "limit",
+          "before",
+          "after",
+          "route",
+          "service",
+          "environment",
+        ].includes(key)
+      )
         return {
           status: 400,
           body: {
@@ -83,7 +94,12 @@ export class ErrorStore {
     const stale =
       cursor === "bad" || (cursor !== null && cursor.epoch !== this.epoch());
     const route = q.get("route");
-    const filtered = this.items.filter((i) => !route || i.route === route);
+    const environment = q.get("environment");
+    const filtered = this.items.filter(
+      (i) =>
+        (!route || i.route === route) &&
+        (!environment || i.environment === environment),
+    );
     let pool = filtered;
     if (!stale && before && before !== "bad")
       pool = filtered.filter((i) => i.seq < before.seq);
@@ -100,7 +116,9 @@ export class ErrorStore {
           ? last.cursor
           : null,
       reset: stale,
-      items: page.map(({ seq: _seq, ...item }) => item),
+      items: page.map(
+        ({ seq: _seq, environment: _environment, ...item }) => item,
+      ),
     };
     return { status: 200, body };
   }

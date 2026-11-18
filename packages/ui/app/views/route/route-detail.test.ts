@@ -86,6 +86,25 @@ describe("routeDetailHref", () => {
     expect(routeDetailHref(null, "/a")).toBe("/route?route=%2Fa");
     expect(routeDetailHref("*", "/a")).toBe("/route?route=%2Fa");
   });
+  it("keeps the service, environment and window it was opened from", () => {
+    expect(
+      routeDetailHref("GET", "/a", {
+        service: "orders",
+        environment: "staging",
+        windowMinutes: 60,
+      }),
+    ).toBe(
+      "/route?method=GET&route=%2Fa&service=orders&environment=staging&windowMinutes=60",
+    );
+  });
+  it("leaves out a scope that is not set", () => {
+    expect(
+      routeDetailHref("GET", "/a", {
+        service: undefined,
+        environment: undefined,
+      }),
+    ).toBe("/route?method=GET&route=%2Fa");
+  });
 });
 
 describe("findingHref", () => {

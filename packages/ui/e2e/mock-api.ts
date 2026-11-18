@@ -9,6 +9,7 @@ import type {
   AppMapResponse,
   ClassStatsResponse,
   DependenciesResponse,
+  EnvironmentInfo,
   ErrorGroupsResponse,
   ErrorInsightsResponse,
   InstanceSummary,
@@ -94,6 +95,8 @@ const windowOf = (q: URLSearchParams) => Number(q.get("windowMinutes") ?? 15);
 
 interface Item extends TraceSummary {
   seq: number;
+  /** The environment the trace belongs to; the `environment` filter matches it (absent: none). */
+  environment?: string;
 }
 
 /** A small realistic profile: one hot function under a controller frame. */
@@ -224,6 +227,8 @@ export class MockApi {
   /** The standalone server's extras: `mode` and `services` in meta; `mode` defaults to embedded. */
   mode: MetaResponse["mode"] = "embedded";
   services: string[] | undefined = undefined;
+  /** `meta.environments`; with two or more the environment selector shows. */
+  environments: EnvironmentInfo[] | undefined = undefined;
   /** `meta.access` (issue #34); absent unless set, as from an embedded dashboard. */
   access: MetaResponse["access"] = undefined;
   /** Every API call answers 401, as the standalone server does without a session. */
@@ -325,6 +330,7 @@ export class MockApi {
     this.dependenciesAnswer = null;
     this.mode = "embedded";
     this.services = undefined;
+    this.environments = undefined;
     this.access = undefined;
     this.unauthorized = false;
     this.logouts = 0;
@@ -365,7 +371,11 @@ export class MockApi {
   }
 
   /** `override` is merged into every new item, e.g. `{ type: "job" }`; `undefined` removes a field. */
-  push(count: number, override: Partial<TraceSummary> = {}): void {
+  push(
+    count: number,
+    override: Partial<TraceSummary> = {},
+    environment?: string,
+  ): void {
     for (let i = 0; i < count; i++) {
       const seq = ++this.seq;
       const route = ROUTES[seq % ROUTES.length] as string;
@@ -388,6 +398,7 @@ export class MockApi {
         release: seq % 2 === 0 ? "1.4.2" : "1.4.1",
         ...(seq % 3 === 0 ? { user: `u-${seq % 10}` } : {}),
         cursor: this.cursor(seq),
+        ...(environment === undefined ? {} : { environment }),
         ...override,
       });
     }
@@ -1033,6 +1044,7 @@ export class MockApi {
       warnings: [],
       mode: this.mode,
       ...(this.services ? { services: this.services } : {}),
+      ...(this.environments ? { environments: this.environments } : {}),
       ...(this.access ? { access: this.access } : {}),
       runtime: { available: this.mode === "embedded" && this.runtimeAvailable },
       profiler: {
@@ -1119,6 +1131,7 @@ export class MockApi {
     const code = item.statusCode ?? 0;
     const search = (q.get("search") ?? "").toLowerCase();
     return (
+      (!q.get("environment") || item.environment === q.get("environment")) &&
       (!q.get("route") || item.route === q.get("route")) &&
       (!q.get("method") || item.method === q.get("method")) &&
       (!status ||
@@ -1158,6 +1171,7 @@ export class MockApi {
       "release",
       "user",
       "service",
+      "environment",
       "fromUnixMs",
       "toUnixMs",
     ]);
@@ -1198,7 +1212,9 @@ export class MockApi {
       head: this.items[0]?.cursor ?? null,
       older: hasOlder && last ? last.cursor : null,
       reset: stale,
-      items: page.map(({ seq: _seq, ...summary }) => summary),
+      items: page.map(
+        ({ seq: _seq, environment: _environment, ...summary }) => summary,
+      ),
     };
     return { status: 200, body };
   }

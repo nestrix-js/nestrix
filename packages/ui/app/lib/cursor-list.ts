@@ -87,3 +87,16 @@ export function applyOlder<T extends CursorItem>(
     older: page.older,
   };
 }
+
+/**
+ * The identity of one cursor list: its cache name, its filters and the selected environment.
+ * A change of any of them starts a new store and a new first page; the environment is part of
+ * it so a switch can never poll after the previous environment's head or keep its rows.
+ */
+export function cursorListKey(
+  name: string,
+  params: Record<string, unknown>,
+  environment: string | undefined,
+): string {
+  return JSON.stringify([name, environment ?? null, params]);
+}
