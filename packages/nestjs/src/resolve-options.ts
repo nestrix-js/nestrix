@@ -660,8 +660,9 @@ export function resolveIntegrations(
   } else if (p !== false) {
     if (p === null || typeof p !== "object" || Array.isArray(p))
       invalid(pgShape);
-    const threshold: unknown =
-      (p as { poolWaitThresholdMillis?: unknown }).poolWaitThresholdMillis ?? 5;
+    const given: unknown = (p as { poolWaitThresholdMillis?: unknown })
+      .poolWaitThresholdMillis;
+    const threshold: unknown = given === undefined ? 5 : given;
     if (
       threshold !== false &&
       (typeof threshold !== "number" ||

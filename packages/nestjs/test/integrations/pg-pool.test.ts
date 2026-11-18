@@ -142,6 +142,14 @@ describe("poolName", () => {
     expect(poolName({ host: "/var/run/postgresql", port: 5432 })).toBe(
       "/var/run/postgresql:5432",
     );
+    // A Unix socket path with colons (Cloud SQL) is not an IPv6 address: no brackets.
+    expect(
+      poolName({
+        host: "/cloudsql/proj:region:inst",
+        port: 5432,
+        database: "app",
+      }),
+    ).toBe("/cloudsql/proj:region:inst:5432/app");
     expect(poolName({ port: 5432 })).toBeUndefined();
     expect(poolName(undefined)).toBeUndefined();
   });
@@ -276,6 +284,55 @@ describe.skipIf(reason !== undefined)(
           );
         }
       } finally {
+        await pool.end();
+      }
+    });
+
+    it("a free client and synchronous work after connect(): no span, the wait is still recorded", async () => {
+      // pg-pool hands even an idle client out on process.nextTick, so a 20 ms synchronous spin
+      // after connect() delays the hand-out; that is event-loop lag, not pool wait.
+      const pool = new pg.Pool(config({ max: 2 }));
+      try {
+        (await pool.connect()).release(); // one idle client, none queued
+        exporter.reset();
+        const before = await waits();
+        await inParent(async () => {
+          const pending = pool.connect();
+          const until = performance.now() + 20;
+          while (performance.now() < until) {
+            // spin
+          }
+          (await pending).release();
+        });
+        expect(connectSpans()).toEqual([]);
+        const w = await waits();
+        expect(w.count - before.count).toBe(1);
+        expect(w.sum - before.sum).toBeGreaterThanOrEqual(0.015);
+      } finally {
+        await pool.end();
+      }
+    });
+
+    it("past 256 tracked pools, a new pool's waits are not recorded (bounded series)", async () => {
+      const port = await closedPort();
+      const dead = Array.from(
+        { length: 256 },
+        () => new pg.Pool({ ...config(), port, max: 1 }),
+      );
+      const failuresBefore = installed.diagnostics.failures.length;
+      const pool = new pg.Pool(config({ max: 1 }));
+      try {
+        await Promise.all(dead.map((p) => p.connect().catch(() => undefined)));
+        const before = await waits();
+        (await pool.connect()).release();
+        expect((await waits()).count - before.count).toBe(0);
+        expect(
+          installed.diagnostics.failures
+            .slice(failuresBefore)
+            .map((f) => f.where),
+        ).toEqual(["integrations.pg.pool.track"]);
+      } finally {
+        await Promise.all(dead.map((p) => p.end()));
         await pool.end();
       }
     });
@@ -554,13 +611,14 @@ describe.skipIf(reason !== undefined)("pool wait options", () => {
     }
   });
 
-  it("poolWaitThresholdMillis: 0 adds a span for every acquisition in a trace", async () => {
+  it("poolWaitThresholdMillis: 0 adds a span for every acquisition in a trace that found no free client", async () => {
     const { dispose } = install({
       integrations: { pg: { poolWaitThresholdMillis: 0 } },
     });
     try {
       await queuedWait();
-      expect(connectSpans()).toHaveLength(2);
+      // The free acquisition gets none; the queued one does.
+      expect(connectSpans()).toHaveLength(1);
     } finally {
       dispose();
     }
@@ -589,12 +647,23 @@ describe.skipIf(reason !== undefined)("pool wait options", () => {
   });
 
   it("disposed: connect passes straight through", async () => {
-    const { dispose } = install();
+    // Threshold 0, so any acquisition that was still measured would leave a span or a sample.
+    const { dispose } = install({
+      integrations: { pg: { poolWaitThresholdMillis: 0 } },
+    });
     dispose();
     const pool = new pg.Pool(config({ max: 1 }));
     try {
-      await inParent(async () => (await pool.connect()).release());
+      const before = await waits();
+      await inParent(async () => {
+        const first = await pool.connect();
+        const queued = pool.connect();
+        await sleep(10);
+        first.release();
+        (await queued).release();
+      });
       expect(connectSpans()).toEqual([]);
+      expect((await waits()).count - before.count).toBe(0);
     } finally {
       await pool.end();
     }
