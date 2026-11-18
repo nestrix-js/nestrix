@@ -21,5 +21,5 @@ COPY --from=build --chown=node:node /repo/apps/server/migrations ./migrations
 USER node
 EXPOSE 4318
 HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=10 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||4318)+'/login').then(r=>process.exit(r.status<500?0:1),()=>process.exit(1))"]
+  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||4318)+'/readyz').then(r=>process.exit(r.status===200?0:1),()=>process.exit(1))"]
 CMD ["node", "dist/main.js"]
