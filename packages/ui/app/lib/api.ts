@@ -7,6 +7,8 @@ import type {
   ClassStatsResponse,
   DependenciesResponse,
   ErrorGroupsResponse,
+  ErrorGroupTriageRequest,
+  ErrorGroupTriageResponse,
   ErrorInsightsResponse,
   ErrorListResponse,
   InstanceListResponse,
@@ -166,6 +168,20 @@ export const getErrors = (params: QueryParams) =>
   getJson<ErrorListResponse>("errors", params);
 export const getErrorGroups = (params: QueryParams = {}) =>
   getJson<ErrorGroupsResponse>("errors/groups", params);
+/**
+ * Stored triage of an error group (standalone server, admin session): resolve it, ignore it, or
+ * reopen it (which also un-ignores).
+ */
+export const triageErrorGroup = (
+  action: "resolve" | "ignore" | "reopen",
+  body: ErrorGroupTriageRequest,
+) =>
+  requestJson<ErrorGroupTriageResponse>(
+    "POST",
+    `errors/groups/${action}`,
+    undefined,
+    body,
+  );
 export const getErrorInsights = (params: QueryParams = {}) =>
   getJson<ErrorInsightsResponse>("errors/insights", params);
 export const getRoutes = (params: QueryParams = {}) =>

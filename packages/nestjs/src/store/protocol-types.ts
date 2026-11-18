@@ -133,6 +133,24 @@ export interface ErrorGroupOccurrence {
  */
 export type ErrorGroupState = "new" | "regressed" | "ongoing" | "quiet";
 
+/**
+ * The stored triage state of a group (standalone server only; the embedded dashboard never sends
+ * it). Mirrors `@nestrix-js/protocol`.
+ */
+export type ErrorGroupTriageState =
+  | "open"
+  | "resolved"
+  | "regressed"
+  | "ignored";
+
+export interface ErrorGroupTriage {
+  state: ErrorGroupTriageState;
+  resolvedAtUnixMs?: number;
+  resolvedInRelease?: string;
+  regressedAtUnixMs?: number;
+  ignoredAtUnixMs?: number;
+}
+
 /** Occurrences of a group in one release, within the window. */
 export interface ErrorGroupRelease {
   release: string;
@@ -177,6 +195,8 @@ export interface ErrorGroup {
   lastSeenRelease?: string;
   /** Occurrences in the window per release, most first, at most 5. */
   releases?: ErrorGroupRelease[];
+  /** Standalone server only: the stored triage state. Never sent by the embedded dashboard. */
+  triage?: ErrorGroupTriage;
 }
 
 export interface ErrorGroupsResponse {
@@ -187,6 +207,8 @@ export interface ErrorGroupsResponse {
   toUnixMs: number;
   /** Most occurrences first, at most 100. */
   groups: ErrorGroup[];
+  /** Standalone server only: ignored groups left out of `groups`. */
+  ignoredCount?: number;
   /**
    * The span of stored history `state`, `firstEver*` and the releases were computed over: the
    * server reads up to 7 days, the embedded store whatever it still holds.

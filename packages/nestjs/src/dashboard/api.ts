@@ -147,6 +147,11 @@ export const errorGroupSpec: ErrorGroupParamsSpec = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  // Accepted and ignored: the embedded dashboard has no stored triage state.
+  triage: {
+    kind: "enum",
+    values: ["all", "open", "resolved", "regressed", "ignored"],
+  },
 };
 
 export const errorInsightsSpec: ErrorInsightsParamsSpec = {

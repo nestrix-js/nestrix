@@ -2,6 +2,8 @@ import type {
   ErrorGroup,
   ErrorGroupState,
   ErrorGroupsResponse,
+  ErrorGroupTriage,
+  ErrorGroupTriageState,
   ErrorReleaseStat,
 } from "@nestrix-js/protocol";
 
@@ -30,6 +32,60 @@ export const STATE_ORDER: readonly GroupState[] = [
   "ongoing",
   "quiet",
 ];
+
+/**
+ * The stored triage state (standalone server), shown beside the computed one. The computed state
+ * says what the window looks like; this one is what people and regression detection decided.
+ */
+export const TRIAGE_LABEL: Record<ErrorGroupTriageState, string> = {
+  open: "Open",
+  resolved: "Resolved",
+  regressed: "Regressed",
+  ignored: "Ignored",
+};
+
+export const TRIAGE_TITLE: Record<ErrorGroupTriageState, string> = {
+  open: "Nobody has resolved or ignored this group",
+  resolved:
+    "Marked resolved. It comes back as a regression when it occurs again in another release",
+  regressed:
+    "Resolved, then seen again in another release (or in any release, when it was not known)",
+  ignored:
+    "Left out of the default list, the counts and the alerts until reopened",
+};
+
+/** One line for a group's stored state: "Resolved in 1.2.0", "Regressed in 1.3.0". */
+export function triageText(
+  triage: ErrorGroupTriage,
+  lastSeenRelease?: string,
+): string {
+  const label = TRIAGE_LABEL[triage.state];
+  if (triage.state === "resolved" && triage.resolvedInRelease !== undefined)
+    return `${label} in ${triage.resolvedInRelease}`;
+  if (
+    triage.state === "regressed" &&
+    triage.resolvedInRelease !== undefined &&
+    lastSeenRelease !== undefined
+  )
+    return `Regressed: resolved in ${triage.resolvedInRelease}, back in ${lastSeenRelease}`;
+  return label;
+}
+
+/** Which actions a stored state offers. */
+export function triageActions(
+  state: ErrorGroupTriageState,
+): readonly ("resolve" | "ignore" | "reopen")[] {
+  switch (state) {
+    case "open":
+      return ["resolve", "ignore"];
+    case "resolved":
+      return ["ignore", "reopen"];
+    case "regressed":
+      return ["resolve", "ignore", "reopen"];
+    case "ignored":
+      return ["reopen"];
+  }
+}
 
 /**
  * A group's state: the one the backend computed from its stored history. An older backend sends

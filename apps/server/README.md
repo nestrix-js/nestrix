@@ -256,11 +256,21 @@ One job that fans out can put millions of spans in a single trace. The server st
 
 `spans`, `traces`, the per-minute rollups and the trace logs (`logs`) are partitioned by UTC day. At start and then every hour the server creates partitions for today and the next two days and drops partitions older than `NESTRIX_RETENTION_DAYS`. With 7 and today 2026-11-11, 2026-11-04 is the oldest day kept: at least 7 days of data, up to nearly 8. Retention is by dropping partitions, so it is instant and leaves no dead rows. Per-route and per-class statistics are rolled up per minute at ingest; a retried export is not counted twice. Class counts are post-sampling, because the server sees only what services chose to export.
 
+## Error triage
+
+The server stores a triage state per error group (`open`, `resolved`, `regressed`, `ignored`), kept apart from the computed new, ongoing and quiet states and independent of span retention. A background sync (every 30 s, one instance at a time) records each group from the stored error spans, with its first and last seen and its counts per release.
+
+- `POST /api/v1/errors/groups/resolve`, `/ignore` and `/reopen` with `{"key": "<ErrorGroup.key>", "service": "<optional>"}` (admin session and a same-origin `Origin`, like the alert routes; an API token never reaches them). Without `service` the action applies to the group in every service.
+- Resolving remembers the release of the group's latest occurrence. If the group is seen again in another release (or in any release when one is unknown), it becomes `regressed` and stays so until you resolve, ignore or reopen it. The same release after the resolution does not regress it.
+- Ignored groups are left out of `GET /api/v1/errors/groups` (`ignoredCount` says how many), of counts and of alerts until reopened. `?triage=all|open|resolved|regressed|ignored` lists other views.
+- The `new_error_group` alert rule (above) notifies about new and regressed groups.
+
 ## Alerting
 
 Alert rules are managed through the API (`/api/v1/alerts`, admin session required); the dashboard has no alerts page yet. A rule watches one service, optionally one route, over a window of 5 to 60 minutes:
 
 - `metric`: `error_rate` (a fraction; 0.05 is 5%), `p95_ms`, or `slo_burn_rate` (give `sloId`; the rule takes its service and route from that [SLO](#slos) and fires when the SLO's burn rate over the rule's window is above `threshold`), compared with `>` to a `threshold`.
+- `new_error_group` (issue #26): no `threshold`, `windowMinutes`, `forMinutes` or `minRequests` (they are refused); `service` and `route` are optional filters. One webhook is sent for each error group seen for the first time after the rule was created, and one for each regression of a resolved group (`errorGroup.reason` is `new` or `regressed` in the payload). Each is sent once, across instances and restarts. Ignored groups never alert.
 - `forMinutes` (0 to 60, default 2): how long the condition must hold before the alert fires.
 - `minRequests` (default 10): fewer requests in the window is "no data", which changes nothing, so a dead service does not resolve a firing alert.
 - States: `ok`, `pending`, `firing`. A notification is sent when a rule starts firing and when it resolves. Rules are evaluated every 60 seconds by one instance at a time.

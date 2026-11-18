@@ -3,7 +3,12 @@ import type {
   ErrorGroupsResponse,
   ErrorInsightsResponse,
 } from "@nestrix-js/protocol";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import type * as React from "react";
@@ -39,7 +44,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getErrorGroups, getErrorInsights } from "@/lib/api";
+import { getErrorGroups, getErrorInsights, triageErrorGroup } from "@/lib/api";
 import { pollInterval, usePaused } from "@/lib/live";
 import { useService } from "@/lib/service";
 import {
@@ -57,7 +62,11 @@ import {
   STATE_LABEL,
   STATE_ORDER,
   STATE_TITLE,
+  TRIAGE_LABEL,
+  TRIAGE_TITLE,
   totalEvents,
+  triageActions,
+  triageText,
   typeBreakdown,
   WEEKDAYS,
 } from "@/views/errors/errors-stats";
@@ -80,6 +89,28 @@ const STATE_TONE = {
   quiet: "neutral",
 } as const;
 
+const TRIAGE_TONE = {
+  open: "neutral",
+  resolved: "better",
+  regressed: "worse",
+  ignored: "neutral",
+} as const;
+
+type TriageAction = "resolve" | "ignore" | "reopen";
+const ACTION_LABEL: Record<TriageAction, string> = {
+  resolve: "Resolve",
+  ignore: "Ignore",
+  reopen: "Reopen",
+};
+/** Which stored states the list shows: `active` is everything but the ignored groups. */
+const TRIAGE_VIEWS = [
+  { value: "active", label: "Active" },
+  { value: "resolved", label: "Resolved" },
+  { value: "ignored", label: "Ignored" },
+  { value: "all", label: "All" },
+] as const;
+type TriageView = (typeof TRIAGE_VIEWS)[number]["value"];
+
 const countText = (n: number) => n.toLocaleString("en");
 
 function GroupRow({
@@ -88,12 +119,17 @@ function GroupRow({
   color,
   max,
   windowMinutes,
+  onTriage,
+  triagePending,
 }: {
   group: ErrorGroup;
   state: GroupState;
   color: string;
   max: number;
   windowMinutes: number;
+  /** Absent on the embedded dashboard, which has no stored triage. */
+  onTriage: ((action: TriageAction) => void) | undefined;
+  triagePending: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const detailId = `error-group-${group.exampleTraceId}`;
@@ -148,6 +184,16 @@ function GroupRow({
           <Chip tone={STATE_TONE[state]} title={STATE_TITLE[state]}>
             {STATE_LABEL[state]}
           </Chip>
+          {group.triage !== undefined && group.triage.state !== "open" && (
+            <div className="mt-1" data-testid="group-triage">
+              <Chip
+                tone={TRIAGE_TONE[group.triage.state]}
+                title={TRIAGE_TITLE[group.triage.state]}
+              >
+                {TRIAGE_LABEL[group.triage.state]}
+              </Chip>
+            </div>
+          )}
         </TableCell>
         <TableCell data-testid="group-count">
           <BarCell
@@ -208,6 +254,31 @@ function GroupRow({
                 </Link>
               )}
             </div>
+            {group.triage !== undefined && onTriage !== undefined && (
+              <div
+                className="mb-3 flex flex-wrap items-center gap-2"
+                data-testid="group-triage-actions"
+              >
+                <span
+                  className="text-sm"
+                  title={TRIAGE_TITLE[group.triage.state]}
+                >
+                  {triageText(group.triage, group.lastSeenRelease)}
+                </span>
+                {triageActions(group.triage.state).map((action) => (
+                  <Button
+                    key={action}
+                    size="sm"
+                    variant="outline"
+                    disabled={triagePending}
+                    data-testid={`triage-${action}`}
+                    onClick={() => onTriage(action)}
+                  >
+                    {ACTION_LABEL[action]}
+                  </Button>
+                ))}
+              </div>
+            )}
             <p className="mb-1 text-xs text-muted-foreground">
               Recent occurrences (latest {group.recent.length} of {group.count})
             </p>
@@ -445,15 +516,47 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
   const [windowMinutes, setWindowMinutes] = useState<number>(WINDOWS[0].value);
   const [service] = useService();
   const [paused] = usePaused();
+  const [triageView, setTriageView] = useState<TriageView>("active");
+  const queryClient = useQueryClient();
   const groups = useQuery({
-    queryKey: ["errors", "groups", windowMinutes, service],
-    queryFn: () => getErrorGroups({ windowMinutes, service }),
+    queryKey: ["errors", "groups", windowMinutes, service, triageView],
+    queryFn: () =>
+      getErrorGroups({
+        windowMinutes,
+        service,
+        triage: triageView === "active" ? undefined : triageView,
+      }),
     refetchInterval: pollInterval(paused),
     refetchIntervalInBackground: false,
     placeholderData: keepPreviousData,
   });
   const data = groups.data;
   const shownWindow = data?.windowMinutes ?? windowMinutes;
+  // Only the standalone server stores triage; it also sends `ignoredCount`.
+  const canTriage = data?.ignoredCount !== undefined;
+  const triage = useMutation({
+    mutationFn: ({
+      action,
+      group,
+    }: {
+      action: TriageAction;
+      group: ErrorGroup;
+    }) => {
+      const targets =
+        group.services.length === 0 ? [undefined] : group.services;
+      return Promise.all(
+        targets.map((service) =>
+          triageErrorGroup(
+            action,
+            service === undefined
+              ? { key: group.key }
+              : { key: group.key, service },
+          ),
+        ),
+      );
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["errors"] }),
+  });
 
   const derived = useMemo(() => {
     if (data === undefined) return null;
@@ -482,6 +585,14 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
         controls={
           <>
             {viewToggle}
+            {canTriage && (
+              <SegmentedControl
+                label="Groups"
+                options={TRIAGE_VIEWS}
+                value={triageView}
+                onChange={setTriageView}
+              />
+            )}
             <SegmentedControl
               label="Time window"
               options={WINDOWS}
@@ -580,6 +691,11 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
               />
             </KpiStrip>
           )}
+          {canTriage && triage.isError && (
+            <p role="alert" className="text-sm text-destructive">
+              Could not change the group: {triage.error?.message}
+            </p>
+          )}
           {data.groups.length > 0 && <Charts data={data} />}
           {data.groups.length > 0 && <Insights service={service} />}
           {data.groups.length > 0 ? (
@@ -600,6 +716,19 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
                 </span>
               }
             >
+              {canTriage &&
+                (data.ignoredCount ?? 0) > 0 &&
+                triageView === "active" && (
+                  <p
+                    data-testid="ignored-note"
+                    className="px-4 py-2 text-xs text-muted-foreground"
+                  >
+                    {data.ignoredCount} ignored{" "}
+                    {data.ignoredCount === 1 ? "group is" : "groups are"} left
+                    out. Choose Ignored to see{" "}
+                    {data.ignoredCount === 1 ? "it" : "them"}.
+                  </p>
+                )}
               <Table
                 data-testid="error-groups"
                 containerClassName="max-h-[70vh]"
@@ -625,6 +754,12 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
                       color={derived.colorOf(g)}
                       max={derived.max}
                       windowMinutes={shownWindow}
+                      onTriage={
+                        canTriage
+                          ? (action) => triage.mutate({ action, group: g })
+                          : undefined
+                      }
+                      triagePending={triage.isPending}
                     />
                   ))}
                 </TableBody>
@@ -632,11 +767,17 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
             </Section>
           ) : (
             <EmptyState
-              title={`No errors in the last ${shownWindow} minutes.`}
+              title={
+                triageView === "active"
+                  ? `No errors in the last ${shownWindow} minutes.`
+                  : `No ${triageView === "all" ? "" : `${triageView} `}error groups in the last ${shownWindow} minutes.`
+              }
               testId="error-groups"
             >
               Failed requests and thrown spans in stored traces appear here. Try
               the 60 minute window, or send a failing request to your app.
+              {(data.ignoredCount ?? 0) > 0 &&
+                ` ${data.ignoredCount} ignored ${data.ignoredCount === 1 ? "group is" : "groups are"} left out; choose Ignored to see ${data.ignoredCount === 1 ? "it" : "them"}.`}
             </EmptyState>
           )}
         </>

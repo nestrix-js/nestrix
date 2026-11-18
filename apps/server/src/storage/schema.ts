@@ -22,6 +22,7 @@ import {
   jsonb,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
@@ -199,10 +200,11 @@ export const logs = pgTable(
 export const alertRules = pgTable("alert_rules", {
   id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull(),
-  serviceName: text("service_name").notNull(),
+  // NULL only for a `new_error_group` rule (migrations/0018_error_triage.sql): every service.
+  serviceName: text("service_name"),
   route: text("route"),
   metric: text("metric")
-    .$type<"error_rate" | "p95_ms" | "slo_burn_rate">()
+    .$type<"error_rate" | "p95_ms" | "slo_burn_rate" | "new_error_group">()
     .notNull(),
   sloId: bigint("slo_id", { mode: "number" }),
   comparator: text("comparator").$type<">">().notNull().default(">"),
@@ -267,6 +269,69 @@ export const alertEvents = pgTable("alert_events", {
   error: text("error"),
 });
 
+/** Error triage (migrations/0018_error_triage.sql, src/errors/). */
+export const errorGroups = pgTable(
+  "error_groups",
+  {
+    serviceName: text("service_name").notNull(),
+    keyHash: text("key_hash").notNull(),
+    groupKey: text("group_key").notNull(),
+    errorType: text("error_type"),
+    pattern: text("pattern").notNull(),
+    route: text("route"),
+    state: text("state")
+      .$type<"open" | "resolved" | "regressed" | "ignored">()
+      .notNull()
+      .default("open"),
+    firstSeen: timestamp("first_seen", tz).notNull(),
+    lastSeen: timestamp("last_seen", tz).notNull(),
+    firstRelease: text("first_release"),
+    lastRelease: text("last_release"),
+    occurrences: bigint("occurrences", { mode: "number" }).notNull().default(0),
+    resolvedAt: timestamp("resolved_at", tz),
+    resolvedInRelease: text("resolved_in_release"),
+    regressedAt: timestamp("regressed_at", tz),
+    createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+    regressedDetectedAt: timestamp("regressed_detected_at", tz),
+    regressions: integer("regressions").notNull().default(0),
+    ignoredAt: timestamp("ignored_at", tz),
+  },
+  (t) => [primaryKey({ columns: [t.serviceName, t.keyHash] })],
+);
+
+export const errorGroupReleases = pgTable(
+  "error_group_releases",
+  {
+    serviceName: text("service_name").notNull(),
+    keyHash: text("key_hash").notNull(),
+    release: text("release").notNull(),
+    firstSeen: timestamp("first_seen", tz).notNull(),
+    lastSeen: timestamp("last_seen", tz).notNull(),
+    occurrences: bigint("occurrences", { mode: "number" }).notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.serviceName, t.keyHash, t.release] })],
+);
+
+export const errorGroupSync = pgTable("error_group_sync", {
+  id: smallint("id").primaryKey(),
+  watermark: timestamp("watermark", tz).notNull(),
+});
+
+export const errorGroupAlerts = pgTable(
+  "error_group_alerts",
+  {
+    ruleId: bigint("rule_id", { mode: "number" }).notNull(),
+    serviceName: text("service_name").notNull(),
+    keyHash: text("key_hash").notNull(),
+    episode: integer("episode").notNull(),
+    eventId: bigint("event_id", { mode: "number" }),
+    createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.ruleId, t.serviceName, t.keyHash, t.episode] }),
+  ],
+);
+
 export const schema = {
   resources,
   services,
@@ -280,5 +345,9 @@ export const schema = {
   alertRules,
   alertState,
   alertEvents,
+  errorGroups,
+  errorGroupReleases,
+  errorGroupSync,
+  errorGroupAlerts,
 };
 export type StorageSchema = typeof schema;

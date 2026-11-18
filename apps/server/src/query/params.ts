@@ -92,6 +92,10 @@ export const errorGroupSpec: ErrorGroupParamsSpec = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  triage: {
+    kind: "enum",
+    values: ["all", "open", "resolved", "regressed", "ignored"],
+  },
 };
 
 export const errorInsightsSpec: ErrorInsightsParamsSpec = {

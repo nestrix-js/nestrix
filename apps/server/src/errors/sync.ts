@@ -1,0 +1,483 @@
+/**
+ * The error-group sync (issue #26, D-103): keeps `error_groups` (stored state, first and last
+ * seen, releases) and `error_group_releases` current from the stored spans, and turns a resolved
+ * group's next occurrence into a regression.
+ *
+ * It runs beside ingest, not inside it. A group's identity needs the trace's route and the
+ * occurrence rules (D-93: propagation, the legacy parent rule), which are known only once spans
+ * are stored, so the ingest path stays as fast as it was and a group shows up in the table within
+ * one interval plus `lagMs` (30 s + 15 s by default).
+ *
+ * - One instance runs at a time (session advisory lock `ERROR_GROUPS_LOCK`); the others skip.
+ * - A watermark (`error_group_sync`) marks the spans already counted. Each run reads the
+ *   occurrences that started after the watermark minus `overlapMs`, up to `now - lagMs`, in
+ *   chunks of an hour (the first run reads 7 days, like the lists' history). Occurrences after
+ *   the watermark are counted; the overlap only repairs first/last seen and the releases, which
+ *   are min/max and so idempotent. The counts are therefore exact for spans that arrive before
+ *   the watermark passes them and a lower bound for the rare span that arrives later (a job that
+ *   ends minutes after it started).
+ * - One transaction per chunk: group rows locked, regressions decided, rows upserted, watermark
+ *   moved. A crash repeats the chunk and counts nothing twice.
+ * - Regression: a `resolved` group with an occurrence after `resolved_at` whose release differs
+ *   from `resolved_in_release`, or where either is unknown, becomes `regressed` at that
+ *   occurrence's time and its `regressions` counter goes up (the alert episode). The same release
+ *   after the resolution does not regress it (the old code is still running). `ignored` and
+ *   `regressed` groups keep their state.
+ * - Groups are kept: only `open` groups unseen for 90 days are deleted (hourly), so a group
+ *   people decided about never expires with the spans it came from.
+ * - Failures are caught and logged; nothing here can throw out of the timer.
+ */
+import type { Pool } from "pg";
+import {
+  type ErrorOccurrence,
+  groupKeyOf,
+  normaliseMessage,
+} from "../query/error-groups.js";
+import { INSIGHTS_MS } from "../query/error-insights.js";
+import type { QueryService } from "../query/query.service.js";
+import { ADVISORY_CLASS, ERROR_GROUPS_LOCK } from "../storage/locks.js";
+import { keyHashOf } from "./triage.js";
+
+export interface ErrorSyncOptions {
+  /** Default 30 000. */
+  intervalMs?: number;
+  /** First run after start. Default 5 000. */
+  initialDelayMs?: number;
+  /** Spans younger than this are left for the next run. Default 15 000. */
+  lagMs?: number;
+  /** How far before the watermark a run reads again. Default 120 000. */
+  overlapMs?: number;
+  /** How far back the first run reads. Default 7 days. */
+  backfillMs?: number;
+  /** Rows read per query; more than this in one chunk continue in the next run. Default 20 000. */
+  rowCap?: number;
+  /** Open groups unseen for this long are deleted. Default 90 days. */
+  openRetentionMs?: number;
+  /** False: no timer (tests call `runOnce`). Default true. */
+  schedule?: boolean;
+  now?: () => number;
+  onError?: (message: string) => void;
+}
+
+export const ERROR_SYNC_OPTIONS = Symbol("nestrix-server:error-sync-options");
+
+export interface SyncRun {
+  skipped?: "locked" | "busy";
+  /** Occurrences read after the watermark (counted). */
+  counted: number;
+  groups: number;
+  regressed: number;
+}
+
+const CHUNK_MS = 3_600_000;
+const MAX_CHUNKS = 200;
+const PRUNE_EVERY_MS = 3_600_000;
+const BATCH = 1000;
+
+interface ReleaseAgg {
+  firstMs: number;
+  lastMs: number;
+  counted: number;
+}
+
+interface Agg {
+  service: string;
+  key: string;
+  hash: string;
+  errorType: string | undefined;
+  pattern: string;
+  route: string | undefined;
+  firstMs: number;
+  lastMs: number;
+  firstRelease: string | undefined;
+  firstReleaseMs: number;
+  lastRelease: string | undefined;
+  lastReleaseMs: number;
+  counted: number;
+  releases: Map<string, ReleaseAgg>;
+  /** Every occurrence read, for regression decisions. */
+  times: { ms: number; release: string | undefined }[];
+}
+
+/** Groups occurrences by (service, group key). `countAfterMs`: only later ones are counted. */
+export function aggregate(
+  occurrences: readonly ErrorOccurrence[],
+  countAfterMs: number,
+): Map<string, Agg> {
+  const out = new Map<string, Agg>();
+  for (const o of occurrences) {
+    if (o.service === undefined) continue;
+    const pattern = o.message === undefined ? "" : normaliseMessage(o.message);
+    const key = groupKeyOf(o.errorType, pattern, o.route);
+    const id = `${o.service}\u0000${key}`;
+    let a = out.get(id);
+    if (a === undefined) {
+      a = {
+        service: o.service,
+        key,
+        hash: keyHashOf(key),
+        errorType: o.errorType,
+        pattern,
+        route: o.route,
+        firstMs: o.timeUnixMs,
+        lastMs: o.timeUnixMs,
+        firstRelease: undefined,
+        firstReleaseMs: Number.POSITIVE_INFINITY,
+        lastRelease: undefined,
+        lastReleaseMs: Number.NEGATIVE_INFINITY,
+        counted: 0,
+        releases: new Map(),
+        times: [],
+      };
+      out.set(id, a);
+    }
+    const counted = o.timeUnixMs > countAfterMs;
+    if (counted) a.counted++;
+    if (o.timeUnixMs < a.firstMs) a.firstMs = o.timeUnixMs;
+    if (o.timeUnixMs > a.lastMs) a.lastMs = o.timeUnixMs;
+    a.times.push({ ms: o.timeUnixMs, release: o.release });
+    if (o.release !== undefined) {
+      if (o.timeUnixMs < a.firstReleaseMs) {
+        a.firstReleaseMs = o.timeUnixMs;
+        a.firstRelease = o.release;
+      }
+      if (o.timeUnixMs >= a.lastReleaseMs) {
+        a.lastReleaseMs = o.timeUnixMs;
+        a.lastRelease = o.release;
+      }
+      const r = a.releases.get(o.release);
+      if (r === undefined) {
+        a.releases.set(o.release, {
+          firstMs: o.timeUnixMs,
+          lastMs: o.timeUnixMs,
+          counted: counted ? 1 : 0,
+        });
+      } else {
+        if (o.timeUnixMs < r.firstMs) r.firstMs = o.timeUnixMs;
+        if (o.timeUnixMs > r.lastMs) r.lastMs = o.timeUnixMs;
+        if (counted) r.counted++;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The time of the occurrence that regresses a group resolved at `resolvedAtMs` in
+ * `resolvedInRelease`: the earliest one after the resolution in another release (or in any, when
+ * one of the two releases is unknown). Undefined when none does.
+ */
+export function regressionTime(
+  times: readonly { ms: number; release: string | undefined }[],
+  resolvedAtMs: number,
+  resolvedInRelease: string | null,
+): number | undefined {
+  let best: number | undefined;
+  for (const t of times) {
+    if (t.ms <= resolvedAtMs) continue;
+    const same =
+      resolvedInRelease !== null &&
+      t.release !== undefined &&
+      t.release === resolvedInRelease;
+    if (same) continue;
+    if (best === undefined || t.ms < best) best = t.ms;
+  }
+  return best;
+}
+
+const iso = (ms: number) => new Date(ms).toISOString();
+
+export class ErrorGroupSync {
+  private readonly o: Required<
+    Omit<ErrorSyncOptions, "schedule" | "now" | "onError">
+  >;
+  private readonly now: () => number;
+  private readonly onError: (message: string) => void;
+  private timer: NodeJS.Timeout | undefined;
+  private running: Promise<SyncRun> | undefined;
+  private lastPruneMs = 0;
+  private stopped = false;
+
+  constructor(
+    private readonly pool: Pool,
+    private readonly query: Pick<QueryService, "errorOccurrences">,
+    options: ErrorSyncOptions = {},
+  ) {
+    this.o = {
+      intervalMs: options.intervalMs ?? 30_000,
+      initialDelayMs: options.initialDelayMs ?? 5_000,
+      lagMs: options.lagMs ?? 15_000,
+      overlapMs: options.overlapMs ?? 120_000,
+      backfillMs: options.backfillMs ?? INSIGHTS_MS,
+      rowCap: options.rowCap ?? 20_000,
+      openRetentionMs: options.openRetentionMs ?? 90 * 86_400_000,
+    };
+    this.now = options.now ?? Date.now;
+    this.onError = options.onError ?? (() => undefined);
+  }
+
+  start(): void {
+    if (this.timer !== undefined || this.stopped) return;
+    const tick = () => {
+      this.runOnce().catch(() => undefined);
+    };
+    const first = setTimeout(() => {
+      tick();
+      this.timer = setInterval(tick, this.o.intervalMs);
+      this.timer.unref();
+    }, this.o.initialDelayMs);
+    first.unref();
+    this.timer = first;
+  }
+
+  async stop(): Promise<void> {
+    this.stopped = true;
+    if (this.timer !== undefined) {
+      clearTimeout(this.timer);
+      clearInterval(this.timer);
+      this.timer = undefined;
+    }
+    await this.running?.catch(() => undefined);
+  }
+
+  /** One pass over the spans not yet counted. Never rejects. */
+  runOnce(): Promise<SyncRun> {
+    if (this.running !== undefined) {
+      return Promise.resolve({
+        skipped: "busy",
+        counted: 0,
+        groups: 0,
+        regressed: 0,
+      });
+    }
+    const run = this.sync()
+      .catch((error) => {
+        this.report("error group sync failed", error);
+        return { counted: 0, groups: 0, regressed: 0 } as SyncRun;
+      })
+      .finally(() => {
+        this.running = undefined;
+      });
+    this.running = run;
+    return run;
+  }
+
+  private report(context: string, error: unknown): void {
+    try {
+      this.onError(`${context}: ${(error as Error)?.message ?? String(error)}`);
+    } catch {
+      // A failing logger must not break the run.
+    }
+  }
+
+  private async sync(): Promise<SyncRun> {
+    const client = await this.pool.connect();
+    let locked = false;
+    let broken: Error | undefined;
+    const total: SyncRun = { counted: 0, groups: 0, regressed: 0 };
+    try {
+      const got = await client.query<{ locked: boolean }>(
+        "SELECT pg_try_advisory_lock($1, $2) AS locked",
+        [ADVISORY_CLASS, ERROR_GROUPS_LOCK],
+      );
+      locked = got.rows[0]?.locked === true;
+      if (!locked)
+        return { skipped: "locked", counted: 0, groups: 0, regressed: 0 };
+
+      const nowMs = this.now();
+      const hiMs = Math.floor(nowMs - this.o.lagMs);
+      const mark = await client.query<{ watermark: Date }>(
+        "SELECT watermark FROM error_group_sync WHERE id = 1",
+      );
+      let wm = mark.rows[0]?.watermark.getTime();
+      if (wm === undefined) {
+        wm = Math.floor(nowMs - this.o.backfillMs);
+        await client.query(
+          "INSERT INTO error_group_sync (id, watermark) VALUES (1, $1) ON CONFLICT (id) DO NOTHING",
+          [new Date(wm)],
+        );
+      }
+      for (let i = 0; i < MAX_CHUNKS && wm < hiMs; i++) {
+        let to = Math.min(hiMs, wm + CHUNK_MS);
+        let rows = await this.query.errorOccurrences(
+          new Date(wm - this.o.overlapMs),
+          undefined,
+          undefined,
+          this.o.rowCap,
+          { until: new Date(to), ascending: true },
+        );
+        if (rows.length >= this.o.rowCap) {
+          // A full page: stop the chunk before its last millisecond and read on from there next
+          // time. When that would not move the watermark (the whole page is one millisecond),
+          // take the page as it is.
+          const cut = Math.floor(rows[rows.length - 1]?.timeUnixMs ?? to) - 1;
+          if (cut > wm) {
+            to = cut;
+            rows = rows.filter((r) => r.timeUnixMs <= to);
+          }
+        }
+        const done = await this.apply(client, rows, wm, to);
+        total.counted += done.counted;
+        total.groups += done.groups;
+        total.regressed += done.regressed;
+        wm = to;
+      }
+      await this.prune(client, nowMs);
+    } catch (error) {
+      broken = error as Error;
+      throw error;
+    } finally {
+      try {
+        if (locked && broken === undefined) {
+          await client.query("SELECT pg_advisory_unlock($1, $2)", [
+            ADVISORY_CLASS,
+            ERROR_GROUPS_LOCK,
+          ]);
+        }
+        client.release(broken);
+      } catch (error) {
+        client.release(error as Error);
+      }
+    }
+    return total;
+  }
+
+  private async prune(
+    client: import("pg").PoolClient,
+    nowMs: number,
+  ): Promise<void> {
+    if (nowMs - this.lastPruneMs < PRUNE_EVERY_MS) return;
+    try {
+      await client.query(
+        "DELETE FROM error_groups WHERE state = 'open' AND last_seen < $1",
+        [new Date(nowMs - this.o.openRetentionMs)],
+      );
+      this.lastPruneMs = nowMs;
+    } catch (error) {
+      this.report("error group retention failed", error);
+    }
+  }
+
+  /** One chunk in one transaction. */
+  private async apply(
+    client: import("pg").PoolClient,
+    rows: readonly ErrorOccurrence[],
+    wmMs: number,
+    toMs: number,
+  ): Promise<{ counted: number; groups: number; regressed: number }> {
+    const aggs = [...aggregate(rows, wmMs).values()];
+    let counted = 0;
+    for (const a of aggs) counted += a.counted;
+    let regressed = 0;
+    await client.query("BEGIN");
+    try {
+      // Resolved groups seen in this chunk: lock them, decide their regressions.
+      const regress: { a: Agg; atMs: number }[] = [];
+      for (let i = 0; i < aggs.length; i += BATCH) {
+        const part = aggs.slice(i, i + BATCH);
+        const res = await client.query<{
+          service_name: string;
+          key_hash: string;
+          resolved_at: Date | null;
+          resolved_in_release: string | null;
+        }>(
+          `SELECT g.service_name, g.key_hash, g.resolved_at, g.resolved_in_release
+             FROM error_groups g
+             JOIN unnest($1::text[], $2::text[]) AS k(service_name, key_hash)
+               ON g.service_name = k.service_name AND g.key_hash = k.key_hash
+            WHERE g.state = 'resolved' FOR UPDATE OF g`,
+          [part.map((a) => a.service), part.map((a) => a.hash)],
+        );
+        for (const r of res.rows) {
+          const a = part.find(
+            (x) => x.service === r.service_name && x.hash === r.key_hash,
+          );
+          if (a === undefined || r.resolved_at === null) continue;
+          const at = regressionTime(
+            a.times,
+            r.resolved_at.getTime(),
+            r.resolved_in_release,
+          );
+          if (at !== undefined) regress.push({ a, atMs: at });
+        }
+      }
+      for (let i = 0; i < aggs.length; i += BATCH) {
+        const part = aggs.slice(i, i + BATCH);
+        await client.query(
+          `INSERT INTO error_groups
+             (service_name, key_hash, group_key, error_type, pattern, route,
+              first_seen, last_seen, first_release, last_release, occurrences)
+           SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[],
+                                $6::text[], $7::timestamptz[], $8::timestamptz[], $9::text[],
+                                $10::text[], $11::bigint[])
+           ON CONFLICT (service_name, key_hash) DO UPDATE SET
+             first_release = CASE WHEN EXCLUDED.first_seen < error_groups.first_seen
+                                  THEN coalesce(EXCLUDED.first_release, error_groups.first_release)
+                                  ELSE coalesce(error_groups.first_release, EXCLUDED.first_release) END,
+             last_release = CASE WHEN EXCLUDED.last_seen >= error_groups.last_seen
+                                 THEN coalesce(EXCLUDED.last_release, error_groups.last_release)
+                                 ELSE coalesce(error_groups.last_release, EXCLUDED.last_release) END,
+             first_seen = least(error_groups.first_seen, EXCLUDED.first_seen),
+             last_seen = greatest(error_groups.last_seen, EXCLUDED.last_seen),
+             occurrences = error_groups.occurrences + EXCLUDED.occurrences`,
+          [
+            part.map((a) => a.service),
+            part.map((a) => a.hash),
+            part.map((a) => a.key),
+            part.map((a) => a.errorType ?? null),
+            part.map((a) => a.pattern),
+            part.map((a) => a.route ?? null),
+            part.map((a) => iso(a.firstMs)),
+            part.map((a) => iso(a.lastMs)),
+            part.map((a) => a.firstRelease ?? null),
+            part.map((a) => a.lastRelease ?? null),
+            part.map((a) => a.counted),
+          ],
+        );
+      }
+      const perRelease = aggs.flatMap((a) =>
+        [...a.releases].map(([release, r]) => ({ a, release, r })),
+      );
+      for (let i = 0; i < perRelease.length; i += BATCH) {
+        const part = perRelease.slice(i, i + BATCH);
+        await client.query(
+          `INSERT INTO error_group_releases
+             (service_name, key_hash, release, first_seen, last_seen, occurrences)
+           SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::timestamptz[],
+                                $5::timestamptz[], $6::bigint[])
+           ON CONFLICT (service_name, key_hash, release) DO UPDATE SET
+             first_seen = least(error_group_releases.first_seen, EXCLUDED.first_seen),
+             last_seen = greatest(error_group_releases.last_seen, EXCLUDED.last_seen),
+             occurrences = error_group_releases.occurrences + EXCLUDED.occurrences`,
+          [
+            part.map((p) => p.a.service),
+            part.map((p) => p.a.hash),
+            part.map((p) => p.release),
+            part.map((p) => iso(p.r.firstMs)),
+            part.map((p) => iso(p.r.lastMs)),
+            part.map((p) => p.r.counted),
+          ],
+        );
+      }
+      for (const { a, atMs } of regress) {
+        const res = await client.query(
+          `UPDATE error_groups
+              SET state = 'regressed', regressed_at = $3, regressed_detected_at = now(),
+                  regressions = regressions + 1
+            WHERE service_name = $1 AND key_hash = $2 AND state = 'resolved'`,
+          [a.service, a.hash, new Date(atMs)],
+        );
+        regressed += res.rowCount ?? 0;
+      }
+      await client.query(
+        "UPDATE error_group_sync SET watermark = $1 WHERE id = 1",
+        [new Date(toMs)],
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    }
+    return { counted, groups: aggs.length, regressed };
+  }
+}

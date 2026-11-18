@@ -4,6 +4,7 @@
  */
 import { randomBytes } from "node:crypto";
 import type {
+  AlertErrorGroup,
   AlertEvent,
   AlertMetric,
   AlertRule,
@@ -18,7 +19,8 @@ export type EventKind = "firing" | "resolved" | "test";
 export interface AlertRuleRow {
   id: string;
   name: string;
-  service_name: string;
+  /** NULL only for `new_error_group`: every service. */
+  service_name: string | null;
   route: string | null;
   metric: AlertMetric;
   slo_id: string | null;
@@ -125,6 +127,7 @@ export function buildPayload(
   startedAtMs: number,
   nowMs: number,
   publicUrl: string | undefined,
+  errorGroup?: AlertErrorGroup,
 ): AlertWebhookPayload {
   return {
     eventId: String(eventId),
@@ -138,8 +141,9 @@ export function buildPayload(
     value,
     threshold: rule.threshold,
     window: { minutes: rule.window_minutes },
-    service: rule.service_name,
-    route: rule.route,
+    service: errorGroup?.service ?? rule.service_name,
+    route: errorGroup === undefined ? rule.route : errorGroup.route,
+    ...(errorGroup === undefined ? {} : { errorGroup }),
     startedAt: new Date(startedAtMs).toISOString(),
     sentAt: new Date(nowMs).toISOString(),
     url: publicUrl === undefined ? null : `${publicUrl}/`,
@@ -149,7 +153,7 @@ export function buildPayload(
 /** Validated rule fields, in column names. */
 export interface RuleFields {
   name?: string;
-  service_name?: string;
+  service_name?: string | null;
   route?: string | null;
   metric?: AlertMetric;
   slo_id?: number | null;
@@ -186,6 +190,21 @@ const REQUIRED: (keyof AlertRuleCreate)[] = [
   "windowMinutes",
   "webhookUrl",
 ];
+/** A `new_error_group` rule has no threshold or window: they are stored as these. */
+const NEW_GROUP_STORED = {
+  threshold: 0,
+  window_minutes: 5,
+  for_minutes: 0,
+  min_requests: 1,
+} as const;
+const NEW_GROUP_REFUSED = [
+  "threshold",
+  "windowMinutes",
+  "forMinutes",
+  "minRequests",
+  "sloId",
+  "comparator",
+] as const;
 
 /** True for text without control characters (C0, DEL, C1) and lone surrogates. */
 function cleanText(s: string): boolean {
@@ -235,6 +254,7 @@ export function validateRuleInput(
   allowedHosts: readonly string[],
   existing?: Pick<AlertRuleRow, "metric" | "threshold"> & {
     slo_id?: string | null;
+    service_name?: string | null;
   },
 ): Validation {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
@@ -248,6 +268,12 @@ export function validateRuleInput(
   }
   if (!partial) {
     for (const key of REQUIRED) {
+      if (
+        input.metric === "new_error_group" &&
+        (key === "threshold" || key === "windowMinutes")
+      ) {
+        continue;
+      }
       if (input[key] === undefined) {
         return { ok: false, message: `${key} is required.` };
       }
@@ -264,7 +290,10 @@ export function validateRuleInput(
     if (typeof v !== "string") return fail(v.error);
     fields.name = v;
   }
-  if (has("service")) {
+  if (Object.hasOwn(input, "service") && input.service === null) {
+    // Only a `new_error_group` rule may have no service; checked below.
+    fields.service_name = null;
+  } else if (has("service")) {
     const v = text(input.service, "service", 256);
     if (typeof v !== "string") return fail(v.error);
     fields.service_name = v;
@@ -282,9 +311,12 @@ export function validateRuleInput(
     if (
       input.metric !== "error_rate" &&
       input.metric !== "p95_ms" &&
-      input.metric !== "slo_burn_rate"
+      input.metric !== "slo_burn_rate" &&
+      input.metric !== "new_error_group"
     ) {
-      return fail('metric must be "error_rate", "p95_ms" or "slo_burn_rate".');
+      return fail(
+        'metric must be "error_rate", "p95_ms", "slo_burn_rate" or "new_error_group".',
+      );
     }
     fields.metric = input.metric;
   }
@@ -343,6 +375,29 @@ export function validateRuleInput(
 
   const metric = fields.metric ?? existing?.metric;
   const threshold = fields.threshold ?? existing?.threshold;
+  if (metric === "new_error_group") {
+    for (const key of NEW_GROUP_REFUSED) {
+      if (has(key)) {
+        return fail(`${key} does not apply to a new_error_group rule.`);
+      }
+    }
+    Object.assign(fields, NEW_GROUP_STORED);
+    if (partial && existing?.slo_id != null) fields.slo_id = null;
+    return { ok: true, fields };
+  }
+  if (fields.service_name === null) {
+    return fail("service can be null only for a new_error_group rule.");
+  }
+  if (
+    partial &&
+    existing?.metric === "new_error_group" &&
+    fields.metric !== undefined &&
+    fields.service_name === undefined &&
+    metric !== "slo_burn_rate" &&
+    existing.service_name == null
+  ) {
+    return fail("service is required for this metric.");
+  }
   if (metric === "slo_burn_rate") {
     if (fields.slo_id === undefined && existing?.slo_id == null) {
       return fail("sloId is required for slo_burn_rate.");
