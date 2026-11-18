@@ -18,8 +18,12 @@ import {
 } from "../src/diagnostics.js";
 import {
   exceptionAttributes,
+  forgetAttempt,
+  heldAttemptsForTests,
   installErrorTracking,
   isExpectedException,
+  JOB_ATTEMPT_KEY,
+  MAX_TRACES_PER_ERROR,
   markLocalRoot,
   recordExceptionEvent,
   withLocalRoot,
@@ -348,20 +352,155 @@ describe("exception events", () => {
     });
   });
 
-  it("a message seen in the trace marks a by-message report propagated (BullMQ's job failed)", () => {
-    tracer.startActiveSpan("consumer", (consumer) => {
-      tracer.startActiveSpan("process", (process) => {
-        recordExceptionEvent(process, new Error("job broke"));
-        process.end();
+  it("by message: only an unexpected message recorded inside the same job attempt is propagation", () => {
+    uninstall = installErrorTracking(undefined);
+    const attempt = (name: string, thrown: unknown, reason: string) =>
+      tracer.startActiveSpan(name, (consumer) => {
+        const ctx = context
+          .active()
+          .setValue(JOB_ATTEMPT_KEY, consumer.spanContext().spanId);
+        context.with(ctx, () =>
+          tracer.startActiveSpan(`${name} process`, (process) => {
+            recordExceptionEvent(process, thrown);
+            process.end();
+          }),
+        );
+        recordExceptionEvent(consumer, reason, {
+          byMessage: true,
+          expected: false,
+        });
+        forgetAttempt(consumer.spanContext().spanId);
+        consumer.end();
       });
-      recordExceptionEvent(consumer, "job broke", { byMessage: true });
-      recordExceptionEvent(consumer, "another reason", { byMessage: true });
-      consumer.end();
+    tracer.startActiveSpan("producer", (producer) => {
+      attempt("attempt 1", new Error("SMTP down"), "SMTP down");
+      attempt("attempt 2", new Error("other"), "SMTP down");
+      attempt("attempt 3", new NotFoundException("no user"), "no user");
+      producer.end();
     });
-    const events = exceptionEvents("consumer");
+    const mark = (name: string) =>
+      exceptionEvents(name)[0]?.attributes?.["nestrix.exception.propagated"];
+    expect(mark("attempt 1")).toBe(true);
+    // Another attempt in the same trace, with the same message: its own failure.
+    expect(mark("attempt 2")).toBeUndefined();
+    // An expected exception below is no propagation source: the failed attempt counts.
+    expect(mark("attempt 3")).toBeUndefined();
+    expect(heldAttemptsForTests()).toBe(0);
+    // Outside an attempt, messages are not kept at all.
+    tracer.startActiveSpan("plain", (span) => {
+      recordExceptionEvent(span, new Error("x".repeat(10_000)));
+      span.end();
+    });
+    expect(heldAttemptsForTests()).toBe(0);
+  });
+
+  it("propagation needs ancestry: one shared error object thrown from two siblings counts twice", () => {
+    uninstall = installErrorTracking(undefined);
+    const shared = new Error("shared");
+    tracer.startActiveSpan("parent", (parent) => {
+      for (const name of ["sibling a", "sibling b"]) {
+        tracer.startActiveSpan(name, (sibling) => {
+          recordExceptionEvent(sibling, shared);
+          sibling.end();
+        });
+      }
+      // The error then travels up to the parent: propagation.
+      recordExceptionEvent(parent, shared);
+      parent.end();
+    });
+    const mark = (name: string) =>
+      exceptionEvents(name)[0]?.attributes?.["nestrix.exception.propagated"];
+    expect(mark("sibling a")).toBeUndefined();
+    expect(mark("sibling b")).toBeUndefined();
+    expect(mark("parent")).toBe(true);
+  });
+
+  it("an expected recording below is no propagation source; one object in many traces keeps each", () => {
+    uninstall = installErrorTracking(undefined);
+    const notFound = new NotFoundException("nope");
+    tracer.startActiveSpan("job root", (root) => {
+      tracer.startActiveSpan("lookup", (child) => {
+        recordExceptionEvent(child, notFound);
+        child.end();
+      });
+      recordExceptionEvent(root, notFound, { root: true, expected: false });
+      root.end();
+    });
+    const rootEvent = exceptionEvents("job root")[0]?.attributes;
+    expect(rootEvent?.["nestrix.exception.propagated"]).toBeUndefined();
+    expect(rootEvent?.["nestrix.exception.expected"]).toBeUndefined();
+
+    const shared = new Error("module-level");
+    for (let i = 0; i < MAX_TRACES_PER_ERROR; i++) {
+      tracer.startActiveSpan(`t${i}`, { root: true }, (span) => {
+        recordExceptionEvent(span, shared);
+        span.end();
+      });
+    }
+    // Every trace saw it once: none is propagation, and none was forgotten.
+    for (let i = 0; i < MAX_TRACES_PER_ERROR; i++) {
+      expect(
+        exceptionEvents(`t${i}`)[0]?.attributes?.[
+          "nestrix.exception.propagated"
+        ],
+      ).toBeUndefined();
+    }
+  });
+
+  it("recordError follows `cause` one level: a wrapper of an error already recorded adds no occurrence", () => {
+    uninstall = installErrorTracking(undefined);
+    tracer.startActiveSpan("handler", (handler) => {
+      const inner = new Error("db down");
+      tracer.startActiveSpan("repository", (repo) => {
+        recordExceptionEvent(repo, inner);
+        repo.end();
+      });
+      recordError(new Error("could not save", { cause: inner }));
+      recordError(new Error("unrelated", { cause: new Error("fresh") }));
+      handler.end();
+    });
+    const events = exceptionEvents("handler");
     expect(events[0]?.attributes?.["nestrix.exception.propagated"]).toBe(true);
     expect(
       events[1]?.attributes?.["nestrix.exception.propagated"],
     ).toBeUndefined();
+  });
+
+  it("an uncaught HttpException below 500 is a failure, not an expected answer", async () => {
+    const { onUncaughtExceptionMonitor } = await import(
+      "../src/process-errors.js"
+    );
+    const { isErrorOccurrence } = await import("../src/store/error-facts.js");
+    onUncaughtExceptionMonitor(
+      new NotFoundException("gone"),
+      "uncaughtException",
+    );
+    const span = spans().find((s) => s.name === "uncaughtException");
+    expect(span?.status.code).toBe(SpanStatusCode.ERROR);
+    const events = (span?.events ?? []).map((e) => ({
+      name: e.name,
+      attributes: e.attributes ?? {},
+    }));
+    expect(events[0]?.attributes["nestrix.exception.expected"]).toBeUndefined();
+    expect(isErrorOccurrence("error", events)).toBe(true);
+  });
+
+  it("a recording that throws (a revoked Proxy) still leaves the span failed", async () => {
+    const { proxy, revoke } = Proxy.revocable({}, {});
+    revoke();
+    const { withSpan } = await import("../src/span.js");
+    let caught: unknown;
+    try {
+      withSpan("revoked", () => {
+        throw proxy;
+      });
+    } catch (error) {
+      caught = error;
+    }
+    // The same object reaches the caller (compared by identity: the matcher cannot inspect it).
+    expect(caught === proxy).toBe(true);
+    expect(spans().find((s) => s.name === "revoked")?.status.code).toBe(
+      SpanStatusCode.ERROR,
+    );
   });
 });

@@ -183,6 +183,10 @@ export function recordError(span: Span, error: unknown): void {
     fault("record-error");
     // Marked propagated when a method span below already recorded the same error (D-93).
     recordExceptionEvent(span, error);
+  } catch (failure) {
+    diagnostics.countFailure("microservices.record-error", failure);
+  }
+  try {
     span.setAttribute(ATTR_ERROR_TYPE, exceptionType(error));
     span.setStatus({ code: SpanStatusCode.ERROR });
   } catch (failure) {

@@ -17,7 +17,13 @@ import { SkeletonChart, SkeletonKpiStrip } from "@/components/kit/skeletons";
 import { KpiStrip, StatTile } from "@/components/kit/stat-tile";
 import { EmptyState, ErrorState } from "@/components/kit/states";
 import { Button } from "@/components/ui/button";
-import { getRoutes, getTimeline, getTraces, type QueryParams } from "@/lib/api";
+import {
+  ApiRequestError,
+  getRoutes,
+  getTimeline,
+  getTraces,
+  type QueryParams,
+} from "@/lib/api";
 import { formatDuration } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
 import { type RequestFilters, requestFilterParsers } from "@/lib/params";
@@ -449,7 +455,14 @@ export function RequestsPage() {
           {toolbar}
           <ErrorState
             title="Could not load requests."
-            message={list.error?.message}
+            message={
+              // D-94: a backend from before the Errors filter rejects it as an unknown parameter.
+              filters.hasErrors !== null &&
+              list.error instanceof ApiRequestError &&
+              list.error.status === 400
+                ? "This backend is too old for the Errors filter. Update it, or clear the filter."
+                : list.error?.message
+            }
             onRetry={list.reload}
           />
         </>

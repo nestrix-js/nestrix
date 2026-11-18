@@ -65,7 +65,12 @@ import {
   trace,
 } from "@opentelemetry/api";
 import { diagnostics } from "../diagnostics.js";
-import { recordExceptionEvent, withLocalRoot } from "../errors/exception.js";
+import {
+  forgetAttempt,
+  JOB_ATTEMPT_KEY,
+  recordExceptionEvent,
+  withLocalRoot,
+} from "../errors/exception.js";
 
 /** Options of `bullmqTelemetry()`. */
 export interface BullmqTelemetryOptions {
@@ -175,18 +180,33 @@ class JobSpan implements BullmqSpan {
   /** The context the span was started in: decides whether it is a local root (`recordError`). */
   readonly #parent: Context;
 
-  constructor(span: OtelSpan, parent: Context) {
+  /** A consumer span: one job attempt; its id keys the attempt's messages (D-93). */
+  readonly #attempt: string | undefined;
+
+  constructor(span: OtelSpan, parent: Context, kind: SpanKind) {
     this.#span = span;
     this.#parent = parent;
+    let attempt: string | undefined;
+    if (kind === SpanKind.CONSUMER) {
+      try {
+        attempt = span.spanContext().spanId;
+      } catch {
+        attempt = undefined;
+      }
+    }
+    this.#attempt = attempt;
   }
 
   setSpanOnContext(ctx: Context): Context {
     try {
-      return withLocalRoot(
+      const withRoot = withLocalRoot(
         this.#parent,
         this.#span,
         trace.setSpan(ctx, this.#span),
       );
+      return this.#attempt === undefined
+        ? withRoot
+        : withRoot.setValue(JOB_ATTEMPT_KEY, this.#attempt);
     } catch (error) {
       fail("span", error);
       return ctx;
@@ -224,12 +244,17 @@ class JobSpan implements BullmqSpan {
       if (name === JOB_FAILED_EVENT) {
         const reason = attributes?.[ATTR_FAILED_REASON];
         // BullMQ passes only `err.message`: when the processor's method span already recorded
-        // that error in this trace, this event is marked propagated (one occurrence, D-93).
-        recordExceptionEvent(
-          this.#span,
-          typeof reason === "string" && reason !== "" ? reason : "job failed",
-          { byMessage: true, time },
-        );
+        // an unexpected error with that message in this attempt, this event is marked
+        // propagated (one occurrence, D-93). A failed attempt is never expected (D-94).
+        try {
+          recordExceptionEvent(
+            this.#span,
+            typeof reason === "string" && reason !== "" ? reason : "job failed",
+            { byMessage: true, expected: false, time },
+          );
+        } catch (error) {
+          fail("span", error);
+        }
         this.#span.setStatus({ code: SpanStatusCode.ERROR });
       }
     } catch (error) {
@@ -245,8 +270,14 @@ class JobSpan implements BullmqSpan {
           (typeof exception === "object" && exception !== null)
           ? exception
           : String(exception),
-        { byMessage: typeof exception === "string", time },
+        typeof exception === "string"
+          ? { byMessage: true, expected: false, time }
+          : { time },
       );
+    } catch (error) {
+      fail("span", error);
+    }
+    try {
       this.#span.setStatus({ code: SpanStatusCode.ERROR });
     } catch (error) {
       fail("span", error);
@@ -254,6 +285,7 @@ class JobSpan implements BullmqSpan {
   }
 
   end(): void {
+    if (this.#attempt !== undefined) forgetAttempt(this.#attempt);
     try {
       this.#span.end();
     } catch (error) {
@@ -308,7 +340,7 @@ function lazyTracer(
         }
         const parent = ctx ?? context.active();
         const span = current().startSpan(spanName, { kind }, parent);
-        return new JobSpan(span, parent);
+        return new JobSpan(span, parent, kind);
       } catch (error) {
         fail("tracer", error);
         return NOOP_SPAN;

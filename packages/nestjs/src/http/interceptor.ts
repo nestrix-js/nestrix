@@ -49,7 +49,7 @@ function recordException(state: RequestState, error: unknown): void {
       type: exceptionType(error),
     };
     // Marked propagated when a method span below already recorded the same error (D-93).
-    recordExceptionEvent(state.span, error);
+    recordExceptionEvent(state.span, error, { root: true });
   } catch (failure) {
     diagnostics.countFailure("http.interceptor-error", failure);
   }

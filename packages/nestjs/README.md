@@ -999,7 +999,7 @@ export class AppModule {}
 
 ## Errors: occurrences, expected exceptions, `recordError`
 
-**One thrown error is one occurrence.** With method spans on, an error thrown in a service is recorded on the service's span, then on the controller's and on the server span as it travels up. The first record counts; the later ones carry `nestrix.exception.propagated = true` and stay in the trace view as context. The error list, the error groups, the dashboard and the MCP tools count the error once, embedded and on the standalone server. Two different errors in one trace stay two. A span holds at most one occurrence (its first exception that is neither propagated nor expected). Spans from SDKs that do not set the mark are handled too: a span is not counted when its direct child has an error with the same type, message and stack trace.
+**One thrown error is one occurrence.** With method spans on, an error thrown in a service is recorded on the service's span, then on the controller's and on the server span as it travels up. The first record counts; the later ones on its way up carry `nestrix.exception.propagated = true` and stay in the trace view as context. One shared error object thrown from two sibling spans counts twice; an exception that was expected where it was first recorded does not hide the failure it causes; each BullMQ job attempt is matched on its own. The error list, the error groups, the dashboard and the MCP tools count the error once, embedded and on the standalone server. Two different errors in one trace stay two. A span holds at most one occurrence (its first exception that is neither propagated nor expected). Spans from SDKs that do not set the mark are handled too: a span is not counted when its direct child has an error with the same type, message and stack trace.
 
 **Expected exceptions.** An exception that maps to a status below 500 (`NotFoundException`, `BadRequestException`, `ForbiddenException`...) is recorded and shown in the trace view, marked `nestrix.exception.expected = true`, but creates no error group and is not in the error list. Route error rates and SLOs are unchanged: they follow the response status. Change the rule with `errors.expected`:
 
@@ -1026,7 +1026,7 @@ class OutOfStockError extends Error {}
 export class AppModule {}
 ```
 
-An exception counts only on a span with error status: with method spans on, `expected: false` brings a thrown 404 back as an occurrence on its method span; at level 1 the 404's server span has no error status.
+A failed job attempt, a job's or scheduled tick's own method and an uncaught exception are never expected. A bare class (`expected: NotFoundException`, not in an array) is rejected at startup. An exception counts only on a span with error status: with method spans on, `expected: false` brings a thrown 404 back as an occurrence on its method span; at level 1 the 404's server span has no error status.
 
 **Has errors.** A trace's `error` is the root's outcome. `hasErrors` is wider: any span failed, for example a failed job or an error recorded on a child span of a request that answered 200. The request list marks such traces "errors inside" and filters on them (Errors: Has errors); the query API takes `traces?hasErrors=true`, and the MCP `find_traces` tool `hasErrors: true`.
 

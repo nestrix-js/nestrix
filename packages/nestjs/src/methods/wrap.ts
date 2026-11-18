@@ -191,10 +191,19 @@ function endSpan(span: Span): void {
   }
 }
 
-function failSpan(span: Span, error: unknown): void {
+/**
+ * Records `error` and sets error status, each guarded on its own so a recording that fails still
+ * leaves the span failed. `entry`: a job's or scheduled tick's method failed, which is never an
+ * expected answer, whatever the exception's status (D-94).
+ */
+function failSpan(span: Span, error: unknown, entry = false): void {
   try {
     // Marked propagated when a deeper span already recorded the same error (D-93).
-    recordExceptionEvent(span, error);
+    recordExceptionEvent(span, error, entry ? { expected: false } : undefined);
+  } catch (e) {
+    diagnostics.countFailure("methods.span-status", e);
+  }
+  try {
     span.setStatus({ code: SpanStatusCode.ERROR });
   } catch (e) {
     diagnostics.countFailure("methods.span-status", e);
@@ -388,7 +397,7 @@ export function makeWrapper(
       return untraced(fn, self, args, sink, t0);
     }
     if (state === 2) {
-      failSpan(span, thrown);
+      failSpan(span, thrown, entry !== undefined);
       report(sink, plan, method, t0, true);
       throw thrown;
     }
@@ -404,7 +413,7 @@ export function makeWrapper(
             return value;
           },
           (error: unknown) => {
-            failSpan(s, error);
+            failSpan(s, error, entry !== undefined);
             report(sink, plan, method, t0, true);
             throw error;
           },

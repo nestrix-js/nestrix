@@ -28,6 +28,10 @@ function end(span: ApiSpan): void {
 function fail(span: ApiSpan, error: unknown): void {
   try {
     recordExceptionEvent(span, error);
+  } catch {
+    // see end()
+  }
+  try {
     span.setStatus({ code: SpanStatusCode.ERROR });
   } catch {
     // see end()

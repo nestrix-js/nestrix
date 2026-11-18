@@ -60,6 +60,12 @@ describe("resolveOptions defaults", () => {
     expect(() =>
       resolveOptions({ errors: { expected: [42 as never] } }, {}),
     ).toThrow(/errors.expected entries/);
+    expect(() =>
+      resolveOptions({ errors: { expected: Custom as never } }, {}),
+    ).toThrow(/must be an array to match classes/);
+    expect(() =>
+      resolveOptions({ errors: { expected: [(() => true) as never] } }, {}),
+    ).toThrow(/errors.expected entries/);
     expect(() => resolveOptions({ errors: "x" as never }, {})).toThrow(
       /errors must be an object/,
     );

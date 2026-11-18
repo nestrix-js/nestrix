@@ -108,7 +108,13 @@ export function recordError(
     }
 
     if (target !== undefined) {
-      recordExceptionEvent(target, error, { escaped: false, attributes });
+      recordExceptionEvent(target, error, {
+        escaped: false,
+        attributes,
+        // The request's span or a local root: an error recorded below it travelled up to it.
+        root: target === candidates[0] || target === candidates[1],
+        followCause: true,
+      });
       if (fail) {
         target.setStatus({ code: SpanStatusCode.ERROR });
         if (state !== undefined && target === state.span) {
@@ -135,7 +141,11 @@ export function recordError(
       ctx,
     );
     try {
-      recordExceptionEvent(span, error, { escaped: false, attributes });
+      recordExceptionEvent(span, error, {
+        escaped: false,
+        attributes,
+        followCause: true,
+      });
       if (fail) {
         span.setAttribute(ATTR_ERROR_TYPE, exceptionType(error));
         span.setStatus({ code: SpanStatusCode.ERROR });

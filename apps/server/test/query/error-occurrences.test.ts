@@ -173,6 +173,44 @@ describe.skipIf(noDatabase)(`error occurrences ${skipReason}`, () => {
     expect(insights.total).toBe(5);
   });
 
+  it("span rows from before migration 0012 (NULL columns) are read from their events, the same way", async () => {
+    const before = await server.json<ErrorListResponse>(
+      "/api/v1/errors?limit=200",
+    );
+    const derived = await db.pool.query<{
+      span_id: string;
+      is_occurrence: boolean | null;
+      error_key: string | null;
+    }>(
+      "SELECT span_id, is_occurrence, error_key FROM spans WHERE trace_id = $1 ORDER BY span_id",
+      [tid(3)],
+    );
+    // Ingest derived the rule: both legacy spans are occurrences with one key.
+    expect(derived.rows.map((r) => r.is_occurrence)).toEqual([true, true]);
+    expect(derived.rows[0]?.error_key).toMatch(/^[0-9a-f]{32}$/);
+    expect(derived.rows[0]?.error_key).toBe(derived.rows[1]?.error_key);
+    await db.pool.query(
+      "UPDATE spans SET is_occurrence = NULL, error_key = NULL",
+    );
+    try {
+      const after = await server.json<ErrorListResponse>(
+        "/api/v1/errors?limit=200",
+      );
+      const ids = (r: ErrorListResponse) =>
+        r.items.map((i) => `${i.traceId}/${i.spanId}`).sort();
+      expect(ids(after)).toEqual(ids(before));
+      const groups = await server.json<ErrorGroupsResponse>(
+        "/api/v1/errors/groups?windowMinutes=15",
+      );
+      expect(groups.groups.find((g) => g.pattern === "legacy")?.count).toBe(1);
+    } finally {
+      // Restore what ingest derives, for the tests after this one.
+      await db.pool.query(
+        'UPDATE spans SET is_occurrence = (is_error AND (NOT jsonb_path_exists(events, \'$[*] ? (@.name == "exception")\') OR jsonb_path_exists(events, \'$[*] ? (@.name == "exception" && !(@.attributes."nestrix.exception.propagated" == true) && !(@.attributes."nestrix.exception.expected" == true || @.attributes."nestrix.exception.expected" == "true"))\')))',
+      );
+    }
+  });
+
   it("hasErrors: set when any span failed; the filter finds it; status=error stays the root's", async () => {
     const all = await server.json<TraceListResponse>(
       "/api/v1/traces?limit=200",

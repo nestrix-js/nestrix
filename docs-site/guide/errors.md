@@ -10,7 +10,7 @@ How Nestrix records exceptions, which of them count as errors, and how to report
 
 ## One error, one occurrence
 
-An error object is counted once per trace, on the deepest span that recorded it. When the same object is recorded again higher up (the controller's span, the server span), that event carries `nestrix.exception.propagated = true`: it stays in the trace view as context, and the error list, the error groups and the MCP `list_errors` tool do not count it again. A request whose handler throws once is one occurrence, with method spans on or off. Two different errors in one trace stay two.
+An error object is counted once per trace, on the deepest span that recorded it. When the same object is recorded again as it travels up (the parent span, the controller's span, the server span or a job's root), that event carries `nestrix.exception.propagated = true`: it stays in the trace view as context, and the error list, the error groups and the MCP `list_errors` tool do not count it again. A request whose handler throws once is one occurrence, with method spans on or off. Two different errors in one trace stay two, and so does one shared error object thrown from two sibling spans. An exception that was expected where it was first recorded (a `NotFoundException` caught in a job) does not hide the failure it causes higher up. For BullMQ, whose "job failed" event carries only the message, each job attempt is matched on its own, so a retry or a second job with the same message in the same trace counts again. `recordError(new AppError("...", { cause: error }))` with an `error` already recorded in the trace adds no occurrence.
 
 Spans from SDKs that do not set the mark (an older Nestrix, other instrumentations) get the same result when a span and its direct child carry the same exception (same type, message and stack trace): only the child is counted.
 
@@ -39,7 +39,7 @@ NestrixModule.forRoot({
 NestrixModule.forRoot({ errors: { expected: false } });
 ```
 
-An exception counts as an occurrence only on a span with error status. With method spans on, a method that throws always has error status, so `expected: false` brings a thrown 404 back as an occurrence there; at level 1 only, the server span of a 404 has no error status and stays out. The rule is applied in the app, and the standalone server honours the mark. With several Nestrix apps in one process, the first app's rule applies.
+An exception counts as an occurrence only on a span with error status. With method spans on, a method that throws always has error status, so `expected: false` brings a thrown 404 back as an occurrence there; at level 1 only, the server span of a 404 has no error status and stays out. A failed job attempt, a job's or a scheduled tick's own method and an uncaught exception are never expected, whatever their status. Pass classes in an array: a bare class (`expected: NotFoundException`) is rejected at startup, as is an arrow function inside the array. The rule is applied in the app, and the standalone server honours the mark. With several Nestrix apps in one process, the first app's rule applies.
 
 ## Reporting handled errors: `recordError`
 
@@ -97,4 +97,4 @@ The error lands in the job's trace and in its error group once.
 
 ## Finding traces with errors
 
-A trace's `error` marker is the root's own outcome (the request failed). **Has errors** (`hasErrors` in the query API) is wider: any span of the trace failed, for example a job whose processor threw, or an error recorded on a child span while the request answered 200. The request list shows such a trace with an "errors inside" marker, and the Errors filter (Has errors, No errors) narrows the list to it; `GET api/v1/traces?hasErrors=true` and the MCP `find_traces` tool's `hasErrors` do the same. The status filter (`status=error`) still matches the root only. A span whose exceptions are all expected does not count.
+A trace's `error` marker is the root's own outcome (the request failed). **Has errors** (`hasErrors` in the query API) is wider: any span of the trace failed, for example a job whose processor threw, or an error recorded on a child span while the request answered 200. The request list shows such a trace with an "errors inside" marker, and the Errors filter (Has errors, No errors) narrows the list to it; `GET api/v1/traces?hasErrors=true` and the MCP `find_traces` tool's `hasErrors` do the same. The status filter (`status=error`) still matches the root only. A span whose exceptions are all expected does not count. A dashboard or server from before this filter answers 400 to it; the request list and the MCP tool then say it is too old.

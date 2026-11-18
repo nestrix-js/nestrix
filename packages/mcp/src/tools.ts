@@ -212,7 +212,23 @@ export function createMcpServer(
             args.hasErrors === undefined ? undefined : String(args.hasErrors),
           limit: args.limit ?? 20,
         };
-        const list = await client.traces(params);
+        let list: Awaited<ReturnType<typeof client.traces>>;
+        try {
+          list = await client.traces(params);
+        } catch (error) {
+          // A dashboard or server from before D-94 rejects the unknown parameter with a 400.
+          if (
+            error instanceof NestrixError &&
+            error.status === 400 &&
+            args.hasErrors !== undefined
+          ) {
+            throw new NestrixError(
+              "This Nestrix dashboard or server is too old for the hasErrors filter (it answered HTTP 400). Update @nestrix-js/nestjs or the server image, or search without hasErrors.",
+              400,
+            );
+          }
+          throw error;
+        }
         const mode = await modeOf();
         const filters = Object.entries(args)
           .filter(([, v]) => v !== undefined && v !== "")

@@ -47,7 +47,11 @@ export function onUncaughtExceptionMonitor(
     const active = context.active();
     const state = getStateFromContext(active);
     if (state && !state.ended) {
-      recordExceptionEvent(state.span, asException(error));
+      // Uncaught: never an expected answer, whatever its status (D-94).
+      recordExceptionEvent(state.span, asException(error), {
+        root: true,
+        expected: false,
+      });
       state.exception ??= { status: 500, type: exceptionType(error) };
       return;
     }
@@ -61,7 +65,7 @@ export function onUncaughtExceptionMonitor(
       { kind: SpanKind.INTERNAL },
       active,
     );
-    recordExceptionEvent(span, asException(error));
+    recordExceptionEvent(span, asException(error), { expected: false });
     span.setAttribute(ATTR_ERROR_TYPE, exceptionType(error));
     span.setStatus({ code: SpanStatusCode.ERROR });
     endNestrixSpan(span);

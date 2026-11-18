@@ -22,6 +22,7 @@ import {
   type Attributes,
   type AttributeValue,
   type Context,
+  context,
   createContextKey,
   INVALID_SPANID,
   INVALID_TRACEID,
@@ -86,6 +87,15 @@ function safeString(value: unknown): string {
   }
 }
 
+/** `instanceof Error`, false when the check itself throws (a revoked Proxy). */
+function isError(value: unknown): boolean {
+  try {
+    return value instanceof Error;
+  } catch {
+    return false;
+  }
+}
+
 function read(error: object, key: string): unknown {
   try {
     return (error as Record<string, unknown>)[key];
@@ -129,7 +139,7 @@ export function exceptionAttributes(error: unknown): Attributes {
   if (out[ATTR_EXCEPTION_TYPE] === undefined) {
     out[ATTR_EXCEPTION_TYPE] = exceptionType(error);
   }
-  if (out[ATTR_EXCEPTION_MESSAGE] === undefined && !(error instanceof Error)) {
+  if (out[ATTR_EXCEPTION_MESSAGE] === undefined && !isError(error)) {
     out[ATTR_EXCEPTION_MESSAGE] = safeString(error);
   }
   return out;
@@ -224,66 +234,154 @@ export function errorTrackingEnabled(): boolean {
 
 // ---- once per error object per trace (#22) ------------------------------------------------------
 
-/** Error object to the traces it was recorded in (normally one). Weak: never keeps an error alive. */
-const recorded = new WeakMap<object, string[]>();
-const MAX_TRACES_PER_ERROR = 8;
+/**
+ * Where an error object was recorded in one trace: the span ids that recorded it and their
+ * parents. A later recording is propagation only when its span is one of those parents (the error
+ * travelled up), or the local root of the work (the request's span, a job's root), and an earlier
+ * recording was not expected. Two sibling spans throwing one shared error object each count.
+ */
+interface Recording {
+  /** Parent span ids of the spans that recorded the error, and those spans' own ids. */
+  readonly spans: Set<string>;
+  /** Some recording in this trace was not expected: a propagation source. */
+  unexpected: boolean;
+}
+
+/** Error object to its recordings per trace. Weak: never keeps an error alive. */
+const recorded = new WeakMap<object, Map<string, Recording>>();
+/** Traces kept per error object (a shared error object thrown in many concurrent traces). */
+export const MAX_TRACES_PER_ERROR = 64;
+const MAX_SPANS_PER_RECORDING = 64;
 
 /**
- * Messages recorded per trace, for exceptions that reach Nestrix only as their message (BullMQ's
- * "job failed" event carries `err.message`). Bounded: the oldest trace is forgotten first.
+ * Messages recorded inside one BullMQ job attempt (keyed by the attempt's consumer span id), for
+ * BullMQ's "job failed" event, which carries only `err.message`. Only filled inside an attempt
+ * (the context carries {@link JOB_ATTEMPT_KEY}), each message cut to {@link MAX_MESSAGE_LENGTH},
+ * dropped when the attempt's span ends, and bounded: the oldest attempt is forgotten first.
  */
-const messages = new Map<string, string[]>();
-const MAX_MESSAGE_TRACES = 1024;
-const MAX_MESSAGES_PER_TRACE = 16;
+const attemptMessages = new Map<string, string[]>();
+const MAX_ATTEMPTS = 1024;
+const MAX_MESSAGES_PER_ATTEMPT = 16;
+export const MAX_MESSAGE_LENGTH = 256;
+
+/** The BullMQ job attempt (its consumer span id) a context runs in; set by `bullmqTelemetry()`. */
+export const JOB_ATTEMPT_KEY = createContextKey(
+  "@nestrix-js/nestjs bullmq job attempt",
+);
 
 function hasIds(traceId: string, spanId: string): boolean {
   return traceId !== INVALID_TRACEID && spanId !== INVALID_SPANID;
 }
 
-/** Notes `error` as recorded in `traceId`. Returns whether it already was (propagation). */
-function note(error: unknown, traceId: string, message: unknown): boolean {
-  let seen = false;
-  if (
-    error !== null &&
-    (typeof error === "object" || typeof error === "function")
-  ) {
-    const traces = recorded.get(error);
-    if (traces === undefined) recorded.set(error, [traceId]);
-    else if (traces.includes(traceId)) seen = true;
-    else {
-      traces.push(traceId);
-      if (traces.length > MAX_TRACES_PER_ERROR) traces.shift();
-    }
+/** The parent span id of an SDK span (`parentSpanContext` in SDK 3, `parentSpanId` before). */
+function parentIdOf(span: Span): string | undefined {
+  try {
+    const s = span as unknown as {
+      parentSpanContext?: { spanId?: unknown };
+      parentSpanId?: unknown;
+    };
+    const id = s.parentSpanContext?.spanId ?? s.parentSpanId;
+    return typeof id === "string" && id !== "" ? id : undefined;
+  } catch {
+    return undefined;
   }
-  if (typeof message === "string" && message !== "") {
-    let list = messages.get(traceId);
-    if (list === undefined) {
-      if (messages.size >= MAX_MESSAGE_TRACES) {
-        const oldest = messages.keys().next();
-        if (!oldest.done) messages.delete(oldest.value);
-      }
-      list = [];
-      messages.set(traceId, list);
-    }
-    if (!list.includes(message)) {
-      list.push(message);
-      if (list.length > MAX_MESSAGES_PER_TRACE) list.shift();
-    }
-  }
-  return seen;
 }
 
-function messageSeen(traceId: string, message: unknown): boolean {
+function isObject(value: unknown): value is object {
   return (
-    typeof message === "string" &&
-    message !== "" &&
-    messages.get(traceId)?.includes(message) === true
+    value !== null && (typeof value === "object" || typeof value === "function")
   );
+}
+
+/**
+ * Notes `error` as recorded on `span` and returns whether this is propagation of an earlier,
+ * unexpected recording of the same object (see {@link Recording}).
+ */
+function note(
+  error: unknown,
+  traceId: string,
+  span: Span,
+  spanId: string,
+  root: boolean,
+  expected: boolean,
+): boolean {
+  if (!isObject(error)) return false;
+  let traces = recorded.get(error);
+  if (traces === undefined) {
+    traces = new Map();
+    recorded.set(error, traces);
+  }
+  let rec = traces.get(traceId);
+  let propagated = false;
+  if (rec === undefined) {
+    if (traces.size >= MAX_TRACES_PER_ERROR) {
+      const oldest = traces.keys().next();
+      if (!oldest.done) traces.delete(oldest.value);
+    }
+    rec = { spans: new Set(), unexpected: false };
+    traces.set(traceId, rec);
+  } else {
+    propagated = rec.unexpected && (root || rec.spans.has(spanId));
+  }
+  if (!expected) rec.unexpected = true;
+  if (rec.spans.size < MAX_SPANS_PER_RECORDING) {
+    rec.spans.add(spanId);
+    const parent = parentIdOf(span);
+    if (parent !== undefined) rec.spans.add(parent);
+  }
+  return propagated;
+}
+
+/** Whether `error` (an object) has an unexpected recording in `traceId`. */
+function recordedIn(error: unknown, traceId: string): boolean {
+  return (
+    isObject(error) && recorded.get(error)?.get(traceId)?.unexpected === true
+  );
+}
+
+function attemptOf(): string | undefined {
+  try {
+    const value = context.active().getValue(JOB_ATTEMPT_KEY);
+    return typeof value === "string" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function noteMessage(attempt: string, message: string): void {
+  let list = attemptMessages.get(attempt);
+  if (list === undefined) {
+    if (attemptMessages.size >= MAX_ATTEMPTS) {
+      const oldest = attemptMessages.keys().next();
+      if (!oldest.done) attemptMessages.delete(oldest.value);
+    }
+    list = [];
+    attemptMessages.set(attempt, list);
+  }
+  const key = message.slice(0, MAX_MESSAGE_LENGTH);
+  if (!list.includes(key)) {
+    list.push(key);
+    if (list.length > MAX_MESSAGES_PER_ATTEMPT) list.shift();
+  }
+}
+
+/** Forgets the messages of a job attempt whose span ended. Never throws. */
+export function forgetAttempt(attempt: string): void {
+  try {
+    attemptMessages.delete(attempt);
+  } catch {
+    // Nothing to do.
+  }
+}
+
+/** Attempts with messages held; for tests. */
+export function heldAttemptsForTests(): number {
+  return attemptMessages.size;
 }
 
 /** For tests: forget what was recorded. */
 export function resetRecordedForTests(): void {
-  messages.clear();
+  attemptMessages.clear();
 }
 
 export interface ExceptionEventOptions {
@@ -292,10 +390,20 @@ export interface ExceptionEventOptions {
   /** Extra event attributes (recordError's); never override `exception.*` or `nestrix.exception.*`. */
   readonly attributes?: unknown;
   /**
-   * The error reached Nestrix as its message only: it is propagation when that message was already
-   * recorded in this trace.
+   * BullMQ's "job failed": the error arrives as its message only. It is propagation when an
+   * unexpected exception with that message was recorded inside this attempt (`span` is the
+   * attempt's consumer span).
    */
   readonly byMessage?: boolean;
+  /** `span` is the local root of its work (the request's span, a job's root, `recordError`'s target). */
+  readonly root?: boolean;
+  /**
+   * Overrides the expected rule: `false` for a failure that is never an answer (an uncaught
+   * exception, a failed job attempt, a job's or scheduled tick's root method).
+   */
+  readonly expected?: boolean;
+  /** `recordError`: a wrapper whose `cause` was already recorded in this trace is propagation. */
+  readonly followCause?: boolean;
   readonly time?: TimeInput;
 }
 
@@ -353,15 +461,38 @@ export function recordExceptionEvent(
     userAttributes(options.attributes, attributes);
   }
   Object.assign(attributes, exceptionAttributes(error));
+  const expected =
+    typeof options?.expected === "boolean"
+      ? options.expected
+      : isExpectedException(error);
   const sc = span.spanContext();
   let propagated = false;
   if (hasIds(sc.traceId, sc.spanId)) {
     const message = attributes[ATTR_EXCEPTION_MESSAGE];
-    const byMessage =
-      options?.byMessage === true && messageSeen(sc.traceId, message);
-    propagated = note(error, sc.traceId, message) || byMessage;
+    if (options?.byMessage === true) {
+      propagated =
+        typeof message === "string" &&
+        attemptMessages
+          .get(sc.spanId)
+          ?.includes(message.slice(0, MAX_MESSAGE_LENGTH)) === true;
+    } else {
+      propagated = note(
+        error,
+        sc.traceId,
+        span,
+        sc.spanId,
+        options?.root === true,
+        expected,
+      );
+      if (!propagated && options?.followCause === true) {
+        propagated = recordedIn(read(error as object, "cause"), sc.traceId);
+      }
+      if (!expected && typeof message === "string" && message !== "") {
+        const attempt = attemptOf();
+        if (attempt !== undefined) noteMessage(attempt, message);
+      }
+    }
   }
-  const expected = isExpectedException(error);
   if (propagated) attributes[ATTR_EXCEPTION_PROPAGATED] = true;
   if (expected) attributes[ATTR_EXCEPTION_EXPECTED] = true;
   if (options?.escaped !== undefined) {

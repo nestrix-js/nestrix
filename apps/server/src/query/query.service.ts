@@ -728,7 +728,11 @@ export class QueryService {
     limit: number,
   ): Promise<ErrorOccurrence[]> {
     const params = new Params();
-    const where = [occurrenceSql("s"), `s.start_time >= ${params.add(from)}`];
+    const fromParam = params.add(from);
+    const where = [
+      occurrenceSql("s", fromParam),
+      `s.start_time >= ${fromParam}`,
+    ];
     if (before !== undefined) {
       where.push(`s.start_time < ${params.add(before)}`);
     }
@@ -797,7 +801,7 @@ export class QueryService {
     const to = new Date(now);
     const grid = new Params();
     const gridWhere = [
-      occurrenceSql("s"),
+      occurrenceSql("s", grid.add(from)),
       `s.start_time >= ${grid.add(from)}`,
       `s.start_time <= ${grid.add(to)}`,
     ];
@@ -822,7 +826,7 @@ export class QueryService {
 
     const perRelease = new Params();
     const evWhere = [
-      occurrenceSql("s"),
+      occurrenceSql("s", perRelease.add(from)),
       "t.release IS NOT NULL",
       `s.start_time >= ${perRelease.add(from)}`,
       `s.start_time <= ${perRelease.add(to)}`,

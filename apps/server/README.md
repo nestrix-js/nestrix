@@ -258,6 +258,23 @@ ALTER INDEX spans_parent_idx ATTACH PARTITION spans_pYYYYMMDD_parent_idx;
 
 Partitions created after that inherit the index.
 
+### Upgrading to the `hasErrors` filter: the `traces` index
+
+Migration `0012_traces_has_errors.sql` adds a nullable `traces.has_errors` column (no rewrite) and a partial index for `traces?hasErrors=true`. Like 0009, the index is built partition by partition and ingest into a partition waits while it builds; on a large install build it first, then upgrade:
+
+```sql
+-- the column first (instant, no rewrite; the migration's ADD COLUMN IF NOT EXISTS then skips it):
+ALTER TABLE traces ADD COLUMN IF NOT EXISTS has_errors boolean;
+-- for each partition traces_pYYYYMMDD (list them with \d+ traces), outside a transaction:
+CREATE INDEX CONCURRENTLY traces_pYYYYMMDD_has_errors_idx ON traces_pYYYYMMDD (seq DESC)
+  WHERE (coalesce(has_errors, error_count > 0) OR is_error);
+-- once, on the parent:
+CREATE INDEX traces_has_errors_seq_idx ON ONLY traces (seq DESC)
+  WHERE (coalesce(has_errors, error_count > 0) OR is_error);
+-- for each partition:
+ALTER INDEX traces_has_errors_seq_idx ATTACH PARTITION traces_pYYYYMMDD_has_errors_idx;
+```
+
 ## Security notes
 
 - **The ingest port is the admin port.** Ingest, the login form, the dashboard and the API all share one port, so exposing it to your services exposes `/login` to them too. Login is rate limited and the password needs 12 characters, but put the server behind a TLS-terminating proxy and, where you can, restrict who can reach it.

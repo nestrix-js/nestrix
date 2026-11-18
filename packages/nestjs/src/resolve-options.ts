@@ -778,6 +778,14 @@ export function resolveOptions(
   return Object.freeze(resolved);
 }
 
+function isClass(fn: unknown): boolean {
+  try {
+    return /^class[\s{]/.test(Function.prototype.toString.call(fn));
+  } catch {
+    return false;
+  }
+}
+
 /** `errors` (D-94) with defaults applied. Throws on an invalid value. */
 export function resolveErrors(errors: unknown): {
   readonly expected: ExpectedRule;
@@ -791,6 +799,12 @@ export function resolveErrors(errors: unknown): {
     return Object.freeze({ expected });
   }
   if (typeof expected === "function") {
+    // A bare class is a mistake for `[SomeClass]`: called as a predicate it would throw every time.
+    if (isClass(expected)) {
+      invalid(
+        "errors.expected must be an array to match classes: write [SomeError], not SomeError",
+      );
+    }
     return Object.freeze({
       expected: expected as (exception: unknown) => boolean | undefined,
     });
@@ -801,13 +815,15 @@ export function resolveErrors(errors: unknown): {
     );
   }
   for (const m of expected as unknown[]) {
-    if (
-      typeof m !== "string" &&
-      typeof m !== "function" &&
-      !(m instanceof RegExp)
-    ) {
+    // A class has an object `prototype`; an arrow function (a predicate put in the array) has
+    // none, and `instanceof` would throw on every exception.
+    const isConstructor =
+      typeof m === "function" &&
+      typeof (m as { prototype?: unknown }).prototype === "object" &&
+      (m as { prototype?: unknown }).prototype !== null;
+    if (typeof m !== "string" && !isConstructor && !(m instanceof RegExp)) {
       invalid(
-        "errors.expected entries must be a class, a class name or a RegExp",
+        "errors.expected entries must be a class, a class name or a RegExp (pass a predicate on its own, not in the array)",
       );
     }
   }

@@ -6,6 +6,9 @@
  * - error: the span's status code is `error`. An exception event alone (a thrown 4xx) is not.
  * - failed (`isFailure`, the trace's `has_errors`, D-94): status `error`, unless every exception
  *   event on the span is marked `nestrix.exception.expected` (`error-facts.ts`).
+ * - `is_occurrence` / `error_key` (D-93): `isErrorOccurrence`, and for an error span with a
+ *   primary exception a SHA-256 of its type, message and stack trace (hex, first 32 characters),
+ *   which the query's legacy parent rule compares (`query/error-sql.ts`).
  * - `http_route` / `http_method`: the string attributes `http.route` / `http.request.method`.
  * - `http_status`: `http.response.status_code`, an integer or an integer string.
  * - trace type of a span as a root (backlog P3-03): `http` for a server span; `job` for a
@@ -27,7 +30,11 @@ import type {
   IngestAttributeValue,
   IngestSpan,
 } from "../ingest/model.js";
-import { isFailedSpan } from "./error-facts.js";
+import {
+  isErrorOccurrence,
+  isFailedSpan,
+  primaryException,
+} from "./error-facts.js";
 import { bucketIndex } from "./histogram.js";
 import type { StoredEvent, StoredLink } from "./schema.js";
 
@@ -191,6 +198,10 @@ export interface SpanRow {
   isError: boolean;
   /** Failed under `isFailedSpan`: marks its trace `has_errors` (D-94). */
   isFailure: boolean;
+  /** `isErrorOccurrence` (D-93), before the legacy parent rule. */
+  isOccurrence: boolean;
+  /** Hash of the primary exception's identity, for an error span that has one (D-93). */
+  errorKey: string | null;
   traceType: TraceType;
   /** A consumer span or `nestrix.entry = 'job'`: marks its trace `has_job`, whatever the root. */
   isJob: boolean;
@@ -280,6 +291,8 @@ export function deriveSpan(
     isRoot: parentSpanId === null,
     isError,
     isFailure: isFailedSpan(statusCode, events),
+    isOccurrence: isErrorOccurrence(statusCode, events),
+    errorKey: isError ? errorKeyOf(events) : null,
     traceType: traceTypeOf(span.kind, attributes),
     isJob: span.kind === "consumer" || attributes["nestrix.entry"] === "job",
     userId: stringAttr(attributes, "user.id"),
@@ -290,6 +303,23 @@ export function deriveSpan(
     isRouteSpan: span.kind === "server" && httpMethod !== null,
     isRouteError: isError || (httpStatus !== null && httpStatus >= 500),
   };
+}
+
+/** The legacy parent rule's key of a span's primary exception, or `null` without one (D-93). */
+export function errorKeyOf(events: readonly StoredEvent[]): string | null {
+  const primary = primaryException(events);
+  if (primary === undefined) return null;
+  const a = primary.attributes;
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        a["exception.type"] ?? null,
+        a["exception.message"] ?? null,
+        a["exception.stacktrace"] ?? null,
+      ]),
+    )
+    .digest("hex")
+    .slice(0, 32);
 }
 
 /** Rollup key and bucket helpers. */

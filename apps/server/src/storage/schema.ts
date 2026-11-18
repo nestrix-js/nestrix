@@ -88,6 +88,10 @@ export const spans = pgTable(
     userId: text("user_id"),
     className: text("class_name"),
     methodName: text("method_name"),
+    /** Error occurrence before the legacy parent rule (migration 0012, D-93); `NULL` on older rows. */
+    isOccurrence: boolean("is_occurrence"),
+    /** Hash of the primary exception (migration 0012, D-93). */
+    errorKey: text("error_key"),
   },
   (t) => [primaryKey({ columns: [t.traceId, t.spanId, t.startTime] })],
 );
