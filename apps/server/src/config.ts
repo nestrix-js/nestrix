@@ -6,6 +6,10 @@
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { LogLevel } from "@nestjs/common";
+import {
+  parseTrustedProxies,
+  type TrustedProxies,
+} from "./auth/client-address.js";
 
 export const MIB = 1024 * 1024;
 
@@ -89,6 +93,11 @@ export interface ServerConfig {
   readonly maxSpansPerTrace: number;
   readonly alerts: AlertsConfig;
   readonly log: LogConfig;
+  /**
+   * `NESTRIX_TRUSTED_PROXIES` (issue #31, D-96): reverse proxies whose `X-Forwarded-For` names the
+   * client the login limiter keys on. `undefined`: none, the socket peer is the client.
+   */
+  readonly trustedProxies: TrustedProxies | undefined;
 }
 
 export const LOG_LEVEL_NAMES = [
@@ -435,6 +444,10 @@ export function loadConfig(
     ),
     hideRouteMapping: levelIndex >= LOG_LEVEL_NAMES.indexOf("info"),
   });
+  // Issue #31, D-96: only these peers may name the client in X-Forwarded-For.
+  const trusted = parseTrustedProxies(present(env, "NESTRIX_TRUSTED_PROXIES"));
+  if (!trusted.ok) errors.push(...trusted.errors);
+  const trustedProxies = trusted.ok ? trusted.value : undefined;
 
   if (errors.length > 0) return { ok: false, errors };
 
@@ -462,6 +475,7 @@ export function loadConfig(
         publicUrl,
       }),
       log,
+      trustedProxies,
     }),
   };
 }
