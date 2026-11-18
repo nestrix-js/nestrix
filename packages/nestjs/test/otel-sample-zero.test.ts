@@ -38,7 +38,8 @@ describe("sampleRate: 0", () => {
     const tracer = trace.getTracer("sample-zero");
     for (let i = 0; i < 50; i++) {
       const span = tracer.startSpan(`root-${i}`);
-      expect(span.isRecording()).toBe(false);
+      // Recorded for the tail decision (D-100), but unsampled: `-00` downstream, and not exported.
+      expect(span.spanContext().traceFlags & 1).toBe(0);
       span.end();
     }
     const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";

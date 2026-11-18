@@ -50,6 +50,7 @@ export type {
   NestrixModuleOptions,
   NestrixOtlpOptions,
   NestrixQueueOptions,
+  NestrixSamplingOptions,
   NestrixStoreOptions,
   NestrixUiCustomAuth,
   NestrixUiOptions,

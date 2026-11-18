@@ -252,6 +252,10 @@ Preliminary, from one run (`benchmarks/results/server-ingest.md`): on a laptop (
 
 One job that fans out can put millions of spans in a single trace. The server stores at most `NESTRIX_MAX_SPANS_PER_TRACE` spans per trace (default 50 000, from 1 000 to 10 000 000). Spans past the limit are not stored; the earliest-starting spans of a batch are the ones kept. Two kinds of span are never dropped and do not count against the others (they do count in the trace's span total): spans with no parent, and spans that carry the app's own drop counts (`nestrix.trace.spans_dropped*`). A trace's local root ends last, so it is exported after the trace is at the limit, and it is the span that carries those counts. The server counts them per trace (`traces.dropped_spans`) and answers the export with OTLP partial success: `rejected_spans` includes them, and the message says they were not stored because of the per-trace limit. The `trace` query reports them as `droppedSpans.byServer`, added to what the apps themselves counted but did not record (their `maxSpansPerTrace`, read from the spans' `nestrix.trace.spans_dropped*` attributes). A retried export of spans that were already stored counts again as dropped once the trace is at the limit. Existing traces start at 0 dropped (migration `0010_traces_dropped_spans.sql`).
 
+## Sampled apps
+
+Route counts, error rates, SLOs and alert rules come from per-minute rollups written at ingest from the stored server spans. An app where Nestrix owns the sampler writes `nestrix.sampling.probability` on every local root it exports (the sample rate, or `1` for a request it kept because it failed or was slow), and the server counts such a request as `1 / probability` requests, rounded per span to a whole number without bias. So at `sampleRate: 0.1`, 1,000 requests count about 1,000 (the standard deviation of the estimate is about `sqrt(n * (1 - p) / p)` requests: about 95 for 1,000 requests at 0.1), failed requests count exactly, and an alert's `minRequests` sees the real traffic. A span without the attribute (your own SDK's sampler, another SDK, or a request whose sampling an upstream service decided) counts once, and the dashboard's note that statistics reflect the services' sampling still applies. Class statistics are not weighted.
+
 ## Retention and partitions
 
 `spans`, `traces`, the per-minute rollups and the trace logs (`logs`) are partitioned by UTC day. At start and then every hour the server creates partitions for today and the next two days and drops partitions older than `NESTRIX_RETENTION_DAYS`. With 7 and today 2026-11-11, 2026-11-04 is the oldest day kept: at least 7 days of data, up to nearly 8. Retention is by dropping partitions, so it is instant and leaves no dead rows. Per-route and per-class statistics are rolled up per minute at ingest; a retried export is not counted twice. Class counts are post-sampling, because the server sees only what services chose to export.
@@ -262,7 +266,7 @@ Alert rules are managed through the API (`/api/v1/alerts`, admin session require
 
 - `metric`: `error_rate` (a fraction; 0.05 is 5%), `p95_ms`, or `slo_burn_rate` (give `sloId`; the rule takes its service and route from that [SLO](#slos) and fires when the SLO's burn rate over the rule's window is above `threshold`), compared with `>` to a `threshold`.
 - `forMinutes` (0 to 60, default 2): how long the condition must hold before the alert fires.
-- `minRequests` (default 10): fewer requests in the window is "no data", which changes nothing, so a dead service does not resolve a firing alert.
+- `minRequests` (default 10): fewer requests in the window is "no data", which changes nothing, so a dead service does not resolve a firing alert. Requests from a sampled Nestrix app are weighted ([Sampled apps](#sampled-apps)).
 - States: `ok`, `pending`, `firing`. A notification is sent when a rule starts firing and when it resolves. Rules are evaluated every 60 seconds by one instance at a time.
 
 Create a rule (sign in first, send `Origin` for a state-changing call):
@@ -308,7 +312,7 @@ Service level objectives are managed on the dashboard's **SLOs** page or through
 
 - `kind`: `availability` (the share of requests that are not errors) or `latency` (the share faster than `latencyThresholdMs`, up to one hour).
 - `objective`: the target share of good requests, strictly between 0 and 1 (`0.999`); `windowDays`: 7 or 30.
-- Its status, computed from the per-minute rollups (so counted at the server, after the services' own sampling): attainment, the error budget (allowed, remaining requests, remaining fraction), burn rates over the last 1 and 6 hours, and whether it is breached. A 30-day SLO reads up to 43,200 minute rows per query.
+- Its status, computed from the per-minute rollups (counted at the server from the stored spans; a request from an app where Nestrix samples counts as `1 / nestrix.sampling.probability` requests, others once, so a host-owned sampler of unknown rate still undercounts): attainment, the error budget (allowed, remaining requests, remaining fraction), burn rates over the last 1 and 6 hours, and whether it is breached. A 30-day SLO reads up to 43,200 minute rows per query.
 - An alert rule with `metric: "slo_burn_rate"` takes its service and route from an SLO and fires on its burn rate (see Alerting).
 
 ## Upgrading
