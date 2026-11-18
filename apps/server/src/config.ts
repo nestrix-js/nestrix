@@ -98,6 +98,22 @@ export interface LogStoreConfig {
   readonly maxPerMinute: number;
 }
 
+/**
+ * Issue #18 (D-105): the optional OTLP metrics receiver. Off by default: `/v1/metrics` then answers
+ * `404` with `google.rpc.Status` as before (D-82 (7)).
+ */
+export interface MetricsConfig {
+  /** `NESTRIX_METRICS=on`. */
+  readonly enabled: boolean;
+  /**
+   * `NESTRIX_METRICS_MAX_SERIES_PER_SERVICE`: series (instance x metric x attribute set) a service
+   * may have active at once in this server process; points of further series are dropped and counted.
+   */
+  readonly maxSeriesPerService: number;
+  /** `NESTRIX_METRICS_MAX_SERIES`: the same, over every service together. */
+  readonly maxSeries: number;
+}
+
 export interface ServerConfig {
   readonly port: number;
   readonly databaseUrl: string;
@@ -121,6 +137,8 @@ export interface ServerConfig {
    * client the login limiter keys on. `undefined`: none, the socket peer is the client.
    */
   readonly trustedProxies: TrustedProxies | undefined;
+  /** Issue #18 (D-105): the optional metrics receiver and its limits. */
+  readonly metrics: MetricsConfig;
 }
 
 export const LOG_LEVEL_NAMES = [
@@ -157,6 +175,8 @@ export const DEFAULT_LOGS_MAX_PER_MINUTE = 30_000;
 export const DEFAULT_MAX_SPANS_PER_TRACE = 50_000;
 export const MIN_MAX_SPANS_PER_TRACE = 1_000;
 export const MAX_MAX_SPANS_PER_TRACE = 10_000_000;
+export const DEFAULT_METRICS_MAX_SERIES_PER_SERVICE = 2_000;
+export const DEFAULT_METRICS_MAX_SERIES = 20_000;
 export const DEFAULT_INGEST: Omit<
   IngestConfig,
   "auth" | "keys" | "keyEnvironments"
@@ -505,6 +525,28 @@ export function loadConfig(
   if (!trusted.ok) errors.push(...trusted.errors);
   const trustedProxies = trusted.ok ? trusted.value : undefined;
 
+  // Issue #18 (D-105): `on` or `off` (default), nothing else.
+  const metricsRaw = present(env, "NESTRIX_METRICS")?.trim().toLowerCase();
+  if (metricsRaw !== undefined && metricsRaw !== "on" && metricsRaw !== "off") {
+    errors.push(`NESTRIX_METRICS accepts "on" or "off" (got "${metricsRaw}").`);
+  }
+  const maxSeriesPerService = integer(
+    env,
+    "NESTRIX_METRICS_MAX_SERIES_PER_SERVICE",
+    DEFAULT_METRICS_MAX_SERIES_PER_SERVICE,
+    10,
+    1_000_000,
+    errors,
+  );
+  const maxSeries = integer(
+    env,
+    "NESTRIX_METRICS_MAX_SERIES",
+    DEFAULT_METRICS_MAX_SERIES,
+    10,
+    10_000_000,
+    errors,
+  );
+
   if (errors.length > 0) return { ok: false, errors };
 
   return {
@@ -541,6 +583,11 @@ export function loadConfig(
         maxPerMinute: logsMaxPerMinute,
       }),
       trustedProxies,
+      metrics: Object.freeze({
+        enabled: metricsRaw === "on",
+        maxSeriesPerService,
+        maxSeries,
+      }),
     }),
   };
 }

@@ -15,6 +15,8 @@ import type {
   ErrorListParamsSpec,
   LogSearchParamsSpec,
   MetaParamsSpec,
+  MetricCatalogParamsSpec,
+  MetricSeriesParamsSpec,
   OverviewParamsSpec,
   ParamSpec,
   QueryStatsParamsSpec,
@@ -192,6 +194,26 @@ export const traceSpec: TraceParamsSpec = {
 };
 
 export const metaSpec: MetaParamsSpec = {};
+
+/** Issue #18 (D-105): `metric` is required, checked by the controller. */
+export const metricSeriesSpec: MetricSeriesParamsSpec = {
+  metric: { kind: "string", maxLength: 128 },
+  service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
+  instance: { kind: "string", maxLength: 256 },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  stepMs: { kind: "int", min: 60_000, max: 86_400_000 },
+  aggregation: { kind: "enum", values: ["sum", "avg", "max", "min"] },
+  by: { kind: "enum", values: ["instance"] },
+};
+
+export const metricCatalogSpec: MetricCatalogParamsSpec = {
+  service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+};
 
 /** More query parameters than this is a 400 before any is looked at. */
 export const MAX_QUERY_PARAMS = 32;

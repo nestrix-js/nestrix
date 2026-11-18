@@ -5,7 +5,12 @@
  * sees it, so the stored resource, its hash and every derived row agree.
  */
 import { ENVIRONMENT_KEY, LEGACY_ENVIRONMENT_KEY } from "../storage/derive.js";
-import type { IngestAttributes, IngestBatch, IngestLogBatch } from "./model.js";
+import type {
+  IngestAttributes,
+  IngestBatch,
+  IngestLogBatch,
+  IngestMetricBatch,
+} from "./model.js";
 
 /** `resource` with `deployment.environment.name` set to `environment` and the deprecated key removed. */
 export function withEnvironment(
@@ -33,4 +38,15 @@ export function bindLogBatch(batch: IngestLogBatch, environment: string): void {
   for (const rl of batch.resourceLogs) {
     rl.resource = withEnvironment(rl.resource, environment);
   }
+}
+
+/**
+ * Stores every resource of a metric batch under `environment` (in place; issue #18 merged with #28).
+ * Metric resources are not kept, only their service, instance and environment, so the field is set.
+ */
+export function bindMetricBatch(
+  batch: IngestMetricBatch,
+  environment: string,
+): void {
+  for (const rm of batch.resourceMetrics) rm.environment = environment;
 }

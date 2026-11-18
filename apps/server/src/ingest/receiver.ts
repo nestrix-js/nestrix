@@ -24,6 +24,7 @@ import type { ServerConfig } from "../config.js";
 import { SERVER_CONFIG } from "../config.module.js";
 import { StatusSchema } from "../proto/gen/google/rpc/status_pb.js";
 import { ExportLogsServiceResponseSchema } from "../proto/gen/opentelemetry/proto/collector/logs/v1/logs_service_pb.js";
+import { ExportMetricsServiceResponseSchema } from "../proto/gen/opentelemetry/proto/collector/metrics/v1/metrics_service_pb.js";
 import { ExportTraceServiceResponseSchema } from "../proto/gen/opentelemetry/proto/collector/trace/v1/trace_service_pb.js";
 import { IngestAuth } from "./auth.js";
 import {
@@ -38,28 +39,36 @@ import {
   checkBody,
   DecodeError,
   decodeLogsRequest,
+  decodeMetricsRequest,
   decodeRequest,
 } from "./decode.js";
-import { bindLogBatch, bindTraceBatch } from "./environment.js";
+import {
+  bindLogBatch,
+  bindMetricBatch,
+  bindTraceBatch,
+} from "./environment.js";
 import {
   ByteBudget,
   type DecodeLimits,
   decodeCharge,
   LimitError,
   LOG_SHAPE,
+  METRIC_SHAPE,
   TRACE_SHAPE,
   type WireShape,
 } from "./limits.js";
 import { toIngestBatch } from "./map.js";
 import { toIngestLogBatch } from "./map-logs.js";
+import { toIngestMetricBatch } from "./map-metrics.js";
 import {
   type IngestBatch,
   IngestBusyError,
   type IngestLogBatch,
+  type IngestMetricBatch,
   type IngestSink,
 } from "./model.js";
 import { RateLimiter } from "./rate-limit.js";
-import { INGEST_SINK } from "./tokens.js";
+import { INGEST_SINK, UNKNOWN_OTLP_PATH_MESSAGE } from "./tokens.js";
 
 /** Retry-After for a sink failure that is not `IngestBusyError` (e.g. the database is down). */
 const SINK_FAILURE_RETRY_SECONDS = 5;
@@ -108,6 +117,8 @@ interface Signal<B> {
 interface Reply {
   status: number;
   message: string;
+  /** `google.rpc.Code` of the status body; absent (0) for the receiver's own errors. */
+  code?: number;
   headers?: Record<string, string>;
   /** Close the connection instead of discarding the unread body (it is known to be too large). */
   close?: boolean;
@@ -139,6 +150,14 @@ export class IngestReceiver implements OnApplicationBootstrap {
     bind: bindLogBatch,
     store: (batch, format) => this.storeLogs(batch, format),
   };
+  /** Issue #18 (D-105): reached only with `NESTRIX_METRICS=on` (`handleMetrics`). */
+  private readonly metrics: Signal<IngestMetricBatch> = {
+    shape: METRIC_SHAPE,
+    decode: (body, format, limits) =>
+      toIngestMetricBatch(decodeMetricsRequest(body, format, limits)),
+    bind: bindMetricBatch,
+    store: (batch, format) => this.storeMetrics(batch, format),
+  };
 
   constructor(
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
@@ -156,6 +175,11 @@ export class IngestReceiver implements OnApplicationBootstrap {
   }
 
   onApplicationBootstrap(): void {
+    if (this.config.metrics.enabled) {
+      this.logger.log(
+        `NESTRIX_METRICS=on: POST /v1/metrics stores Nestrix's runtime metrics (at most ${this.config.metrics.maxSeriesPerService} series per service, ${this.config.metrics.maxSeries} in all); other metrics are counted and dropped.`,
+      );
+    }
     const { auth, keys } = this.config.ingest;
     if (auth === "none") {
       this.logger.warn(
@@ -183,6 +207,29 @@ export class IngestReceiver implements OnApplicationBootstrap {
   /** `POST /v1/logs` (P9-07): every check of `handle`, then the log mapper and `writeLogs`. Never rejects. */
   handleLogs(req: IncomingMessage, res: ServerResponse): Promise<void> {
     return this.handleSignal(req, res, this.logs);
+  }
+
+  /**
+   * `POST /v1/metrics` (issue #18, D-105): every check of `handle`, then the metric mapper and
+   * `writeMetrics`. With metrics off (`configureApp`'s middleware answers first) it gives the same
+   * `404` as an unknown OTLP path. Never rejects.
+   */
+  handleMetrics(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!this.config.metrics.enabled) {
+      let format: BodyFormat = "json";
+      try {
+        format = parseContentType(req.headers["content-type"]) ?? "json";
+      } catch {
+        format = "json";
+      }
+      this.reply(req, res, format, {
+        status: 404,
+        message: UNKNOWN_OTLP_PATH_MESSAGE,
+        code: 5,
+      });
+      return Promise.resolve();
+    }
+    return this.handleSignal(req, res, this.metrics);
   }
 
   private async handleSignal<B>(
@@ -459,6 +506,71 @@ export class IngestReceiver implements OnApplicationBootstrap {
     };
   }
 
+  /**
+   * Metric points (issue #18): as `storeLogs`, with `writeMetrics`. Points dropped by the catalog,
+   * the series cap or the stored days are named in `error_message` without being counted as
+   * rejected (the sender did nothing wrong); invalid points are rejected.
+   */
+  private async storeMetrics(
+    batch: IngestMetricBatch,
+    format: BodyFormat,
+  ): Promise<Outcome> {
+    const writeMetrics = this.sink.writeMetrics?.bind(this.sink);
+    let overCap = 0;
+    if (writeMetrics !== undefined) {
+      try {
+        const written = await writeMetrics(batch);
+        const n = written?.overSeriesCap;
+        if (typeof n === "number" && n > 0) overCap = n;
+      } catch (error) {
+        if (error instanceof IngestBusyError) {
+          return {
+            status: 503,
+            message: "ingest is over capacity, retry later",
+            headers: { "Retry-After": String(retryAfter(error)) },
+          };
+        }
+        this.logThrottled("Storing metric points failed", error);
+        return {
+          status: 503,
+          message: "metric points could not be stored, retry later",
+          headers: { "Retry-After": String(SINK_FAILURE_RETRY_SECONDS) },
+        };
+      }
+    }
+    const d = batch.dropped;
+    const notes = [
+      batch.errorMessage ?? "",
+      d.notStored > 0
+        ? `${d.notStored} data points of metrics this server does not store were dropped (it keeps Nestrix's runtime metrics only).`
+        : "",
+      d.unsupportedType + d.typeMismatch > 0
+        ? `${d.unsupportedType + d.typeMismatch} data points of an unsupported type or unit were dropped.`
+        : "",
+      overCap > 0
+        ? `${overCap} data points were dropped: the service is over its series limit (NESTRIX_METRICS_MAX_SERIES_PER_SERVICE).`
+        : "",
+    ].filter((m) => m !== "");
+    const message = notes.join(" ");
+    const response = create(
+      ExportMetricsServiceResponseSchema,
+      batch.rejectedDataPoints > 0 || message !== ""
+        ? {
+            partialSuccess: {
+              rejectedDataPoints: BigInt(batch.rejectedDataPoints),
+              errorMessage: message,
+            },
+          }
+        : {},
+    );
+    return {
+      body:
+        format === "protobuf"
+          ? toBinary(ExportMetricsServiceResponseSchema, response)
+          : toJsonString(ExportMetricsServiceResponseSchema, response),
+    };
+  }
+
   private reply(
     req: IncomingMessage,
     res: ServerResponse,
@@ -477,7 +589,12 @@ export class IngestReceiver implements OnApplicationBootstrap {
       );
     }
     try {
-      const status = create(StatusSchema, { message: reply.message });
+      const status = create(
+        StatusSchema,
+        reply.code === undefined
+          ? { message: reply.message }
+          : { code: reply.code, message: reply.message },
+      );
       const body =
         format === "protobuf"
           ? toBinary(StatusSchema, status)

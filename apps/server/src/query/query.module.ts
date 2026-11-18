@@ -20,6 +20,7 @@ import { STORAGE_POOL } from "../storage/storage.module.js";
 import { ExplainService } from "./explain.service.js";
 import { DenyQueryGuard, QUERY_GUARD, QueryGuardGate } from "./guard.js";
 import { LogSearchService } from "./log-search.service.js";
+import { MetricsService } from "./metrics.service.js";
 import {
   QUERY_OPTIONS,
   type QueryModuleOptions,
@@ -79,6 +80,8 @@ export class QueryModule {
           },
         },
         ErrorGroupSyncLifecycle,
+        // Issue #18 (D-105): the routes answer 404 unless NESTRIX_METRICS=on.
+        MetricsService,
       ],
     };
   }

@@ -149,7 +149,7 @@ NestrixModule.forRoot({
 
 Options: `metrics: false`, `metrics.runtime` and `metrics.export`; see the [reference](/reference/configuration#metrics).
 
-An endpoint that answers 404, 405 or 501 on its metrics URL does not accept metrics (the [standalone server](/guide/standalone-server) ingests traces and logs only, and so does Jaeger). Nestrix then logs one line and stops exporting metrics until the app restarts; traces and logs carry on.
+An endpoint that answers 404, 405 or 501 on its metrics URL does not accept metrics (the [standalone server](/guide/standalone-server) ingests traces and logs only unless started with `NESTRIX_METRICS=on`, and Jaeger never takes metrics). Nestrix then logs one line and stops exporting metrics until the app restarts; traces and logs carry on.
 
 ## Export health
 

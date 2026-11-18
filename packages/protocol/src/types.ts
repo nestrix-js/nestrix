@@ -1,5 +1,6 @@
 /** Response types of the Nestrix query API, version 1. Types only; no runtime code lives here except the version constant (see index.ts). */
 
+import type { MetaMetrics } from "./metrics.js";
 import type { MetaProfiler } from "./profiles.js";
 import type { MetaRuntime } from "./runtime.js";
 
@@ -112,6 +113,8 @@ export interface MetaResponse {
   profiler: MetaProfiler;
   /** The process runtime view (P9-06): `available: false` in the standalone server. Absent from older servers. */
   runtime?: MetaRuntime;
+  /** Historical metrics (issue #18): the standalone server with `NESTRIX_METRICS=on`. Absent from embedded dashboards and older servers. */
+  metrics?: MetaMetrics;
 }
 
 /** One environment the standalone server holds data for (`MetaResponse.environments`). */

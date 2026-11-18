@@ -132,7 +132,7 @@ const SAFE_METHODS = new Set(["GET", "HEAD"]);
  * routes, not the UI, not ingest.
  */
 export const TOKEN_READ_ROUTE =
-  /^\/api\/v1\/(?:meta|traces(?:\/timeline)?|trace(?:\/logs)?|logs|errors(?:\/groups|\/insights)?|routes(?:\/histogram|\/compare|\/explain)?|classes|queries|map|dependencies|overview|instances|remote-profiles(?:\/[^/]+(?:\/download)?)?)\/?$/i;
+  /^\/api\/v1\/(?:meta|traces(?:\/timeline)?|trace(?:\/logs)?|logs|errors(?:\/groups|\/insights)?|routes(?:\/histogram|\/compare|\/explain)?|classes|queries|map|dependencies|overview|metrics\/(?:catalog|series)|instances|remote-profiles(?:\/[^/]+(?:\/download)?)?)\/?$/i;
 /** `Authorization: Bearer nxt_…`: the scheme case-insensitive (RFC 9110), the prefix exact. */
 const BEARER_API_TOKEN = /^bearer +(nxt_\S*) *$/i;
 const TOKEN_ONLY_READS = "API tokens can only read the query API.";

@@ -27,6 +27,8 @@ describe("package entry", () => {
         "errorListParams",
         "logSearchParams",
         "metaParams",
+        "metricCatalogParams",
+        "metricSeriesParams",
         "overviewParams",
         "profileIdParams",
         "profileStartBody",

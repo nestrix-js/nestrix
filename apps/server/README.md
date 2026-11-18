@@ -127,7 +127,7 @@ OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer <one of NESTRIX_INGEST_KEYS>
 
 The key may instead be sent as `x-nestrix-key: <key>`. Keys are compared in constant time. With neither `NESTRIX_INGEST_KEYS` nor `NESTRIX_INGEST_AUTH=none`, ingest answers 401 to everything and a start-up log line says how to configure it.
 
-**`/v1/traces` and `/v1/logs` are accepted.** Logs are kept only as context for a trace: a log record that carries a trace id is stored next to its trace (at most 200 per trace) and shown in the trace view; a record without one is accepted and discarded. Set `NESTRIX_LOGS=all` to keep every record and search them (see "Log search" below); by default the server is not a log backend. It has no metrics receiver: send metrics to an OpenTelemetry Collector.
+**`/v1/traces` and `/v1/logs` are accepted.** Logs are kept only as context for a trace: a log record that carries a trace id is stored next to its trace (at most 200 per trace) and shown in the trace view; a record without one is accepted and discarded. Set `NESTRIX_LOGS=all` to keep every record and search them (see "Log search" below); by default the server is not a log backend. It has no general metrics receiver: `/v1/metrics` is off unless `NESTRIX_METRICS=on` (see "Historical metrics (optional)" below); send other metrics to an OpenTelemetry Collector.
 
 ## Configuration
 
@@ -150,6 +150,9 @@ Read once from the environment at start and validated. A bad value exits with on
 | `NESTRIX_LOG_RETENTION_DAYS` | `NESTRIX_RETENTION_DAYS` | Days of log lines kept; 1 to `NESTRIX_RETENTION_DAYS`. |
 | `NESTRIX_LOGS_MAX_PER_TRACE` | `1000` | `all` only: lines kept per trace, 200 to 100000. |
 | `NESTRIX_LOGS_MAX_PER_MINUTE` | `30000` | `all` only: lines this process stores per minute; more are dropped and counted. |
+| `NESTRIX_METRICS` | `off` | `on` or `off`. `on` accepts Nestrix's runtime metrics on `POST /v1/metrics` and serves them from `GET /api/v1/metrics/*`; see "Historical metrics (optional)". |
+| `NESTRIX_METRICS_MAX_SERIES_PER_SERVICE` | `2000` | Whole number, 10 to 1 000 000. Active metric series per service, per server process. |
+| `NESTRIX_METRICS_MAX_SERIES` | `20000` | Whole number, 10 to 10 000 000. Active metric series in all, per server process. |
 | `NESTRIX_MAX_SPANS_PER_TRACE` | `50000` | Whole number, 1 000 to 10 000 000. Spans stored per trace; see "Span limit per trace". |
 | `NESTRIX_MAX_CONNECTIONS` | `1024` | Whole number, 1 to 1 000 000. Node's `server.maxConnections`. |
 | `NESTRIX_WEBHOOK_ALLOWED_HOSTS` | empty | Comma-separated host names or IP addresses (no scheme, port or path) that alert webhooks may reach although they resolve to private addresses. |
@@ -217,7 +220,7 @@ What the answers mean:
 |---|---|---|
 | 400 | Malformed body, bad gzip, or invalid UTF-8 | Not retry. |
 | 401 | Missing or wrong key, or auth not configured | Fix the key. |
-| 404 | A `/v1/…` path that is not an ingest route, such as `/v1/metrics` (no key needed) | Do not send that signal here. |
+| 404 | A `/v1/…` path that is not an ingest route, such as `/v1/metrics` while `NESTRIX_METRICS` is not `on` (no key needed) | Do not send that signal here. |
 | 413 | Body or inflated body over 20 MiB, or over a count cap, or a request too large for the memory budget | Send smaller batches; do not retry as is. |
 | 415 | Unsupported `Content-Type` or `Content-Encoding` | Send protobuf or JSON, gzip or none. |
 | 429 | Over the rate limit; has `Retry-After` | Retry after that many seconds. |
@@ -239,7 +242,20 @@ Log records sent to `/v1/logs` are kept only when they carry a trace id, in the 
 NestrixModule.forRoot({ logs: { export: true } }) // OTEL_EXPORTER_OTLP_ENDPOINT=http://nestrix.internal:4318
 ```
 
-There is no `/v1/metrics`. It, and any other `/v1/…` path that is not an ingest route, answers `404` with a `google.rpc.Status` body (protobuf or JSON, as the request's `Content-Type`), before the admin login and without a key (`src/ingest/unknown-path.ts`; paths with `.`/`..` segments or percent-escapes are left to the admin login). OTLP exporters do not retry a 404. A Nestrix app that exports metrics to the same base endpoint logs one line saying metrics are not accepted there and stops exporting them; traces and logs continue. Point metrics at a collector (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`) or turn their export off (`metrics: { export: false }`).
+Unless `NESTRIX_METRICS=on`, there is no `/v1/metrics`. It, and any other `/v1/…` path that is not an ingest route, answers `404` with a `google.rpc.Status` body (protobuf or JSON, as the request's `Content-Type`), before the admin login and without a key (`src/ingest/unknown-path.ts`; paths with `.`/`..` segments or percent-escapes are left to the admin login). OTLP exporters do not retry a 404. A Nestrix app that exports metrics to the same base endpoint logs one line saying metrics are not accepted there and stops exporting them; traces and logs continue. Point metrics at a collector (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`) or turn their export off (`metrics: { export: false }`).
+
+### Historical metrics (optional)
+
+`NESTRIX_METRICS=on` (issue #18, D-105) stores the runtime metrics Nestrix itself records and serves them as charts data, so a latency or error spike can be read next to CPU, RSS, heap and event-loop delay without a Collector. It is off by default: tracing-only installs see no change, and `/v1/metrics` answers `404` as above.
+
+- **Accepted** (`POST /v1/metrics`, OTLP/HTTP, protobuf or JSON, the ingest key, the same size and rate limits): Gauge, Sum (monotonic cumulative or delta; non-monotonic cumulative, kept as a level) and Histogram with explicit buckets, for `process.cpu.time`, `process.memory.usage`, `v8js.memory.heap.used`, `v8js.memory.heap.space.size`, `nodejs.eventloop.delay.p50`, `.p99`, `.max` and `http.server.request.duration`, with the unit Nestrix sends (`s`, `By`). Anything else (other names, another type or unit, ExponentialHistogram, Summary) is counted and discarded: the export answers `200` with a `partialSuccess.errorMessage` and no rejected points, so exporters do not retry, and `GET /api/v1/metrics/catalog` shows the counts under `ingest.dropped`. Invalid points (no time, NaN or infinite, malformed buckets) are rejected one by one as OTLP partial success. Only the `cpu.mode` attribute is kept.
+- **Storage and retention:** one row per series and minute in `metric_minutes`, partitioned by day and removed with the spans (`NESTRIX_RETENTION_DAYS`). Point out the service and instance with `service.name` and `service.instance.id` on the resource; the environment is `deployment.environment.name`, or the bound key's environment (see "Environments").
+- **Cardinality:** `NESTRIX_METRICS_MAX_SERIES_PER_SERVICE` and `NESTRIX_METRICS_MAX_SERIES` cap the series active in the last hour (a series is instance x metric x attribute set). Further points are dropped and counted (`ingest.overSeriesCap`). The cap is per server process; several server instances behind one address each count their own.
+- **Backpressure:** at most 50 000 points are written at once; beyond that the export gets `503` with `Retry-After: 5`, as for spans.
+- **Query** (`/api/v1/metrics/catalog`, `/api/v1/metrics/series`, behind the same admin login or API token as the rest of the query API; types in `@nestrix-js/protocol`'s `metrics.ts`): `series` takes `metric`, `service`, `environment`, `instance`, `fromUnixMs`, `toUnixMs`, `stepMs` (whole minutes, at most 1 440 buckets), `aggregation` (`sum`, `avg`, `max`, `min`) and `by=instance`. A counter (`process.cpu.time`) is a rate per second, CPU seconds per second (1 is one core), summed over cpu modes and instances; a gauge is the mean per instance and bucket, averaged across instances by default; a histogram gives p50, p95 and p99. A bucket without data is `null` and a gap longer than 10 minutes is never filled in. The time range is Unix ms, the same as `GET /api/v1/traces?fromUnixMs=&toUnixMs=`, so a chart and a trace list can share a window.
+- **Not included:** charts in the dashboard and links from a metric spike to traces, alerts on metrics, other metrics or attributes.
+
+To send them, point the app's export endpoint at the server as for traces; Nestrix's metrics exporter then reaches `/v1/metrics` of the same endpoint with the same key.
 
 ## Remote CPU profiling
 

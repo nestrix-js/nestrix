@@ -9,7 +9,11 @@ import {
   UseFilters,
   UseGuards,
 } from "@nestjs/common";
-import type { ApiError, QuerySort } from "@nestrix-js/protocol";
+import type {
+  ApiError,
+  MetricAggregation,
+  QuerySort,
+} from "@nestrix-js/protocol";
 import type { ServerConfig } from "../config.js";
 import { SERVER_CONFIG } from "../config.module.js";
 import type { TriageFilter } from "../errors/triage.js";
@@ -17,6 +21,7 @@ import { QUERY_HEADERS, QueryExceptionFilter } from "./exception.filter.js";
 import { ExplainService } from "./explain.service.js";
 import { QueryGuardGate } from "./guard.js";
 import { LogSearchService } from "./log-search.service.js";
+import { MetricsParamError, MetricsService } from "./metrics.service.js";
 import { OverviewService } from "./overview.service.js";
 import {
   appMapSpec,
@@ -27,6 +32,8 @@ import {
   errorListSpec,
   logSearchSpec,
   metaSpec,
+  metricCatalogSpec,
+  metricSeriesSpec,
   overviewSpec,
   type Parsed,
   parseQuery,
@@ -96,6 +103,7 @@ export class QueryController {
     private readonly query: QueryService,
     private readonly overviewService: OverviewService,
     private readonly explainService: ExplainService,
+    private readonly metricsService: MetricsService,
   ) {}
 
   @Inject(LogSearchService)
@@ -336,5 +344,71 @@ export class QueryController {
       scopeOf(v),
       w.now,
     );
+  }
+
+  /** Issue #18 (D-105): stored metrics, their units and what was seen; `404` unless `NESTRIX_METRICS=on`. */
+  @Get("metrics/catalog")
+  @Headers()
+  async metricCatalog(@Req() req: RequestLike) {
+    const v = parse(req, metricCatalogSpec);
+    requireMetrics(this.metricsService);
+    return metricsCall(() =>
+      this.metricsService.catalog({
+        service: v.service as string | undefined,
+        environment: v.environment as string | undefined,
+        fromUnixMs: v.fromUnixMs as number | undefined,
+        toUnixMs: v.toUnixMs as number | undefined,
+      }),
+    );
+  }
+
+  /** Issue #18 (D-105): one metric over time; see `@nestrix-js/protocol` `metrics.ts`. */
+  @Get("metrics/series")
+  @Headers()
+  async metricSeries(@Req() req: RequestLike) {
+    const v = parse(req, metricSeriesSpec);
+    requireMetrics(this.metricsService);
+    if (typeof v.metric !== "string") {
+      const body: ApiError = {
+        error: {
+          code: "bad_request",
+          message: 'Query parameter "metric" is required.',
+        },
+      };
+      throw new HttpException(body, 400);
+    }
+    return metricsCall(() =>
+      this.metricsService.series({
+        metric: v.metric as string,
+        service: v.service as string | undefined,
+        environment: v.environment as string | undefined,
+        instance: v.instance as string | undefined,
+        fromUnixMs: v.fromUnixMs as number | undefined,
+        toUnixMs: v.toUnixMs as number | undefined,
+        stepMs: v.stepMs as number | undefined,
+        aggregation: v.aggregation as MetricAggregation | undefined,
+        by: v.by as "instance" | undefined,
+      }),
+    );
+  }
+}
+
+function requireMetrics(service: MetricsService): void {
+  if (!service.enabled) {
+    throw new HttpException("Historical metrics are not enabled.", 404);
+  }
+}
+
+async function metricsCall<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof MetricsParamError) {
+      const body: ApiError = {
+        error: { code: "bad_request", message: error.message },
+      };
+      throw new HttpException(body, 400);
+    }
+    throw error;
   }
 }

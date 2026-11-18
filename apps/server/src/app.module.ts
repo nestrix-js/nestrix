@@ -73,6 +73,11 @@ export class AppModule {
                     allMaxPerTrace: config.logStore.maxPerTrace,
                     maxPerMinute: config.logStore.maxPerMinute,
                   },
+                  // Issue #18 (D-105): used only with NESTRIX_METRICS=on.
+                  metrics: {
+                    maxSeriesPerService: config.metrics.maxSeriesPerService,
+                    maxSeries: config.metrics.maxSeries,
+                  },
                 },
               }),
               ingest,

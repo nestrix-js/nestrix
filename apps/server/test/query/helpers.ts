@@ -28,6 +28,7 @@ export async function startQueryServer(
   env: Record<string, string> = {},
 ): Promise<QueryServer> {
   const config = testConfig({
+    ...env,
     DATABASE_URL: databaseUrl,
     NESTRIX_ADMIN_PASSWORD: ADMIN_PW,
     NESTRIX_SESSION_SECRET: SESSION_SECRET,

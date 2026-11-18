@@ -47,6 +47,7 @@ describe.skipIf(noDatabase)(`migrations ${skipReason}`, () => {
       "0014_admin_sessions.sql",
       "0016_environments.sql",
       "0018_error_triage.sql",
+      "0020_metric_minutes.sql",
       "0021_logs_search.sql",
     ];
     const applied = [...a.applied, ...b.applied];

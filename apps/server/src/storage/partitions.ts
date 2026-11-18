@@ -25,6 +25,9 @@ export const PARTITIONED_TABLES = [
   "route_minutes",
   "class_minutes",
   "logs",
+  // Issue #18 (D-105): created (empty) whether or not NESTRIX_METRICS is on, so retention and the
+  // "partition for today in every table" readiness check need no condition.
+  "metric_minutes",
 ] as const;
 export type PartitionedTable = (typeof PARTITIONED_TABLES)[number];
 
@@ -32,7 +35,7 @@ const DAY_MS = 86_400_000;
 /** Days ahead of today that get partitions, today excluded. */
 export const DAYS_AHEAD = 2;
 const PARTITION_NAME =
-  /^(spans|traces|route_minutes|class_minutes|logs)_p(\d{8})$/;
+  /^(spans|traces|route_minutes|class_minutes|logs|metric_minutes)_p(\d{8})$/;
 
 /** Days since the Unix epoch (UTC) of a Unix-ms time. */
 export function utcDay(unixMs: number): number {

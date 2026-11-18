@@ -15,6 +15,7 @@ import {
 import type {
   IngestBatch,
   IngestLogBatch,
+  IngestMetricBatch,
   IngestSink,
   IngestWriteResult,
 } from "../../src/ingest/model.js";
@@ -49,6 +50,16 @@ export class RecordingSink implements IngestSink {
   async writeLogs(batch: IngestLogBatch): Promise<void> {
     await this.logBehaviour(batch);
     this.logBatches.push(batch);
+  }
+  readonly metricBatches: IngestMetricBatch[] = [];
+  async writeMetrics(batch: IngestMetricBatch): Promise<undefined> {
+    this.metricBatches.push(batch);
+    return undefined;
+  }
+  metricPoints() {
+    return this.metricBatches.flatMap((b) =>
+      b.resourceMetrics.flatMap((r) => r.points),
+    );
   }
   logRecords() {
     return this.logBatches.flatMap((b) =>
