@@ -616,11 +616,13 @@ export class HttpServerInstrumentation {
    * - `'raw'`, a route was reported (the last one the hook saw, even when the 404 rule drops it
    *   from `http.route`: a handler whose version or host filter declined still had the request's
    *   value in its parameter): the raw path with listed parameters `REDACTED`.
-   * - `'raw'`, no route reported, status 404: the raw path (no handler matched, so no parameter
-   *   is known).
-   * - `'raw'`, no route reported, any other status or none (answered before routing: a body
-   *   parser's 400, a middleware's 401, a 413, a client abort, a throwing middleware): nothing,
-   *   since the path may belong to a route with a listed parameter.
+   * - `'raw'`, no route reported, status below 400 (served outside the Nest router: static
+   *   assets, raw adapter routes) or 404 (no handler matched): the raw path.
+   * - `'raw'`, no route reported, any other status from 400 or no response (answered before
+   *   routing: a body parser's 400, a middleware's 401, a 413, a client abort, a throwing
+   *   middleware): nothing, since the path may belong to a route with a listed parameter.
+   *   Residual case: a pre-router middleware that answers 2xx/3xx itself (a redirect) on such a
+   *   path keeps the raw path; `recordPath: 'template'` covers it.
    * On a failure: the route template when one was reported, otherwise nothing. Never the raw path.
    */
   private recordUrlPath(
@@ -641,7 +643,7 @@ export class HttpServerInstrumentation {
           ATTR_URL_PATH,
           redactPathParams(raw, state.route, this.pathParams),
         );
-      } else if (status === 404) {
+      } else if (status !== undefined && (status < 400 || status === 404)) {
         state.span.setAttribute(ATTR_URL_PATH, raw);
       }
     } catch (error) {

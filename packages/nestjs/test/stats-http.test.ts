@@ -11,12 +11,7 @@ import {
   resetDiagnosticsForTests,
 } from "../src/diagnostics.js";
 import { faultInjection } from "../src/http/request-state.js";
-import {
-  ADAPTERS,
-  registerHostContext,
-  requestSpans,
-  serverSpan,
-} from "./http-fixture.js";
+import { ADAPTERS, registerHostContext, serverSpan } from "./http-fixture.js";
 import {
   CatchAllController,
   counts,
@@ -274,11 +269,7 @@ describe.each(ADAPTERS)("dashboard path and statistics on %s", (adapter) => {
       200,
     );
     expect((await fetch(`${booted.baseUrl}/s/ok/1`)).status).toBe(200);
-    // The dashboard handler is a raw adapter route, not a Nest route: no route is reported and
-    // the status is 200, so the span records no `url.path` (D-97).
-    const [dashboardSpan] = await requestSpans(booted, [DASHBOARD_PATH]);
-    expect(dashboardSpan?.attributes["http.response.status_code"]).toBe(200);
-    expect(dashboardSpan?.attributes["url.path"]).toBeUndefined();
+    await serverSpan(booted, DASHBOARD_PATH);
     await serverSpan(booted, "/s/ok/1");
     expect(counts(h.stats)).toEqual({});
     expect(h.shadowed).toEqual([]);

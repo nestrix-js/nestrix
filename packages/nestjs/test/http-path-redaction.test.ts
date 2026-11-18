@@ -105,15 +105,31 @@ class DenyMiddleware implements NestMiddleware {
   }
 }
 
-/** Nestrix, the controllers, and `DenyMiddleware` on `guarded/:token`. */
+/** Answers 200 before routing, like a static-file middleware. */
+class ServeMiddleware implements NestMiddleware {
+  use(
+    _req: unknown,
+    res: { statusCode: number; end(body: string): void },
+    _next: () => void,
+  ): void {
+    res.statusCode = 200;
+    res.end("asset");
+  }
+}
+
+/**
+ * Nestrix, the controllers, `DenyMiddleware` on `guarded/:token` and `ServeMiddleware` on
+ * `items/:id` (so `/items/...` is answered 200 without the Nest route being reached).
+ */
 function middlewareModule(options: NestrixModuleOptions) {
   @Module({
     imports: [NestrixModule.forRoot(options)],
-    controllers: [InvitationsController, GuardedController],
+    controllers: [InvitationsController, GuardedController, ItemsController],
   })
   class Root implements NestModule {
     configure(consumer: MiddlewareConsumer): void {
       consumer.apply(DenyMiddleware).forRoutes("guarded/:token");
+      consumer.apply(ServeMiddleware).forRoutes("items/:id");
     }
   }
   return Root;
@@ -284,6 +300,16 @@ describe.each(ADAPTERS)("path secrets on %s", (adapter) => {
     expect(server.attributes["http.response.status_code"]).toBe(401);
     expect(server.attributes["url.path"]).toBeUndefined();
     expectNoSecret(all);
+  });
+
+  it("raw mode, a no-route 200 (answered before the Nest router) keeps its raw path", async () => {
+    booted = await bootApp(adapter, { module: middlewareModule(BASE) });
+    const res = await fetch(`${booted.baseUrl}/items/app.js`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("asset");
+    const { server } = await settle(booted, "GET");
+    expect(server.attributes["http.route"]).toBeUndefined();
+    expect(server.attributes["url.path"]).toBe("/items/app.js");
   });
 
   it("raw mode, a 404 that matched no route keeps its raw path", async () => {
