@@ -419,6 +419,8 @@ export class QueryService {
       profiler: { available: false, running: false, remote: true },
       // Process runtime samples exist only in the embedded dashboard.
       runtime: { available: false },
+      // Issue #18 (D-105): historical runtime metrics, only with NESTRIX_METRICS=on.
+      metrics: { available: this.config.metrics.enabled },
     };
   }
 

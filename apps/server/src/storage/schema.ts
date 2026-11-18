@@ -195,6 +195,43 @@ export const logs = pgTable(
   (t) => [primaryKey({ columns: [t.traceId, t.recordHash, t.time] })],
 );
 
+/** Optional historical metrics (migrations/0020_metric_minutes.sql, src/storage/metrics.ts; issue #18, D-105). */
+export const metricMinutes = pgTable(
+  "metric_minutes",
+  {
+    minute: timestamp("minute", tz).notNull(),
+    serviceName: text("service_name").notNull(),
+    instanceId: text("instance_id").notNull(),
+    metricName: text("metric_name").notNull(),
+    seriesKey: text("series_key").notNull(),
+    attributes: jsonb("attributes").notNull(),
+    kind: text("kind").$type<"gauge" | "counter" | "histogram">().notNull(),
+    temporality: text("temporality").$type<"cumulative" | "delta">().notNull(),
+    timeNs: bigint("time_ns", { mode: "bigint" }).notNull(),
+    startNs: bigint("start_ns", { mode: "bigint" }).notNull(),
+    lastValue: doublePrecision("last_value"),
+    sumValue: doublePrecision("sum_value"),
+    countValue: bigint("count_value", { mode: "number" }),
+    minValue: doublePrecision("min_value"),
+    maxValue: doublePrecision("max_value"),
+    bounds: doublePrecision("bounds").array(),
+    buckets: doublePrecision("buckets").array(),
+    histCount: doublePrecision("hist_count"),
+    histSum: doublePrecision("hist_sum"),
+  },
+  (t) => [
+    primaryKey({
+      columns: [
+        t.serviceName,
+        t.metricName,
+        t.instanceId,
+        t.seriesKey,
+        t.minute,
+      ],
+    }),
+  ],
+);
+
 /** Alerting (migrations/0002_alerts.sql, src/alerts/). */
 export const alertRules = pgTable("alert_rules", {
   id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
@@ -275,6 +312,7 @@ export const schema = {
   routeMinutes,
   classMinutes,
   logs,
+  metricMinutes,
   slos,
   apiTokens,
   alertRules,

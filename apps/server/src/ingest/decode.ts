@@ -17,6 +17,10 @@ import {
   ExportLogsServiceRequestSchema,
 } from "../proto/gen/opentelemetry/proto/collector/logs/v1/logs_service_pb.js";
 import {
+  type ExportMetricsServiceRequest,
+  ExportMetricsServiceRequestSchema,
+} from "../proto/gen/opentelemetry/proto/collector/metrics/v1/metrics_service_pb.js";
+import {
   type ExportTraceServiceRequest,
   ExportTraceServiceRequestSchema,
 } from "../proto/gen/opentelemetry/proto/collector/trace/v1/trace_service_pb.js";
@@ -131,6 +135,77 @@ export function decodeLogsRequest(
     }
     throw new DecodeError(describe(error, format, "ExportLogsServiceRequest"));
   }
+}
+
+/**
+ * `decodeRequest` for `POST /v1/metrics` (issue #18, D-105): the same rules, over
+ * `ExportMetricsServiceRequest`. Run `checkBody(…, METRIC_SHAPE)` first. In JSON, exemplars (whose
+ * ids are hex) are removed before decoding: nothing reads them.
+ */
+export function decodeMetricsRequest(
+  body: Buffer,
+  format: BodyFormat,
+  limits: DecodeLimits,
+): ExportMetricsServiceRequest {
+  try {
+    if (format === "protobuf") {
+      return fromBinary(ExportMetricsServiceRequestSchema, body, {
+        recursionLimit: limits.maxDepth,
+        readUnknownFields: false,
+      });
+    }
+    const json: unknown = JSON.parse(body.toString("utf8"));
+    if (json === null || typeof json !== "object" || Array.isArray(json)) {
+      throw new DecodeError("expected a JSON object");
+    }
+    const points = dropExemplars(json as Record<string, unknown>);
+    if (points > limits.maxSpans) {
+      throw new LimitError(
+        `request has more than ${limits.maxSpans} data points`,
+      );
+    }
+    return fromJson(ExportMetricsServiceRequestSchema, json as JsonValue, {
+      ignoreUnknownFields: true,
+    });
+  } catch (error) {
+    if (error instanceof DecodeError || error instanceof LimitError) {
+      throw error;
+    }
+    throw new DecodeError(
+      describe(error, format, "ExportMetricsServiceRequest"),
+    );
+  }
+}
+
+const METRIC_DATA_FIELDS = [
+  "gauge",
+  "sum",
+  "histogram",
+  "exponentialHistogram",
+  "summary",
+] as const;
+
+/** Removes `exemplars` from every data point in place; returns the data point count. */
+function dropExemplars(request: Record<string, unknown>): number {
+  let points = 0;
+  for (const rm of objects(request.resourceMetrics)) {
+    for (const sm of objects(rm.scopeMetrics)) {
+      for (const metric of objects(sm.metrics)) {
+        for (const field of METRIC_DATA_FIELDS) {
+          if (!Object.hasOwn(metric, field)) continue;
+          const data = metric[field];
+          if (data === null || typeof data !== "object") continue;
+          for (const point of objects(
+            (data as Record<string, unknown>).dataPoints,
+          )) {
+            points++;
+            if (Object.hasOwn(point, "exemplars")) delete point.exemplars;
+          }
+        }
+      }
+    }
+  }
+  return points;
 }
 
 function describe(

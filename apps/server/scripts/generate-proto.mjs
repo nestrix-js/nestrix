@@ -24,6 +24,9 @@ const FILES = [
   "opentelemetry/proto/collector/trace/v1/trace_service.proto",
   "opentelemetry/proto/logs/v1/logs.proto",
   "opentelemetry/proto/collector/logs/v1/logs_service.proto",
+  // Issue #18 (D-105): the optional metrics receiver.
+  "opentelemetry/proto/metrics/v1/metrics.proto",
+  "opentelemetry/proto/collector/metrics/v1/metrics_service.proto",
 ];
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");

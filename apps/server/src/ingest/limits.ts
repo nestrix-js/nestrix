@@ -9,24 +9,58 @@
  * - JSON: a count of the bytes `{`, `[` and `,`, which bounds the values `JSON.parse` creates
  *   (each value is a container or follows a comma) and the messages the JSON reader builds.
  */
-import type { DescField, DescMessage } from "@bufbuild/protobuf";
+import {
+  type DescField,
+  type DescMessage,
+  ScalarType,
+} from "@bufbuild/protobuf";
 import { ExportLogsServiceRequestSchema } from "../proto/gen/opentelemetry/proto/collector/logs/v1/logs_service_pb.js";
+import { ExportMetricsServiceRequestSchema } from "../proto/gen/opentelemetry/proto/collector/metrics/v1/metrics_service_pb.js";
 import { ExportTraceServiceRequestSchema } from "../proto/gen/opentelemetry/proto/collector/trace/v1/trace_service_pb.js";
 import { LogRecordSchema } from "../proto/gen/opentelemetry/proto/logs/v1/logs_pb.js";
+import {
+  ExponentialHistogramDataPointSchema,
+  HistogramDataPointSchema,
+  NumberDataPointSchema,
+  SummaryDataPointSchema,
+} from "../proto/gen/opentelemetry/proto/metrics/v1/metrics_pb.js";
 import { SpanSchema } from "../proto/gen/opentelemetry/proto/trace/v1/trace_pb.js";
 
 /** The request message of a signal and the item counted against `maxSpans`. */
 export interface WireShape {
   readonly root: DescMessage;
   readonly item: DescMessage;
+  /** Further message types also counted as items (metric data points come in four types). */
+  readonly alsoItems?: readonly DescMessage[];
   /** Plural, for messages: `spans`, `log records`. */
   readonly items: string;
+  /**
+   * Also charge unpacked elements of repeated number fields (metrics only: traces and logs have
+   * none, and the lookup would cost on every scalar).
+   */
+  readonly chargeNumbers?: boolean;
 }
 
 export const TRACE_SHAPE: WireShape = {
   root: ExportTraceServiceRequestSchema,
   item: SpanSchema,
   items: "spans",
+};
+
+/**
+ * `POST /v1/metrics` (issue #18, D-105): the same walk, counting data points of every type (an
+ * unsupported type is still decoded before it is dropped).
+ */
+export const METRIC_SHAPE: WireShape = {
+  root: ExportMetricsServiceRequestSchema,
+  item: NumberDataPointSchema,
+  alsoItems: [
+    HistogramDataPointSchema,
+    ExponentialHistogramDataPointSchema,
+    SummaryDataPointSchema,
+  ],
+  items: "data points",
+  chargeNumbers: true,
 };
 
 /** `POST /v1/logs` (P9-07): the same walk, counting log records. */
@@ -83,6 +117,17 @@ function childMessage(field: DescField | undefined): DescMessage | undefined {
   return undefined;
 }
 
+/** A repeated numeric field, sent packed as one length-delimited run (histogram buckets and bounds). */
+function packedNumeric(field: DescField | undefined): boolean {
+  return (
+    field !== undefined &&
+    field.fieldKind === "list" &&
+    field.listKind === "scalar" &&
+    field.scalar !== ScalarType.STRING &&
+    field.scalar !== ScalarType.BYTES
+  );
+}
+
 function repeatedElement(field: DescField | undefined): boolean {
   return (
     field !== undefined &&
@@ -104,6 +149,11 @@ export interface DecodeCost {
   spans: number;
   /** JSON arrays and commas (0 for protobuf). */
   otherTokens: number;
+  /**
+   * Bytes of packed repeated numbers (protobuf): each decodes into an array element (a `bigint`
+   * for fixed64), several times its wire size. Absent for JSON, where each is a counted value.
+   */
+  packedBytes?: number;
 }
 
 /**
@@ -118,6 +168,8 @@ export function checkProtobuf(
   let pos = 0;
   let messages = 0;
   let spans = 0;
+  let packedBytes = 0;
+  const items = new Set<DescMessage>([shape.item, ...(shape.alsoItems ?? [])]);
   const stack: Frame[] = [];
   let frame: Frame = { desc: shape.root, end: buf.length };
 
@@ -137,13 +189,19 @@ export function checkProtobuf(
   for (;;) {
     if (pos === frame.end) {
       const parent = stack.pop();
-      if (parent === undefined) return { messages, spans, otherTokens: 0 };
+      if (parent === undefined) {
+        return { messages, spans, otherTokens: 0, packedBytes };
+      }
       frame = parent;
       continue;
     }
     const tag = varint();
     const wireType = tag % 8;
     const fieldNo = Math.floor(tag / 8);
+    // An unpacked element of a repeated number decodes into an array slot like a packed one.
+    if (wireType !== 2 && shape.chargeNumbers === true) {
+      if (packedNumeric(table(frame.desc).get(fieldNo))) packedBytes += 8;
+    }
     switch (wireType) {
       case 0:
         varint();
@@ -167,7 +225,7 @@ export function checkProtobuf(
               `request has more than ${limits.maxMessages} protobuf messages`,
             );
           }
-          if (child === shape.item && ++spans > limits.maxSpans) {
+          if (items.has(child) && ++spans > limits.maxSpans) {
             throw new LimitError(
               `request has more than ${limits.maxSpans} ${shape.items}`,
             );
@@ -179,6 +237,7 @@ export function checkProtobuf(
           frame = { desc: child, end };
           continue; // pos stays at the child's first byte
         }
+        if (packedNumeric(field)) packedBytes += length;
         if (repeatedElement(field) && ++messages > limits.maxMessages) {
           throw new LimitError(
             `request has more than ${limits.maxMessages} protobuf messages`,
@@ -225,10 +284,17 @@ export const BYTES_PER_MESSAGE = 512;
 /** Bytes charged per JSON array or comma-separated value (measured: ~40 B). */
 export const BYTES_PER_JSON_TOKEN = 48;
 
+/**
+ * Bytes charged per packed wire byte: a fixed64 (8 bytes) decodes into a `bigint` array slot,
+ * about 32 bytes (estimate, not measured; deferred to the optimisation pass).
+ */
+export const BYTES_PER_PACKED_BYTE = 4;
+
 export function decodeCharge(cost: DecodeCost): number {
   return (
     (cost.messages + cost.spans) * BYTES_PER_MESSAGE +
-    cost.otherTokens * BYTES_PER_JSON_TOKEN
+    cost.otherTokens * BYTES_PER_JSON_TOKEN +
+    (cost.packedBytes ?? 0) * BYTES_PER_PACKED_BYTE
   );
 }
 

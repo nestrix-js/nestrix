@@ -39,6 +39,8 @@ import {
   type IngestBatch,
   IngestBusyError,
   type IngestLogBatch,
+  type IngestMetricBatch,
+  type IngestMetricWriteResult,
   type IngestSink,
   type IngestWriteResult,
 } from "../ingest/model.js";
@@ -53,6 +55,7 @@ import {
 import { bucketIndex, emptyHistogram } from "./histogram.js";
 import { ADVISORY_CLASS, TRACES_LOCK } from "./locks.js";
 import { type LogWriterOptions, PostgresLogWriter } from "./logs.js";
+import { type MetricWriterOptions, PostgresMetricWriter } from "./metrics.js";
 import type { PartitionManager } from "./partitions.js";
 import { upsertTraces } from "./traces.js";
 
@@ -69,6 +72,8 @@ export interface WriterOptions {
   onError?: (error: unknown, context: string) => void;
   /** The log writer behind `writeLogs` (P9-07, `logs.ts`). */
   logs?: LogWriterOptions;
+  /** The metric writer behind `writeMetrics` (issue #18, `metrics.ts`). */
+  metrics?: MetricWriterOptions;
   /** Spans stored per trace; later ones are counted, not stored (D-78). Default 50 000. */
   maxSpansPerTrace?: number;
 }
@@ -213,6 +218,8 @@ export class PostgresIngestSink implements IngestSink {
   private idleWaiters: (() => void)[] = [];
   /** `writeLogs` (P9-07): log records next to their traces, written outside the span queue. */
   readonly logs: PostgresLogWriter;
+  /** `writeMetrics` (issue #18, D-105): metric points per minute, written outside the span queue. */
+  readonly metrics: PostgresMetricWriter;
   private readonly resourceIds = new Map<string, number>();
   private readonly servicesWritten = new Map<string, number>();
   private readonly counters = {
@@ -240,6 +247,23 @@ export class PostgresIngestSink implements IngestSink {
       retryAfterSeconds: this.retryAfterSeconds,
       ...options.logs,
     });
+    this.metrics = new PostgresMetricWriter(pool, partitions, {
+      retryAfterSeconds: this.retryAfterSeconds,
+      ...options.metrics,
+    });
+  }
+
+  /** Stores metric points per minute (`metrics.ts`). Same contract as `write`. */
+  async writeMetrics(
+    batch: IngestMetricBatch,
+  ): Promise<IngestMetricWriteResult | undefined> {
+    try {
+      return await this.metrics.write(batch);
+    } catch (error) {
+      if (!(error instanceof IngestBusyError))
+        this.report(error, "writer.metrics");
+      throw error;
+    }
   }
 
   /** Stores log records next to their traces (`logs.ts`). Same contract as `write`. */
@@ -298,6 +322,7 @@ export class PostgresIngestSink implements IngestSink {
   async close(timeoutMs = 10_000): Promise<void> {
     this.closed = true;
     this.logs.close();
+    this.metrics.close();
     let timer: NodeJS.Timeout | undefined;
     await Promise.race([
       this.whenIdle(),

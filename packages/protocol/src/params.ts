@@ -239,3 +239,30 @@ export const profileIdParams = {
   id: { kind: "string", maxLength: 16, pattern: "^[0-9a-f]{16}$" },
 } as const;
 export type ProfileIdParamsSpec = typeof profileIdParams;
+
+/**
+ * `GET <path>/api/v1/metrics/series` (issue #18, standalone server with `NESTRIX_METRICS=on`).
+ * `metric` is required (a catalog name; another is a `400`). `fromUnixMs`/`toUnixMs` default to the
+ * last hour; `toUnixMs` must be after `fromUnixMs`. `stepMs` defaults to the smallest whole minute
+ * that gives at most 360 buckets; at most 1,440 buckets. `by=instance` returns one series per
+ * instance (at most 20, most data first) instead of one across instances; not for histograms.
+ */
+export const metricSeriesParams = {
+  metric: { kind: "string", maxLength: 128 },
+  service: { kind: "string", maxLength: 256 },
+  instance: { kind: "string", maxLength: 256 },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  stepMs: { kind: "int", min: 60_000, max: 86_400_000 },
+  aggregation: { kind: "enum", values: ["sum", "avg", "max", "min"] },
+  by: { kind: "enum", values: ["instance"] },
+} as const;
+export type MetricSeriesParamsSpec = typeof metricSeriesParams;
+
+/** `GET <path>/api/v1/metrics/catalog`: the range defaults to the last hour. */
+export const metricCatalogParams = {
+  service: { kind: "string", maxLength: 256 },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+} as const;
+export type MetricCatalogParamsSpec = typeof metricCatalogParams;

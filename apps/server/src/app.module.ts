@@ -65,7 +65,14 @@ export class AppModule {
               StorageModule.forRoot({
                 databaseUrl: config.databaseUrl,
                 retentionDays: config.retentionDays,
-                writer: { maxSpansPerTrace: config.maxSpansPerTrace },
+                writer: {
+                  maxSpansPerTrace: config.maxSpansPerTrace,
+                  // Issue #18 (D-105): used only with NESTRIX_METRICS=on.
+                  metrics: {
+                    maxSeriesPerService: config.metrics.maxSeriesPerService,
+                    maxSeries: config.metrics.maxSeries,
+                  },
+                },
               }),
               ingest,
               // Remote CPU profiling (P10-02, D-76): instance check-in and upload on the ingest
