@@ -820,7 +820,7 @@ export class QueryService {
         undefined,
         scope,
         windowCap,
-        { until: new Date(now), attributes },
+        { until: new Date(now + 1), attributes },
       ),
       this.errorOccurrences(
         new Date(historyStart),
@@ -876,9 +876,11 @@ export class QueryService {
   }
 
   /**
-   * Error spans from `from` (and before `before`, up to and including `until`), as occurrences with
-   * their release: newest first, or oldest first with `ascending`. The error-group sync reads the
-   * same occurrences the lists do through this method.
+   * Error spans from `from` (and before `before` and before `until`, both exclusive), as
+   * occurrences with their release: newest first, or oldest first with `ascending`. `after` (with
+   * `ascending`) continues a read past the last row of a full page, on the total order
+   * `(start_time, trace_id, span_id)`: its fields are an occurrence's `startTime`, `traceId` and
+   * `spanId`. The error-group sync reads the same occurrences the lists do through this method.
    */
   async errorOccurrences(
     from: Date,
@@ -889,6 +891,7 @@ export class QueryService {
       until?: Date;
       ascending?: boolean;
       attributes?: string | undefined;
+      after?: { startTime: string; traceId: string; spanId: string };
     } = {},
   ): Promise<ErrorOccurrence[]> {
     const params = new Params();
@@ -901,7 +904,13 @@ export class QueryService {
       where.push(`s.start_time < ${params.add(before)}`);
     }
     if (options.until !== undefined) {
-      where.push(`s.start_time <= ${params.add(options.until)}`);
+      where.push(`s.start_time < ${params.add(options.until)}`);
+    }
+    if (options.after !== undefined) {
+      const a = options.after;
+      where.push(
+        `(s.start_time, s.trace_id, s.span_id) > (${params.add(a.startTime)}::timestamptz, ${params.add(a.traceId)}, ${params.add(a.spanId)})`,
+      );
     }
     where.push(...scopeSql(scope, params.add, "s"));
     // D-102: the error's trace has these indexed attribute values (a JSON object, a bind parameter).
@@ -919,10 +928,11 @@ export class QueryService {
         root_method: string | null;
         root_status: number | null;
         root_release: string | null;
+        start_text: string;
       }
     >(
       `SELECT s.trace_id, s.span_id, s.name, s.kind, s.status_message, s.events,
-              s.start_ns::text AS start_ns, s.end_ns::text AS end_ns,
+              s.start_ns::text AS start_ns, s.end_ns::text AS end_ns, s.start_time::text AS start_text,
               s.http_route, s.http_method, s.http_status, s.service_name, s.environment,
               t.http_route AS root_route, t.http_method AS root_method, t.http_status AS root_status,
               t.release AS root_release
@@ -959,6 +969,7 @@ export class QueryService {
         environment: r.environment ?? undefined,
         // The instant `s.start_time` holds (microseconds), which the bounds above compare.
         startUnixMs: msOf(r.start_ns),
+        startTime: r.start_text,
       };
     });
   }
@@ -1404,7 +1415,7 @@ export class QueryService {
       const spanWhere = [
         "s.class_name IS NOT NULL",
         `s.start_time >= ${p.add(new Date(w.fromMs))}`,
-        `s.start_time <= ${p.add(new Date(now))}`,
+        `s.start_time < ${p.add(new Date(now + 1))}`,
       ];
       spanWhere.push(...scopeSql(scope, p.add, "s"));
       const skewFrom = p.add(new Date(w.fromMs - SKEW_MS));

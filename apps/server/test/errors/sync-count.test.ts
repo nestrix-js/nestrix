@@ -146,4 +146,32 @@ describe.skipIf(noDatabase)(`error group sync counts ${skipReason}`, () => {
     await sync.runOnce();
     expect(await counts("/plain")).toEqual({ group: [1], release: [1] });
   });
+
+  it("reads past a full page inside the overlap: every occurrence stored, counted once (audit)", async () => {
+    // Three occurrences before the first run's end, two after it. The second run's overlap holds
+    // a full page (rowCap 3) of already counted rows, so the spans after it were skipped while
+    // the watermark moved past them.
+    const paged = new ErrorGroupSync(db.pool, app.get(QueryService), {
+      schedule: false,
+      lagMs: 0,
+      overlapMs: OVERLAP,
+      backfillMs: 30 * MIN,
+      rowCap: 3,
+      now: () => clock,
+    });
+    await fail("/a", T - 20_000, T - 19_000);
+    await fail("/b", T - 15_000, T - 14_000);
+    await fail("/c", T - 10_000, T - 9_000);
+    clock = T;
+    await paged.runOnce();
+    await fail("/d", T + 10_000, T + 11_000);
+    await fail("/e", T + 20_000, T + 21_000);
+    clock = T + MIN;
+    await paged.runOnce();
+    clock = T + 2 * MIN;
+    await paged.runOnce();
+    for (const route of ["/a", "/b", "/c", "/d", "/e"]) {
+      expect(await counts(route)).toEqual({ group: [1], release: [1] });
+    }
+  });
 });

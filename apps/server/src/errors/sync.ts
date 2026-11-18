@@ -17,9 +17,16 @@
  *   `to` are left to the next chunk, which reads them again (`countedInChunk`). Chunks meet, so
  *   each occurrence is counted once (audit: a span crossing `to` used to count on both runs).
  *   The overlap otherwise only repairs first/last seen and the releases, which are min/max and
- *   so idempotent. The counts are therefore exact for spans that arrive before the watermark
- *   passes their occurrence time and a lower bound for the rare span that arrives later (a job
- *   that ends minutes after it started).
+ *   so idempotent. Pages: a chunk reads `rowCap` rows at a time, continuing on the total order
+ *   `(start_time, trace_id, span_id)` until a short page, so a full page inside the overlap loses
+ *   nothing; after `MAX_PAGES_PER_CHUNK` pages it stops at the last row's start (the watermark
+ *   there, the rest next run).
+ *   Known limit (D-103 (2), D-107 (9)): a span is read only while the watermark has not passed
+ *   its start plus `overlapMs` (2 minutes by default, plus the lag). A span stored after that
+ *   (a job that ends minutes after it started, a late export, a slow clock) is never read: it has
+ *   no group, no `new_error_group` alert and no count, not just a low one. The fix is an
+ *   ingest-order column on `spans` (D-107 (9)), which the sync would follow instead of the start
+ *   time.
  * - One transaction per chunk: group rows locked, regressions decided, rows upserted, watermark
  *   moved. A crash repeats the chunk and counts nothing twice.
  * - Regression: a `resolved` group with an occurrence after `resolved_at` whose release differs
@@ -57,7 +64,7 @@ export interface ErrorSyncOptions {
   overlapMs?: number;
   /** How far back the first run reads. Default 7 days. */
   backfillMs?: number;
-  /** Rows read per query; more than this in one chunk continue in the next run. Default 20 000. */
+  /** Rows read per page; a chunk reads up to ten pages, the rest continue in the next run. Default 20 000. */
   rowCap?: number;
   /** Open groups unseen for this long are deleted. Default 90 days. */
   openRetentionMs?: number;
@@ -79,6 +86,8 @@ export interface SyncRun {
 
 const CHUNK_MS = 3_600_000;
 const MAX_CHUNKS = 200;
+/** Pages of `rowCap` rows one chunk reads before it stops at the last row's start (no loss). */
+const MAX_PAGES_PER_CHUNK = 10;
 const PRUNE_EVERY_MS = 3_600_000;
 const BATCH = 1000;
 
@@ -338,25 +347,42 @@ export class ErrorGroupSync {
       }
       for (let i = 0; i < MAX_CHUNKS && wm < hiMs; i++) {
         let to = Math.min(hiMs, wm + CHUNK_MS);
-        let rows = await this.query.errorOccurrences(
-          new Date(wm - this.o.overlapMs),
-          undefined,
-          ALL,
-          this.o.rowCap,
-          { until: new Date(to), ascending: true },
-        );
-        if (rows.length >= this.o.rowCap) {
-          // A full page (ascending by span start): stop the chunk before the last row's start
-          // millisecond and read on from there next time; every row that started by then was
-          // read. When that would not move the watermark (the whole page is one millisecond),
-          // take the page as it is.
-          const last = rows[rows.length - 1];
-          const cut =
-            Math.floor(last?.startUnixMs ?? last?.timeUnixMs ?? to) - 1;
-          if (cut > wm) {
-            to = cut;
-            rows = rows.filter((r) => (r.startUnixMs ?? r.timeUnixMs) <= to);
+        // Pages of `rowCap` rows, ascending by (start, trace, span); a full page continues from
+        // its last row until a short one, so nothing between the pages is skipped, however many
+        // rows the overlap `[wm - overlapMs, wm]` alone holds (audit).
+        let rows: ErrorOccurrence[] = [];
+        let after:
+          | { startTime: string; traceId: string; spanId: string }
+          | undefined;
+        for (let pages = 1; ; pages++) {
+          const page: ErrorOccurrence[] = await this.query.errorOccurrences(
+            new Date(wm - this.o.overlapMs),
+            undefined,
+            ALL,
+            this.o.rowCap,
+            { until: new Date(to + 1), ascending: true, after },
+          );
+          rows = rows.concat(page);
+          const last = page[page.length - 1];
+          if (page.length < this.o.rowCap || last === undefined) break;
+          // Past the page budget, stop the chunk before the last row's start millisecond and read
+          // on from there next time; every row that started by then was read. Only when that
+          // moves the watermark: inside the overlap (`cut <= wm`) the run reads on, since the
+          // watermark cannot go back.
+          if (pages >= MAX_PAGES_PER_CHUNK) {
+            const cut = Math.floor(last.startUnixMs ?? last.timeUnixMs) - 1;
+            if (cut > wm) {
+              to = cut;
+              rows = rows.filter((r) => (r.startUnixMs ?? r.timeUnixMs) <= to);
+              break;
+            }
           }
+          if (last.startTime === undefined) break;
+          after = {
+            startTime: last.startTime,
+            traceId: last.traceId,
+            spanId: last.spanId,
+          };
         }
         const done = await this.apply(client, rows, wm, to);
         total.counted += done.counted;
