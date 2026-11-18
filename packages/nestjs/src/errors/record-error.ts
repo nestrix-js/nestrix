@@ -19,6 +19,7 @@ import {
 import { ATTR_ERROR_TYPE } from "@opentelemetry/semantic-conventions";
 import { diagnostics } from "../diagnostics.js";
 import { getStateFromContext, maybeFault } from "../http/request-state.js";
+import { isTailRecording } from "../tail-sampling.js";
 import { endNestrixSpan, startNestrixSpan } from "../trace-limit.js";
 import {
   errorTrackingEnabled,
@@ -126,11 +127,13 @@ export function recordError(
       }
       return;
     }
-    // An unsampled trace records nothing, as every other span of it.
+    // An unsampled trace records nothing, as every other span of it, unless it is still recorded
+    // for the tail decision (D-100).
     if (
       activeContext !== undefined &&
       (activeContext.traceFlags & TraceFlags.SAMPLED) === 0 &&
-      isSpanContextValid(activeContext)
+      isSpanContextValid(activeContext) &&
+      !isTailRecording(activeContext.traceId)
     ) {
       return;
     }

@@ -14,6 +14,7 @@ describe("resolveOptions defaults", () => {
       contextPropagation: { keys: [], outgoing: false },
       resourceAttributes: {},
       sampleRate: 1,
+      sampling: { keepErrors: true, keepSlowerThanMs: false },
       maxSpansPerTrace: 10_000,
       export: {
         otlp: false,
@@ -291,6 +292,84 @@ describe("resolveOptions validation", () => {
 
   it.each([0, 0.5, 1])("accepts sampleRate %s", (sampleRate) => {
     expect(resolveOptions({ sampleRate }, none).sampleRate).toBe(sampleRate);
+  });
+
+  // Issue #43, D-100.
+  it.each([
+    ["0.1", 0.1],
+    [" 0.25 ", 0.25],
+    ["1", 1],
+    ["0", 0],
+    [".5", 0.5],
+  ])("reads NESTRIX_SAMPLE_RATE=%j when sampleRate is not set", (raw, rate) => {
+    expect(
+      resolveOptions(undefined, { NESTRIX_SAMPLE_RATE: raw }).sampleRate,
+    ).toBe(rate);
+  });
+
+  it("ignores NESTRIX_SAMPLE_RATE, even an invalid one, when sampleRate is set in code", () => {
+    expect(
+      resolveOptions({ sampleRate: 0.5 }, { NESTRIX_SAMPLE_RATE: "0.1" })
+        .sampleRate,
+    ).toBe(0.5);
+    expect(
+      resolveOptions({ sampleRate: 0.5 }, { NESTRIX_SAMPLE_RATE: "lots" })
+        .sampleRate,
+    ).toBe(0.5);
+  });
+
+  it("treats a blank NESTRIX_SAMPLE_RATE as unset", () => {
+    expect(
+      resolveOptions(undefined, { NESTRIX_SAMPLE_RATE: "  " }).sampleRate,
+    ).toBe(1);
+  });
+
+  it.each(["abc", "1.5", "-0.1", "10%", "0x1", "1e-1", "NaN", "Infinity"])(
+    "rejects NESTRIX_SAMPLE_RATE=%j at startup, naming the variable",
+    (raw) => {
+      expect(() =>
+        resolveOptions(undefined, { NESTRIX_SAMPLE_RATE: raw }),
+      ).toThrow(/NESTRIX_SAMPLE_RATE must be a number from 0 to 1/);
+    },
+  );
+
+  it("does not read OTEL_TRACES_SAMPLER or OTEL_TRACES_SAMPLER_ARG (D-69 (5))", () => {
+    expect(
+      resolveOptions(undefined, {
+        OTEL_TRACES_SAMPLER: "traceidratio",
+        OTEL_TRACES_SAMPLER_ARG: "0.1",
+      }).sampleRate,
+    ).toBe(1);
+  });
+
+  it("resolves sampling with defaults and validates it", () => {
+    expect(resolveOptions({ sampling: {} }, none).sampling).toEqual({
+      keepErrors: true,
+      keepSlowerThanMs: false,
+    });
+    expect(
+      resolveOptions(
+        { sampling: { keepErrors: false, keepSlowerThanMs: 250 } },
+        none,
+      ).sampling,
+    ).toEqual({ keepErrors: false, keepSlowerThanMs: 250 });
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, "500"]) {
+      expect(() =>
+        resolveOptions(
+          { sampling: { keepSlowerThanMs: bad as unknown as number } },
+          none,
+        ),
+      ).toThrow(/sampling.keepSlowerThanMs/);
+    }
+    expect(() =>
+      resolveOptions(
+        { sampling: { keepErrors: "yes" as unknown as boolean } },
+        none,
+      ),
+    ).toThrow(/sampling.keepErrors/);
+    expect(() =>
+      resolveOptions({ sampling: 1 as unknown as object }, none),
+    ).toThrow(/sampling must be an object/);
   });
 
   it.each([

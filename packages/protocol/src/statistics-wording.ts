@@ -4,8 +4,9 @@
  *
  * The wording depends on `MetaResponse.mode`:
  * - embedded: the app's own counters see every request, before sampling;
- * - standalone: statistics are counted from the stored spans (D-61), so they reflect the sampling
- *   of the services that send them.
+ * - standalone: statistics are counted from the stored spans (D-61); route counts weight a request
+ *   by the keep probability Nestrix wrote on it (D-100), so where the sampler is unknown they
+ *   reflect the sampling of the services that send them.
  *
  * Change the wording here and nowhere else. `@nestrix-js/mcp` is published without this private
  * package, so its build copies this file to `packages/mcp/src/render/statistics-wording.ts`
@@ -15,9 +16,13 @@
 
 export type StatisticsMode = "embedded" | "standalone";
 
-/** How the standalone server's statistics are counted: the one line to edit when that changes. */
+/**
+ * How the standalone server's statistics are counted: the one line to edit when that changes.
+ * Route counts weight each request by the sampling probability Nestrix writes on it (issue #30,
+ * D-100); other statistics, and requests from a sampler Nestrix does not own, count stored spans.
+ */
 const STANDALONE_COUNTED =
-  "counted from the stored spans, so they reflect the sampling of the services that send them";
+  "counted from the stored spans: route counts are estimates, weighted by the sampling rate where Nestrix samples, and otherwise reflect the sampling of the services that send them";
 
 /** What route statistics count in each mode. */
 export const STATISTICS_COUNTING = {

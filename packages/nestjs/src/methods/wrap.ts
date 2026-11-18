@@ -25,6 +25,7 @@ import {
   recordExceptionEvent,
   withLocalRoot,
 } from "../errors/exception.js";
+import { isTailRecording } from "../tail-sampling.js";
 import {
   endNestrixSpan,
   noteSkippedSpan,
@@ -236,7 +237,8 @@ function report(
  * Whether to skip the span: the active context carries a valid span context without the SAMPLED
  * flag (an unsampled trace). `isRecording()` is not the test: in SDK 3 it is false once a sampled
  * parent ends, which would drop spans for work that outlives the request (architecture §4.3).
- * Validity is checked against the all-zero ids only (what `INVALID_SPAN_CONTEXT` carries).
+ * Validity is checked against the all-zero ids only (what `INVALID_SPAN_CONTEXT` carries). A trace
+ * still recorded for the tail decision (D-100) has flags `00` but is not skipped.
  */
 function underUnsampledParent(active: Context): boolean {
   const sc = trace.getSpanContext(active);
@@ -244,7 +246,8 @@ function underUnsampledParent(active: Context): boolean {
     sc !== undefined &&
     (sc.traceFlags & TraceFlags.SAMPLED) === 0 &&
     sc.spanId !== INVALID_SPANID &&
-    sc.traceId !== INVALID_TRACEID
+    sc.traceId !== INVALID_TRACEID &&
+    !isTailRecording(sc.traceId)
   );
 }
 

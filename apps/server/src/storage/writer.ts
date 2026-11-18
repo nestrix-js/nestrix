@@ -153,11 +153,28 @@ interface Rollup {
 /** A rollup key: minute, service, environment (`null` unset, D-101), then the two names. */
 type RollupKey = [string, string, string | null, string, string];
 
+/**
+ * A weight as a whole number of requests, without bias: `floor(w)`, plus one with probability
+ * `w - floor(w)`. An integral weight (1, or 10 for probability 0.1) is returned as is, so counts
+ * stay exact where they can; the rollup's integer columns and its histogram then agree.
+ */
+export function wholeWeight(
+  weight: number,
+  random: () => number = Math.random,
+): number {
+  if (!Number.isFinite(weight) || weight <= 1) return 1;
+  const whole = Math.floor(weight);
+  const fraction = weight - whole;
+  return fraction > 0 && random() < fraction ? whole + 1 : whole;
+}
+
 function addToRollup(
   map: Map<string, Rollup & { key: RollupKey }>,
   key: RollupKey,
   s: SpanRow,
   error: boolean,
+  /** Requests the span stands for (issue #30); 1 for the class rollup. */
+  weight = 1,
 ): void {
   const k = JSON.stringify(key);
   let r = map.get(k);
@@ -174,12 +191,12 @@ function addToRollup(
   }
   const ms =
     Number.isFinite(s.durationMs) && s.durationMs > 0 ? s.durationMs : 0;
-  r.count++;
-  if (error) r.errors++;
-  r.totalMs += ms;
+  r.count += weight;
+  if (error) r.errors += weight;
+  r.totalMs += ms * weight;
   if (ms > r.maxMs) r.maxMs = ms;
   const b = bucketIndex(ms);
-  r.hist[b] = (r.hist[b] ?? 0) + 1;
+  r.hist[b] = (r.hist[b] ?? 0) + weight;
 }
 
 /**
@@ -794,6 +811,9 @@ export class PostgresIngestSink implements IngestSink {
           ],
           s,
           s.isRouteError,
+          // Issue #30: a sampled request stands for 1 / p requests. Class rollups are not
+          // weighted: the probability is on the local root only.
+          wholeWeight(s.routeWeight),
         );
       }
       if (s.className !== null && s.methodName !== null) {

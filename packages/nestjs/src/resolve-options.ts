@@ -68,6 +68,11 @@ export interface ResolvedOptions {
     Record<string, string | number | boolean>
   >;
   readonly sampleRate: number;
+  /** D-100. Defaults applied: `keepErrors` true, `keepSlowerThanMs` false. */
+  readonly sampling: {
+    readonly keepErrors: boolean;
+    readonly keepSlowerThanMs: number | false;
+  };
   /** D-78. An integer of at least 100, or `false` (off). Default 10,000. */
   readonly maxSpansPerTrace: number | false;
   readonly export: {
@@ -769,6 +774,49 @@ export function resolveIntegrations(
   });
 }
 
+const DECIMAL = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
+
+/**
+ * `NESTRIX_SAMPLE_RATE` (issue #43): a decimal from 0 to 1, read only when `sampleRate` is not set
+ * in code; blank or unset is `undefined`. Anything else is a startup error naming the variable, as
+ * an invalid `sampleRate` is: a typo must not silently export everything (D-69's reason).
+ */
+function sampleRateFromEnv(env: Environment): number | undefined {
+  const raw = blank(env.NESTRIX_SAMPLE_RATE);
+  if (raw === undefined) return undefined;
+  const value = DECIMAL.test(raw) ? Number(raw) : Number.NaN;
+  if (!(value >= 0 && value <= 1)) {
+    invalid(
+      `NESTRIX_SAMPLE_RATE must be a number from 0 to 1 (for example 0.1), got ${JSON.stringify(raw.slice(0, 40))}`,
+    );
+  }
+  return value;
+}
+
+/** `sampling` (D-100) with defaults applied. Throws on an invalid value. */
+function resolveSampling(
+  option: NestrixModuleOptions["sampling"],
+): ResolvedOptions["sampling"] {
+  if (option !== undefined && (option === null || typeof option !== "object")) {
+    invalid("sampling must be an object");
+  }
+  const keepErrors = option?.keepErrors ?? true;
+  checkBoolean("sampling.keepErrors", keepErrors);
+  const slow: unknown = option?.keepSlowerThanMs ?? false;
+  if (
+    slow !== false &&
+    (typeof slow !== "number" || !Number.isFinite(slow) || slow <= 0)
+  ) {
+    invalid(
+      `sampling.keepSlowerThanMs must be false or a positive number of milliseconds, got ${String(slow)}`,
+    );
+  }
+  return Object.freeze({
+    keepErrors,
+    keepSlowerThanMs: slow as number | false,
+  });
+}
+
 /**
  * Pure: options and an environment object in, fully defaulted and frozen options out.
  * Throws on invalid options; that is a startup error, not a request-path failure.
@@ -780,7 +828,7 @@ export function resolveOptions(
 ): ResolvedOptions {
   const o = options ?? {};
 
-  const sampleRate = o.sampleRate ?? 1;
+  const sampleRate = o.sampleRate ?? sampleRateFromEnv(env) ?? 1;
   if (
     typeof sampleRate !== "number" ||
     Number.isNaN(sampleRate) ||
@@ -789,6 +837,7 @@ export function resolveOptions(
   ) {
     invalid(`sampleRate must be between 0 and 1, got ${String(sampleRate)}`);
   }
+  const sampling = resolveSampling(o.sampling);
 
   const maxSpansPerTrace: unknown =
     o.maxSpansPerTrace ?? DEFAULT_MAX_SPANS_PER_TRACE;
@@ -837,6 +886,7 @@ export function resolveOptions(
     contextPropagation: resolveContextPropagation(o.contextPropagation),
     resourceAttributes: Object.freeze({ ...o.resourceAttributes }),
     sampleRate,
+    sampling,
     maxSpansPerTrace: maxSpansPerTrace as number | false,
     export: Object.freeze({
       otlp: resolveOtlp(o, env),

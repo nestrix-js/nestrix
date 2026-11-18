@@ -24,6 +24,8 @@
  * - route rollup (`route_minutes`): every server span with `http.request.method`, keyed by
  *   method, route (`(unmatched)` without `http.route`) and the minute of its end; an error there
  *   is a status error or a 5xx (the embedded route statistics' definition: 5xx or thrown handler).
+ *   A span carrying `nestrix.sampling.probability` p counts as `1 / p` requests (issue #30,
+ *   D-100), rounded to a whole number per span without bias (`writer.ts`); others count once.
  * - class rollup (`class_minutes`): every span with string `nestrix.class` and `nestrix.method`.
  * - environment (D-101): `environmentOf` of the resource (the receiver has already replaced it with
  *   the ingest key's environment when the key is bound to one); `null` is unset.
@@ -249,6 +251,25 @@ function stringAttr(a: IngestAttributes, key: string): string | null {
   return typeof v === "string" && v !== "" ? v : null;
 }
 
+/** The keep probability Nestrix writes on each local root it exports (issue #30, D-100). */
+export const ATTR_SAMPLING_PROBABILITY = "nestrix.sampling.probability";
+/** Smallest probability honoured: a weight above 1,000,000 per span is not credible. */
+const MIN_SAMPLING_PROBABILITY = 1e-6;
+
+/**
+ * How many requests one stored server span stands for in the route rollup: `1 / p` for a span
+ * that carries a numeric `nestrix.sampling.probability` p in (0, 1] (clamped at 1e-6), else 1.
+ * A span from a host-owned sampler, from another SDK, or with a remote parent carries none: its
+ * rate is unknown here and it counts once, as before.
+ */
+export function samplingWeightOf(a: IngestAttributes): number {
+  const p = a[ATTR_SAMPLING_PROBABILITY];
+  if (typeof p !== "number" || !Number.isFinite(p) || p <= 0 || p > 1) {
+    return 1;
+  }
+  return 1 / Math.max(p, MIN_SAMPLING_PROBABILITY);
+}
+
 export function statusCodeOf(a: IngestAttributes): number | null {
   const v = a["http.response.status_code"];
   const n =
@@ -324,6 +345,8 @@ export interface SpanRow {
   isRouteSpan: boolean;
   /** Error for the route rollup: status error or 5xx. */
   isRouteError: boolean;
+  /** Requests this span stands for in the route rollup (`samplingWeightOf`; 1 when unknown). */
+  routeWeight: number;
 }
 
 /**
@@ -420,6 +443,7 @@ export function deriveSpan(
       component !== null && CLASS_KINDS.has(component) ? component : "provider",
     isRouteSpan: span.kind === "server" && httpMethod !== null,
     isRouteError: isError || (httpStatus !== null && httpStatus >= 500),
+    routeWeight: samplingWeightOf(attributes),
   };
 }
 

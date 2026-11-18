@@ -40,7 +40,11 @@ import { NESTRIX_OPTIONS } from "../src/tokens.js";
 
 export const DASHBOARD_PATH = "/_nestrix";
 
-/** Counts what the handlers saw, including whether the active (Nestrix) span was recording. */
+/**
+ * Counts what the handlers saw, including whether the active (Nestrix) span was sampled by the
+ * head decision (its trace flags). Below rate 1 an unsampled span is still recording for the tail
+ * decision (D-100), so `isRecording()` no longer tells the two apart.
+ */
 export const seen = { handled: 0, recording: 0 };
 
 @Controller("s")
@@ -48,14 +52,18 @@ export class StatsController {
   @Get("ok/:id")
   ok(@Param("id") id: string): { id: string } {
     seen.handled++;
-    if (trace.getActiveSpan()?.isRecording() === true) seen.recording++;
+    if (((trace.getActiveSpan()?.spanContext().traceFlags ?? 0) & 1) === 1) {
+      seen.recording++;
+    }
     return { id };
   }
 
   @Get("boom")
   boom(): never {
     seen.handled++;
-    if (trace.getActiveSpan()?.isRecording() === true) seen.recording++;
+    if (((trace.getActiveSpan()?.spanContext().traceFlags ?? 0) & 1) === 1) {
+      seen.recording++;
+    }
     throw new Error("boom");
   }
 
