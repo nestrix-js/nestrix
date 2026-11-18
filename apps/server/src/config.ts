@@ -4,6 +4,10 @@
  * process can exit with one clear message. Secret values are never echoed in messages.
  */
 import { randomBytes } from "node:crypto";
+import {
+  parseTrustedProxies,
+  type TrustedProxies,
+} from "./auth/client-address.js";
 
 export const MIB = 1024 * 1024;
 
@@ -75,6 +79,11 @@ export interface ServerConfig {
   /** `NESTRIX_MAX_SPANS_PER_TRACE` (D-78): spans stored per trace; later ones are counted, not stored. */
   readonly maxSpansPerTrace: number;
   readonly alerts: AlertsConfig;
+  /**
+   * `NESTRIX_TRUSTED_PROXIES` (issue #31, D-96): reverse proxies whose `X-Forwarded-For` names the
+   * client the login limiter keys on. `undefined`: none, the socket peer is the client.
+   */
+  readonly trustedProxies: TrustedProxies | undefined;
 }
 
 export type ConfigResult =
@@ -272,6 +281,11 @@ export function loadConfig(env: Env = process.env): ConfigResult {
     }
   }
 
+  // Issue #31, D-96: only these peers may name the client in X-Forwarded-For.
+  const trusted = parseTrustedProxies(present(env, "NESTRIX_TRUSTED_PROXIES"));
+  if (!trusted.ok) errors.push(...trusted.errors);
+  const trustedProxies = trusted.ok ? trusted.value : undefined;
+
   if (errors.length > 0) return { ok: false, errors };
 
   return {
@@ -297,6 +311,7 @@ export function loadConfig(env: Env = process.env): ConfigResult {
         allowedHosts: Object.freeze(allowedHosts),
         publicUrl,
       }),
+      trustedProxies,
     }),
   };
 }

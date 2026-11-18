@@ -1,13 +1,19 @@
 /**
- * The admin session: a stateless, HMAC-signed cookie value with an expiry, and a bounded list of
- * sessions ended by `/logout` (backlog P5-04).
+ * The admin session: a stateless, HMAC-signed cookie value with an expiry, and the sessions ended
+ * by `/logout` (backlog P5-04; issue #31, D-96).
  *
  * Token: `v1.<expiresAtSeconds>.<nonce>.<mac>`, where `nonce` is 16 random bytes and `mac` is
  * HMAC-SHA256 over `v1.<expiresAtSeconds>.<nonce>`, both base64url. The key is derived from the
- * session secret, a digest of the admin password and a random value drawn once per process. So
- * changing the password ends every session, and so does restarting the server: logout
- * revocations live in memory, and a fixed `NESTRIX_SESSION_SECRET` must not bring a signed-out
- * cookie back to life.
+ * session secret and a digest of the admin password only, so every server instance with the same
+ * `NESTRIX_SESSION_SECRET` and password accepts the same cookies, also after a restart; changing
+ * the password ends every session. Without a configured secret a random one is drawn per process
+ * (config.ts), so sessions then end at restart and are not accepted by other instances.
+ *
+ * Logout revocations are kept where every instance sees them: in PostgreSQL
+ * (`session-store.ts`, table `admin_session_revocations`), keyed by the nonce until the session's
+ * expiry. `MemorySessionRevocations` serves the receiver-only test app, which has no database.
+ * Before D-96 a random per-process value was also part of the key; cookies issued by those
+ * versions are refused after the upgrade (sign in once more).
  */
 import {
   createHash,
@@ -32,28 +38,22 @@ export function sessionCookieName(localPort: unknown): string {
     : SESSION_COOKIE;
 }
 
-/** Random per process; part of every session key. */
-export const PROCESS_SALT: Buffer = randomBytes(32);
 /** Absolute lifetime of a session. */
 export const SESSION_TTL_SECONDS = 8 * 60 * 60;
 const VERSION = "v1";
-const KEY_LABEL = "nestrix.server.session.v1";
+// v2 since D-96: the key no longer takes a per-process salt.
+const KEY_LABEL = "nestrix.server.session.v2";
 const TOKEN = /^v1\.(\d{1,12})\.([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43})$/;
 
 export function sha256(value: string | Buffer): Buffer {
   return createHash("sha256").update(value).digest();
 }
 
-/** The HMAC key of sessions for this secret, password and process salt. */
-export function sessionKey(
-  secret: Buffer,
-  password: string,
-  salt: Buffer = PROCESS_SALT,
-): Buffer {
+/** The HMAC key of sessions for this secret and password (the same on every instance). */
+export function sessionKey(secret: Buffer, password: string): Buffer {
   return createHmac("sha256", secret)
     .update(`${KEY_LABEL}\0`)
     .update(sha256(password))
-    .update(salt)
     .digest();
 }
 
@@ -115,8 +115,21 @@ export function verifySession(
 }
 
 /**
+ * Where logout revocations are kept. Both methods reject (throw asynchronously) only when the
+ * store cannot answer; `AdminAuth` then fails closed (D-96).
+ */
+export interface SessionRevocations {
+  /** The nonces among `nonces` whose session was revoked. */
+  revokedAmong(nonces: readonly string[]): Promise<ReadonlySet<string>>;
+  /** Records `session` as revoked until it expires. Idempotent. */
+  revoke(session: VerifiedSession): Promise<void>;
+}
+
+/**
  * Sessions ended by `/logout` before their expiry, kept until they expire. Bounded: past
- * `max` entries the oldest is forgotten (it may then be accepted again until it expires).
+ * `max` entries the oldest is forgotten. The store of `MemorySessionRevocations`, and
+ * `AdminAuth`'s cache of revocations already seen (a revocation never ends before its session,
+ * so a cached one is never stale; forgetting one only means asking the store again).
  */
 export class RevokedSessions {
   static readonly MAX = 10_000;
@@ -147,5 +160,23 @@ export class RevokedSessions {
     for (const [nonce, exp] of this.revoked) {
       if (exp <= nowSeconds) this.revoked.delete(nonce);
     }
+  }
+}
+
+/** Revocations held in this process only: the receiver-only test app, which has no database. */
+export class MemorySessionRevocations implements SessionRevocations {
+  readonly revoked = new RevokedSessions();
+
+  constructor(
+    private readonly nowSeconds: () => number = () =>
+      Math.floor(Date.now() / 1000),
+  ) {}
+
+  async revokedAmong(nonces: readonly string[]): Promise<ReadonlySet<string>> {
+    return new Set(nonces.filter((n) => this.revoked.has(n)));
+  }
+
+  async revoke(session: VerifiedSession): Promise<void> {
+    this.revoked.revoke(session, this.nowSeconds());
   }
 }

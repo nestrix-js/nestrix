@@ -26,6 +26,16 @@
  * is decided first and never looks at API tokens. Refused tokens count toward the login rate
  * limiter's global failure budget (within a per-client allowance), and while either is spent
  * further misses answer 429; valid tokens are never refused by it.
+ *
+ * Several instances (issue #31, D-96): a session cookie is signed with a key from
+ * `NESTRIX_SESSION_SECRET` and the password only, so any instance with both accepts it, also after
+ * a restart. Logout revocations, the per-client `/login` window and the global failure budget are
+ * kept in PostgreSQL (`SessionStoreModule`, session-store.ts) and read on every check, so a logout
+ * on one instance is refused by the next request on any other. When the store cannot answer the
+ * server fails closed: a request with a validly signed cookie answers 503 (not 401: signing in
+ * again would not help), `POST /login` answers 503 without checking the password, `/logout` answers
+ * 503 and keeps the cookie, a token miss answers 503. The limiters key on `clientOf`: the socket
+ * peer, or the `X-Forwarded-For` client when the peer is a `NESTRIX_TRUSTED_PROXIES` range.
  */
 
 import { timingSafeEqual } from "node:crypto";
@@ -39,6 +49,7 @@ import {
   isApiTokenShape,
   type VerifiedApiToken,
 } from "./api-tokens.js";
+import { clientAddressOf } from "./client-address.js";
 import {
   apiErrorBody,
   getCookieValues,
@@ -55,7 +66,12 @@ import {
   UI_CSP,
   writeRaw,
 } from "./http.js";
-import { clientKey, LoginRateLimiter } from "./login-rate-limit.js";
+import {
+  clientKey,
+  type LoginLimiter,
+  type LoginRateDecision,
+  LoginRateLimiter,
+} from "./login-rate-limit.js";
 import {
   LOGIN_CSS,
   LOGIN_PATH,
@@ -65,9 +81,10 @@ import {
   passwordNotSetPage,
 } from "./pages.js";
 import {
-  PROCESS_SALT,
+  MemorySessionRevocations,
   RevokedSessions,
   SESSION_TTL_SECONDS,
+  type SessionRevocations,
   sessionCookieName,
   sessionKey,
   sha256,
@@ -75,6 +92,19 @@ import {
   type VerifiedSession,
   verifySession,
 } from "./session.js";
+
+/**
+ * What `sessionOf` found: a valid, unrevoked session; none; or `unavailable` when the revocation
+ * store could not answer for a validly signed cookie (the request is then refused, D-96).
+ */
+export type SessionLookup =
+  | { readonly status: "valid"; readonly session: VerifiedSession }
+  | { readonly status: "none" }
+  | { readonly status: "unavailable" };
+const NO_SESSION: SessionLookup = Object.freeze({ status: "none" });
+const SESSION_UNAVAILABLE: SessionLookup = Object.freeze({
+  status: "unavailable",
+});
 
 /**
  * What the middleware decided for a request, read by `AdminAuthGuard` and the query guards.
@@ -170,7 +200,7 @@ export function startupMessages(
     );
   } else if (config.sessionSecretGenerated) {
     log.push(
-      "NESTRIX_SESSION_SECRET is not set: a random one is used, so admin sessions end when the server restarts.",
+      "NESTRIX_SESSION_SECRET is not set: a random one is used, so admin sessions end when the server restarts and other server instances do not accept them.",
     );
   }
   return { warn, log };
@@ -181,11 +211,22 @@ export class AdminAuth implements OnModuleInit {
   private readonly logger = new Logger("NestrixAdminAuth");
   private readonly passwordDigest: Buffer | undefined;
   private readonly key: Buffer | undefined;
-  readonly revoked = new RevokedSessions();
+  /**
+   * Where logout revocations live. In-process until `SessionStoreModule` hands over the
+   * PostgreSQL store at start (the server always does; only the receiver-only test app keeps this).
+   */
+  private revocations: SessionRevocations = new MemorySessionRevocations(() =>
+    this.nowSeconds(),
+  );
+  /** Revocations this instance has already seen (never stale: a revocation outlives its session). */
+  readonly revokedSeen = new RevokedSessions();
   /** Set by `TokensModule`; without it every `Bearer nxt_…` request is refused. */
   private tokenVerifier: ApiTokenVerifier | undefined;
-  /** Replaceable in tests. */
-  limiter = new LoginRateLimiter();
+  /**
+   * The `/login` limiter and the global failure budget. In-process until `SessionStoreModule`
+   * hands over the PostgreSQL limiter shared by every instance (D-96). Replaceable in tests.
+   */
+  limiter: LoginLimiter = new LoginRateLimiter();
   /**
    * Per-client allowance of refused API tokens (5 a minute, like `/login`). Only misses are
    * taken from it, so a client's valid token is never counted. Replaceable in tests.
@@ -200,7 +241,7 @@ export class AdminAuth implements OnModuleInit {
     this.key =
       password === undefined
         ? undefined
-        : sessionKey(config.sessionSecret, password, PROCESS_SALT);
+        : sessionKey(config.sessionSecret, password);
   }
 
   onModuleInit(): void {
@@ -222,25 +263,79 @@ export class AdminAuth implements OnModuleInit {
     this.tokenVerifier = verifier;
   }
 
-  /** The valid, unrevoked session among the request's session cookies, if any. Never throws. */
-  sessionOf(req: IncomingMessage): VerifiedSession | undefined {
+  /** Called once by `SessionStoreModule` at start: the stores every instance shares (D-96). */
+  useSharedState(revocations: SessionRevocations, limiter: LoginLimiter): void {
+    this.revocations = revocations;
+    this.limiter = limiter;
+  }
+
+  /** The client address the limiters key on (`NESTRIX_TRUSTED_PROXIES`, D-96). */
+  private clientOf(req: IncomingMessage): string {
+    return clientKey(clientAddressOf(req, this.config.trustedProxies));
+  }
+
+  /**
+   * The validly signed, unexpired sessions among the request's session cookies, without asking
+   * the revocation store; duplicates dropped. Throws only on a fault (callers catch).
+   */
+  private signedSessions(req: IncomingMessage): VerifiedSession[] {
+    const key = this.key;
+    if (key === undefined) return [];
+    const now = this.nowSeconds();
+    const values = getCookieValues(
+      req.headers.cookie,
+      sessionCookieName(req.socket?.localPort),
+    );
+    const found = new Map<string, VerifiedSession>();
+    for (const value of values.slice(0, MAX_SESSION_COOKIES)) {
+      const session = verifySession(key, value, now);
+      if (session && !found.has(session.nonce))
+        found.set(session.nonce, session);
+    }
+    return [...found.values()];
+  }
+
+  /**
+   * The valid, unrevoked session among the request's session cookies, if any. A cookie that fails
+   * its signature or expiry never reaches the store, so requests without a valid cookie cost no
+   * query. Every validly signed cookie is checked against the shared store on every request (no
+   * cache of "not revoked", so a logout on any instance is honoured by the next request here);
+   * revocations already seen are remembered. A store failure answers `unavailable` (fail closed).
+   * Never rejects.
+   */
+  async sessionOf(req: IncomingMessage): Promise<SessionLookup> {
+    let candidates: VerifiedSession[];
     try {
-      const key = this.key;
-      if (key === undefined) return undefined;
+      candidates = this.signedSessions(req).filter(
+        (s) => !this.revokedSeen.has(s.nonce),
+      );
+    } catch {
+      return NO_SESSION;
+    }
+    if (candidates.length === 0) return NO_SESSION;
+    let revoked: ReadonlySet<string>;
+    try {
+      revoked = await this.revocations.revokedAmong(
+        candidates.map((s) => s.nonce),
+      );
+    } catch {
+      this.throttledWarn(
+        "admin session check failed (database unavailable?): requests with a session answer 503",
+      );
+      return SESSION_UNAVAILABLE;
+    }
+    try {
       const now = this.nowSeconds();
       let found: VerifiedSession | undefined;
-      const values = getCookieValues(
-        req.headers.cookie,
-        sessionCookieName(req.socket?.localPort),
-      );
-      for (const value of values.slice(0, MAX_SESSION_COOKIES)) {
-        const session = verifySession(key, value, now);
-        if (found === undefined && session && !this.revoked.has(session.nonce))
-          found = session;
+      for (const session of candidates) {
+        if (revoked.has(session.nonce)) this.revokedSeen.revoke(session, now);
+        else found ??= session;
       }
-      return found;
+      return found === undefined
+        ? NO_SESSION
+        : { status: "valid", session: found };
     } catch {
-      return undefined;
+      return NO_SESSION;
     }
   }
 
@@ -336,10 +431,37 @@ export class AdminAuth implements OnModuleInit {
       this.refuse(res, api, 403, "forbidden", "Origin not allowed.");
       return false;
     }
-    if (this.sessionOf(req) !== undefined) {
-      stamp(req, "session");
-      return true;
-    }
+    return this.sessionOf(req).then((lookup) => {
+      if (lookup.status === "valid") {
+        stamp(req, "session");
+        return true;
+      }
+      if (lookup.status === "unavailable") {
+        writeRaw(res, {
+          status: 503,
+          csp: UI_CSP,
+          contentType: api ? JSON_TYPE : TEXT_TYPE,
+          headers: { "retry-after": "5" },
+          body: api
+            ? apiErrorBody(
+                "unavailable",
+                "The session could not be checked. Try again later.",
+              )
+            : "The session could not be checked. Try again later.",
+        });
+        return false;
+      }
+      this.unauthenticated(res, api, method);
+      return false;
+    });
+  }
+
+  /** No valid session: 401 for the API and writes, `303` to `/login` for a page. */
+  private unauthenticated(
+    res: ServerResponse,
+    api: boolean,
+    method: string,
+  ): void {
     if (api) {
       writeRaw(res, {
         status: 401,
@@ -362,7 +484,6 @@ export class AdminAuth implements OnModuleInit {
         body: "Sign in at /login.",
       });
     }
-    return false;
   }
 
   private passwordNotSet(res: ServerResponse, api: boolean): void {
@@ -386,11 +507,36 @@ export class AdminAuth implements OnModuleInit {
   /**
    * A token that is not valid: over this client's allowance of misses or with the global failure
    * budget spent -> 429 with `Retry-After` (neither counts again); otherwise 401, counted toward
-   * the global budget. Valid tokens never reach here, so a lockout cannot refuse one.
+   * the global budget. Valid tokens never reach here, so a lockout cannot refuse one. The
+   * client allowance is per instance; the global budget is the shared one (D-96). When the budget
+   * cannot be read or charged: 503, nothing else said. Always resolves `false`; never rejects.
    */
-  private tokenMiss(req: IncomingMessage, res: ServerResponse, api: boolean) {
-    const client = this.tokenLimiter.take(clientKey(req.socket?.remoteAddress));
-    const decision = client.ok ? this.limiter.checkFailureBudget() : client;
+  private async tokenMiss(
+    req: IncomingMessage,
+    res: ServerResponse,
+    api: boolean,
+  ): Promise<false> {
+    let decision: LoginRateDecision;
+    try {
+      const client = this.tokenLimiter.take(this.clientOf(req));
+      decision = client.ok ? await this.limiter.checkFailureBudget() : client;
+      if (decision.ok) await this.limiter.recordFailure();
+    } catch {
+      this.throttledWarn(
+        "login rate limit unavailable (database unavailable?)",
+      );
+      writeRaw(res, {
+        status: 503,
+        csp: UI_CSP,
+        contentType: JSON_TYPE,
+        headers: { "retry-after": "5" },
+        body: apiErrorBody(
+          "unavailable",
+          "The token could not be checked. Try again later.",
+        ),
+      });
+      return false;
+    }
     if (!decision.ok) {
       writeRaw(res, {
         status: 429,
@@ -402,10 +548,10 @@ export class AdminAuth implements OnModuleInit {
           "Too many failed sign-in or token attempts. Try again later.",
         ),
       });
-      return;
+      return false;
     }
-    this.limiter.recordFailure();
     this.refuseToken(res, api, TOKEN_REFUSED);
+    return false;
   }
 
   /**
@@ -440,8 +586,7 @@ export class AdminAuth implements OnModuleInit {
       !isApiTokenShape(bearer.value) ||
       verifier === undefined
     ) {
-      this.tokenMiss(req, res, api);
-      return false;
+      return this.tokenMiss(req, res, api);
     }
     let lookup: Promise<VerifiedApiToken | undefined>;
     try {
@@ -451,10 +596,7 @@ export class AdminAuth implements OnModuleInit {
     }
     return lookup.then(
       (found) => {
-        if (found === undefined) {
-          this.tokenMiss(req, res, api);
-          return false;
-        }
+        if (found === undefined) return this.tokenMiss(req, res, api);
         stamp(req, "token");
         (req as unknown as Record<symbol, string>)[AUTH_TOKEN_ID] = found.id;
         return true;
@@ -557,14 +699,17 @@ export class AdminAuth implements OnModuleInit {
     });
   }
 
-  /** `GET /login`: the form, the 503 page, or a redirect to `/` when already signed in. */
-  showLogin(req: IncomingMessage, res: ServerResponse): void {
+  /**
+   * `GET /login`: the form, the 503 page, or a redirect to `/` when already signed in (a session
+   * that cannot be checked counts as none: the form is shown). Never rejects.
+   */
+  async showLogin(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
       if (!this.passwordConfigured) {
         this.page(res, 503, passwordNotSetPage());
         return;
       }
-      if (this.sessionOf(req) !== undefined) {
+      if ((await this.sessionOf(req)).status === "valid") {
         writeRaw(res, {
           status: 303,
           csp: LOGIN_CSP,
@@ -586,9 +731,11 @@ export class AdminAuth implements OnModuleInit {
   /**
    * `POST /login`. Order: password configured (503) → `Origin` matches `Host` (403) → rate limit
    * (429) → password, hashed on both sides and compared with `timingSafeEqual` (401) → session
-   * cookie and `303 Location: /`. The redirect target is fixed: no open redirect.
+   * cookie and `303 Location: /`. The redirect target is fixed: no open redirect. The limiter keys
+   * on `clientOf` (trusted proxies, D-96); when it cannot answer or a failure cannot be counted,
+   * 503 with the "unavailable" notice and no cookie (fail closed). Never rejects.
    */
-  login(req: IncomingMessage, res: ServerResponse): void {
+  async login(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
       const digest = this.passwordDigest;
       const key = this.key;
@@ -600,7 +747,13 @@ export class AdminAuth implements OnModuleInit {
         this.loginForm(res, 403, "bad-origin");
         return;
       }
-      const rate = this.limiter.take(clientKey(req.socket?.remoteAddress));
+      let rate: LoginRateDecision;
+      try {
+        rate = await this.limiter.take(this.clientOf(req));
+      } catch {
+        this.loginUnavailable(res);
+        return;
+      }
       if (!rate.ok) {
         this.loginForm(res, 429, "rate-limited", {
           "retry-after": String(rate.retryAfterSeconds),
@@ -615,7 +768,12 @@ export class AdminAuth implements OnModuleInit {
       const given = sha256(typeof candidate === "string" ? candidate : "");
       const matches = timingSafeEqual(given, digest);
       if (!matches || typeof candidate !== "string") {
-        this.limiter.recordFailure();
+        try {
+          await this.limiter.recordFailure();
+        } catch {
+          this.loginUnavailable(res);
+          return;
+        }
         this.loginForm(res, 401, "wrong-password");
         return;
       }
@@ -639,12 +797,21 @@ export class AdminAuth implements OnModuleInit {
     }
   }
 
+  private loginUnavailable(res: ServerResponse): void {
+    this.throttledWarn(
+      "login rate limit unavailable (database unavailable?): POST /login answers 503",
+    );
+    this.loginForm(res, 503, "unavailable", { "retry-after": "5" });
+  }
+
   /**
    * `POST /logout`: `Origin` must match (403 otherwise, so another page cannot sign the admin
-   * out); the session, if valid, is revoked until it expires; the cookie is cleared; `303` to
-   * `/login`.
+   * out); every validly signed session cookie of the request is revoked in the shared store until
+   * it expires (already revoked ones again, harmlessly); the cookie is cleared; `303` to `/login`.
+   * When the revocation cannot be stored: 503 and the cookie is **kept**, so the admin can retry
+   * rather than believe a still-valid cookie is dead (D-96). Never rejects.
    */
-  logout(req: IncomingMessage, res: ServerResponse): void {
+  async logout(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
       if (!originMatchesHost(req)) {
         writeRaw(res, {
@@ -655,8 +822,30 @@ export class AdminAuth implements OnModuleInit {
         });
         return;
       }
-      const session = this.sessionOf(req);
-      if (session) this.revoked.revoke(session, this.nowSeconds());
+      let sessions: VerifiedSession[];
+      try {
+        sessions = this.signedSessions(req);
+      } catch {
+        sessions = [];
+      }
+      try {
+        for (const session of sessions) {
+          await this.revocations.revoke(session);
+          this.revokedSeen.revoke(session, this.nowSeconds());
+        }
+      } catch {
+        this.throttledWarn(
+          "sign-out could not be recorded (database unavailable?): POST /logout answers 503",
+        );
+        writeRaw(res, {
+          status: 503,
+          csp: LOGIN_CSP,
+          contentType: TEXT_TYPE,
+          headers: { "retry-after": "5" },
+          body: "Signing out could not be recorded: the server cannot reach its database. Try again shortly.",
+        });
+        return;
+      }
       writeRaw(res, {
         status: 303,
         csp: LOGIN_CSP,

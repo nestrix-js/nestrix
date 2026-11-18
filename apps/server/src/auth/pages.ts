@@ -68,11 +68,14 @@ export type LoginNotice =
   | "wrong-password"
   | "rate-limited"
   | "bad-origin"
+  | "unavailable"
   | undefined;
 
 const NOTICES: Readonly<Record<Exclude<LoginNotice, undefined>, string>> = {
   "wrong-password": "Incorrect password.",
   "rate-limited": "Too many attempts. Wait a minute and try again.",
+  unavailable:
+    "Signing in is unavailable: the server cannot reach its database. Try again shortly.",
   "bad-origin":
     "This sign-in request did not come from this server's own page. Reload the page and try again.",
 };

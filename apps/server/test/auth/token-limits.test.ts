@@ -101,7 +101,7 @@ describe("token failure limits", () => {
     expect(
       (auth.limiter as unknown as { failures: unknown[] }).failures,
     ).toHaveLength(5);
-    expect(auth.limiter.checkFailureBudget().ok).toBe(true);
+    expect((await auth.limiter.checkFailureBudget()).ok).toBe(true);
 
     // Another client can still sign in...
     const other = await run("203.0.113.2", login(ADMIN_PW));
@@ -125,7 +125,7 @@ describe("token failure limits", () => {
         (await run(`198.51.100.${i}`, { ...read, token: bad() })).status,
       ).toBe(401);
     }
-    expect(auth.limiter.checkFailureBudget().ok).toBe(false);
+    expect((await auth.limiter.checkFailureBudget()).ok).toBe(false);
     // The lockout does not refuse a valid token...
     expect((await run("198.51.100.50", { ...read, token: good })).passed).toBe(
       true,

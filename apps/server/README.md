@@ -75,7 +75,8 @@ Read once from the environment at start and validated. A bad value exits with on
 | `NESTRIX_INGEST_KEYS` | none | Comma-separated keys, each at least 32 characters. |
 | `NESTRIX_INGEST_AUTH` | unset | Only `none` is accepted: an explicit opt-out of ingest authentication, logged as a warning on every start. Setting it together with `NESTRIX_INGEST_KEYS` is an error. |
 | `NESTRIX_ADMIN_PASSWORD` | none | At least 12 characters. Without it the UI, `/login` and the query API answer 503 and a log line says why; ingest still works. |
-| `NESTRIX_SESSION_SECRET` | random per start | At least 32 characters. Part of the session signing key; see "Admin login" for what it does and does not do. |
+| `NESTRIX_SESSION_SECRET` | random per start | At least 32 characters. With the admin password, the session signing key. Set it (the same value on every instance) so sessions survive restarts and work on every instance; unset, sessions end at restart and work only on the instance that issued them. See "Admin login". |
+| `NESTRIX_TRUSTED_PROXIES` | unset | Comma-separated IPv4 and IPv6 CIDRs or single addresses (`10.0.0.0/8, 2001:db8::/32, 192.168.1.7`) of your reverse proxies or load balancers. Only a connection from one of them may name the client in `X-Forwarded-For`, which the login limit then keys on. An invalid entry is a configuration error. See "Admin login". |
 | `NESTRIX_RETENTION_DAYS` | `7` | Whole number, 1 to 3650. |
 | `NESTRIX_MAX_SPANS_PER_TRACE` | `50000` | Whole number, 1 000 to 10 000 000. Spans stored per trace; see "Span limit per trace". |
 | `NESTRIX_MAX_CONNECTIONS` | `1024` | Whole number, 1 to 1 000 000. Node's `server.maxConnections`. |
@@ -87,11 +88,14 @@ Not configurable by environment: the ingest limits and rate limit below, and the
 ## Admin login
 
 - `POST /login` checks the password in constant time and sets an `HttpOnly`, `SameSite=Strict` cookie, valid for 8 hours from sign-in (absolute, not extended). The cookie is `Secure` unless the request is plain HTTP to a loopback host.
-- **A restart signs everyone out**, even with a fixed `NESTRIX_SESSION_SECRET`, because sign-out revocations are held in memory and a per-process random value is part of the signing key. Changing the admin password also ends every session. Plan on signing in again after an upgrade.
-- The cookie name includes the port (`nestrix_admin_<port>`), because browsers share cookies across ports on one host.
-- Rate limits: 5 login attempts per minute per client address (IPv6 by /64), counted on every attempt, and a global budget of 60 failed logins a minute across all clients; once it is spent every `POST /login` answers 429 until the oldest failure leaves the minute.
+- **Sessions survive restarts and work on every instance** when `NESTRIX_SESSION_SECRET` is set: the cookie is signed with a key derived from that secret and the admin password only. Without the variable a random secret is drawn at each start, so a restart signs everyone out and a cookie works only on the instance that issued it (a log line at start says so). Changing the admin password ends every session.
+- **Sign-out** (`POST /logout`) is stored in PostgreSQL until the session would have expired, and every request with a session cookie is checked against it, so a sign-out on one instance is refused by the next request on any other, with no delay. Requests without a validly signed cookie never reach the database.
+- **If the database cannot answer**, the server refuses rather than guesses: a request with a session cookie answers 503 (`Retry-After: 5`), `POST /login` answers 503 without checking the password, and `POST /logout` answers 503 and keeps the cookie, so you can retry instead of believing a cookie is dead while it still works.
+- The cookie name includes the port the server listens on (`nestrix_admin_<port>`), because browsers share cookies across ports on one host.
+- Rate limits: 5 login attempts per minute per client address (IPv6 by /64), counted on every attempt, and a global budget of 60 failed logins a minute across all clients; once it is spent every `POST /login` answers 429 until the oldest failure leaves the minute. Both are kept in PostgreSQL and shared by every instance, using the database's clock. Concurrent attempts from one client are counted exactly; concurrent failures across clients may overshoot the global budget by the number in flight.
+- **Client address.** By default the limit keys on the connection's address and `X-Forwarded-For` is ignored, so behind a proxy all visitors share one limit. Set `NESTRIX_TRUSTED_PROXIES` to your proxies' addresses to key on the real client: only when the connection comes from one of them, `X-Forwarded-For` is read from right to left (every line, in order), trusted proxies are skipped, and the first address that is not one of them is the client. An entry that is not an IP address stops the walk at the last trusted hop. `Forwarded` and `X-Real-IP` are not read. List only proxies that overwrite or append to `X-Forwarded-For`: a trusted proxy that passes on a client's header unchanged lets that client choose its key (the global budget still applies). Trusting everything (`0.0.0.0/0, ::/0`) lets any client pick its key.
 - Every request except the ingest routes (`/v1/traces`, `/v1/logs`, `/v1/nestrix/check-in`, `/v1/nestrix/profiles/…`), `/login` and `/logout` needs a session, including paths added later; the query API's read routes also accept an API token (below). A state-changing request needs a same-origin `Origin` header. The API never emits CORS headers, so a browser page on another origin cannot read it.
-- **Behind a reverse proxy:** pass the `Host` header through (`proxy_set_header Host $host;` in nginx), or the `Origin` check fails and login answers 403. Serve it over HTTPS: on a non-loopback host the cookie is `Secure`, so a browser will not send it over plain HTTP. The limiter keys on the connection's address and never trusts `X-Forwarded-For`, so behind a proxy all visitors share one login limit.
+- **Behind a reverse proxy:** pass the `Host` header through (`proxy_set_header Host $host;` in nginx), or the `Origin` check fails and login answers 403. Serve it over HTTPS: on a non-loopback host the cookie is `Secure`, so a browser will not send it over plain HTTP. Set `NESTRIX_TRUSTED_PROXIES` to the proxy's address so each visitor gets its own login limit (above).
 
 ## API tokens
 
@@ -102,7 +106,7 @@ Read-only, revocable tokens let tools such as the Nestrix MCP server (`@nestrix-
 - **Use:** `Authorization: Bearer nxt_...`. Never in a query string or a cookie; those are ignored.
 - **What a token reads:** `GET` and `HEAD` on every read route of the query API: `/api/v1/meta`, `/api/v1/traces` (and `/traces/timeline`), `/api/v1/trace` (and `/trace/logs`), `/api/v1/errors` (and `/errors/groups`), `/api/v1/routes` (and `/routes/histogram`, `/routes/compare`), `/api/v1/classes`, `/api/v1/queries`, `/api/v1/map`, `/api/v1/dependencies`, and the remote-profiling reads `/api/v1/instances`, `/api/v1/remote-profiles` (and `/:id`, `/:id/download`). Nothing else: a request with a token on the dashboard, `/login`, `/logout`, the token routes, alerts or SLOs (reads included: alert rules hold webhook URLs) or any write, starting a remote capture included, answers 401, even if it also carries a session cookie. The ingest routes (`/v1/traces`, `/v1/logs`, `/v1/nestrix/…`) take only ingest keys; an API token is not an ingest key and an ingest key is not an API token.
 - **Revocation is immediate:** every request looks the token up in the database, so the next request after a revoke is refused.
-- **Failures share the login's budget, within a per-client allowance:** a refused token counts toward the global budget of 60 failed logins a minute, but each client (by socket address) may count only 5 refused tokens a minute; beyond that its bad tokens answer 429 with `Retry-After` and are not counted. While the global budget is spent, further bad tokens answer 429 too, as `POST /login` does. A valid token is checked first and is never refused by either limit, so one client guessing tokens cannot lock out the others' tokens.
+- **Failures share the login's budget, within a per-client allowance:** a refused token counts toward the global budget of 60 failed logins a minute, but each client (by client address, as for the login limit) may count only 5 refused tokens a minute on each server instance (this allowance is kept per instance; the global budget is shared); beyond that its bad tokens answer 429 with `Retry-After` and are not counted. While the global budget is spent, further bad tokens answer 429 too, as `POST /login` does. A valid token is checked first and is never refused by either limit, so one client guessing tokens cannot lock out the others' tokens.
 - Tokens work only while `NESTRIX_ADMIN_PASSWORD` is set (otherwise the API answers 503). `last_used_at` is updated at most once a minute. Tokens are never logged.
 - Only send tokens over HTTPS: on plain HTTP they cross the network in clear text.
 
@@ -241,7 +245,52 @@ Service level objectives are managed on the dashboard's **SLOs** page or through
 
 ## Upgrading
 
-Pull or rebuild the image and restart. Migrations are applied at start, in order, under a PostgreSQL advisory lock, so several instances starting together are safe; each runs in a transaction, and a migration file changed after it was applied stops the start. There is no downgrade: back up the database before upgrading. A restart signs every admin out (see "Admin login").
+Pull or rebuild the image and restart. Migrations are applied at start, in order, under a PostgreSQL advisory lock, so several instances starting together are safe; each runs in a transaction, and a migration file changed after it was applied stops the start. There is no downgrade: back up the database before upgrading. With `NESTRIX_SESSION_SECRET` set, admins stay signed in across the restart (see "Admin login").
+
+### Upgrading to shared sessions (issue #31)
+
+Migration `0012_admin_sessions.sql` adds the tables for sign-outs and the login limit. Session cookies issued by earlier versions were signed with a per-process key and are refused after the upgrade: every admin signs in once more. From then on a restart keeps sessions, as long as `NESTRIX_SESSION_SECRET` and `NESTRIX_ADMIN_PASSWORD` stay the same.
+
+## Running several instances
+
+Several server instances can share one PostgreSQL database behind a load balancer, for availability and ingest throughput, and be restarted one at a time without signing anyone out. Example with two replicas:
+
+```yaml
+# docker-compose.yml (excerpt): two replicas behind one proxy, one database
+services:
+  nestrix-a: &nestrix
+    image: ghcr.io/nestrix-js/nestrix-server:latest
+    environment:
+      DATABASE_URL: postgres://nestrix:${PGPASSWORD}@postgres:5432/nestrix
+      NESTRIX_INGEST_KEYS: ${NESTRIX_INGEST_KEYS}
+      NESTRIX_ADMIN_PASSWORD: ${NESTRIX_ADMIN_PASSWORD}
+      NESTRIX_SESSION_SECRET: ${NESTRIX_SESSION_SECRET}  # the same on every replica
+      NESTRIX_TRUSTED_PROXIES: 172.30.0.10               # the proxy below
+      PORT: "4318"                                       # the same on every replica
+  nestrix-b: *nestrix
+  proxy:
+    image: nginx:stable
+    networks: { default: { ipv4_address: 172.30.0.10 } }
+    # upstream nestrix { server nestrix-a:4318; server nestrix-b:4318; }
+    # location / { proxy_pass http://nestrix;
+    #   proxy_set_header Host $host;
+    #   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; }
+networks:
+  default: { ipam: { config: [{ subnet: 172.30.0.0/24 }] } }
+```
+
+What every replica needs:
+
+- **The same `NESTRIX_SESSION_SECRET` and `NESTRIX_ADMIN_PASSWORD`.** A session from one replica is then accepted by the others and after restarts. Without a configured secret each replica draws its own, and a request routed to another replica is sent to `/login`.
+- **The same `PORT`.** The session cookie's name carries the port the server listens on, so replicas listening on different ports would each look for a different cookie.
+- **`NESTRIX_TRUSTED_PROXIES` set to the load balancer's address** (or range), so the login limit keys on each visitor; without it every visitor shares the balancer's limit.
+- **Pass `Host` through** (`proxy_set_header Host $host;`), as for one instance.
+
+What is shared and what is not:
+
+- Shared through the database: sign-outs (honoured by every replica on the next request), the login limit per client and the global budget of failed logins, migrations (applied once, under an advisory lock, even when replicas start together), partition maintenance and alert evaluation (one replica at a time, under advisory locks), API tokens and their revocation.
+- Per replica: the ingest limits (rate limit per key, memory budget for requests in flight, connections), and each client's allowance of refused API tokens. With two replicas, an ingest key can send up to twice the per-key rate in all.
+- No sticky sessions are needed for the admin login.
 
 ### Upgrading to 0.2.0: the `spans` index
 
