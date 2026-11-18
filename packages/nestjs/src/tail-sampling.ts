@@ -15,6 +15,7 @@
  * held are counted as dropped.
  */
 import { diagnostics } from "./diagnostics.js";
+import type { TraceLogInput } from "./logs/sink.js";
 
 /** The keep probability of a local root, written on it as it ends (issue #30). */
 export const ATTR_SAMPLING_PROBABILITY = "nestrix.sampling.probability";
@@ -22,12 +23,16 @@ export const ATTR_SAMPLING_PROBABILITY = "nestrix.sampling.probability";
 export const MAX_BUFFERED_SPANS = 10_000;
 /** Traces tracked per map (undecided, decided, sampled traces with a failure). */
 export const MAX_TAIL_TRACES = 10_000;
+/** Log lines held for one undecided trace; more are dropped and counted. */
+export const MAX_HELD_LOGS_PER_TRACE = 50;
 
 interface Pending<S> {
   /** Recorded local roots started and not yet ended. */
   liveRoots: number;
   /** Ended spans waiting for the decision. */
   spans: S[];
+  /** Log lines written under the trace's recording spans, waiting for the decision. */
+  logs: TraceLogInput[];
   /** A span of the trace failed (D-94: status error, unless every exception on it is expected). */
   failed: boolean;
   /** A root that ended said keep: from then on spans are passed on at once. */
@@ -49,6 +54,8 @@ export class TailRegistry<S> {
   private bufferedSpans = 0;
   /** Spans dropped because a bound was reached (not the spans the decision dropped). */
   droppedSpans = 0;
+  /** Log lines dropped because a bound was reached (not the lines the decision dropped). */
+  droppedLogs = 0;
   private readonly maxSpans: number;
   private readonly maxTraces: number;
   private readonly onDropped: (count: number) => void;
@@ -91,6 +98,7 @@ export class TailRegistry<S> {
     this.pending.set(traceId, {
       liveRoots: 1,
       spans: [],
+      logs: [],
       failed: false,
       keep: false,
       rootDecision: undefined,
@@ -132,13 +140,9 @@ export class TailRegistry<S> {
     }
     if (failed) entry.failed = true;
     if (entry.keep) return "pass";
-    if (this.bufferedSpans >= this.maxSpans) {
-      this.evictOldest();
-      // The oldest may have been this trace.
-      if (this.pending.get(traceId) !== entry) {
-        this.countDropped(1);
-        return "drop";
-      }
+    if (!this.makeRoom(traceId, entry)) {
+      this.countDropped(1);
+      return "drop";
     }
     entry.spans.push(span);
     this.bufferedSpans++;
@@ -146,25 +150,75 @@ export class TailRegistry<S> {
   }
 
   /**
-   * A local root of an unsampled trace ended with decision `keep`. Returns the held spans to pass
-   * on (kept) or drop (empty when dropped). When its last live root ended, the trace is decided.
-   * `undefined` when the trace is not tracked (evicted): the root is then dropped too.
+   * A log line was written under a recording span of an unsampled trace. `held`: kept until the
+   * decision ({@link rootEnded} hands it back when the trace is kept); `pass`: the trace is kept,
+   * give it to the store now; `drop`: the trace was dropped or evicted, or a bound was reached;
+   * `unknown`: the registry does not track the trace.
    */
-  rootEnded(traceId: string, keep: boolean): S[] | undefined {
+  holdLog(
+    traceId: string,
+    log: TraceLogInput,
+  ): "held" | "pass" | "drop" | "unknown" {
+    const entry = this.pending.get(traceId);
+    if (entry === undefined) {
+      const decision = this.decided.get(traceId);
+      if (decision === undefined) return "unknown";
+      return decision ? "pass" : "drop";
+    }
+    if (entry.keep) return "pass";
+    if (
+      entry.logs.length >= MAX_HELD_LOGS_PER_TRACE ||
+      !this.makeRoom(traceId, entry)
+    ) {
+      this.countDroppedLogs(1);
+      return "drop";
+    }
+    entry.logs.push(log);
+    this.bufferedSpans++;
+    return "held";
+  }
+
+  /**
+   * Makes room for one more held item (span or log line) of `entry`: evicts the oldest undecided
+   * traces that hold something until the total is under the bound. False when `entry` itself was
+   * evicted on the way.
+   */
+  private makeRoom(traceId: string, entry: Pending<S>): boolean {
+    while (this.bufferedSpans >= this.maxSpans) {
+      if (!this.evictOldest(true)) break;
+    }
+    return this.pending.get(traceId) === entry;
+  }
+
+  /**
+   * A local root of an unsampled trace ended with decision `keep`. Returns the held spans and log
+   * lines to pass on (kept) or nothing (dropped). When its last live root ended, the trace is
+   * decided. `undefined` when the trace is not tracked (evicted): the root is then dropped too.
+   */
+  rootEnded(
+    traceId: string,
+    keep: boolean,
+  ): { spans: S[]; logs: TraceLogInput[] } | undefined {
     const entry = this.pending.get(traceId);
     if (entry === undefined) return undefined;
     if (entry.liveRoots > 0) entry.liveRoots--;
-    let released: S[] = [];
+    const released: { spans: S[]; logs: TraceLogInput[] } = {
+      spans: [],
+      logs: [],
+    };
     if (keep && !entry.keep) {
       entry.keep = true;
-      released = entry.spans;
-      this.bufferedSpans -= entry.spans.length;
+      released.spans = entry.spans;
+      released.logs = entry.logs;
+      this.bufferedSpans -= entry.spans.length + entry.logs.length;
       entry.spans = [];
+      entry.logs = [];
     }
     if (entry.liveRoots === 0) {
       this.pending.delete(traceId);
-      this.bufferedSpans -= entry.spans.length;
+      this.bufferedSpans -= entry.spans.length + entry.logs.length;
       entry.spans = [];
+      entry.logs = [];
       this.decide(traceId, entry.keep);
     }
     return released;
@@ -201,20 +255,37 @@ export class TailRegistry<S> {
     this.decided.set(traceId, keep);
   }
 
-  /** Forgets the oldest undecided trace; the spans it held are counted as dropped. */
-  private evictOldest(): void {
-    const oldest = this.pending.entries().next();
-    if (oldest.done) return;
-    const [traceId, entry] = oldest.value;
+  /**
+   * Forgets the oldest undecided trace (with `holding`: the oldest one that holds a span or a log
+   * line, so evicting frees something); the spans it held are counted as dropped. False when
+   * there was nothing to evict.
+   */
+  private evictOldest(holding = false): boolean {
+    let found: [string, Pending<S>] | undefined;
+    for (const item of this.pending) {
+      if (!holding || item[1].spans.length + item[1].logs.length > 0) {
+        found = item;
+        break;
+      }
+    }
+    if (found === undefined) return false;
+    const [traceId, entry] = found;
     this.pending.delete(traceId);
-    this.bufferedSpans -= entry.spans.length;
+    this.bufferedSpans -= entry.spans.length + entry.logs.length;
     // Its later spans are not recorded (the sampler asks `isRecording`), and any that end are dropped.
     this.decide(traceId, false);
     this.countDropped(entry.spans.length);
+    if (entry.logs.length > 0) this.countDroppedLogs(entry.logs.length);
     diagnostics.logOnce(
       "tail-sampling.evicted",
       `The tail-sampling buffer reached its bound (${this.maxSpans} spans or ${this.maxTraces} undecided traces), so the oldest undecided trace was dropped; such drops are counted in getExportStatus().traces.dropped. Lower the load, or raise sampleRate.`,
     );
+    return true;
+  }
+
+  /** Counts `count` log lines dropped at a bound. */
+  private countDroppedLogs(count: number): void {
+    this.droppedLogs += count;
   }
 
   /** Counts `count` spans dropped at a bound. */
@@ -259,5 +330,22 @@ export function isTailRecording(traceId: string): boolean {
   } catch (error) {
     diagnostics.countFailure("tail-sampling.recording", error);
     return false;
+  }
+}
+
+/**
+ * What to do with a log line written under a recording span whose trace flags are `00` (D-100):
+ * `held` (the registry keeps it until the trace is decided), `pass` (the trace is kept: give it to
+ * the store now), `drop` (dropped trace, or a bound), `unknown` (the registry does not track the
+ * trace: the caller decides as before). Never throws.
+ */
+export function holdTraceLog(
+  log: TraceLogInput,
+): "held" | "pass" | "drop" | "unknown" {
+  try {
+    return installed?.holdLog(log.traceId, log) ?? "unknown";
+  } catch (error) {
+    diagnostics.countFailure("tail-sampling.log", error);
+    return "drop";
   }
 }

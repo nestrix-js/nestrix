@@ -32,6 +32,8 @@ import type {
   Span,
   SpanProcessor,
 } from "@opentelemetry/sdk-trace";
+import type { TraceLogInput } from "../logs/sink.js";
+import { getTraceLogSink } from "../logs/sink.js";
 import { ATTR_EXCEPTION_EXPECTED } from "../store/error-facts.js";
 import {
   ATTR_SAMPLING_PROBABILITY,
@@ -180,6 +182,17 @@ export function createSamplingProcessor(
     }
   };
 
+  const releaseLogs = (logs: readonly TraceLogInput[]): void => {
+    if (logs.length === 0) return;
+    try {
+      const sink = getTraceLogSink();
+      if (sink === undefined) return;
+      for (const log of logs) sink.add(log);
+    } catch (error) {
+      diagnostics.countFailure("tail-sampling.logs", error);
+    }
+  };
+
   /** Whether a rule keeps the trace whatever the ratio said. */
   const forced = (span: ReadableSpan, traceFailed: boolean): boolean =>
     (rules.keepErrors && (traceFailed || spanFailed(span))) ||
@@ -276,9 +289,11 @@ export function createSamplingProcessor(
             return;
           }
           if (!keep) return;
-          for (const held of released as ReadableSpan[])
+          for (const held of released.spans as ReadableSpan[])
             forward(asSampled(held));
           forward(asSampled(span));
+          // The lines of a kept trace go to the store after its spans, as for a sampled trace.
+          releaseLogs(released.logs);
           return;
         }
         const outcome = registry.childEnded(sc.traceId, span, spanFailed(span));
