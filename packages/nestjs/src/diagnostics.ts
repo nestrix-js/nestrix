@@ -41,6 +41,23 @@ function logOnce(key: string, message: string): void {
   }
 }
 
+/**
+ * Like `logOnce`, at error level: for faults that switch Nestrix off entirely, which must stay
+ * visible with `logger: ['error', 'warn']`. Never throws.
+ */
+export function logErrorOnce(key: string, message: string): void {
+  try {
+    if (loggedKeys.has(key)) return;
+    loggedKeys.add(key);
+    getLogger().error(message);
+  } catch {
+    // Diagnostics never throw.
+  }
+}
+
+/** A short description of `error` for a log line (its stack when it has one). Never throws. */
+export { describeError };
+
 function countFailure(where: string, error: unknown): void {
   try {
     const next = (failureCounts.get(where) ?? 0) + 1;
