@@ -163,9 +163,9 @@ export interface ResolvedMetricExport {
   readonly intervalMillis: number;
 }
 
-/** `integrations`, defaults applied. `ioredis` is `false` or its options. */
+/** `integrations`, defaults applied. `pg` and `ioredis` are `false` or their options. */
 export interface ResolvedIntegrations {
-  readonly pg: boolean;
+  readonly pg: false | { readonly poolWaitThresholdMillis: number | false };
   readonly mysql2: boolean;
   readonly ioredis: false | { readonly rootSpans: boolean };
 }
@@ -635,7 +635,7 @@ function checkBoolean(name: string, value: unknown): void {
 
 /**
  * `integrations` (P3-01): `pg` defaults to `true` (on when installed), `mysql2` and `ioredis` to
- * `false` (D-49). `ioredis` takes `true` or `{ rootSpans }` (D-60: root commands dropped unless
+ * `false` (D-49). `pg` takes `true` or `{ poolWaitThresholdMillis }` (D-98, default 5). `ioredis` takes `true` or `{ rootSpans }` (D-60: root commands dropped unless
  * `rootSpans` is `true`). Anything else throws at `forRoot()`.
  */
 export function resolveIntegrations(
@@ -648,7 +648,32 @@ export function resolveIntegrations(
     invalid("integrations must be an object");
   }
   const i = integrations ?? {};
-  checkBoolean("integrations.pg", i.pg);
+  let pg: ResolvedIntegrations["pg"] = false;
+  const p: unknown = i.pg;
+  const pgShape =
+    "integrations.pg must be a boolean or { poolWaitThresholdMillis?: number | false }";
+  if (p === true || p === undefined) {
+    pg = Object.freeze({ poolWaitThresholdMillis: 5 });
+  } else if (p !== false) {
+    if (p === null || typeof p !== "object" || Array.isArray(p))
+      invalid(pgShape);
+    const given: unknown = (p as { poolWaitThresholdMillis?: unknown })
+      .poolWaitThresholdMillis;
+    const threshold: unknown = given === undefined ? 5 : given;
+    if (
+      threshold !== false &&
+      (typeof threshold !== "number" ||
+        !Number.isFinite(threshold) ||
+        threshold < 0)
+    ) {
+      invalid(
+        `integrations.pg.poolWaitThresholdMillis must be false or a finite number of at least 0, got ${String(threshold)}`,
+      );
+    }
+    pg = Object.freeze({
+      poolWaitThresholdMillis: threshold as number | false,
+    });
+  }
   checkBoolean("integrations.mysql2", i.mysql2);
   let ioredis: ResolvedIntegrations["ioredis"] = false;
   const r: unknown = i.ioredis;
@@ -665,7 +690,7 @@ export function resolveIntegrations(
     ioredis = Object.freeze({ rootSpans: rootSpans === true });
   }
   return Object.freeze({
-    pg: i.pg ?? true,
+    pg,
     mysql2: i.mysql2 ?? false,
     ioredis,
   });
