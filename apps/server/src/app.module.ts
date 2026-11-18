@@ -1,6 +1,7 @@
 import { type DynamicModule, Module } from "@nestjs/common";
 import { NestrixModule } from "@nestrix-js/nestjs";
 import { AlertsModule } from "./alerts/alerts.module.js";
+import { AuditLogModule } from "./auth/audit.module.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { ReadQueryGuard } from "./auth/query-guard.js";
 import { SessionStoreModule } from "./auth/session-store.module.js";
@@ -55,7 +56,9 @@ export class AppModule {
           ignore: { paths: [INGEST_PATH_PATTERN, HEALTH_PATH_PATTERN] },
         }),
         // Admin login (P5-04): its middleware is mounted by `configureApp`, its guard is global
-        // and covers every controller, the query API included.
+        // and covers every controller, the query API included. The audit log and the role guard
+        // (`@AdminOnly()`, issue #34) are global, for every feature module's controllers.
+        AuditLogModule,
         AuthModule,
         UiModule,
         HealthModule,

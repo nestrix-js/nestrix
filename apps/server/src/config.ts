@@ -77,6 +77,33 @@ export interface LogConfig {
   readonly hideRouteMapping: boolean;
 }
 
+/**
+ * OpenID Connect sign-in for the dashboard (issue #34, D-104). Present only when
+ * `NESTRIX_OIDC_ISSUER` is set; then every field below has been checked.
+ */
+export interface OidcConfig {
+  /** `NESTRIX_OIDC_ISSUER`, exactly as given (compared byte for byte with `iss`). */
+  readonly issuer: string;
+  readonly clientId: string;
+  /** `NESTRIX_OIDC_CLIENT_SECRET` or `NESTRIX_OIDC_CLIENT_SECRET_FILE`. */
+  readonly clientSecret: string;
+  /** `NESTRIX_OIDC_REDIRECT_URL`, or `NESTRIX_PUBLIC_URL` + `/login/oidc/callback`. Never from `Host`. */
+  readonly redirectUrl: string;
+  /** `NESTRIX_OIDC_SCOPES` (space or comma separated), always with `openid`. */
+  readonly scopes: readonly string[];
+  /** `NESTRIX_OIDC_ROLE_CLAIM`, default `groups`: a top-level claim of the ID token, read exactly. */
+  readonly roleClaim: string;
+  /** `NESTRIX_OIDC_ADMIN_GROUPS`: values of the role claim that make a user admin. */
+  readonly adminGroups: readonly string[];
+  /**
+   * `NESTRIX_OIDC_ALLOWED_GROUPS`: values that let a user sign in as viewer; `*` lets in every user
+   * the identity provider signs in for this client. Admin groups are always allowed.
+   */
+  readonly allowedGroups: readonly string[];
+  /** `NESTRIX_OIDC_SESSION_SECONDS` (default 3600): absolute lifetime of an OIDC session. */
+  readonly sessionSeconds: number;
+}
+
 export interface ServerConfig {
   readonly port: number;
   readonly databaseUrl: string;
@@ -98,6 +125,13 @@ export interface ServerConfig {
    * client the login limiter keys on. `undefined`: none, the socket peer is the client.
    */
   readonly trustedProxies: TrustedProxies | undefined;
+  /** `undefined` unless `NESTRIX_OIDC_ISSUER` is set (issue #34, D-104). */
+  readonly oidc?: OidcConfig | undefined;
+  /**
+   * `NESTRIX_ADMIN_PASSWORD_LOGIN` (default true): whether `NESTRIX_ADMIN_PASSWORD` signs in (the
+   * break-glass admin). `false` is accepted only with OIDC configured.
+   */
+  readonly passwordLogin?: boolean;
 }
 
 export const LOG_LEVEL_NAMES = [
@@ -449,6 +483,25 @@ export function loadConfig(
   if (!trusted.ok) errors.push(...trusted.errors);
   const trustedProxies = trusted.ok ? trusted.value : undefined;
 
+  const oidc = loadOidc(env, publicUrl, errors, readFile);
+  const passwordLoginRaw = present(env, "NESTRIX_ADMIN_PASSWORD_LOGIN")
+    ?.trim()
+    .toLowerCase();
+  let passwordLogin = true;
+  if (passwordLoginRaw !== undefined) {
+    if (passwordLoginRaw === "false") passwordLogin = false;
+    else if (passwordLoginRaw !== "true") {
+      errors.push(
+        `NESTRIX_ADMIN_PASSWORD_LOGIN accepts "true" or "false" (got "${passwordLoginRaw.slice(0, 32)}").`,
+      );
+    }
+  }
+  if (!passwordLogin && present(env, "NESTRIX_OIDC_ISSUER") === undefined) {
+    errors.push(
+      "NESTRIX_ADMIN_PASSWORD_LOGIN=false needs OIDC sign-in (NESTRIX_OIDC_ISSUER); otherwise nobody could sign in.",
+    );
+  }
+
   if (errors.length > 0) return { ok: false, errors };
 
   return {
@@ -476,8 +529,151 @@ export function loadConfig(
       }),
       log,
       trustedProxies,
+      oidc,
+      passwordLogin,
     }),
   };
+}
+
+export const DEFAULT_OIDC_SESSION_SECONDS = 3600;
+export const MIN_OIDC_SESSION_SECONDS = 300;
+export const MAX_OIDC_SESSION_SECONDS = 8 * 3600;
+export const OIDC_CALLBACK_PATH = "/login/oidc/callback";
+const LOOPBACK_URL_HOST = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
+
+/**
+ * An `https://` URL, or `http://` to a loopback host (a local identity provider in development),
+ * without credentials or fragment. `allowQuery` for the redirect URL only (never for the issuer).
+ */
+export function isAcceptableOidcUrl(text: string, allowQuery = false): boolean {
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    return false;
+  }
+  if (url.username !== "" || url.password !== "" || url.hash !== "")
+    return false;
+  if (!allowQuery && url.search !== "") return false;
+  if (url.protocol === "https:") return true;
+  return url.protocol === "http:" && LOOPBACK_URL_HOST.test(url.hostname);
+}
+
+function list(raw: string | undefined, separators: RegExp): string[] {
+  return (raw ?? "")
+    .split(separators)
+    .map((v) => v.trim())
+    .filter((v) => v !== "");
+}
+
+/** The OIDC settings (D-104), or `undefined` when `NESTRIX_OIDC_ISSUER` is unset. */
+function loadOidc(
+  env: Env,
+  publicUrl: string | undefined,
+  errors: string[],
+  readFile: ReadFile,
+): OidcConfig | undefined {
+  const issuer = present(env, "NESTRIX_OIDC_ISSUER")?.trim();
+  const clientSecret = secret(
+    env,
+    "NESTRIX_OIDC_CLIENT_SECRET",
+    errors,
+    readFile,
+  );
+  const others = [
+    "NESTRIX_OIDC_CLIENT_ID",
+    "NESTRIX_OIDC_REDIRECT_URL",
+    "NESTRIX_OIDC_SCOPES",
+    "NESTRIX_OIDC_ROLE_CLAIM",
+    "NESTRIX_OIDC_ADMIN_GROUPS",
+    "NESTRIX_OIDC_ALLOWED_GROUPS",
+    "NESTRIX_OIDC_SESSION_SECONDS",
+  ].filter((name) => present(env, name) !== undefined);
+  if (issuer === undefined) {
+    if (others.length > 0 || clientSecret !== undefined) {
+      errors.push(
+        `${[...others, ...(clientSecret === undefined ? [] : ["NESTRIX_OIDC_CLIENT_SECRET"])].join(", ")} set without NESTRIX_OIDC_ISSUER.`,
+      );
+    }
+    return undefined;
+  }
+  const before = errors.length;
+  if (!isAcceptableOidcUrl(issuer)) {
+    errors.push(
+      "NESTRIX_OIDC_ISSUER must be an https:// URL (http:// only to localhost) without credentials, query or fragment.",
+    );
+  }
+  const clientId = present(env, "NESTRIX_OIDC_CLIENT_ID")?.trim();
+  if (clientId === undefined) {
+    errors.push("NESTRIX_OIDC_CLIENT_ID is required with NESTRIX_OIDC_ISSUER.");
+  } else if (clientId.length > 512) {
+    errors.push("NESTRIX_OIDC_CLIENT_ID is longer than 512 characters.");
+  }
+  if (clientSecret === undefined) {
+    if (!errors.some((e) => e.startsWith("NESTRIX_OIDC_CLIENT_SECRET"))) {
+      errors.push(
+        "NESTRIX_OIDC_CLIENT_SECRET (or NESTRIX_OIDC_CLIENT_SECRET_FILE) is required with NESTRIX_OIDC_ISSUER.",
+      );
+    }
+  }
+  let redirectUrl = present(env, "NESTRIX_OIDC_REDIRECT_URL")?.trim();
+  if (redirectUrl === undefined) {
+    if (publicUrl === undefined) {
+      errors.push(
+        `NESTRIX_OIDC_REDIRECT_URL or NESTRIX_PUBLIC_URL is required with NESTRIX_OIDC_ISSUER (the callback is <public URL>${OIDC_CALLBACK_PATH}).`,
+      );
+    } else {
+      redirectUrl = `${publicUrl}${OIDC_CALLBACK_PATH}`;
+    }
+  } else if (!isAcceptableOidcUrl(redirectUrl, true)) {
+    errors.push(
+      "NESTRIX_OIDC_REDIRECT_URL must be an https:// URL (http:// only to localhost) without credentials or fragment.",
+    );
+  }
+  const scopes = list(present(env, "NESTRIX_OIDC_SCOPES"), /[\s,]+/);
+  if (scopes.length === 0) scopes.push("openid", "email", "profile");
+  if (!scopes.includes("openid")) {
+    errors.push("NESTRIX_OIDC_SCOPES must include openid.");
+  }
+  if (scopes.some((s) => !/^[\x21\x23-\x5b\x5d-\x7e]{1,128}$/.test(s))) {
+    errors.push("NESTRIX_OIDC_SCOPES holds a character a scope cannot have.");
+  }
+  const roleClaim = present(env, "NESTRIX_OIDC_ROLE_CLAIM")?.trim() ?? "groups";
+  if (roleClaim.length > 256) {
+    errors.push("NESTRIX_OIDC_ROLE_CLAIM is longer than 256 characters.");
+  }
+  const adminGroups = list(present(env, "NESTRIX_OIDC_ADMIN_GROUPS"), /,/);
+  const allowedGroups = list(present(env, "NESTRIX_OIDC_ALLOWED_GROUPS"), /,/);
+  if (adminGroups.includes("*")) {
+    errors.push(
+      'NESTRIX_OIDC_ADMIN_GROUPS cannot be "*": name the groups whose members are admins.',
+    );
+  }
+  if (adminGroups.length === 0 && allowedGroups.length === 0) {
+    errors.push(
+      'NESTRIX_OIDC_ALLOWED_GROUPS or NESTRIX_OIDC_ADMIN_GROUPS is required with NESTRIX_OIDC_ISSUER: name who may sign in (NESTRIX_OIDC_ALLOWED_GROUPS="*" lets in every user the identity provider signs in).',
+    );
+  }
+  const sessionSeconds = integer(
+    env,
+    "NESTRIX_OIDC_SESSION_SECONDS",
+    DEFAULT_OIDC_SESSION_SECONDS,
+    MIN_OIDC_SESSION_SECONDS,
+    MAX_OIDC_SESSION_SECONDS,
+    errors,
+  );
+  if (errors.length > before) return undefined;
+  return Object.freeze({
+    issuer,
+    clientId: clientId as string,
+    clientSecret: clientSecret as string,
+    redirectUrl: redirectUrl as string,
+    scopes: Object.freeze(scopes),
+    roleClaim,
+    adminGroups: Object.freeze(adminGroups),
+    allowedGroups: Object.freeze(allowedGroups),
+    sessionSeconds,
+  });
 }
 
 /**

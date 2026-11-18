@@ -29,6 +29,7 @@ import {
   validateTokenCreate,
 } from "./api-tokens.js";
 import { SessionQueryGuard } from "./query-guard.js";
+import { AdminOnly, Audited } from "./roles.js";
 
 const Headers = () =>
   applyDecorators(
@@ -60,10 +61,12 @@ function parseId(raw: string): number {
  * (tokens read only the query API's read routes), the global `AdminAuthGuard` lets a `token`
  * stamp reach only `QueryController`, and `SessionQueryGuard` here accepts only `session`. So a
  * token can never create, list or revoke tokens. Writes also need the middleware's same-origin
- * `Origin`. Responses are `no-store`; the secret appears only in the `POST` answer.
+ * `Origin`. Responses are `no-store`; the secret appears only in the `POST` answer. Admin only,
+ * reads included (issue #34): a viewer neither lists nor changes tokens; changes are audited.
  */
 @Controller("api/v1/tokens")
 @UseGuards(SessionQueryGuard)
+@AdminOnly()
 @UseFilters(QueryExceptionFilter)
 export class TokensController {
   constructor(private readonly tokens: ApiTokenStore) {}
@@ -75,6 +78,8 @@ export class TokensController {
   }
 
   @Post()
+  @AdminOnly()
+  @Audited("token.create")
   @HttpCode(201)
   @Headers()
   async create(@Body() body: unknown): Promise<ApiTokenCreateResponse> {
@@ -95,6 +100,8 @@ export class TokensController {
   }
 
   @Delete(":id")
+  @AdminOnly()
+  @Audited("token.revoke")
   @HttpCode(204)
   @Headers()
   async revoke(@Param("id") id: string): Promise<void> {

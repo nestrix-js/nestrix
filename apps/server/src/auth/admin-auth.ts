@@ -36,11 +36,29 @@
  * again would not help), `POST /login` answers 503 without checking the password, `/logout` answers
  * 503 and keeps the cookie, a token miss answers 503. The limiters key on `clientOf`: the socket
  * peer, or the `X-Forwarded-For` client when the peer is a `NESTRIX_TRUSTED_PROXIES` range.
+ *
+ * Users and roles (issue #34, D-104): with `NESTRIX_OIDC_ISSUER` set, `/login/oidc` starts an OIDC
+ * sign-in (code flow, PKCE S256, `state`, `nonce`; oidc.ts) and `/login/oidc/callback` finishes it:
+ * the callback goes through the login limiter like `POST /login`, the ID token is verified, the
+ * role claim is mapped to `admin` or `viewer` (or refused), the user is upserted in
+ * `dashboard_users`, and a `v2` session cookie carrying the user id is set (session.ts). Each
+ * request with a `v2` cookie reads the user's role from the store (fail closed), so a role change
+ * or a refused sign-in applies to every open session at its next request. A viewer's request
+ * with any method but `GET`/`HEAD` answers 403 here, before any route. The admin password stays
+ * as the break-glass admin (`v1` cookies, unchanged) unless `NESTRIX_ADMIN_PASSWORD_LOGIN=false`,
+ * which also refuses existing `v1` cookies. Sign-ins, failed sign-ins and sign-outs are written to
+ * the audit log (audit.ts).
  */
 
 import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  Logger,
+  type OnModuleInit,
+  Optional,
+} from "@nestjs/common";
 import type { ServerConfig } from "../config.js";
 import { SERVER_CONFIG } from "../config.module.js";
 import { INGEST_PATH_PATTERN } from "../ingest/tokens.js";
@@ -49,6 +67,7 @@ import {
   isApiTokenShape,
   type VerifiedApiToken,
 } from "./api-tokens.js";
+import { type AuditActor, AuditLog } from "./audit.js";
 import { clientAddressOf } from "./client-address.js";
 import {
   apiErrorBody,
@@ -73,33 +92,66 @@ import {
   LoginRateLimiter,
   type LoginTake,
 } from "./login-rate-limit.js";
+import type { Role } from "./oidc.js";
+import {
+  claimValues,
+  OidcClient,
+  OidcError,
+  type OidcFailure,
+  randomToken,
+  roleFor,
+  safeEqual,
+} from "./oidc.js";
 import {
   LOGIN_CSS,
   LOGIN_PATH,
   type LoginNotice,
+  type LoginOptions,
   loginPage,
+  OIDC_START_PATH,
   PASSWORD_NOT_SET_MESSAGE,
   passwordNotSetPage,
+  signedInPage,
 } from "./pages.js";
 import {
+  PASSWORD_PRINCIPAL,
+  type Principal,
+  stampPrincipal,
+  TOKEN_PRINCIPAL,
+} from "./principal.js";
+import {
   MemorySessionRevocations,
+  oidcSessionKey,
+  PENDING_TTL_SECONDS,
+  pendingCookieName,
+  pendingKey,
   RevokedSessions,
   SESSION_TTL_SECONDS,
   type SessionRevocations,
   sessionCookieName,
   sessionKey,
   sha256,
+  signPending,
   signSession,
+  signUserSession,
   type VerifiedSession,
+  type VerifiedUserSession,
+  verifyPending,
   verifySession,
+  verifyUserSession,
 } from "./session.js";
+import { MemoryUserStore, type UserStore } from "./users.js";
 
 /**
  * What `sessionOf` found: a valid, unrevoked session; none; or `unavailable` when the revocation
  * store could not answer for a validly signed cookie (the request is then refused, D-96).
  */
 export type SessionLookup =
-  | { readonly status: "valid"; readonly session: VerifiedSession }
+  | {
+      readonly status: "valid";
+      readonly session: VerifiedSession;
+      readonly principal: Principal;
+    }
   | { readonly status: "none" }
   | { readonly status: "unavailable" };
 const NO_SESSION: SessionLookup = Object.freeze({ status: "none" });
@@ -120,6 +172,9 @@ export const AUTH_TOKEN_ID = Symbol("nestrix-server:auth-token-id");
 const MAX_SESSION_COOKIES = 8;
 
 const LOGIN_ROUTE = /^\/login\/?$/i;
+/** `/login/oidc` and `/login/oidc/callback` (issue #34). */
+const OIDC_START_ROUTE = /^\/login\/oidc\/?$/i;
+const OIDC_CALLBACK_ROUTE = /^\/login\/oidc\/callback\/?$/i;
 const LOGIN_CSS_ROUTE = /^\/login\.css$/i;
 const LOGOUT_ROUTE = /^\/logout\/?$/i;
 const API_PREFIX = /^\/api(?:\/|$)/i;
@@ -189,13 +244,28 @@ export function bearerCredentialOf(req: IncomingMessage): BearerCredential {
   return { kind: "token", value: token };
 }
 
+/** A validly signed session cookie, before the store was asked. */
+type Candidate =
+  | { readonly kind: "password"; readonly session: VerifiedSession }
+  | { readonly kind: "oidc"; readonly session: VerifiedUserSession };
+
 /** The start-up lines about the admin login (also used by tests). */
 export function startupMessages(
-  config: Pick<ServerConfig, "adminPassword" | "sessionSecretGenerated">,
+  config: Pick<ServerConfig, "adminPassword" | "sessionSecretGenerated"> &
+    Partial<Pick<ServerConfig, "oidc" | "passwordLogin">>,
 ): { warn: string[]; log: string[] } {
   const warn: string[] = [];
   const log: string[] = [];
-  if (config.adminPassword === undefined) {
+  if (config.oidc !== undefined) {
+    log.push(
+      `OIDC sign-in is on (issuer ${config.oidc.issuer}); ${config.passwordLogin === false || config.adminPassword === undefined ? "the admin password does not sign in" : "the admin password signs in as the break-glass admin"}.`,
+    );
+    if (config.sessionSecretGenerated) {
+      log.push(
+        "NESTRIX_SESSION_SECRET is not set: a random one is used, so sessions end when the server restarts and other server instances do not accept them.",
+      );
+    }
+  } else if (config.adminPassword === undefined) {
     warn.push(
       "NESTRIX_ADMIN_PASSWORD is not set: the dashboard (/) and the query API (/api/v1) answer 503 until it is set (at least 12 characters) and the server restarted. Ingest (/v1/traces, /v1/logs) is not affected.",
     );
@@ -211,7 +281,13 @@ export function startupMessages(
 export class AdminAuth implements OnModuleInit {
   private readonly logger = new Logger("NestrixAdminAuth");
   private readonly passwordDigest: Buffer | undefined;
+  /** The `v1` (break-glass admin) key; `undefined` without a password or with password login off. */
   private readonly key: Buffer | undefined;
+  /** The `v2` (OIDC user) key; `undefined` without OIDC (issue #34). */
+  private readonly userKey: Buffer | undefined;
+  private readonly pendingKey: Buffer;
+  /** The OIDC relying party; replaceable in tests (its `fetch`). */
+  oidc: OidcClient | undefined;
   /**
    * Where logout revocations live. In-process until `SessionStoreModule` hands over the
    * PostgreSQL store at start (the server always does; only the receiver-only test app keeps this).
@@ -219,6 +295,8 @@ export class AdminAuth implements OnModuleInit {
   private revocations: SessionRevocations = new MemorySessionRevocations(() =>
     this.nowSeconds(),
   );
+  /** Dashboard users (OIDC). In-process until `SessionStoreModule` hands over PostgreSQL. */
+  private users: UserStore = new MemoryUserStore();
   /** Revocations this instance has already seen (never stale: a revocation outlives its session). */
   readonly revokedSeen = new RevokedSessions();
   /** Set by `TokensModule`; without it every `Bearer nxt_…` request is refused. */
@@ -230,14 +308,28 @@ export class AdminAuth implements OnModuleInit {
   limiter: LoginLimiter = new LoginRateLimiter();
   /** Seconds since the epoch. Replaceable in tests. */
   nowSeconds: () => number = () => Math.floor(Date.now() / 1000);
+  private readonly audit: AuditLog;
 
-  constructor(@Inject(SERVER_CONFIG) private readonly config: ServerConfig) {
+  constructor(
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    @Optional() audit?: AuditLog,
+  ) {
+    this.audit = audit ?? new AuditLog();
     const password = config.adminPassword;
-    this.passwordDigest = password === undefined ? undefined : sha256(password);
+    const passwordLogin = config.passwordLogin !== false;
+    this.passwordDigest =
+      password === undefined || !passwordLogin ? undefined : sha256(password);
     this.key =
-      password === undefined
+      password === undefined || !passwordLogin
         ? undefined
         : sessionKey(config.sessionSecret, password);
+    const oidc = config.oidc;
+    this.userKey =
+      oidc === undefined
+        ? undefined
+        : oidcSessionKey(config.sessionSecret, oidc.issuer, oidc.clientId);
+    this.pendingKey = pendingKey(config.sessionSecret);
+    this.oidc = oidc === undefined ? undefined : new OidcClient(oidc);
   }
 
   onModuleInit(): void {
@@ -250,8 +342,18 @@ export class AdminAuth implements OnModuleInit {
     }
   }
 
+  /** The admin password signs in (set, and `NESTRIX_ADMIN_PASSWORD_LOGIN` not `false`). */
   get passwordConfigured(): boolean {
     return this.key !== undefined;
+  }
+
+  /** Some way to sign in exists: the password or OIDC. Without one, the UI and API answer 503. */
+  get loginConfigured(): boolean {
+    return this.key !== undefined || this.userKey !== undefined;
+  }
+
+  private get loginOptions(): LoginOptions {
+    return { password: this.passwordConfigured, oidc: this.oidc !== undefined };
   }
 
   /** Called once by `TokensModule` at start. */
@@ -260,9 +362,14 @@ export class AdminAuth implements OnModuleInit {
   }
 
   /** Called once by `SessionStoreModule` at start: the stores every instance shares (D-96). */
-  useSharedState(revocations: SessionRevocations, limiter: LoginLimiter): void {
+  useSharedState(
+    revocations: SessionRevocations,
+    limiter: LoginLimiter,
+    users?: UserStore,
+  ): void {
     this.revocations = revocations;
     this.limiter = limiter;
+    if (users !== undefined) this.users = users;
   }
 
   /** The client address the limiters key on (`NESTRIX_TRUSTED_PROXIES`, D-96). */
@@ -270,40 +377,61 @@ export class AdminAuth implements OnModuleInit {
     return clientKey(clientAddressOf(req, this.config.trustedProxies));
   }
 
+  /** The client address written to the audit log. */
+  private addressOf(req: IncomingMessage): string | undefined {
+    try {
+      return clientAddressOf(req, this.config.trustedProxies);
+    } catch {
+      return undefined;
+    }
+  }
+
   /**
    * The validly signed, unexpired sessions among the request's session cookies, without asking
-   * the revocation store; duplicates dropped. Throws only on a fault (callers catch).
+   * the stores; duplicates dropped. Throws only on a fault (callers catch).
    */
-  private signedSessions(req: IncomingMessage): VerifiedSession[] {
+  private signedSessions(req: IncomingMessage): Candidate[] {
     const key = this.key;
-    if (key === undefined) return [];
+    const userKey = this.userKey;
+    if (key === undefined && userKey === undefined) return [];
     const now = this.nowSeconds();
     const values = getCookieValues(
       req.headers.cookie,
       sessionCookieName(req.socket?.localPort),
     );
-    const found = new Map<string, VerifiedSession>();
+    const found = new Map<string, Candidate>();
+    const lifetime = this.config.oidc?.sessionSeconds ?? 0;
     for (const value of values.slice(0, MAX_SESSION_COOKIES)) {
-      const session = verifySession(key, value, now);
-      if (session && !found.has(session.nonce))
-        found.set(session.nonce, session);
+      if (value.startsWith("v2.")) {
+        const session =
+          userKey === undefined
+            ? undefined
+            : verifyUserSession(userKey, value, now, lifetime);
+        if (session && !found.has(session.nonce))
+          found.set(session.nonce, { kind: "oidc", session });
+      } else {
+        const session =
+          key === undefined ? undefined : verifySession(key, value, now);
+        if (session && !found.has(session.nonce))
+          found.set(session.nonce, { kind: "password", session });
+      }
     }
     return [...found.values()];
   }
 
   /**
-   * The valid, unrevoked session among the request's session cookies, if any. A cookie that fails
-   * its signature or expiry never reaches the store, so requests without a valid cookie cost no
-   * query. Every validly signed cookie is checked against the shared store on every request (no
-   * cache of "not revoked", so a logout on any instance is honoured by the next request here);
-   * revocations already seen are remembered. A store failure answers `unavailable` (fail closed).
-   * Never rejects.
+   * The valid, unrevoked session among the request's session cookies, if any, with who it is. A
+   * cookie that fails its signature or expiry never reaches the store, so requests without a valid
+   * cookie cost no query. Every validly signed cookie is checked against the shared store on every
+   * request (no cache of "not revoked", so a logout on any instance is honoured by the next request
+   * here); revocations already seen are remembered. A user session also reads the user's current
+   * role (none: refused). A store failure answers `unavailable` (fail closed). Never rejects.
    */
   async sessionOf(req: IncomingMessage): Promise<SessionLookup> {
-    let candidates: VerifiedSession[];
+    let candidates: Candidate[];
     try {
       candidates = this.signedSessions(req).filter(
-        (s) => !this.revokedSeen.has(s.nonce),
+        (c) => !this.revokedSeen.has(c.session.nonce),
       );
     } catch {
       return NO_SESSION;
@@ -311,7 +439,9 @@ export class AdminAuth implements OnModuleInit {
     if (candidates.length === 0) return NO_SESSION;
     let revoked: ReadonlySet<string>;
     try {
-      revoked = await this.revocations.revokedAmong(candidates);
+      revoked = await this.revocations.revokedAmong(
+        candidates.map((c) => c.session),
+      );
     } catch {
       this.throttledWarn(
         "admin session check failed (database unavailable?): requests with a session answer 503",
@@ -320,14 +450,42 @@ export class AdminAuth implements OnModuleInit {
     }
     try {
       const now = this.nowSeconds();
-      let found: VerifiedSession | undefined;
-      for (const session of candidates) {
-        if (revoked.has(session.nonce)) this.revokedSeen.revoke(session, now);
-        else found ??= session;
+      const live: Candidate[] = [];
+      for (const candidate of candidates) {
+        if (revoked.has(candidate.session.nonce))
+          this.revokedSeen.revoke(candidate.session, now);
+        else live.push(candidate);
       }
-      return found === undefined
-        ? NO_SESSION
-        : { status: "valid", session: found };
+      for (const candidate of live) {
+        if (candidate.kind === "password") {
+          return {
+            status: "valid",
+            session: candidate.session,
+            principal: PASSWORD_PRINCIPAL,
+          };
+        }
+        let user: Awaited<ReturnType<UserStore["get"]>>;
+        try {
+          user = await this.users.get(candidate.session.userId);
+        } catch {
+          this.throttledWarn(
+            "user session check failed (database unavailable?): requests with a session answer 503",
+          );
+          return SESSION_UNAVAILABLE;
+        }
+        if (user?.role === undefined) continue;
+        return {
+          status: "valid",
+          session: candidate.session,
+          principal: Object.freeze({
+            kind: "oidc",
+            role: user.role,
+            userId: user.id,
+            label: user.email ?? user.name ?? user.subject,
+          }),
+        };
+      }
+      return NO_SESSION;
     } catch {
       return NO_SESSION;
     }
@@ -391,7 +549,12 @@ export class AdminAuth implements OnModuleInit {
     setSecurityHeaders(res, UI_CSP);
     suppressCorsHeaders(res);
     const api = API_PREFIX.test(path);
-    if (isCrossSite(req)) {
+    const method = (req.method ?? "").toUpperCase();
+    // The OIDC callback is the identity provider's redirect back: a cross-site navigation by
+    // nature. It is bound to this browser by the pending cookie's `state` (and PKCE), not by
+    // `Sec-Fetch-Site`; only `GET`/`HEAD` reach it this way.
+    const callback = OIDC_CALLBACK_ROUTE.test(path) && SAFE_METHODS.has(method);
+    if (!callback && isCrossSite(req)) {
       this.refuse(
         res,
         api,
@@ -409,16 +572,17 @@ export class AdminAuth implements OnModuleInit {
     if (
       LOGIN_ROUTE.test(path) ||
       LOGIN_CSS_ROUTE.test(path) ||
-      LOGOUT_ROUTE.test(path)
+      LOGOUT_ROUTE.test(path) ||
+      OIDC_START_ROUTE.test(path) ||
+      OIDC_CALLBACK_ROUTE.test(path)
     ) {
       stamp(req, "login");
       return true;
     }
-    if (!this.passwordConfigured) {
+    if (!this.loginConfigured) {
       this.passwordNotSet(res, api);
       return false;
     }
-    const method = (req.method ?? "").toUpperCase();
     if (!SAFE_METHODS.has(method) && !originMatchesHost(req)) {
       // A state-changing method needs a same-origin `Origin`, session or not (CSRF; a same-site
       // page on another port receives the SameSite=Strict cookie).
@@ -427,7 +591,14 @@ export class AdminAuth implements OnModuleInit {
     }
     return this.sessionOf(req).then((lookup) => {
       if (lookup.status === "valid") {
+        if (lookup.principal.role !== "admin" && !SAFE_METHODS.has(method)) {
+          // Issue #34: a viewer reads everything and changes nothing, on every route there is
+          // and every route added later.
+          this.refuse(res, api, 403, "forbidden", VIEWER_REFUSED);
+          return false;
+        }
         stamp(req, "session");
+        stampPrincipal(req, lookup.principal);
         return true;
       }
       if (lookup.status === "unavailable") {
@@ -551,8 +722,8 @@ export class AdminAuth implements OnModuleInit {
   }
 
   /**
-   * A request carrying `Authorization: Bearer nxt_…` (P8-01). Order: admin password configured
-   * (503; tokens are managed by the admin, so they work only while the admin login does) →
+   * A request carrying `Authorization: Bearer nxt_…` (P8-01). Order: a sign-in configured
+   * (503; tokens are managed by an admin, so they work only while an admin can sign in) →
    * `GET`/`HEAD` on a query-API read route (401 otherwise; nothing is looked up or counted) →
    * token shape and a stored, unrevoked token with that hash → stamp `token` with the token's id.
    * A miss is counted against the client's own allowance and the login limiter's global failure
@@ -567,7 +738,7 @@ export class AdminAuth implements OnModuleInit {
     api: boolean,
     bearer: Exclude<BearerCredential, { kind: "none" }>,
   ): boolean | Promise<boolean> {
-    if (!this.passwordConfigured) {
+    if (!this.loginConfigured) {
       this.passwordNotSet(res, api);
       return false;
     }
@@ -594,6 +765,7 @@ export class AdminAuth implements OnModuleInit {
       (found) => {
         if (found === undefined) return this.tokenMiss(req, res, api);
         stamp(req, "token");
+        stampPrincipal(req, TOKEN_PRINCIPAL);
         (req as unknown as Record<symbol, string>)[AUTH_TOKEN_ID] = found.id;
         return true;
       },
@@ -665,7 +837,7 @@ export class AdminAuth implements OnModuleInit {
     res: ServerResponse,
     status: number,
     body: string,
-    headers?: Record<string, string>,
+    headers?: Record<string, string | readonly string[]>,
   ): void {
     writeRaw(res, {
       status,
@@ -680,9 +852,9 @@ export class AdminAuth implements OnModuleInit {
     res: ServerResponse,
     status: number,
     notice?: LoginNotice,
-    headers?: Record<string, string>,
+    headers?: Record<string, string | readonly string[]>,
   ): void {
-    this.page(res, status, loginPage(notice), headers);
+    this.page(res, status, loginPage(notice, this.loginOptions), headers);
   }
 
   /** `GET /login.css`. Served with or without a password, so the 503 page is styled too. */
@@ -696,12 +868,13 @@ export class AdminAuth implements OnModuleInit {
   }
 
   /**
-   * `GET /login`: the form, the 503 page, or a redirect to `/` when already signed in (a session
-   * that cannot be checked counts as none: the form is shown). Never rejects.
+   * `GET /login`: the form (the password field and/or the single sign-on link), the 503 page, or
+   * a redirect to `/` when already signed in (a session that cannot be checked counts as none: the
+   * form is shown). Never rejects.
    */
   async showLogin(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
-      if (!this.passwordConfigured) {
+      if (!this.loginConfigured) {
         this.page(res, 503, passwordNotSetPage());
         return;
       }
@@ -725,18 +898,20 @@ export class AdminAuth implements OnModuleInit {
   }
 
   /**
-   * `POST /login`. Order: password configured (503) → `Origin` matches `Host` (403) → rate limit
-   * (429) → password, hashed on both sides and compared with `timingSafeEqual` (401) → session
-   * cookie and `303 Location: /`. The redirect target is fixed: no open redirect. The limiter keys
-   * on `clientOf` (trusted proxies, D-96); when it cannot answer (budget slot or client window),
-   * 503 with the "unavailable" notice and no cookie (fail closed). Never rejects.
+   * `POST /login`. Order: password configured (503; 403 with a notice when only OIDC signs in) →
+   * `Origin` matches `Host` (403) → rate limit (429) → password, hashed on both sides and compared
+   * with `timingSafeEqual` (401) → session cookie and `303 Location: /`. The redirect target is
+   * fixed: no open redirect. The limiter keys on `clientOf` (trusted proxies, D-96); when it cannot
+   * answer (budget slot or client window), 503 with the "unavailable" notice and no cookie (fail
+   * closed). Both outcomes of the password check are written to the audit log. Never rejects.
    */
   async login(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
       const digest = this.passwordDigest;
       const key = this.key;
       if (digest === undefined || key === undefined) {
-        this.page(res, 503, passwordNotSetPage());
+        if (this.loginConfigured) this.loginForm(res, 403, "password-disabled");
+        else this.page(res, 503, passwordNotSetPage());
         return;
       }
       if (!originMatchesHost(req)) {
@@ -767,6 +942,13 @@ export class AdminAuth implements OnModuleInit {
       const matches = timingSafeEqual(given, digest);
       if (!matches || typeof candidate !== "string") {
         // The reserved slot stays: it is this failure.
+        await this.audit.record({
+          actor: { kind: "anonymous", label: BREAK_GLASS_ATTEMPT },
+          action: "sign_in_failed",
+          outcome: "failed",
+          detail: "wrong_password",
+          clientAddress: this.addressOf(req),
+        });
         this.loginForm(res, 401, "wrong-password");
         return;
       }
@@ -780,6 +962,12 @@ export class AdminAuth implements OnModuleInit {
       }
       const expires = this.nowSeconds() + SESSION_TTL_SECONDS;
       const token = signSession(key, expires);
+      await this.audit.record({
+        actor: { kind: "password" },
+        action: "sign_in",
+        outcome: "ok",
+        clientAddress: this.addressOf(req),
+      });
       writeRaw(res, {
         status: 303,
         csp: LOGIN_CSP,
@@ -798,11 +986,248 @@ export class AdminAuth implements OnModuleInit {
     }
   }
 
-  private loginUnavailable(res: ServerResponse): void {
+  private loginUnavailable(
+    res: ServerResponse,
+    headers: Record<string, string | readonly string[]> = {},
+  ): void {
     this.throttledWarn(
-      "login rate limit unavailable (database unavailable?): POST /login answers 503",
+      "login rate limit unavailable (database unavailable?): sign-in answers 503",
     );
-    this.loginForm(res, 503, "unavailable", { "retry-after": "5" });
+    this.loginForm(res, 503, "unavailable", { "retry-after": "5", ...headers });
+  }
+
+  // ---- OIDC (issue #34) ----------------------------------------------------------------------
+
+  /**
+   * `GET /login/oidc`: a new pending sign-in (32 random bytes each of `state`, `nonce` and the
+   * PKCE verifier) in a signed `SameSite=Lax` cookie scoped to `/login/oidc` for 10 minutes, and a
+   * `303` to the provider's authorization endpoint with the S256 challenge. 404 without OIDC; 503
+   * (the "unavailable" notice) when the provider's metadata cannot be read. Never rejects.
+   */
+  async oidcStart(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    try {
+      const client = this.oidc;
+      if (client === undefined) {
+        writeRaw(res, {
+          status: 404,
+          csp: LOGIN_CSP,
+          contentType: TEXT_TYPE,
+          body: "Single sign-on is not configured.",
+        });
+        return;
+      }
+      const pending = {
+        state: randomToken(),
+        nonce: randomToken(),
+        verifier: randomToken(),
+      };
+      let location: string;
+      try {
+        location = await client.authorizationUrl(pending);
+      } catch {
+        this.throttledWarn(
+          "OIDC: the identity provider's metadata could not be read; single sign-on answers 503",
+        );
+        this.loginForm(res, 503, "sso-unavailable", { "retry-after": "10" });
+        return;
+      }
+      const value = signPending(
+        this.pendingKey,
+        this.nowSeconds() + PENDING_TTL_SECONDS,
+        pending,
+      );
+      writeRaw(res, {
+        status: 303,
+        csp: LOGIN_CSP,
+        headers: {
+          location,
+          "set-cookie": this.pendingCookie(req, value, PENDING_TTL_SECONDS),
+        },
+      });
+    } catch {
+      writeRaw(res, {
+        status: 500,
+        csp: LOGIN_CSP,
+        contentType: TEXT_TYPE,
+        body: "Internal error.",
+      });
+    }
+  }
+
+  /**
+   * `GET /login/oidc/callback`. Order: OIDC configured (404) → the login limiter, as `POST /login`
+   * (429; 503 when it cannot answer) → a pending cookie whose `state` equals the query's (constant
+   * time) → no `error` from the provider and a `code` → the code exchange with the PKCE verifier
+   * and the ID token's checks (oidc.ts) → the role claim mapped (admin, viewer, or refused: the
+   * user's row then loses its role, ending its open sessions) → the user upserted → a `v2` session
+   * cookie for `NESTRIX_OIDC_SESSION_SECONDS` and a small page that continues to `/` (a redirect
+   * would keep the provider's cross-site context, and the browser would then withhold the
+   * `SameSite=Strict` cookie from `/`). The pending cookie is cleared on every answer. Every
+   * outcome is written to the audit log, failures with their reason code. Never rejects.
+   */
+  async oidcCallback(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const clearPending = this.pendingCookie(req, "", 0);
+    try {
+      const client = this.oidc;
+      const userKey = this.userKey;
+      if (client === undefined || userKey === undefined) {
+        writeRaw(res, {
+          status: 404,
+          csp: LOGIN_CSP,
+          contentType: TEXT_TYPE,
+          body: "Single sign-on is not configured.",
+        });
+        return;
+      }
+      let rate: LoginTake;
+      try {
+        rate = await this.limiter.take(this.clientOf(req));
+      } catch {
+        this.loginUnavailable(res, { "set-cookie": clearPending });
+        return;
+      }
+      if (!rate.ok) {
+        this.loginForm(res, 429, "rate-limited", {
+          "retry-after": String(rate.retryAfterSeconds),
+          "set-cookie": clearPending,
+        });
+        return;
+      }
+      const fail = async (
+        reason: OidcFailure,
+        actor: AuditActor = { kind: "anonymous" },
+      ) => {
+        await this.audit.record({
+          actor,
+          action: "sign_in_failed",
+          outcome: "failed",
+          detail: reason,
+          clientAddress: this.addressOf(req),
+        });
+        this.throttledWarn(`OIDC sign-in failed: ${reason}`);
+        const unavailable = reason === "store_unavailable";
+        this.loginForm(
+          res,
+          unavailable ? 503 : reason === "not_allowed" ? 403 : 401,
+          unavailable
+            ? "unavailable"
+            : reason === "not_allowed"
+              ? "sso-not-allowed"
+              : "sso-failed",
+          { "set-cookie": clearPending },
+        );
+      };
+
+      const query = new URLSearchParams(
+        (
+          (
+            (req as { originalUrl?: string }).originalUrl ??
+            req.url ??
+            ""
+          ).split("?")[1] ?? ""
+        ).slice(0, 8192),
+      );
+      const state = query.getAll("state");
+      const now = this.nowSeconds();
+      const pending = getCookieValues(
+        req.headers.cookie,
+        pendingCookieName(req.socket?.localPort),
+      )
+        .slice(0, MAX_SESSION_COOKIES)
+        .map((v) => verifyPending(this.pendingKey, v, now))
+        .find(
+          (p) =>
+            p !== undefined &&
+            state.length === 1 &&
+            safeEqual(p.state, state[0] as string),
+        );
+      if (pending === undefined) {
+        await fail(state.length === 1 ? "state_mismatch" : "state_missing");
+        return;
+      }
+      if (query.has("error")) {
+        await fail("idp_error");
+        return;
+      }
+      const codes = query.getAll("code");
+      if (
+        codes.length !== 1 ||
+        codes[0] === "" ||
+        (codes[0] as string).length > 4096
+      ) {
+        await fail("code_missing");
+        return;
+      }
+      let claims: Awaited<ReturnType<OidcClient["complete"]>>;
+      try {
+        claims = await client.complete(codes[0] as string, pending, now);
+      } catch (error) {
+        await fail(error instanceof OidcError ? error.reason : "internal");
+        return;
+      }
+      const config = client.config;
+      const record = {
+        issuer: config.issuer,
+        subject: claims.sub,
+        email: claims.email,
+        name: claims.name,
+      };
+      const label = claims.email ?? claims.name ?? claims.sub;
+      const role: Role | undefined = roleFor(
+        config,
+        claimValues(claims.raw, config.roleClaim),
+      );
+      if (role === undefined) {
+        let userId: number | undefined;
+        try {
+          userId = await this.users.refuse(record);
+        } catch {
+          await fail("store_unavailable", { kind: "anonymous", label });
+          return;
+        }
+        await fail(
+          "not_allowed",
+          userId === undefined
+            ? { kind: "anonymous", label }
+            : { kind: "oidc", userId, label },
+        );
+        return;
+      }
+      let user: Awaited<ReturnType<UserStore["signIn"]>>;
+      try {
+        user = await this.users.signIn(record, role);
+      } catch {
+        await fail("store_unavailable", { kind: "anonymous", label });
+        return;
+      }
+      try {
+        await this.limiter.release(rate.reservation);
+      } catch {
+        this.throttledWarn(
+          "login rate limit: a budget slot could not be released",
+        );
+      }
+      await this.audit.record({
+        actor: { kind: "oidc", userId: user.id, label },
+        action: "sign_in",
+        outcome: "ok",
+        detail: role,
+        clientAddress: this.addressOf(req),
+      });
+      const lifetime = config.sessionSeconds;
+      const token = signUserSession(userKey, now + lifetime, user.id);
+      this.page(res, 200, signedInPage(), {
+        "set-cookie": [this.cookie(req, token, lifetime), clearPending],
+      });
+    } catch {
+      writeRaw(res, {
+        status: 500,
+        csp: LOGIN_CSP,
+        contentType: TEXT_TYPE,
+        headers: { "set-cookie": clearPending },
+        body: "Internal error.",
+      });
+    }
   }
 
   /**
@@ -810,7 +1235,8 @@ export class AdminAuth implements OnModuleInit {
    * out); every validly signed session cookie of the request is revoked in the shared store until
    * it expires (already revoked ones again, harmlessly); the cookie is cleared; `303` to `/login`.
    * When the revocation cannot be stored: 503 and the cookie is **kept**, so the admin can retry
-   * rather than believe a still-valid cookie is dead (D-96). Never rejects.
+   * rather than believe a still-valid cookie is dead (D-96). A sign-out that ended a session is
+   * written to the audit log. Never rejects.
    */
   async logout(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
@@ -823,16 +1249,16 @@ export class AdminAuth implements OnModuleInit {
         });
         return;
       }
-      let sessions: VerifiedSession[];
+      let sessions: Candidate[];
       try {
         sessions = this.signedSessions(req);
       } catch {
         sessions = [];
       }
       try {
-        for (const session of sessions) {
-          await this.revocations.revoke(session);
-          this.revokedSeen.revoke(session, this.nowSeconds());
+        for (const candidate of sessions) {
+          await this.revocations.revoke(candidate.session);
+          this.revokedSeen.revoke(candidate.session, this.nowSeconds());
         }
       } catch {
         this.throttledWarn(
@@ -846,6 +1272,26 @@ export class AdminAuth implements OnModuleInit {
           body: "Signing out could not be recorded: the server cannot reach its database. Try again shortly.",
         });
         return;
+      }
+      const first = sessions[0];
+      if (first !== undefined) {
+        let actor: AuditActor = { kind: "password" };
+        if (first.kind === "oidc") {
+          let label = `user ${first.session.userId}`;
+          try {
+            const user = await this.users.get(first.session.userId);
+            if (user) label = user.email ?? user.name ?? user.subject;
+          } catch {
+            // The label falls back to the id.
+          }
+          actor = { kind: "oidc", userId: first.session.userId, label };
+        }
+        await this.audit.record({
+          actor,
+          action: "sign_out",
+          outcome: "ok",
+          clientAddress: this.addressOf(req),
+        });
       }
       writeRaw(res, {
         status: 303,
@@ -870,4 +1316,22 @@ export class AdminAuth implements OnModuleInit {
     const secure = !isLoopbackPlainHttp(req);
     return `${sessionCookieName(req.socket?.localPort)}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Strict${secure ? "; Secure" : ""}`;
   }
+
+  /**
+   * The pending OIDC sign-in: `SameSite=Lax` (the provider's redirect back is a cross-site
+   * top-level navigation, which a `Strict` cookie would not join), `Path=/login/oidc`.
+   */
+  private pendingCookie(
+    req: IncomingMessage,
+    value: string,
+    maxAge: number,
+  ): string {
+    const secure = !isLoopbackPlainHttp(req);
+    return `${pendingCookieName(req.socket?.localPort)}=${value}; Path=${OIDC_START_PATH}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`;
+  }
 }
+
+/** The audit label of a failed break-glass password attempt. */
+const BREAK_GLASS_ATTEMPT = "break-glass password";
+const VIEWER_REFUSED =
+  "Your role is viewer: you can read everything but change nothing. Ask an admin.";

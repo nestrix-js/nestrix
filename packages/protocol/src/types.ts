@@ -1,5 +1,6 @@
 /** Response types of the Nestrix query API, version 1. Types only; no runtime code lives here except the version constant (see index.ts). */
 
+import type { MetaAccess } from "./access.js";
 import type { MetaProfiler } from "./profiles.js";
 import type { MetaRuntime } from "./runtime.js";
 
@@ -101,6 +102,11 @@ export interface MetaResponse {
   profiler: MetaProfiler;
   /** The process runtime view (P9-06): `available: false` in the standalone server. Absent from older servers. */
   runtime?: MetaRuntime;
+  /**
+   * Who the request is and what it may do (standalone server, issue #34). Absent from the
+   * embedded dashboard and older servers: treat as `admin` (the server decides anyway).
+   */
+  access?: MetaAccess;
 }
 
 /** Fields shared by every cursor-paged list response. */

@@ -131,7 +131,7 @@ The key may instead be sent as `x-nestrix-key: <key>`. Keys are compared in cons
 
 ## Configuration
 
-Read once from the environment at start and validated. A bad value exits with one message listing every problem; secret values are never echoed. The four secrets (`DATABASE_URL`, `NESTRIX_INGEST_KEYS`, `NESTRIX_ADMIN_PASSWORD`, `NESTRIX_SESSION_SECRET`) also accept a `_FILE` form.
+Read once from the environment at start and validated. A bad value exits with one message listing every problem; secret values are never echoed. The secrets (`DATABASE_URL`, `NESTRIX_INGEST_KEYS`, `NESTRIX_ADMIN_PASSWORD`, `NESTRIX_SESSION_SECRET`, `NESTRIX_OIDC_CLIENT_SECRET`) also accept a `_FILE` form.
 
 | Variable | Default | Validation and meaning |
 |---|---|---|
@@ -142,10 +142,20 @@ Read once from the environment at start and validated. A bad value exits with on
 | `PORT` | `4318` | Whole number, 1 to 65535. |
 | `NESTRIX_INGEST_KEYS` | none | Comma-separated keys, each at least 32 characters. Or `NESTRIX_INGEST_KEYS_FILE`. |
 | `NESTRIX_INGEST_AUTH` | unset | Only `none` is accepted: an explicit opt-out of ingest authentication, logged as a warning on every start. Setting it together with `NESTRIX_INGEST_KEYS` is an error. |
-| `NESTRIX_ADMIN_PASSWORD` | none | At least 12 characters. Or `NESTRIX_ADMIN_PASSWORD_FILE`. Without it the UI, `/login` and the query API answer 503 and a log line says why; ingest still works. |
+| `NESTRIX_ADMIN_PASSWORD` | none | At least 12 characters. Or `NESTRIX_ADMIN_PASSWORD_FILE`. Without it (and without single sign-on) the UI, `/login` and the query API answer 503 and a log line says why; ingest still works. With single sign-on it is the break-glass admin login. |
+| `NESTRIX_ADMIN_PASSWORD_LOGIN` | `true` | `true` or `false`. `false` turns the admin password off as a way to sign in (existing password sessions are refused too); accepted only with `NESTRIX_OIDC_ISSUER`. |
 | `NESTRIX_SESSION_SECRET` | random per start | At least 32 characters. Or `NESTRIX_SESSION_SECRET_FILE`. With the admin password, the session signing key. Set it (the same value on every instance) so sessions survive restarts and work on every instance; unset, sessions end at restart and work only on the instance that issued them. See "Admin login". |
 | `NESTRIX_TRUSTED_PROXIES` | unset | Comma-separated IPv4 and IPv6 CIDRs or single addresses (`10.0.0.0/8, 2001:db8::/32, 192.168.1.7`) of your reverse proxies or load balancers. Only a connection from one of them may name the client in `X-Forwarded-For`, which the login limit then keys on. An invalid entry is a configuration error. See "Admin login". |
-| `NESTRIX_RETENTION_DAYS` | `7` | Whole number, 1 to 3650. |
+| `NESTRIX_OIDC_ISSUER` | unset | Turns on single sign-on (see "Users, roles and single sign-on"). The identity provider's issuer URL exactly as it appears in its ID tokens' `iss`: `https://`, or `http://` to `localhost`/`127.x`/`[::1]` only, without credentials, query or fragment. Every other `NESTRIX_OIDC_*` variable is an error without it. |
+| `NESTRIX_OIDC_CLIENT_ID` | required with the issuer | The client (application) id registered at the provider; at most 512 characters. |
+| `NESTRIX_OIDC_CLIENT_SECRET` | required with the issuer | The client secret. Or `NESTRIX_OIDC_CLIENT_SECRET_FILE`. Sent to the token endpoint only (HTTP Basic, or in the form when the provider lists only `client_secret_post`); never logged. |
+| `NESTRIX_OIDC_REDIRECT_URL` | `NESTRIX_PUBLIC_URL` + `/login/oidc/callback` | The callback URL registered at the provider. One of the two is required with the issuer; never taken from the request's `Host`. |
+| `NESTRIX_OIDC_SCOPES` | `openid email profile` | Space- or comma-separated; must include `openid`. Add the scope your provider needs for the role claim (for example `groups`). |
+| `NESTRIX_OIDC_ROLE_CLAIM` | `groups` | The top-level ID-token claim whose values (a string or an array of strings) decide the role. Matched exactly. |
+| `NESTRIX_OIDC_ADMIN_GROUPS` | empty | Comma-separated claim values that make a user an admin. `*` is refused. |
+| `NESTRIX_OIDC_ALLOWED_GROUPS` | empty | Comma-separated claim values that let a user in as a viewer; `*` lets in every user the provider signs in for this client. At least one of the two lists is required. |
+| `NESTRIX_OIDC_SESSION_SECONDS` | `3600` | Whole number, 300 to 28 800. How long a single sign-on session lasts (absolute); after it the user signs in again, and the role is mapped again. |
+| `NESTRIX_RETENTION_DAYS` | `7` | Whole number, 1 to 3650. Also how long the audit log is kept. |
 | `NESTRIX_MAX_SPANS_PER_TRACE` | `50000` | Whole number, 1 000 to 10 000 000. Spans stored per trace; see "Span limit per trace". |
 | `NESTRIX_MAX_CONNECTIONS` | `1024` | Whole number, 1 to 1 000 000. Node's `server.maxConnections`. |
 | `NESTRIX_WEBHOOK_ALLOWED_HOSTS` | empty | Comma-separated host names or IP addresses (no scheme, port or path) that alert webhooks may reach although they resolve to private addresses. |
@@ -165,6 +175,19 @@ Not configurable by environment: the ingest limits and rate limit below, and the
 - Every request except the ingest routes (`/v1/traces`, `/v1/logs`, `/v1/nestrix/check-in`, `/v1/nestrix/profiles/…`), `/login` and `/logout` needs a session, including paths added later; the query API's read routes also accept an API token (below). A state-changing request needs a same-origin `Origin` header. The API never emits CORS headers, so a browser page on another origin cannot read it.
 - **Behind a reverse proxy:** pass the `Host` header through (`proxy_set_header Host $host;` in nginx), or the `Origin` check fails and login answers 403. Serve it over HTTPS: on a non-loopback host the cookie is `Secure`, so a browser will not send it over plain HTTP. Set `NESTRIX_TRUSTED_PROXIES` to the proxy's address so each visitor gets its own login limit (above).
 
+## Users, roles and single sign-on
+
+With `NESTRIX_OIDC_ISSUER` set, each person signs in with your identity provider (OpenID Connect: authorization code flow with PKCE). The admin password stays as a break-glass admin login unless `NESTRIX_ADMIN_PASSWORD_LOGIN=false`.
+
+- **Register the server at your provider** as a confidential web client with the redirect URL `https://<your dashboard>/login/oidc/callback` (or `NESTRIX_OIDC_REDIRECT_URL`), and have the provider put the user's groups (or roles) in the ID token under the claim named by `NESTRIX_OIDC_ROLE_CLAIM`.
+- **Two roles.** `admin`: everything, as the password login always could. `viewer`: every page and every read of the query API; no change to alert rules or SLOs, no test webhook, no API tokens (not even the list), no remote CPU capture, no audit log. A viewer sees alert rules with the webhook URL cut to its scheme and host (`https://hooks.slack.com/…`), because such a URL is often the credential to post to the channel. A member of a group in `NESTRIX_OIDC_ADMIN_GROUPS` is an admin; otherwise a member of a group in `NESTRIX_OIDC_ALLOWED_GROUPS` (or anyone, with `*`) is a viewer; anyone else is refused (403, "not in a group that may open this dashboard").
+- **What a viewer is refused:** any request with a method other than `GET`/`HEAD` answers 403 (`{"error":{"code":"forbidden"}}`) before it reaches a route, and the admin-only reads (`/api/v1/tokens`, `/api/v1/audit`) answer 403 too. The dashboard learns the role from `GET /api/v1/meta` (`access.role`), so it can hide what a viewer cannot do; the server decides either way.
+- **Users** are created at their first sign-in (table `dashboard_users`: issuer, subject, email and name as the provider sent them, role, last sign-in). There is nothing to create beforehand. Email and name are shown, never used to decide access: the user is the (issuer, subject) pair.
+- **Ending access.** The role is read from the table on every request, so a change applies to open sessions at their next request. A single sign-on session lasts `NESTRIX_OIDC_SESSION_SECONDS` (default 1 hour); then the browser goes through the provider again. A person removed at the provider cannot sign in again, and a person moved out of every allowed group is refused at that sign-in, which also ends their other open sessions at once. So access ends at most one session length after the change at the provider. To end it at once, delete the user's row: `DELETE FROM dashboard_users WHERE email = '...';`, which refuses every open session of theirs at the next request (a later sign-in creates the row again if the provider still allows it).
+- **Sign-in checks.** The provider's metadata comes from `<issuer>/.well-known/openid-configuration` and must name the same issuer; its endpoints must be `https://`. The `state` (in a signed, `HttpOnly`, `SameSite=Lax` cookie on `/login/oidc`, 10 minutes), the PKCE verifier and the `nonce` are 32 random bytes each, per sign-in. The ID token must be signed (RS256/384/512, PS256/384/512 or ES256/384/512, by a key from the provider's JWKS; `none` and HMAC are refused, RSA keys under 2048 bits are ignored) and carry the configured issuer, the client id in `aud` (and in `azp` when there are several audiences), an unexpired `exp`, a recent `iat` and the `nonce` sent, with 60 seconds of clock skew. Any failure refuses the sign-in (401) with a reason code in the audit log and in one throttled log line; nothing the provider sent is echoed. Metadata and keys are cached for an hour; an unknown key id refetches the keys at most once a minute. The callback counts against the login rate limit like `POST /login`.
+- **Sessions** use the same cookie as the password login (`nestrix_admin_<port>`, `HttpOnly`, `SameSite=Strict`), signed with a key derived from `NESTRIX_SESSION_SECRET`, the issuer and the client id. Set `NESTRIX_SESSION_SECRET` when you run several instances: the sign-in may start on one and come back to another. `POST /logout` ends a single sign-on session the same way as a password session (it does not sign the user out of the provider).
+- **Audit log.** Sign-ins (and failed ones, with the reason), sign-outs, every change to alert rules, SLOs and API tokens, test webhooks and remote CPU captures are recorded with who, when and the client address (table `audit_log`, kept for `NESTRIX_RETENTION_DAYS`). Admins read it at `GET /api/v1/audit?limit=<1..200>&before=<id>` (newest first). Passwords, guesses, tokens and request bodies are never recorded. If an entry cannot be written the action still completes, and a warning is logged.
+
 ## API tokens
 
 Read-only, revocable tokens let tools such as the Nestrix MCP server (`@nestrix-js/mcp`) read the query API without a browser session.
@@ -175,7 +198,7 @@ Read-only, revocable tokens let tools such as the Nestrix MCP server (`@nestrix-
 - **What a token reads:** `GET` and `HEAD` on every read route of the query API: `/api/v1/meta`, `/api/v1/traces` (and `/traces/timeline`), `/api/v1/trace` (and `/trace/logs`), `/api/v1/errors` (and `/errors/groups`), `/api/v1/routes` (and `/routes/histogram`, `/routes/compare`), `/api/v1/classes`, `/api/v1/queries`, `/api/v1/map`, `/api/v1/dependencies`, and the remote-profiling reads `/api/v1/instances`, `/api/v1/remote-profiles` (and `/:id`, `/:id/download`). Nothing else: a request with a token on the dashboard, `/login`, `/logout`, the token routes, alerts or SLOs (reads included: alert rules hold webhook URLs) or any write, starting a remote capture included, answers 401, even if it also carries a session cookie. The ingest routes (`/v1/traces`, `/v1/logs`, `/v1/nestrix/…`) take only ingest keys; an API token is not an ingest key and an ingest key is not an API token.
 - **Revocation is immediate:** every request looks the token up in the database, so the next request after a revoke is refused.
 - **Failures share the login's budget, within a per-client allowance:** a refused token counts toward the global budget of 60 failed logins a minute, but each client (by client address, as for the login limit) may count only 5 refused tokens a minute (kept in PostgreSQL like the login limit, so shared by every instance); beyond that its bad tokens answer 429 with `Retry-After` and are not counted. While the global budget is spent, further bad tokens answer 429 too, as `POST /login` does. A valid token is checked first and is never refused by either limit, so one client guessing tokens cannot lock out the others' tokens.
-- Tokens work only while `NESTRIX_ADMIN_PASSWORD` is set (otherwise the API answers 503). `last_used_at` is updated at most once a minute. Tokens are never logged.
+- Tokens work only while some sign-in is configured (`NESTRIX_ADMIN_PASSWORD` or single sign-on; otherwise the API answers 503). A token is always a viewer: it never reaches an admin route, and `GET /api/v1/meta` reports it as `access: { role: "viewer", kind: "token" }`. `last_used_at` is updated at most once a minute. Tokens are never logged.
 - Only send tokens over HTTPS: on plain HTTP they cross the network in clear text.
 
 ```bash
@@ -315,6 +338,10 @@ Service level objectives are managed on the dashboard's **SLOs** page or through
 
 Pull or rebuild the image and restart. Migrations are applied at start, in order, under a PostgreSQL advisory lock, so several instances starting together are safe; each runs in a transaction, and a migration file changed after it was applied stops the start. There is no downgrade: back up the database before upgrading. With `NESTRIX_SESSION_SECRET` set, admins stay signed in across the restart (see "Admin login").
 
+### Upgrading to users and roles (issue #34)
+
+Migration `0019_dashboard_users.sql` adds the `dashboard_users` and `audit_log` tables. Nothing changes until you set `NESTRIX_OIDC_ISSUER`: the admin password signs in as before, as an admin, and existing sessions stay valid.
+
 ### Upgrading to shared sessions (issue #31)
 
 Migration `0014_admin_sessions.sql` adds the tables for sign-outs and the login limit. Session cookies issued by earlier versions were signed with a per-process key and are refused after the upgrade: every admin signs in once more. From then on a restart keeps sessions, as long as `NESTRIX_SESSION_SECRET` and `NESTRIX_ADMIN_PASSWORD` stay the same.
@@ -398,7 +425,8 @@ ALTER INDEX traces_has_errors_seq_idx ATTACH PARTITION traces_pYYYYMMDD_has_erro
 ## Security notes
 
 - **The ingest port is the admin port.** Ingest, the login form, the dashboard and the API all share one port, so exposing it to your services exposes `/login` to them too. Login is rate limited and the password needs 12 characters, but put the server behind a TLS-terminating proxy and, where you can, restrict who can reach it.
-- Without TLS, ingest keys, API tokens and the admin password cross the network in clear text.
+- Without TLS, ingest keys, API tokens, session cookies and the admin password cross the network in clear text.
+- With single sign-on, keep the break-glass password long and stored offline, or turn it off with `NESTRIX_ADMIN_PASSWORD_LOGIN=false` once single sign-on works; every use of it is in the audit log.
 - `NESTRIX_INGEST_AUTH=none` is for local demos. Anyone who can reach the port can write spans.
 - The server stores the span attributes services send it; it does not scrub them. Redaction happens in each service's `@nestrix-js/nestjs` configuration before export.
 - The alert signing secret is stored in clear in the database, because the server signs with it. Protect the database.

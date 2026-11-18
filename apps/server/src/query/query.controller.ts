@@ -9,7 +9,8 @@ import {
   UseFilters,
   UseGuards,
 } from "@nestjs/common";
-import type { ApiError, QuerySort } from "@nestrix-js/protocol";
+import type { ApiError, MetaResponse, QuerySort } from "@nestrix-js/protocol";
+import { accessOf } from "../auth/principal.js";
 import { QUERY_HEADERS, QueryExceptionFilter } from "./exception.filter.js";
 import { ExplainService } from "./explain.service.js";
 import { QueryGuardGate } from "./guard.js";
@@ -84,9 +85,12 @@ export class QueryController {
 
   @Get("meta")
   @Headers()
-  meta(@Req() req: RequestLike) {
+  async meta(@Req() req: RequestLike): Promise<MetaResponse> {
     parse(req, metaSpec);
-    return this.query.meta();
+    const meta = await this.query.meta();
+    // Who the request is (issue #34): the UI shows or hides admin actions from it.
+    const access = accessOf(req);
+    return access === undefined ? meta : { ...meta, access };
   }
 
   @Get("traces")
