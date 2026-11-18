@@ -6,6 +6,7 @@
  */
 import "reflect-metadata";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { OverviewService } from "../../src/query/overview.service.js";
 import { QueryService } from "../../src/query/query.service.js";
 import { ALL } from "../../src/query/scope.js";
 import { PostgresIngestSink } from "../../src/storage/writer.js";
@@ -54,12 +55,33 @@ describe.skipIf(noDatabase)(`window ends are exclusive ${skipReason}`, () => {
       startTimeUnixNano: startNs,
       endTimeUnixNano: startNs + 1_000_000n,
     });
+    const outbound = (id: string, startNs: bigint) => ({
+      ...span({
+        traceId: id.repeat(32),
+        spanId: id.repeat(16),
+        name: "pg.query",
+        kind: "client",
+        startMs: 0,
+        durationMs: 1,
+        attributes: {
+          "db.system.name": "postgresql",
+          "server.address": "db.local",
+          "db.namespace": "shop",
+        },
+      }),
+      startTimeUnixNano: startNs,
+      endTimeUnixNano: startNs + 1_000_000n,
+    });
+    const before = BigInt(T) * 1_000_000n - 400_000n;
+    const at = BigInt(T) * 1_000_000n;
     await server.app
       .get(PostgresIngestSink)
       .write(
         batch("shop", [
-          failing("a", BigInt(T) * 1_000_000n - 400_000n),
-          failing("b", BigInt(T) * 1_000_000n),
+          failing("a", before),
+          failing("b", at),
+          outbound("c", before),
+          outbound("d", at),
         ]),
       );
   }, 60_000);
@@ -77,5 +99,30 @@ describe.skipIf(noDatabase)(`window ends are exclusive ${skipReason}`, () => {
     expect(current.fromUnixMs).toBe(T);
     expect(previous.groups[0]?.count).toBe(1);
     expect(current.groups[0]?.count).toBe(1);
+  });
+
+  it("dependencies: the previous window holds the call at T - 0.4 ms, the current one the call at T", async () => {
+    const query = server.app.get(QueryService);
+    const previous = await query.dependencies(15, ALL, T - 1);
+    const current = await query.dependencies(15, ALL, T + 14 * MIN + 30_000);
+    expect(previous.dependencies.map((d) => d.calls)).toEqual([1]);
+    expect(current.dependencies.map((d) => d.calls)).toEqual([1]);
+  });
+
+  it("map: the previous window holds the call at T - 0.4 ms, the current one the call at T", async () => {
+    const query = server.app.get(QueryService);
+    const previous = await query.map(15, ALL, T - 1);
+    const current = await query.map(15, ALL, T + 14 * MIN + 30_000);
+    expect(previous.edges.map((e) => e.calls)).toEqual([1]);
+    expect(current.edges.map((e) => e.calls)).toEqual([1]);
+  });
+
+  it("status mix: the current window ends at now + 1 ms, so a root at T - 0.4 ms counts for now = T - 1", async () => {
+    const overview = server.app.get(OverviewService);
+    const inside = await overview.overview(15, 300, ALL, T - 1);
+    expect(inside.status.serverError).toBe(1);
+    // The root at T is the next window's: not in this one, in the one that ends after it.
+    const later = await overview.overview(15, 300, ALL, T);
+    expect(later.status.serverError).toBe(2);
   });
 });
