@@ -9,7 +9,7 @@ An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant (Clau
 | Tool | What it is for |
 |---|---|
 | `overview` | Start here: the app, sampling, store size, the slowest and most failing routes, the stored error count. |
-| `find_traces` | List stored traces with filters (route, method, status, minimum duration, text, type, release, user, service). |
+| `find_traces` | List stored traces with filters (route, method, status, has errors, minimum duration, text, type, release, user, service). |
 | `get_trace` | One trace written for a model: repeated statements (a likely N+1) first, then errors with the first three stack frames, slow spans, and an indented span tree with self times. Capped at about 400 spans. |
 | `list_errors` | Recent errors grouped by type and message, with trace ids. |
 | `route_stats` | Request count, error rate and p50/p95/p99 per route over 15 or 60 minutes. |

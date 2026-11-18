@@ -150,6 +150,15 @@ const buildColumns = (maxDurationMs: number) =>
       cell: (info) =>
         info.getValue() ? (
           <Chip tone="worse">error</Chip>
+        ) : info.row.original.hasErrors ? (
+          // D-94: the request succeeded, but a span inside it failed (a job, a handled error).
+          <Chip
+            tone="warn"
+            data-testid="has-errors-badge"
+            title="The request succeeded, but a span in this trace failed (a job, or an error recorded below the root)"
+          >
+            errors inside
+          </Chip>
         ) : (
           <span className="text-muted-foreground">-</span>
         ),

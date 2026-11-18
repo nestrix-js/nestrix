@@ -68,6 +68,7 @@ export interface TraceSummary {
   spanCount: number;
   type: TraceType;
   hasJob: boolean;
+  hasErrors?: boolean;
   release?: string;
   user?: string;
   cursor: string;

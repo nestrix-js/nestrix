@@ -41,6 +41,8 @@ export interface RequestState {
   startedAt?: number;
   /** `https` when the connection is TLS, else `http`; the `url.scheme` metric attribute. */
   scheme?: "http" | "https";
+  /** The raw request path (no query), for `url.path` at `close` (D-97). */
+  path?: string;
 }
 
 /**
@@ -157,7 +159,9 @@ export type FaultSite =
   | "process-monitor"
   | "stats-record"
   | "dashboard-close"
-  | "user";
+  | "user"
+  | "url-path"
+  | "record-error";
 
 export const faultInjection: { site: FaultSite | undefined } = {
   site: undefined,

@@ -10,7 +10,7 @@ Nestrix adds detail in levels. Each one needs a little more setup than the last.
 
 ## Level 1: HTTP
 
-One server span per request, named `METHOD /route/template` (or just `METHOD` when no route matched, as for a 404). It carries the OpenTelemetry HTTP attributes, `code.function.name` (`Controller.handler`), the status, and the first exception a handler or pipe threw as an exception event. An incoming `traceparent` is continued.
+One server span per request, named `METHOD /route/template` (or just `METHOD` when no route matched, as for a 404). It carries the OpenTelemetry HTTP attributes, `code.function.name` (`Controller.handler`), the status, and the first exception a handler or pipe threw as an exception event. An incoming `traceparent` is continued. A guard's or middleware's exception is not seen there; report it from your exception filter with [`recordError`](/guide/errors#reporting-handled-errors-recorderror). An error thrown once counts once, however many spans record it on its way up, and a thrown 4xx is recorded but not counted as an error ([Errors](/guide/errors)).
 
 `node:http` and `fetch` (undici) calls made inside a request get a client span and a `traceparent` header. A request made with no active parent span (a health poller, an error reporter's transport outside a request) gets neither.
 
@@ -32,6 +32,19 @@ await app.listen(3000);
 ```
 
 Nest accepts one `instrument` object. To combine with another tool, use `composeInstrument(NestrixInstrument, otherTool)`.
+
+With `NESTRIX_ENABLED=false`, or when every `NestrixModule` in the process is `forRoot({ enabled: false })`, `NestrixInstrument` leaves every instance as Nest created it. An `enabled: false` from `forRootAsync` is known only after Nest has decorated most instances, which then keep switched-off wrappers (about 30 ns per call). To switch method spans from configuration, decide before `NestFactory.create` and use `nestrixInstrumentIf`, which returns `NestrixInstrument` when its argument is true and `undefined` otherwise:
+
+```ts
+import { NestFactory } from "@nestjs/core";
+import { nestrixInstrumentIf } from "@nestrix-js/nestjs";
+import { AppModule } from "./app.module";
+
+const tracing = process.env.TRACING !== "off";
+const app = await NestFactory.create(AppModule, {
+  instrument: nestrixInstrumentIf(tracing),
+});
+```
 
 A method span is named `Class.method` and carries `nestrix.class`, `nestrix.method` and `nestrix.component` (`controller`, `service`, `repository`, `processor`, `guard`, `pipe`, `interceptor`, `filter` or `provider`). Spans nest under the request's server span: controller, then service, then repository, then the database span.
 
@@ -65,7 +78,7 @@ A database span is a child of the method or request that ran the query. Spans us
 
 | Library | Default | How |
 |---|---|---|
-| `pg` | on, when `pg` is installed | Wraps `Client.prototype.query` and `Pool.prototype.query`. Covers raw `pg`, `pg-cursor`, `pg-query-stream` and ORMs built on `pg` (TypeORM, Drizzle, Prisma on `@prisma/adapter-pg`, MikroORM). |
+| `pg` | on, when `pg` is installed | Wraps `Client.prototype.query`, `Pool.prototype.query` and `Pool.prototype.connect` (pool wait). Covers raw `pg`, `pg-cursor`, `pg-query-stream` and ORMs built on `pg` (TypeORM, Drizzle, Prisma on `@prisma/adapter-pg`, MikroORM). |
 | `mysql2` | off | Subscribes to mysql2's tracing channels (mysql2 3.20 or later). |
 | `ioredis` | off | Subscribes to ioredis's channels (ioredis 5.11 or later). |
 
@@ -82,6 +95,8 @@ NestrixModule.forRoot({
 **Why `mysql2` and `ioredis` are opt-in.** Both libraries change behaviour once anything subscribes to their tracing channels. With `mysql2`, an event-emitter query that fails with no `'error'` listener normally raises `uncaughtException`; once Nestrix subscribes, it is silently swallowed. With `ioredis`, a failing command nobody awaits normally raises `unhandledRejection`; once Nestrix subscribes, it does not. That turns a crash into silence, so you opt in knowingly (decision D-49).
 
 **What a span records.** The statement with literals replaced by `?` (strings, numbers, hex and boolean literals; `IN (...)` lists collapsed; comments dropped; cut to 2,048 characters). If Nestrix cannot parse a statement safely it records a fixed placeholder, never the raw text. **Bind parameters are never recorded**, and there is no option to. For Redis the span records the command and its first argument (`GET user:1`), never values. A database span covers the query only, so a saturated connection pool shows as a gap before the span.
+
+**`pg` pool wait.** For `pg`, that gap is measured: `db.client.connection.wait_time` (seconds, per `db.client.connection.pool.name`, every successful acquisition), `db.client.connection.count` (`idle` and `used`) and `db.client.connection.pending_requests`, through `@opentelemetry/api` (nothing with `metrics: false`). Inside a trace, an acquisition that found no free client and waited at least `integrations.pg.poolWaitThresholdMillis` (default `5`) also gets a short `pg.pool.connect` span between the caller and its first query; a free client adds nothing. `{ pg: { poolWaitThresholdMillis: false } }` keeps the metrics and drops the span. The pool name is `host:port/database`, never the user or password. A failed acquisition records no wait; a failed `pool.query()` keeps its error span.
 
 **`pg` and nested copies.** An ORM may bring its own copy of `pg`. Nestrix wraps copies loaded when it starts and again at `onApplicationBootstrap`. A copy first loaded during a request is not traced.
 

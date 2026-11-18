@@ -8,32 +8,23 @@ import {
   Optional,
 } from "@nestjs/common";
 import { HttpAdapterHost, ModulesContainer } from "@nestjs/core";
-import {
-  createDashboard,
-  type Dashboard,
-  type DashboardLogger,
-  type DashboardUnavailable,
-  UI_MISSING_MESSAGE,
+// Types only: the code behind them is loaded lazily, through `NESTRIX_RUNTIME` (D-99).
+import type {
+  Dashboard,
+  DashboardLogger,
+  DashboardUnavailable,
 } from "./dashboard/mount.js";
-import { diagnostics } from "./diagnostics.js";
+import { diagnostics, logErrorOnce } from "./diagnostics.js";
+import { installErrorTracking } from "./errors/exception.js";
 import { NestrixInterceptor } from "./http/interceptor.js";
-import { installHttpInstrumentation } from "./http/server.js";
-import {
-  installIntegrations,
-  rescanIntegrations,
-} from "./integrations/index.js";
-import { type LogExportHandle, setupLogExport } from "./logs/export.js";
+import type { LogExportHandle } from "./logs/export.js";
 import { configureMethods, markNestrixInternal } from "./methods/registry.js";
-import { type NestrixMetrics, startMetrics } from "./metrics/index.js";
-import { instanceIdentity } from "./otel/resource.js";
-import { setupTelemetry } from "./otel/setup.js";
+import type { NestrixMetrics } from "./metrics/index.js";
 import type { TelemetryHandle } from "./otel/types.js";
-import { installOutbound } from "./outbound/index.js";
-import { buildRedactedQueryKeys, scrubSpanAttributes } from "./privacy.js";
-import { installProcessErrorMonitor } from "./process-errors.js";
-import { RemoteProfilerPoller } from "./profiler/remote.js";
+import type { RemoteProfilerPoller } from "./profiler/remote.js";
 import type { ResolvedOptions } from "./resolve-options.js";
-import { NESTRIX_OPTIONS } from "./tokens.js";
+import type { NestrixRuntime } from "./runtime-loader.js";
+import { NESTRIX_OPTIONS, NESTRIX_RUNTIME } from "./tokens.js";
 
 /**
  * The module's one eagerly constructed provider. Later tasks hook in from its constructor,
@@ -62,6 +53,8 @@ export class NestrixCore
   /** P10-01: set with `export.profiler: true` and a base endpoint; started at bootstrap. */
   private readonly remoteProfiler: RemoteProfilerPoller | undefined;
   private readonly logger: DashboardLogger;
+  /** The lazily loaded SDK, exporters and dashboard (D-99); undefined when disabled or not loaded. */
+  private readonly runtime: NestrixRuntime | undefined;
 
   constructor(
     @Inject(NESTRIX_OPTIONS) readonly options: ResolvedOptions,
@@ -69,26 +62,39 @@ export class NestrixCore
     @Optional() @Inject(HttpAdapterHost) adapterHost?: HttpAdapterHost,
     // Level 2 (P3-02): the scanned modules, read once here to compute the own set (D-58).
     @Optional() @Inject(ModulesContainer) modules?: ModulesContainer,
+    // D-99: resolved by an async factory, so Nest has loaded it before this constructor runs.
+    @Optional() @Inject(NESTRIX_RUNTIME) runtime?: NestrixRuntime,
   ) {
     this.adapterHost = adapterHost;
     this.logger = new Logger("Nestrix");
+    this.runtime = options.enabled ? runtime : undefined;
+    const rt = this.runtime;
+    if (options.enabled && rt === undefined) {
+      // Error level: the whole of Nestrix is off, which `logger: ['error', 'warn']` must still show.
+      logErrorOnce(
+        "core.runtime-missing",
+        "Nestrix could not load its OpenTelemetry setup, so it records, exports and serves nothing in this app. Please report this.",
+      );
+    }
     let telemetry: TelemetryHandle | undefined;
     let logExport: LogExportHandle | undefined;
     let dashboard: Dashboard | undefined;
     let unavailable: DashboardUnavailable | undefined;
     let metrics: NestrixMetrics | undefined;
     try {
-      if (options.enabled) {
+      if (rt !== undefined) {
         // The mode is resolved already (module factory). Wired now, because an SDK 3 provider
         // takes its processors only in its constructor; routes come at `onModuleInit` (D-45).
-        const created = createDashboard(options, diagnostics, this.logger);
+        const created = rt.createDashboard(options, diagnostics, this.logger);
         if ("dashboard" in created) dashboard = created.dashboard;
         else unavailable = created.unavailable;
-        const queryKeys = buildRedactedQueryKeys(options.http.redactQueryKeys);
-        telemetry = setupTelemetry(
+        const queryKeys = rt.buildRedactedQueryKeys(
+          options.http.redactQueryKeys,
+        );
+        telemetry = rt.setupTelemetry(
           {
             ...options,
-            scrub: (span) => scrubSpanAttributes(span, queryKeys),
+            scrub: (span) => rt.scrubSpanAttributes(span, queryKeys),
             dashboardStore: dashboard ? options.store : undefined,
             dashboardLogs: options.ui.mode !== "off" && options.ui.logs,
           },
@@ -101,24 +107,26 @@ export class NestrixCore
             "Log export is on but Nestrix does not own the OpenTelemetry provider (your app's SDK does, or trace export is off), so Nestrix registers no LoggerProvider. Export logs through your own SDK; NestrixLogger records still reach it.",
           );
         } else {
-          logExport = setupLogExport(options, diagnostics);
+          logExport = rt.setupLogExport(options, diagnostics);
         }
         // P6-02: after the telemetry setup, which decides whether Nestrix may export metrics.
-        metrics = startMetrics(options, telemetry, diagnostics);
+        metrics = rt.startMetrics(options, telemetry, diagnostics);
         // Outbound subscribers work with or without an HTTP adapter, and with a host-owned SDK.
-        this.disposers.push(installOutbound(options, diagnostics));
+        this.disposers.push(rt.installOutbound(options, diagnostics));
         // Level 3 (P3-01): pg wrapped now, and again at onApplicationBootstrap (D-50).
-        this.disposers.push(installIntegrations(options, diagnostics));
+        this.disposers.push(rt.installIntegrations(options, diagnostics));
         // HTTP hooks now, or from `init$` under @nestjs/testing; nothing without an adapter.
         this.disposers.push(
-          installHttpInstrumentation(
+          rt.installHttpInstrumentation(
             adapterHost,
             options,
             diagnostics,
             dashboard?.hookConfig,
             metrics?.http,
           ),
-          installProcessErrorMonitor(),
+          rt.installProcessErrorMonitor(),
+          // D-93/D-94: `recordError` works while an enabled app runs; `errors.expected` applies.
+          installErrorTracking(options.errors.expected),
         );
       }
     } catch (error) {
@@ -139,8 +147,8 @@ export class NestrixCore
     try {
       // P10-01 (D-76): built now, started at `onApplicationBootstrap`. Independent of the
       // dashboard and of who owns the trace provider.
-      const remote = options.enabled ? options.export.profiler : false;
-      if (remote !== false) {
+      const remote = rt !== undefined ? options.export.profiler : false;
+      if (rt !== undefined && remote !== false) {
         if (remote.target === undefined) {
           diagnostics.logOnce(
             "profiler.remote-no-endpoint",
@@ -149,9 +157,9 @@ export class NestrixCore
         } else {
           const logger = this.logger;
           const board = dashboard;
-          remoteProfiler = new RemoteProfilerPoller({
+          remoteProfiler = new rt.RemoteProfilerPoller({
             target: remote.target,
-            identity: instanceIdentity(options, telemetry),
+            identity: rt.instanceIdentity(options, telemetry),
             diagnostics,
             log: (message) => logger.log(message),
             // P15-03: the check-in's event-loop p99 comes from the dashboard's sampler, if any.
@@ -192,7 +200,7 @@ export class NestrixCore
         if (ui.severity === "error") this.logger.error(ui.message);
         else if (hasAdapter) this.logger.log(ui.message);
       } else if (this.dashboardUnavailable === "ui-missing" && hasAdapter) {
-        this.logger.log(UI_MISSING_MESSAGE);
+        if (this.runtime) this.logger.log(this.runtime.UI_MISSING_MESSAGE);
       }
     } catch (error) {
       diagnostics.countFailure("core.module-init", error);
@@ -202,7 +210,7 @@ export class NestrixCore
   /** Wraps `pg` copies loaded while the app was built (D-50). Never throws. */
   onApplicationBootstrap(): void {
     try {
-      if (this.options.enabled) rescanIntegrations();
+      this.runtime?.rescanIntegrations();
     } catch (error) {
       diagnostics.countFailure("core.bootstrap", error);
     }

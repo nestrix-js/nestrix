@@ -1,4 +1,8 @@
 export {
+  type RecordErrorOptions,
+  recordError,
+} from "./errors/record-error.js";
+export {
   getExportStatus,
   type NestrixExportFailure,
   type NestrixExportFailureReason,
@@ -22,6 +26,7 @@ export {
   composeInstrument,
   type NestInstrument,
   NestrixInstrument,
+  nestrixInstrumentIf,
 } from "./methods/instrument.js";
 export {
   instrumentClient,
@@ -34,6 +39,7 @@ export {
 export type {
   ClassMatcher,
   NestrixEnhancerKind,
+  NestrixErrorsOptions,
   NestrixExportOptions,
   NestrixHttpOptions,
   NestrixIgnoreOptions,

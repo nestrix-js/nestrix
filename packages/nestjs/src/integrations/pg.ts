@@ -34,6 +34,10 @@
  * of that object (8.23.1 clones it; older 8.x versions were not checked).
  *
  * Every wrapper decides inside a guard and calls the original exactly once, outside it (§4.2).
+ *
+ * Pool wait (issue #38, D-98) is measured by a third wrapper, on `Pool.prototype.connect`
+ * (pg-pool.ts): a histogram and connection-count metrics, and a `pg.pool.connect` span above a
+ * threshold. It never changes the query spans above.
  */
 import { createRequire } from "node:module";
 import { type Context, context, type Span } from "@opentelemetry/api";
@@ -47,6 +51,12 @@ import {
   toPort,
   toText,
 } from "./db-span.js";
+import {
+  configurePgPool,
+  DEFAULT_POOL_WAIT_THRESHOLD_MILLIS,
+  type PgPoolConfig,
+  wrapPoolConnect,
+} from "./pg-pool.js";
 import { sanitizeSql, sqlOperation, sqlTarget } from "./sql.js";
 
 type Fn = (this: unknown, ...args: unknown[]) => unknown;
@@ -459,16 +469,17 @@ function wrapPoolQuery(original: Fn): Fn {
 function wrapMethod(
   proto: Record<string, unknown> | undefined,
   make: (original: Fn) => Fn,
+  method: "query" | "connect" = "query",
 ): boolean {
   if (proto === undefined || proto === null) return false;
-  const original = proto.query;
+  const original = proto[method];
   if (typeof original !== "function") return false;
   if ((original as unknown as Record<symbol, unknown>)[WRAPPED] !== undefined)
     return false;
   const wrapped = make(original as Fn);
   Object.defineProperty(wrapped, WRAPPED, { value: original });
-  const own = Object.getOwnPropertyDescriptor(proto, "query");
-  Object.defineProperty(proto, "query", {
+  const own = Object.getOwnPropertyDescriptor(proto, method);
+  Object.defineProperty(proto, method, {
     configurable: own?.configurable ?? true,
     enumerable: own?.enumerable ?? false,
     writable: own?.writable ?? true,
@@ -490,6 +501,18 @@ function wrapModule(pg: PgModuleLike, path: string, phase: PgScanPhase): void {
   seen.add(pg);
   wrapMethod(client, wrapClientQuery);
   wrapMethod(pool, wrapPoolQuery);
+  // Pool wait (issue #38, D-98): pg-pool's `query()` calls `this.connect(cb)`, so this one wrapper
+  // covers both. Wrapped independently of `query`: a pool without `connect` keeps its query spans.
+  try {
+    if (typeof pool?.connect === "function")
+      wrapMethod(
+        pool,
+        (original) => wrapPoolConnect(original, pgActive),
+        "connect",
+      );
+  } catch (error) {
+    countFailure("integrations.pg.wrap-connect", error);
+  }
   if (!modules.has(path)) modules.set(path, { path, phase });
 }
 
@@ -526,10 +549,20 @@ export interface PgInternals {
 export function enablePg(
   diag: Diagnostics,
   internals: PgInternals = {},
+  pool: PgPoolConfig = {
+    waitThresholdMillis: DEFAULT_POOL_WAIT_THRESHOLD_MILLIS,
+    metrics: true,
+  },
 ): () => void {
   references++;
   if (references === 1) {
     diagnostics = diag;
+    try {
+      // The first installation's pool settings apply while any is active (like its diagnostics).
+      configurePgPool(pool, diag);
+    } catch (error) {
+      countFailure("integrations.pg.pool.configure", error);
+    }
     try {
       requireFrom = createRequire(internals.resolveFrom ?? import.meta.url);
       try {
@@ -554,6 +587,13 @@ export function enablePg(
     if (released) return;
     released = true;
     references = Math.max(0, references - 1);
+    if (references === 0) {
+      try {
+        configurePgPool(undefined);
+      } catch (error) {
+        countFailure("integrations.pg.pool.configure", error);
+      }
+    }
   };
 }
 

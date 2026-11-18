@@ -10,7 +10,6 @@ import {
   type Attributes,
   type Context,
   context,
-  type Exception,
   INVALID_SPANID,
   INVALID_TRACEID,
   isSpanContextValid,
@@ -21,6 +20,11 @@ import {
   trace,
 } from "@opentelemetry/api";
 import { diagnostics } from "../diagnostics.js";
+import {
+  markLocalRoot,
+  recordExceptionEvent,
+  withLocalRoot,
+} from "../errors/exception.js";
 import {
   endNestrixSpan,
   noteSkippedSpan,
@@ -187,14 +191,19 @@ function endSpan(span: Span): void {
   }
 }
 
-function failSpan(span: Span, error: unknown): void {
+/**
+ * Records `error` and sets error status, each guarded on its own so a recording that fails still
+ * leaves the span failed. `entry`: a job's or scheduled tick's method failed, which is never an
+ * expected answer, whatever the exception's status (D-94).
+ */
+function failSpan(span: Span, error: unknown, entry = false): void {
   try {
-    span.recordException(
-      (typeof error === "string" ||
-      (typeof error === "object" && error !== null)
-        ? error
-        : String(error)) as Exception,
-    );
+    // Marked propagated when a deeper span already recorded the same error (D-93).
+    recordExceptionEvent(span, error, entry ? { expected: false } : undefined);
+  } catch (e) {
+    diagnostics.countFailure("methods.span-status", e);
+  }
+  try {
     span.setStatus({ code: SpanStatusCode.ERROR });
   } catch (e) {
     diagnostics.countFailure("methods.span-status", e);
@@ -349,7 +358,13 @@ export function makeWrapper(
           active,
         );
       }
-      if (span) ctx = trace.setSpan(active, span);
+      // A job's or scheduled tick's root is where `recordError` writes (D-93).
+      if (span) {
+        const withSpan = trace.setSpan(active, span);
+        ctx = scheduled
+          ? markLocalRoot(withSpan, span)
+          : withLocalRoot(active, span, withSpan);
+      }
     } catch (error) {
       diagnostics.countFailure("methods.start-span", error);
       if (span) endSpan(span);
@@ -382,7 +397,7 @@ export function makeWrapper(
       return untraced(fn, self, args, sink, t0);
     }
     if (state === 2) {
-      failSpan(span, thrown);
+      failSpan(span, thrown, entry !== undefined);
       report(sink, plan, method, t0, true);
       throw thrown;
     }
@@ -398,7 +413,7 @@ export function makeWrapper(
             return value;
           },
           (error: unknown) => {
-            failSpan(s, error);
+            failSpan(s, error, entry !== undefined);
             report(sink, plan, method, t0, true);
             throw error;
           },

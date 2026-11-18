@@ -17,7 +17,13 @@ import { SkeletonChart, SkeletonKpiStrip } from "@/components/kit/skeletons";
 import { KpiStrip, StatTile } from "@/components/kit/stat-tile";
 import { EmptyState, ErrorState } from "@/components/kit/states";
 import { Button } from "@/components/ui/button";
-import { getRoutes, getTimeline, getTraces, type QueryParams } from "@/lib/api";
+import {
+  ApiRequestError,
+  getRoutes,
+  getTimeline,
+  getTraces,
+  type QueryParams,
+} from "@/lib/api";
 import { formatDuration } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
 import { type RequestFilters, requestFilterParsers } from "@/lib/params";
@@ -40,6 +46,17 @@ const TYPES = [
   { label: "HTTP", value: "http" },
   { label: "Jobs", value: "job", title: "Traces with job processing" },
   { label: "Scheduled", value: "scheduled" },
+];
+// D-94: "has errors" is any failed span, the root included; the status filter is the root's own.
+const ERROR_FILTERS = [
+  { label: "Errors: Any", value: "" },
+  {
+    label: "Has errors",
+    value: "true",
+    title:
+      "A span failed: the request, a job, or an error recorded below the root",
+  },
+  { label: "No errors", value: "false", title: "No span failed" },
 ];
 const WINDOWS = [
   { value: 15, label: "15 min" },
@@ -67,6 +84,7 @@ export function filtersToParams(filters: RequestFilters): QueryParams {
     type: filters.type ?? undefined,
     release: filters.release ?? undefined,
     user: filters.user ?? undefined,
+    hasErrors: filters.hasErrors ?? undefined,
     fromUnixMs: filters.fromUnixMs ?? undefined,
     toUnixMs: filters.toUnixMs ?? undefined,
   };
@@ -224,6 +242,24 @@ export function RequestsPage() {
           {TYPES.map((t) => (
             <option key={t.value} value={t.value} title={t.title}>
               {t.value === "" ? "Type: All" : t.label}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Errors"
+          data-testid="has-errors-filter"
+          className="h-7 rounded-lg border border-border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+          value={filters.hasErrors ?? ""}
+          onChange={(e) => {
+            const value = e.target.value;
+            void setFilters({
+              hasErrors: value === "true" || value === "false" ? value : null,
+            });
+          }}
+        >
+          {ERROR_FILTERS.map((f) => (
+            <option key={f.value} value={f.value} title={f.title}>
+              {f.label}
             </option>
           ))}
         </select>
@@ -419,7 +455,14 @@ export function RequestsPage() {
           {toolbar}
           <ErrorState
             title="Could not load requests."
-            message={list.error?.message}
+            message={
+              // D-94: a backend from before the Errors filter rejects it as an unknown parameter.
+              filters.hasErrors !== null &&
+              list.error instanceof ApiRequestError &&
+              list.error.status === 400
+                ? "This backend is too old for the Errors filter. Update it, or clear the filter."
+                : list.error?.message
+            }
             onRetry={list.reload}
           />
         </>

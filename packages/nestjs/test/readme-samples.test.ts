@@ -73,6 +73,9 @@ const OPTIONS = [
   "http.requestHeaders",
   "http.responseHeaders",
   "http.redactQueryKeys",
+  "http.recordPath",
+  "http.redactPathParams",
+  "http.redactOutgoingPath",
   "redact",
   "ui",
   "ui.enabled",
@@ -96,6 +99,8 @@ const OPTIONS = [
   "integrations.pg",
   "integrations.mysql2",
   "integrations.ioredis",
+  "errors",
+  "errors.expected",
 ];
 
 describe("README options", () => {

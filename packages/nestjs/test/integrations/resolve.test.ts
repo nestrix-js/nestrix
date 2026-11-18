@@ -8,7 +8,7 @@ import {
 describe("integrations defaults and values", () => {
   it("pg on, mysql2 and ioredis off by default (D-49)", () => {
     expect(resolveOptions({}, {}).integrations).toEqual({
-      pg: true,
+      pg: { poolWaitThresholdMillis: 5 },
       mysql2: false,
       ioredis: false,
     });
@@ -33,6 +33,25 @@ describe("integrations defaults and values", () => {
     expect(resolveIntegrations({ ioredis: false }).ioredis).toBe(false);
   });
 
+  it("pg takes true or { poolWaitThresholdMillis } (D-98)", () => {
+    expect(resolveIntegrations({ pg: true }).pg).toEqual({
+      poolWaitThresholdMillis: 5,
+    });
+    expect(resolveIntegrations({ pg: {} }).pg).toEqual({
+      poolWaitThresholdMillis: 5,
+    });
+    expect(
+      resolveIntegrations({ pg: { poolWaitThresholdMillis: 0 } }).pg,
+    ).toEqual({ poolWaitThresholdMillis: 0 });
+    expect(
+      resolveIntegrations({ pg: { poolWaitThresholdMillis: 12.5 } }).pg,
+    ).toEqual({ poolWaitThresholdMillis: 12.5 });
+    expect(
+      resolveIntegrations({ pg: { poolWaitThresholdMillis: false } }).pg,
+    ).toEqual({ poolWaitThresholdMillis: false });
+    expect(Object.isFrozen(resolveIntegrations({}).pg)).toBe(true);
+  });
+
   it("is frozen", () => {
     const r = resolveIntegrations({ ioredis: true });
     expect(Object.isFrozen(r)).toBe(true);
@@ -41,6 +60,30 @@ describe("integrations defaults and values", () => {
 
   it.each([
     [{ pg: "yes" }, "integrations.pg must be a boolean"],
+    [
+      { pg: null },
+      "integrations.pg must be a boolean or { poolWaitThresholdMillis?: number | false }",
+    ],
+    [
+      { pg: { poolWaitThresholdMillis: null } },
+      "integrations.pg.poolWaitThresholdMillis must be false or a finite number of at least 0",
+    ],
+    [
+      { pg: { poolWaitThresholdMillis: -1 } },
+      "integrations.pg.poolWaitThresholdMillis must be false or a finite number of at least 0",
+    ],
+    [
+      { pg: { poolWaitThresholdMillis: Number.POSITIVE_INFINITY } },
+      "integrations.pg.poolWaitThresholdMillis must be false or a finite number of at least 0",
+    ],
+    [
+      { pg: { poolWaitThresholdMillis: "5" } },
+      "integrations.pg.poolWaitThresholdMillis must be false or a finite number of at least 0",
+    ],
+    [
+      { pg: { poolWaitThresholdMillis: true } },
+      "integrations.pg.poolWaitThresholdMillis must be false or a finite number of at least 0",
+    ],
     [{ mysql2: 1 }, "integrations.mysql2 must be a boolean"],
     [
       { ioredis: "on" },

@@ -143,41 +143,97 @@ describe("over HTTP", () => {
     }
   });
 
-  it("refuses a cookie signed by an earlier process with the same secret and password", async () => {
-    const earlier = sessionKey(
-      Buffer.from(SESSION_SECRET),
-      ADMIN_PW,
-      randomBytes(32),
-    );
-    const nowS = Math.floor(Date.now() / 1000);
-    const cookie = `${cookieName()}=${signSession(earlier, nowS + 3600)}`;
-    expect(await status("/", cookie)).toBe(303);
-    expect(await status("/api/v1/meta", cookie)).toBe(401);
-    expect(await status("/", signedCookie())).toBe(200); // this process's own key works
-  });
-
-  it("refuses a cookie that a restarted AdminAuth would not have signed", async () => {
-    const config = {
-      adminPassword: ADMIN_PW,
-      sessionSecret: Buffer.from(SESSION_SECRET),
-    };
-    const mine = server.app.get(AdminAuth);
-    const token = signedCookie().split("=")[1] as string;
+  it("a restarted AdminAuth with the same secret and password accepts the cookie; another secret or password does not (D-96)", async () => {
     const req = (t: string) =>
       ({
         headers: { cookie: `${cookieName()}=${t}` },
         socket: { localPort: lastServer.port },
       }) as never;
-    expect(mine.sessionOf(req(token))).toBeDefined();
-    const other = new AdminAuth(config as never) as unknown as { key: Buffer };
-    const foreign = signSession(
-      sessionKey(config.sessionSecret, ADMIN_PW, randomBytes(32)),
-      Math.floor(Date.now() / 1000) + 3600,
-    );
-    expect(mine.sessionOf(req(foreign))).toBeUndefined();
-    expect(other.key.equals(sessionKey(config.sessionSecret, ADMIN_PW))).toBe(
-      true,
-    );
+    const mine = server.app.get(AdminAuth);
+    const login = await fetch(`${server.baseUrl}/login`, {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: new URL(server.baseUrl).origin,
+      },
+      body: new URLSearchParams({ password: ADMIN_PW }).toString(),
+    });
+    expect(login.status).toBe(303);
+    const issued = (login.headers.get("set-cookie") ?? "")
+      .split(";", 1)[0]
+      ?.split("=")[1] as string;
+    expect((await mine.sessionOf(req(issued))).status).toBe("valid");
+    const restarted = (secret: string, password: string) =>
+      new AdminAuth({
+        adminPassword: password,
+        sessionSecret: Buffer.from(secret),
+      } as never);
+    expect(
+      (await restarted(SESSION_SECRET, ADMIN_PW).sessionOf(req(issued))).status,
+    ).toBe("valid");
+    expect(
+      (await restarted("o".repeat(40), ADMIN_PW).sessionOf(req(issued))).status,
+    ).toBe("none");
+    expect(
+      (await restarted(SESSION_SECRET, "b".repeat(24)).sessionOf(req(issued)))
+        .status,
+    ).toBe("none");
+    // The key is the secret and the password only: no per-process part.
+    const other = restarted(SESSION_SECRET, ADMIN_PW) as unknown as {
+      key: Buffer;
+    };
+    expect(
+      other.key.equals(sessionKey(Buffer.from(SESSION_SECRET), ADMIN_PW)),
+    ).toBe(true);
+  });
+
+  it("answers 503 (not 401, not a pass) when the revocation store cannot answer for a signed cookie", async () => {
+    const auth = server.app.get(AdminAuth);
+    const failing = {
+      revokedAmong: async () => {
+        throw new Error("injected fault");
+      },
+      revoke: async () => {
+        throw new Error("injected fault");
+      },
+    };
+    const internals = auth as unknown as {
+      revocations: unknown;
+    };
+    const original = internals.revocations;
+    internals.revocations = failing;
+    try {
+      expect(await status("/", signedCookie())).toBe(503);
+      const api = await fetch(`${server.baseUrl}/api/v1/meta`, {
+        headers: { cookie: signedCookie() },
+      });
+      expect(api.status).toBe(503);
+      expect(api.headers.get("retry-after")).toBe("5");
+      expect(await api.json()).toEqual({
+        error: {
+          code: "unavailable",
+          message: "The session could not be checked. Try again later.",
+        },
+      });
+      // Without a validly signed cookie the store is never asked: still 303/401.
+      expect(await status("/")).toBe(303);
+      expect(await status("/api/v1/meta", `${cookieName()}=forged`)).toBe(401);
+      // Logout cannot record the revocation: 503 and the cookie is kept for a retry.
+      const out = await fetch(`${server.baseUrl}/logout`, {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          cookie: signedCookie(),
+          origin: new URL(server.baseUrl).origin,
+        },
+      });
+      expect(out.status).toBe(503);
+      expect(out.headers.get("set-cookie")).toBeNull();
+    } finally {
+      internals.revocations = original;
+    }
+    expect(await status("/", signedCookie())).toBe(200);
   });
 
   it("fails closed when the session check itself throws", async () => {

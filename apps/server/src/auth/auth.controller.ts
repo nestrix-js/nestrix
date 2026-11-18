@@ -11,13 +11,19 @@ export class AuthController {
   constructor(private readonly auth: AdminAuth) {}
 
   @Get("login")
-  showLogin(@Req() req: IncomingMessage, @Res() res: ServerResponse): void {
-    this.auth.showLogin(req, res);
+  showLogin(
+    @Req() req: IncomingMessage,
+    @Res() res: ServerResponse,
+  ): Promise<void> {
+    return this.auth.showLogin(req, res);
   }
 
   @Post("login")
-  login(@Req() req: IncomingMessage, @Res() res: ServerResponse): void {
-    this.auth.login(req, res);
+  login(
+    @Req() req: IncomingMessage,
+    @Res() res: ServerResponse,
+  ): Promise<void> {
+    return this.auth.login(req, res);
   }
 
   @Get("login.css")
@@ -26,7 +32,10 @@ export class AuthController {
   }
 
   @Post("logout")
-  logout(@Req() req: IncomingMessage, @Res() res: ServerResponse): void {
-    this.auth.logout(req, res);
+  logout(
+    @Req() req: IncomingMessage,
+    @Res() res: ServerResponse,
+  ): Promise<void> {
+    return this.auth.logout(req, res);
   }
 }

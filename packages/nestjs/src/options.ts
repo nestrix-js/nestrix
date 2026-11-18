@@ -106,6 +106,35 @@ export interface NestrixHttpOptions {
   responseHeaders?: string[];
   /** Extra query-string keys whose values are replaced by `REDACTED`. Added to the default list. */
   redactQueryKeys?: string[];
+  /**
+   * What the server span records as `url.path` (D-97), written when the response closes (never at
+   * span start, so a sampler or `onStart` sees none). `'raw'` (default): the path as sent, with the
+   * values of `redactPathParams` written as `REDACTED` when a route matched; with no route, the raw
+   * path for a status below 400 (static files, raw adapter routes) or a 404, and nothing for any
+   * other status from 400 (a body parser's 400, a middleware's 401, a 413) or no response. Not
+   * covered: a pre-router middleware answering 2xx/3xx itself (a redirect) on a token-bearing
+   * path keeps the raw path; `'template'` covers it. `'template'`: the matched route
+   * template (`/invitations/:token`, the same value as `http.route`), or nothing when no route
+   * matched. `ignore.paths` always matches the raw path.
+   */
+  recordPath?: "raw" | "template";
+  /**
+   * Extra route parameter names (`token` for `/invitations/:token`) whose values are written as
+   * `REDACTED` in the server span's `url.path`, compared case-insensitively. Added to the default
+   * list (`token`, `password`, `secret`, `jwt`, `session`, ...; README "Privacy"). Applied when the
+   * response closes, using the route Nest matched; see `recordPath` for requests with no route.
+   */
+  redactPathParams?: string[];
+  /**
+   * Path patterns for outgoing requests whose matching segments are written as `REDACTED` in the
+   * client span's `url.full` (D-97). A string is a path, optionally after an origin:
+   * `'/v1/invitations/:token'` or `'https://api.example.com/v1/invitations/:token'`; `:name`
+   * segments are redacted, `*` matches any one segment, other segments must be equal, and the
+   * pattern matches the start of the path in whole segments. A `RegExp` runs on the path; each
+   * capture group's text (or the whole match, with no group) becomes `REDACTED`, every match with
+   * `g`. `ignore.outgoing` still sees the path as sent. Default: none.
+   */
+  redactOutgoingPath?: (string | RegExp)[];
 }
 
 /** Built-in token authentication for the dashboard (architecture §4.7). Compared in constant time. */
@@ -198,8 +227,16 @@ export interface NestrixMethodsOptions {
 
 /** Database and cache integrations (level 3, phase 3). */
 export interface NestrixIntegrationsOptions {
-  /** `pg` query spans. Default `true`: on when `pg` is installed (D-50). */
-  pg?: boolean;
+  /**
+   * `pg` query spans. Default `true`: on when `pg` is installed (D-50). Also measures how long
+   * `pool.connect()` (and so `pool.query()`) waited for a client (D-98): the
+   * `db.client.connection.wait_time` histogram and the `db.client.connection.count` and
+   * `db.client.connection.pending_requests` metrics, per pool, unless `metrics` is `false`; and a
+   * `pg.pool.connect` span when an acquisition inside a trace found no free client and waited at
+   * least `poolWaitThresholdMillis` (default 5; `false` adds no such span, `0` one for every
+   * acquisition that had to wait).
+   */
+  pg?: boolean | { poolWaitThresholdMillis?: number | false };
   /**
    * `mysql2` query spans. Default `false` (D-49): once on, mysql2 swallows an error from an
    * event-emitter query that has no `'error'` listener, where it would otherwise crash the process.
@@ -244,6 +281,28 @@ export interface NestrixMetricsOptions {
    * registers still receives the metrics.
    */
   export?: boolean;
+}
+
+/**
+ * Which recorded exceptions count as errors (issue #25, D-94). An expected exception is still
+ * recorded on its span and shown in the trace view, marked `nestrix.exception.expected = true`,
+ * but is left out of the error list, the error groups and the trace's "has errors" marker. Route
+ * error rates and SLOs do not change: they follow the response status.
+ */
+export interface NestrixErrorsOptions {
+  /**
+   * Default: an exception is expected when the status it maps to is below 500 (an `HttpException`
+   * such as `NotFoundException` or `BadRequestException`); anything else maps to 500.
+   * - An array of classes (matched with `instanceof`, so subclasses too), exact class names, or
+   *   `RegExp`s tested against the class name: those are expected as well as the default ones.
+   * - A function: called with each exception Nestrix records; `true` expected, `false` not
+   *   expected, `undefined` the default rule. Must be synchronous; a throw counts as `undefined`.
+   * - `false`: nothing is expected; a thrown 4xx is an error occurrence again.
+   */
+  expected?:
+    | false
+    | ClassMatcher[]
+    | ((exception: unknown) => boolean | undefined);
 }
 
 export interface NestrixModuleOptions {
@@ -302,6 +361,8 @@ export interface NestrixModuleOptions {
   store?: NestrixStoreOptions;
   /** Log correlation and export (`NestrixLogger`). */
   logs?: NestrixLogsOptions;
+  /** Which recorded exceptions are errors and which are expected answers (D-94). */
+  errors?: NestrixErrorsOptions;
   /**
    * `http.server.request.duration` for every request, sampled or not, and runtime metrics. Default
    * on. `false` records no metrics at all.

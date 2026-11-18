@@ -20,6 +20,7 @@ Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app pro
 - [Releases and users](#releases-and-users)
 - [Metrics](#metrics)
 - [Custom spans](#custom-spans)
+- [Errors: occurrences, expected exceptions, `recordError`](#errors-occurrences-expected-exceptions-recorderror)
 - [Mail and other outgoing channels](#mail-and-other-outgoing-channels)
 - [Testing your app](#testing-your-app)
 - [Logs](#logs)
@@ -111,7 +112,7 @@ class SettingsModule {}
 export class AppModule {}
 ```
 
-With `forRootAsync`, an `enabled: false` returned from the factory disables Nestrix, but the module's providers are still registered and are inert (they record, export and serve nothing). With `forRoot`, `enabled: false` registers nothing at all.
+With `forRootAsync`, an `enabled: false` returned from the factory disables Nestrix, but the module's providers are still registered and are inert (they record, export and serve nothing, and the OpenTelemetry SDK, the exporters and the dashboard code are never loaded). With `forRoot`, `enabled: false` registers nothing at all. If you also pass `NestrixInstrument`, see [When Nestrix is switched off](#method-spans-level-2) for switching method wrappers from configuration with `nestrixInstrumentIf`.
 
 ### A host that already runs an OpenTelemetry SDK
 
@@ -274,7 +275,7 @@ Per-route statistics (the Routes view) count **every request**, whatever the sam
 
 The request list and the error list come from stored spans, so they **are sampled**. The dashboard says so when `sampleRate` is below 1, and says they may be when your SDK owns the sampler. At `sampleRate: 0.1`, the Routes view shows every request and the list shows about one in ten.
 
-**What is an error.** A span is an error when its status code is `error`. For a server span that means a 5xx response, or a handler exception that maps to 5xx. A thrown `NotFoundException` (404) keeps its exception event in the trace detail but counts as no error in route statistics, the error list or the error filter. The error list holds every stored span with error status, client spans and your own spans included.
+**What is an error.** A span is an error when its status code is `error`. For a server span that means a 5xx response, or a handler exception that maps to 5xx. A thrown `NotFoundException` (404) or any other expected exception keeps its exception event in the trace detail, marked expected, but counts as no error in route statistics, the error list, the error groups or the error filter. The error list holds error occurrences: stored spans with error status, client spans and your own spans included, with one thrown error counted once per trace, on the deepest span that recorded it. See [Errors](#errors-occurrences-expected-exceptions-recorderror).
 
 ### The views
 
@@ -283,9 +284,9 @@ The navigation lists these tabs. Each says whether its numbers are counted befor
 | Tab | What it shows | Numbers |
 |---|---|---|
 | Overview (home) | A health score (0 to 100) with a one-sentence verdict; **Needs attention** and **Getting better**: routes, errors, dependencies (and SLOs on the standalone server) that changed against the previous 15 or 60 minutes, ranked by impact; KPI tiles with their change (throughput, error rate, p95, Apdex, slowest dependency); latency percentiles with release markers; donuts for responses by status and where request time goes; throughput with errors; the Apdex split; the routes that changed most. The thresholds are listed in `docs/backlog/phase-11.md`. | Totals, latency, Apdex and route changes counted before sampling; status mix, time by kind, error and dependency changes sampled; each card says which |
-| Requests | Recent traces, newest first, with filters (status, error, route, release, user, type: HTTP, job, scheduled, text) that can be saved by name in the browser. A request timeline chart sits above the list (drag to narrow the range), and each row has a duration bar. | Stored, sampled |
+| Requests | Recent traces, newest first, with filters (status, error, route, release, user, type: HTTP, job, scheduled, errors: any span failed, text) that can be saved by name in the browser; a trace whose request succeeded while a span inside failed (a job, a handled error) is marked "errors inside". A request timeline chart sits above the list (drag to narrow the range), and each row has a duration bar. | Stored, sampled |
 | Trace (click a row) | The span waterfall, a summary of time by span kind and by class, a critical-path toggle (highlights the spans on the critical path), exception events and the [log lines](#logs-next-to-the-trace) written during the request. | Stored, sampled |
-| Errors | **Grouped** (the default): errors grouped by type, message and route, with counts, first and last seen and a sparkline; **All**: the flat list of every stored span with error status. | Stored, sampled |
+| Errors | **Grouped** (the default): errors grouped by type, message and route, with counts, first and last seen and a sparkline; **All**: the flat list of error occurrences (one per thrown error per trace; expected exceptions left out). | Stored, sampled |
 | Routes | Per-route requests, error rate and p50/p95/p99 over 15 or 60 minutes; selecting a route shows its latency histogram, and clicking a bar opens the request list for that latency range. **Compare** sets the last window against the one before it, or two releases, sorted by change. | Counted before sampling, except the release comparison and the histogram links into the list (stored traces) |
 | Route detail (from a route, an Overview item or a trace) | Why one route changed, window against window or release against release: a "What changed" summary with ranked findings (new or N+1 statements, slower statements, dependencies or methods, new errors, and what got faster), time per request by kind, statements, methods, dependencies, errors, slowest traces. Each finding links to the filtered Queries, Dependencies, Classes or Errors page. | KPI tiles and histogram counted before sampling; everything else from sampled traces (up to 2,000 per side) |
 | [Classes](#classes-view-and-app-map) | Calls, errors, total and own time per class and method. | Calls, errors, total time counted before sampling; own time sampled |
@@ -391,7 +392,7 @@ Redaction runs shortly after the span ends, not in the request, so a span waits 
 
 Every option is optional. `NestrixModule.forRoot(options?)` and the object `forRootAsync`'s factory returns take the same shape. Invalid values (for example a `sampleRate` outside 0 to 1, or a non-positive queue size) throw. With `forRoot`, that happens when `forRoot()` is called, which is when your module file loads, and also with `enabled: false`. With `forRootAsync`, it happens when the factory's result is resolved during `NestFactory.create`. `export.otlp.timeoutMillis` is validated only when an endpoint resolves.
 
-The package exports these types: `NestrixModuleOptions`, `NestrixModuleAsyncOptions`, `NestrixExportOptions`, `NestrixOtlpOptions`, `NestrixQueueOptions`, `NestrixIgnoreOptions`, `NestrixHttpOptions`, `RedactHook`, `RedactableSpan`, `UrlMatcher`, `TraceIds`, `NestrixLogRecord`, `NestrixUiOptions`, `NestrixUiTokenAuth`, `NestrixUiCustomAuth`, `NestrixStoreOptions`, `NestrixMetricsOptions`, `NestrixLogsOptions`, `NestrixMethodsOptions`, `NestrixIntegrationsOptions`, `NestrixEnhancerKind`, `ClassMatcher` and `NestInstrument`. The package also exports `NestrixModule`, `NestrixLogger`, `emitLog`, `getTraceIds`, `Span`, `withSpan`, `nestrixSpanProcessor`, `NestrixInstrument`, `composeInstrument`, `nestrixPreRequestHook` and `instrumentClient`. `SpanOptions` is not re-exported: import it from `@opentelemetry/api`.
+The package exports these types: `NestrixModuleOptions`, `NestrixModuleAsyncOptions`, `NestrixExportOptions`, `NestrixOtlpOptions`, `NestrixQueueOptions`, `NestrixIgnoreOptions`, `NestrixHttpOptions`, `RedactHook`, `RedactableSpan`, `UrlMatcher`, `TraceIds`, `NestrixLogRecord`, `NestrixUiOptions`, `NestrixUiTokenAuth`, `NestrixUiCustomAuth`, `NestrixStoreOptions`, `NestrixMetricsOptions`, `NestrixLogsOptions`, `NestrixMethodsOptions`, `NestrixIntegrationsOptions`, `NestrixEnhancerKind`, `ClassMatcher` and `NestInstrument`. The package also exports `NestrixModule`, `NestrixLogger`, `emitLog`, `getTraceIds`, `Span`, `withSpan`, `nestrixSpanProcessor`, `NestrixInstrument`, `nestrixInstrumentIf`, `composeInstrument`, `nestrixPreRequestHook` and `instrumentClient`. `SpanOptions` is not re-exported: import it from `@opentelemetry/api`.
 
 <!-- sample: all-options -->
 
@@ -426,6 +427,9 @@ import { NestrixModule } from "@nestrix-js/nestjs";
         requestHeaders: ["x-correlation-id"],
         responseHeaders: ["cache-control"],
         redactQueryKeys: ["ticket"],
+        recordPath: "raw",
+        redactPathParams: ["inviteCode"],
+        redactOutgoingPath: ["https://api.example.com/v1/invitations/:token"],
       },
       redact: () => undefined,
     }),
@@ -451,13 +455,15 @@ That sample sets most options to their defaults, except where a default is "unse
 | `integrations` | see below | Database and cache spans. See [`integrations`](#integrations). |
 | `export` | see below | Export settings. |
 | `ignore` | none | Requests that get no span. |
-| `http` | none | Extra allowlisted headers and redacted query keys. |
+| `http` | none | Extra allowlisted headers, redacted query keys and route parameters, and what `url.path` records. |
 | `redact` | none | A synchronous hook that sees every exported span and every span the dashboard stores. |
 | `ui` | `'auto'` | The embedded dashboard: `false`, `'auto'` or an object. See [Dashboard](#dashboard) and [`ui`](#ui). |
 | `store` | see below | Limits of the dashboard's in-memory store. See [`store`](#store). |
 | `logs` | `{ export: false }` | Log export over OTLP. See [Logs](#logs). |
 | `logs.export` | `false` | Send `NestrixLogger` and `emitLog()` records over OTLP to `/v1/logs`, under the same rule as metrics (see [One rule for every signal](#a-host-that-already-runs-an-opentelemetry-sdk)). Needs `@opentelemetry/sdk-logs` and `@opentelemetry/exporter-logs-otlp-http`. See [Logs](#logs). |
 | `metrics` | on | Request-duration and runtime metrics. See [Metrics](#metrics) and [`metrics`](#metrics-option). |
+| `errors` | see below | Which recorded exceptions count as errors. See [Errors](#errors-occurrences-expected-exceptions-recorderror). |
+| `errors.expected` | mapped status below 500 | Which recorded exceptions are expected answers rather than errors: an array of classes (`instanceof`), class names or `RegExp`s (added to the default), a synchronous function (`true`, `false`, `undefined` for the default), or `false` for none. See [Errors](#errors-occurrences-expected-exceptions-recorderror). |
 
 ### `methods`
 
@@ -475,7 +481,7 @@ Method spans need `instrument: NestrixInstrument` in `main.ts`; see [Method span
 | Option | Default | |
 |---|---|---|
 | `integrations` | an object | Database and cache spans. See [Database and cache spans](#database-and-cache-spans-level-3). |
-| `integrations.pg` | `true` | On when `pg` is installed. `false` turns it off. |
+| `integrations.pg` | `true` | On when `pg` is installed. `false` turns it off. `{ poolWaitThresholdMillis }` sets when a pool wait gets a `pg.pool.connect` span (default `5` ms; `false` for none). See [`pg` pool wait](#database-and-cache-spans-level-3). |
 | `integrations.mysql2` | `false` | Opt-in. Once on, mysql2 swallows an unhandled query error instead of crashing. |
 | `integrations.ioredis` | `false` | Opt-in, with the same kind of swallowed error. `true`, or `{ rootSpans: true }` to also keep commands that run outside any trace (dropped by default). |
 
@@ -512,7 +518,7 @@ All three must be positive integers.
 | Option | Default | |
 |---|---|---|
 | `ignore.paths` | none | Incoming requests that get no server span. Matched against the request path without the query string. A string must equal the path exactly: `"/health"` does not match `"/health/live"`. |
-| `ignore.outgoing` | none | Outgoing requests that get no client span and no `traceparent` header. Matched against the recorded `url.full` (credentials removed, listed query values already `REDACTED`). A string is a **prefix**, for example `"https://o123.ingest.sentry.io/"`. |
+| `ignore.outgoing` | none | Outgoing requests that get no client span and no `traceparent` header. Matched against the recorded `url.full` (credentials removed, listed query values already `REDACTED`; the path as sent, before `http.redactOutgoingPath`). A string is a **prefix**, for example `"https://o123.ingest.sentry.io/"`. |
 
 A matcher is a string, a `RegExp` or a function. In `ignore.paths` a `RegExp` is applied with `search`, so the `g` flag and `lastIndex` do not matter. In `ignore.outgoing` its `lastIndex` is reset to 0 and `test` is called. A function receives the path or URL and must return `true` to match. A matcher that throws counts as a match, and the failure is counted. Counts are internal for now: there is no public accessor, and drops because the queue is full are counted but not logged.
 
@@ -541,13 +547,16 @@ An ignored request gets no Nestrix span, but other tools' spans inside it are no
 
 ### `http`
 
-These add to the privacy defaults below; they never replace them.
+The lists add to the privacy defaults below; they never replace them.
 
 | Option | Default | |
 |---|---|---|
 | `http.requestHeaders` | none | Extra request headers recorded as `http.request.header.<name>`. |
 | `http.responseHeaders` | none | Extra response headers recorded as `http.response.header.<name>`. |
 | `http.redactQueryKeys` | none | Extra query-string keys whose values are replaced by `REDACTED`. |
+| `http.recordPath` | `'raw'` | What the server span records as `url.path`. `'raw'`: the path as sent, with the values of `http.redactPathParams` written as `REDACTED`. `'template'`: the matched route template (`/invitations/:token`, the same value as `http.route`); a request that matched no route (a 404) records no `url.path`. `ignore.paths` always matches the raw path. |
+| `http.redactPathParams` | none | Extra route parameter names (`token` for `/invitations/:token`) whose values are written as `REDACTED` in `url.path`, case-insensitive. Added to the default list (see Privacy). |
+| `http.redactOutgoingPath` | none | Path patterns whose `:name` segments are written as `REDACTED` in an outgoing request's `url.full`: `'/v1/invitations/:token'`, or with an origin, `'https://api.example.com/v1/invitations/:token'`. `*` matches any one segment; other segments must be equal; a pattern matches the start of the path. A `RegExp` runs on the path, and each capture group (or the whole match) becomes `REDACTED`. |
 
 ### `redact`
 
@@ -590,7 +599,7 @@ Ignored while the dashboard is off. See [Memory and the `store` option](#memory-
 
 | Variable | Effect |
 |---|---|
-| `NESTRIX_ENABLED` | `false` or `0` (any case) registers nothing at all. |
+| `NESTRIX_ENABLED` | `false` or `0` (any case) registers nothing at all, and `NestrixInstrument` leaves instances untouched. Importing the package then loads neither the OpenTelemetry SDK nor the exporters nor the dashboard code: they are loaded with `import()` while Nest builds an app that has Nestrix on. |
 | `OTEL_SERVICE_NAME` | Default for `serviceName`. |
 | `OTEL_RESOURCE_ATTRIBUTES` | `key=value,key2=value2`, merged into the resource; `resourceAttributes` wins. |
 | `GIT_SHA` | The release (`service.version`) when no option or `OTEL_RESOURCE_ATTRIBUTES` sets one. |
@@ -618,7 +627,7 @@ When your app owns the SDK, the export variables are your SDK's business, not Ne
 
 - **Incoming HTTP.** One server span per request, named `METHOD /route/template` (or `METHOD` when no route matched, as for a 404), with the OpenTelemetry HTTP attributes, `code.function.name` (`Controller.handler`), the status, and the first exception a handler or pipe threw as an exception event. An incoming `traceparent` is continued. If the client goes away before the response finishes, the span carries `nestrix.http.aborted = true`.
 - **Outgoing HTTP.** `node:http` and `fetch` (undici) calls get a client span named `METHOD`, and a `traceparent` header unless the request already has one. A request made with no active parent span gets no span and no header, so background traffic (a health poller, an error reporter's transport outside a request) is not traced. If the response body is never read, the span ends at the response head and carries `nestrix.http.body = "not consumed"`: for `node:http`, on the next turn of the event loop if nothing is reading; for `fetch` and undici, after 30 seconds. The 30 seconds restart with each body chunk. A `node:http` caller that starts reading on a later tick also gets a head-only span. A body the caller cancels after the response head is marked `"cancelled"` and is not an error. A request whose method is not in the HTTP conventions' list gets the span name `HTTP` and `http.request.method = "_OTHER"`; this applies to server spans too.
-- **Exceptions.** A handler's or pipe's exception is recorded on the server span. An exception thrown by a guard is not: guards run before Nestrix's interceptor, so a guard rejection keeps its route name and records no exception event.
+- **Exceptions.** A handler's or pipe's exception is recorded on the server span. An exception thrown by a guard is not: guards run before Nestrix's interceptor, so a guard rejection keeps its route name and records no exception event; report it from your own exception filter with [`recordError`](#errors-occurrences-expected-exceptions-recorderror). An exception recorded again on its way up (method spans, the server span) is marked `nestrix.exception.propagated` and counted once; one that maps to a status below 500 is marked `nestrix.exception.expected` and not counted as an error.
 - **Process errors.** An uncaught exception becomes an exception event on the active request span, or a short span of its own. An unhandled rejection is seen only under Node's default `--unhandled-rejections=throw`. Best effort: the process usually exits before that span is exported. Nestrix adds an `uncaughtExceptionMonitor` listener only and never changes whether the process crashes.
 - **Your own classes' methods.** With one line in `main.ts`; see [Method spans](#method-spans-level-2).
 - **Database and cache calls.** `pg` by default, `mysql2` and `ioredis` on request; see [Database and cache spans](#database-and-cache-spans-level-3).
@@ -665,6 +674,26 @@ declare const otherTool: { instanceDecorator: (instance: unknown) => unknown };
 export async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, {
     instrument: composeInstrument(NestrixInstrument, otherTool),
+  });
+  await app.listen(3000);
+}
+```
+
+**When Nestrix is switched off.** With `NESTRIX_ENABLED=false`, or when every `NestrixModule` in the process is a `forRoot({ enabled: false })`, `NestrixInstrument` leaves every instance exactly as Nest created it: no wrappers, no own properties. Nest decorates most instances before an async factory has run, so an `enabled: false` returned from `forRootAsync` cannot do the same: the instances keep switched-off wrappers (each call costs about 30 ns more). To switch from configuration, decide before `NestFactory.create` and pass the instrument only when tracing is on, with `nestrixInstrumentIf`:
+
+<!-- sample: instrument-if -->
+
+```ts
+import { NestFactory } from "@nestjs/core";
+import { nestrixInstrumentIf } from "@nestrix-js/nestjs";
+import { AppModule } from "./app.module";
+
+export async function bootstrap(): Promise<void> {
+  // Read before Nest builds the app: the same setting your forRootAsync factory uses.
+  const tracing = process.env.TRACING !== "off";
+  const app = await NestFactory.create(AppModule, {
+    // `NestrixInstrument` when true; `undefined` (no instrument at all) when false.
+    instrument: nestrixInstrumentIf(tracing),
   });
   await app.listen(3000);
 }
@@ -744,7 +773,7 @@ export class AppModule {}
 
 | Library | Default | How |
 |---|---|---|
-| `pg` | on, when `pg` is installed | Wraps `Client.prototype.query` and `Pool.prototype.query`. Covers raw `pg`, `pg-cursor`, `pg-query-stream` and ORMs built on `pg` (TypeORM, Drizzle, Prisma on `@prisma/adapter-pg`, MikroORM). |
+| `pg` | on, when `pg` is installed | Wraps `Client.prototype.query`, `Pool.prototype.query` and `Pool.prototype.connect` (pool wait, below). Covers raw `pg`, `pg-cursor`, `pg-query-stream` and ORMs built on `pg` (TypeORM, Drizzle, Prisma on `@prisma/adapter-pg`, MikroORM). |
 | `mysql2` | **off** | Subscribes to mysql2's tracing channels (mysql2 3.20 or later). |
 | `ioredis` | **off** | Subscribes to ioredis's channels (ioredis 5.11 or later). |
 
@@ -754,7 +783,14 @@ export class AppModule {}
 
 **`ioredis` and root commands.** A command that runs with no active span (the connection handshake, or commands queued before the connection was ready) is dropped by default, because it belongs to no request. `integrations.ioredis: { rootSpans: true }` keeps them as root spans.
 
-**What a span records.** The statement with literals replaced by `?` (strings, numbers, hex and boolean literals; `IN (...)` lists collapsed; comments dropped; cut to 2,048 characters). If Nestrix cannot parse a statement safely, it records a fixed placeholder, never the raw text. **Bind parameters are never recorded**, and there is no option to. For Redis the span records the command and its first argument (`GET user:1`), never values. A database span **covers the query only**: time spent waiting for a pooled connection is not in it, so a saturated pool shows as a gap before the span, not as a slow query.
+**What a span records.** The statement with literals replaced by `?` (strings, numbers, hex and boolean literals; `IN (...)` lists collapsed; comments dropped; cut to 2,048 characters). If Nestrix cannot parse a statement safely, it records a fixed placeholder, never the raw text. **Bind parameters are never recorded**, and there is no option to. For Redis the span records the command and its first argument (`GET user:1`), never values. A database span **covers the query only**: time spent waiting for a pooled connection is not in it, so a saturated pool shows as a gap before the span, not as a slow query. For `pg` that gap is measured and, above a threshold, labelled (below).
+
+**`pg` pool wait.** Nestrix also wraps `Pool.prototype.connect` (which `pool.query()` uses too) and measures how long each acquisition waited for a client, so a slow query and a request that waited for a free connection look different:
+
+- **Metrics**, through `@opentelemetry/api` (so your `MeterProvider` or Prometheus bridge sees them; nothing with `metrics: false`): `db.client.connection.wait_time` (histogram, seconds, every successful acquisition), `db.client.connection.count` with `db.client.connection.state` `idle` or `used`, and `db.client.connection.pending_requests` (callers queued for a client), read from the pool when a reader collects. Each carries `db.client.connection.pool.name`.
+- **A `pg.pool.connect` span** inside a trace when an acquisition found no free client and waited at least `integrations.pg.poolWaitThresholdMillis` (default `5`): it fills the gap between the span that called `pool.connect()` and the first query. With a free client there is no span and no event, even if your code then blocks the event loop before the client arrives. `poolWaitThresholdMillis: false` turns the span off (the metrics stay); `0` adds one for every acquisition that had to wait.
+
+The pool name is `host:port/database` from the first client the pool hands out (pg's resolved connection parameters; never the user or password), with an IPv6 host in brackets; pools with the same name are summed, and a pool appears once it has handed out a client. At most 256 pools are tracked; waits of pools past that are not recorded. A failed acquisition records no wait and no `pg.pool.connect` span; a failed `pool.query()` keeps its own error span. The wait often includes opening a new connection when the pool is below `max`, so the first requests after start can show a short `pg.pool.connect` span too. The names follow `@opentelemetry/semantic-conventions` 1.45.0, where they are still experimental and may be renamed. Decision D-98.
 
 If the library is not installed the integration reports itself disabled and does nothing. An integration that is off subscribes to nothing.
 
@@ -965,6 +1001,7 @@ Nestrix records metrics through `@opentelemetry/api`'s metrics API. If your app 
 
 - **`http.server.request.duration`**, a histogram in seconds with the bucket boundaries the HTTP semantic conventions advise, for every request, sampled or not: it is right at any `sampleRate` and under your own sampler. Attributes: `http.request.method`, `url.scheme` (`http` or `https`), `http.route` (when a handler matched), `http.response.status_code` (when a response was sent) and `error.type` (on the same rule as the span's error status). Requests under `ignore.paths` and the dashboard path are not counted.
 - **Runtime metrics**, read only when a reader collects: `nodejs.eventloop.delay.p50`, `.p99` and `.max` (seconds, covering the time since the last collection by any reader, so with two readers each sees only the window the other left), `v8js.memory.heap.used` and `v8js.memory.heap.space.size` (bytes, per `v8js.heap.space.name`), `process.memory.usage` (RSS, bytes) and `process.cpu.time` (seconds, per `cpu.mode`). Names follow `@opentelemetry/semantic-conventions` 1.45.0, where they are still experimental and may be renamed. `v8js.memory.heap.limit` is deprecated there and not reported.
+- **`pg` pool metrics** while the `pg` integration is on: `db.client.connection.wait_time`, `db.client.connection.count` and `db.client.connection.pending_requests`, per `db.client.connection.pool.name`. See [`pg` pool wait](#database-and-cache-spans-level-3).
 
 With no `MeterProvider` registered and no export, nothing is recorded and the event-loop monitor does not run.
 
@@ -993,6 +1030,76 @@ import { NestrixModule } from "@nestrix-js/nestjs";
 })
 export class AppModule {}
 ```
+
+## Errors: occurrences, expected exceptions, `recordError`
+
+**One thrown error is one occurrence.** With method spans on, an error thrown in a service is recorded on the service's span, then on the controller's and on the server span as it travels up. The first record counts; the later ones on its way up carry `nestrix.exception.propagated = true` and stay in the trace view as context. One shared error object thrown from two sibling spans counts twice; an exception that was expected where it was first recorded does not hide the failure it causes; each BullMQ job attempt is matched on its own. The error list, the error groups, the dashboard and the MCP tools count the error once, embedded and on the standalone server. Two different errors in one trace stay two. A span holds at most one occurrence (its first exception that is neither propagated nor expected). Spans from SDKs that do not set the mark are handled too: a span is not counted when its direct child has an error with the same type, message and stack trace.
+
+**Expected exceptions.** An exception that maps to a status below 500 (`NotFoundException`, `BadRequestException`, `ForbiddenException`...) is recorded and shown in the trace view, marked `nestrix.exception.expected = true`, but creates no error group and is not in the error list. Route error rates and SLOs are unchanged: they follow the response status. Change the rule with `errors.expected`:
+
+<!-- sample: errors-expected -->
+
+```ts
+import { Module } from "@nestjs/common";
+import { NestrixModule } from "@nestrix-js/nestjs";
+
+class OutOfStockError extends Error {}
+
+@Module({
+  imports: [
+    NestrixModule.forRoot({
+      errors: {
+        // Also expected: your own errors (subclasses too), by class, name or RegExp.
+        expected: [OutOfStockError, "PaymentDeclinedError", /^Validation/],
+        // or a function: (e) => (e instanceof ConflictException ? false : undefined)
+        // or false: count every recorded exception, 4xx included
+      },
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+A failed job attempt, a job's or scheduled tick's own method and an uncaught exception are never expected. A bare class (`expected: NotFoundException`, not in an array) is rejected at startup. An exception counts only on a span with error status: with method spans on, `expected: false` brings a thrown 404 back as an occurrence on its method span; at level 1 the 404's server span has no error status.
+
+**Has errors.** A trace's `error` is the root's outcome. `hasErrors` is wider: any span failed, for example a failed job or an error recorded on a child span of a request that answered 200. The request list marks such traces "errors inside" and filters on them (Errors: Has errors); the query API takes `traces?hasErrors=true`, and the MCP `find_traces` tool `hasErrors: true`.
+
+**Reporting handled errors: `recordError(error, attributes?, options?)`.** Records `error` on the local root span of the current trace (the request's server span, the job's or scheduled tick's root, the RPC handler's span; the active span when that has ended; a short span named `recordError` outside any span), with `exception.escaped = false` and your attributes. It sets error status on that span unless the exception is expected (`{ fail: false }` keeps the status, `{ fail: true }` fails it anyway); on a request's span that counts as a failed request in route statistics. An error object is counted once per trace, so reporting one the interceptor or a method span already recorded adds no occurrence. It never throws and does nothing while Nestrix is disabled.
+
+Guards and middleware throw before Nestrix's interceptor, and Nestrix registers no exception filter (D-14). Report what only your filter sees from the filter:
+
+<!-- sample: errors-filter -->
+
+```ts
+import {
+  type ArgumentsHost,
+  Catch,
+  type ExceptionFilter,
+  HttpException,
+  Inject,
+} from "@nestjs/common";
+import { HttpAdapterHost } from "@nestjs/core";
+import { recordError } from "@nestrix-js/nestjs";
+
+@Catch()
+export class AllExceptionsFilter implements ExceptionFilter {
+  constructor(
+    @Inject(HttpAdapterHost) private readonly host: HttpAdapterHost,
+  ) {}
+
+  catch(exception: unknown, args: ArgumentsHost): void {
+    const status =
+      exception instanceof HttpException ? exception.getStatus() : 500;
+    // Guards and middleware throw before Nestrix's interceptor: report 5xx here.
+    if (status >= 500)
+      recordError(exception, { "app.error_code": "E_INTERNAL" });
+    const response = args.switchToHttp().getResponse();
+    this.host.httpAdapter.reply(response, { statusCode: status }, status);
+  }
+}
+```
+
+A job that catches and retries calls `recordError(error, { "job.id": String(job.id) })` in its `catch`; the error appears in the error groups under the job's trace.
 
 ## Custom spans
 
@@ -1212,9 +1319,15 @@ By default Nestrix records no request or response bodies, no query bind paramete
 - **Response headers recorded:** `content-type`, `content-length`.
 - **Always `REDACTED`, even if you list them:** `authorization`, `proxy-authorization`, `cookie`, `set-cookie`.
 - **Query values replaced by `REDACTED`** for these keys, case-insensitive: `AWSAccessKeyId`, `Signature`, `sig`, `X-Goog-Signature`, `token`, `access_token`, `refresh_token`, `id_token`, `api_key`, `apikey`, `key`, `password`, `passwd`, `secret`, `client_secret`, `code`, `session`, `sessionid`, `jwt`, `auth`, `authorization`.
-- `url.full` on outgoing requests has credentials removed and the same query keys redacted.
+- **Route parameter values replaced by `REDACTED`** in the server span's `url.path` for parameters with these names, case-insensitive: `token`, `access_token`, `refresh_token`, `id_token`, `api_key`, `apikey`, `password`, `passwd`, `secret`, `client_secret`, `signature`, `sig`, `jwt`, `session`, `sessionid`. A request to `/invitations/abc123` on the route `/invitations/:token` records `url.path` `/invitations/REDACTED`. Which route a request had is known only when the response closes, so `url.path` is written then, never at span start (a sampler or span processor of your own SDK sees no `url.path`). With the default `http.recordPath: 'raw'`:
+  - **A route matched** (the handler ran, a guard or pipe rejected, or a version or host filter declined after the route was tried): the raw path with listed parameters `REDACTED`. When the path and its route cannot be lined up segment by segment (a wildcard, an optional, quoted or regular-expression parameter), the route template is recorded instead.
+  - **No route, status below 400** (served outside the Nest router: `ServeStaticModule`, `express.static`, a raw adapter route) **or 404** (nothing matched, including Fastify with header or media-type versioning and no accepted version, where Nest reports no route): the raw path, since no parameter is known.
+  - **No route, any other status from 400, or no response** (answered before routing: a malformed JSON body's 400, a middleware's 401, a 413, a throwing middleware, a client that went away first): no `url.path`, since the path may belong to a route with a listed parameter.
+  - **Not covered in raw mode:** a middleware that runs before the router and answers 2xx or 3xx itself (a redirect, say) on a path that carries a token keeps the raw path. Use `http.recordPath: 'template'` to cover it.
+  - With `http.recordPath: 'template'`, `url.path` is the route template whenever a route matched, and absent otherwise.
+- `url.full` on outgoing requests has credentials removed and the same query keys redacted. Path segments of outgoing URLs are kept unless `http.redactOutgoingPath` covers them.
 
-`http.requestHeaders`, `http.responseHeaders` and `http.redactQueryKeys` add to these lists.
+`http.requestHeaders`, `http.responseHeaders`, `http.redactQueryKeys` and `http.redactPathParams` add to these lists.
 
 Key-based redaction cannot clean free text. Exception messages and status messages are stored as they are. Use `redact` for those.
 

@@ -169,6 +169,12 @@ export interface SpanError {
   message?: string;
   /** The first stack frames (`at ...` lines), at most 3. */
   frames: string[];
+  /** The exception is expected (`nestrix.exception.expected`): an answer, not counted (D-94). */
+  expected?: boolean;
+}
+
+function marked(value: AttributeValue | undefined): boolean {
+  return value === true || value === "true";
 }
 
 /** First `max` frames of a stack trace: its lines that start with `at `. */
@@ -186,11 +192,22 @@ function str(value: AttributeValue | undefined): string | undefined {
   return typeof value === "string" && value !== "" ? value : undefined;
 }
 
-/** Spans with an error status or an exception event, in start order. */
+/**
+ * Spans with an error status or an exception event, in start order. A span whose exceptions are
+ * all marked `nestrix.exception.propagated` is left out: the same error is listed on the deeper
+ * span that recorded it first (D-93). Expected exceptions are kept and flagged (D-94).
+ */
 export function spanErrors(spans: readonly SpanRecord[]): SpanError[] {
   const out: SpanError[] = [];
   for (const span of spans) {
-    const event = span.events.find((e) => e.name === "exception");
+    const exceptions = span.events.filter((e) => e.name === "exception");
+    const own = exceptions.filter(
+      (e) => !marked(e.attributes["nestrix.exception.propagated"]),
+    );
+    if (exceptions.length > 0 && own.length === 0) continue;
+    const event =
+      own.find((e) => !marked(e.attributes["nestrix.exception.expected"])) ??
+      own[0];
     if (span.status.code !== "error" && event === undefined) continue;
     const type = str(event?.attributes["exception.type"]);
     const message =
@@ -201,6 +218,9 @@ export function spanErrors(spans: readonly SpanRecord[]): SpanError[] {
     };
     if (type !== undefined) error.type = type;
     if (message !== undefined) error.message = oneLine(message);
+    if (marked(event?.attributes["nestrix.exception.expected"])) {
+      error.expected = true;
+    }
     out.push(error);
   }
   return out;
@@ -309,7 +329,9 @@ export function renderTrace(
       const what =
         [e.type, e.message].filter(Boolean).join(": ") ||
         "error status, no message";
-      lines.push(`- ${clean(e.span.name, 120)}: ${clean(what, 240)}`);
+      lines.push(
+        `- ${clean(e.span.name, 120)}: ${clean(what, 240)}${e.expected ? " (expected, not counted as an error)" : ""}`,
+      );
       for (const f of e.frames) lines.push(`    ${f}`);
     }
     if (errors.length > 10)

@@ -2,6 +2,8 @@ import {
   type SecretDigests,
   secretDigests,
 } from "./dashboard/startup-token.js";
+import type { ExpectedRule } from "./errors/exception.js";
+import { isDisabledByEnv } from "./kill-switch.js";
 import {
   DEFAULT_METHODS,
   DISABLED_METHODS,
@@ -18,6 +20,10 @@ import type {
   UrlMatcher,
 } from "./options.js";
 import { parseResourceAttributesEnv } from "./otel/resource-env.js";
+import {
+  compileOutgoingPathRedactors,
+  type OutgoingPathRedactor,
+} from "./privacy.js";
 import {
   DEFAULT_MAX_SPANS_PER_TRACE,
   MIN_MAX_SPANS_PER_TRACE,
@@ -67,6 +73,12 @@ export interface ResolvedOptions {
     readonly requestHeaders: readonly string[];
     readonly responseHeaders: readonly string[];
     readonly redactQueryKeys: readonly string[];
+    /** D-97. `'raw'` (default) or `'template'`. */
+    readonly recordPath: "raw" | "template";
+    /** The user's additions; `buildRedactedPathParams` adds the defaults. */
+    readonly redactPathParams: readonly string[];
+    /** Compiled `http.redactOutgoingPath` entries, in order. */
+    readonly redactOutgoingPath: readonly OutgoingPathRedactor[];
   };
   readonly redact: RedactHook | undefined;
   /** Raw `OTEL_RESOURCE_ATTRIBUTES`; parsed by the telemetry setup (SDK 3 does not read it). */
@@ -86,6 +98,8 @@ export interface ResolvedOptions {
   readonly metrics: ResolvedMetrics | false;
   /** Level 3 integrations (P3-01): `pg` on, `mysql2` and `ioredis` off by default (D-49). */
   readonly integrations: ResolvedIntegrations;
+  /** `errors` (D-94): `expected` is `undefined` for the default rule. */
+  readonly errors: { readonly expected: ExpectedRule };
 }
 
 /** `export.profiler: true`, resolved (P10-01, D-76). */
@@ -162,9 +176,9 @@ export interface ResolvedMetricExport {
   readonly intervalMillis: number;
 }
 
-/** `integrations`, defaults applied. `ioredis` is `false` or its options. */
+/** `integrations`, defaults applied. `pg` and `ioredis` are `false` or their options. */
 export interface ResolvedIntegrations {
-  readonly pg: boolean;
+  readonly pg: false | { readonly poolWaitThresholdMillis: number | false };
   readonly mysql2: boolean;
   readonly ioredis: false | { readonly rootSpans: boolean };
 }
@@ -256,11 +270,7 @@ const DEFAULT_TIMEOUT_MILLIS = 10_000;
 const TRACES_PATH = "/v1/traces";
 const LOGS_PATH = "/v1/logs";
 
-/** Whether `NESTRIX_ENABLED` switches Nestrix off. `false` and `0`, any case, do. */
-export function isDisabledByEnv(env: Environment): boolean {
-  const value = env.NESTRIX_ENABLED?.trim().toLowerCase();
-  return value === "false" || value === "0";
-}
+export { isDisabledByEnv };
 
 function invalid(message: string): never {
   throw new Error(`Invalid Nestrix options: ${message}`);
@@ -638,7 +648,7 @@ function checkBoolean(name: string, value: unknown): void {
 
 /**
  * `integrations` (P3-01): `pg` defaults to `true` (on when installed), `mysql2` and `ioredis` to
- * `false` (D-49). `ioredis` takes `true` or `{ rootSpans }` (D-60: root commands dropped unless
+ * `false` (D-49). `pg` takes `true` or `{ poolWaitThresholdMillis }` (D-98, default 5). `ioredis` takes `true` or `{ rootSpans }` (D-60: root commands dropped unless
  * `rootSpans` is `true`). Anything else throws at `forRoot()`.
  */
 export function resolveIntegrations(
@@ -651,7 +661,32 @@ export function resolveIntegrations(
     invalid("integrations must be an object");
   }
   const i = integrations ?? {};
-  checkBoolean("integrations.pg", i.pg);
+  let pg: ResolvedIntegrations["pg"] = false;
+  const p: unknown = i.pg;
+  const pgShape =
+    "integrations.pg must be a boolean or { poolWaitThresholdMillis?: number | false }";
+  if (p === true || p === undefined) {
+    pg = Object.freeze({ poolWaitThresholdMillis: 5 });
+  } else if (p !== false) {
+    if (p === null || typeof p !== "object" || Array.isArray(p))
+      invalid(pgShape);
+    const given: unknown = (p as { poolWaitThresholdMillis?: unknown })
+      .poolWaitThresholdMillis;
+    const threshold: unknown = given === undefined ? 5 : given;
+    if (
+      threshold !== false &&
+      (typeof threshold !== "number" ||
+        !Number.isFinite(threshold) ||
+        threshold < 0)
+    ) {
+      invalid(
+        `integrations.pg.poolWaitThresholdMillis must be false or a finite number of at least 0, got ${String(threshold)}`,
+      );
+    }
+    pg = Object.freeze({
+      poolWaitThresholdMillis: threshold as number | false,
+    });
+  }
   checkBoolean("integrations.mysql2", i.mysql2);
   let ioredis: ResolvedIntegrations["ioredis"] = false;
   const r: unknown = i.ioredis;
@@ -668,7 +703,7 @@ export function resolveIntegrations(
     ioredis = Object.freeze({ rootSpans: rootSpans === true });
   }
   return Object.freeze({
-    pg: i.pg ?? true,
+    pg,
     mysql2: i.mysql2 ?? false,
     ioredis,
   });
@@ -750,11 +785,7 @@ export function resolveOptions(
       paths: Object.freeze([...(o.ignore?.paths ?? [])]),
       outgoing: Object.freeze([...(o.ignore?.outgoing ?? [])]),
     }),
-    http: Object.freeze({
-      requestHeaders: Object.freeze([...(o.http?.requestHeaders ?? [])]),
-      responseHeaders: Object.freeze([...(o.http?.responseHeaders ?? [])]),
-      redactQueryKeys: Object.freeze([...(o.http?.redactQueryKeys ?? [])]),
-    }),
+    http: resolveHttp(o.http),
     redact: o.redact,
     otelResourceAttributes: blank(env.OTEL_RESOURCE_ATTRIBUTES),
     ui: resolveUi(o.ui, env),
@@ -770,8 +801,109 @@ export function resolveOptions(
     methods: resolveMethods(o.methods),
     metrics: resolveMetrics(o, env),
     integrations: resolveIntegrations(o.integrations),
+    errors: resolveErrors(o.errors),
   };
   return Object.freeze(resolved);
+}
+
+function resolveStringList(name: string, value: unknown): readonly string[] {
+  if (value === undefined) return Object.freeze([]);
+  if (!Array.isArray(value) || value.some((v) => typeof v !== "string")) {
+    invalid(`${name} must be an array of strings`);
+  }
+  return Object.freeze([...(value as string[])]);
+}
+
+/**
+ * `http` (P1-02; D-97 for `recordPath`, `redactPathParams`, `redactOutgoingPath`). The header and
+ * query lists are kept as given (they were never validated, and still are not); the D-97 options
+ * throw at `forRoot()` on a value they cannot use.
+ */
+export function resolveHttp(http: unknown): ResolvedOptions["http"] {
+  // `null` is treated like `undefined` (it was accepted before D-97).
+  if (http !== undefined && http !== null && typeof http !== "object") {
+    invalid("http must be an object");
+  }
+  const h = (http ?? {}) as NonNullable<NestrixModuleOptions["http"]>;
+  const recordPath: unknown = h.recordPath ?? "raw";
+  if (recordPath !== "raw" && recordPath !== "template") {
+    invalid(`http.recordPath must be 'raw' or 'template'`);
+  }
+  let redactOutgoingPath: readonly OutgoingPathRedactor[] = Object.freeze([]);
+  const outgoing: unknown = h.redactOutgoingPath;
+  if (outgoing !== undefined) {
+    if (!Array.isArray(outgoing)) {
+      invalid("http.redactOutgoingPath must be an array");
+    }
+    const compiled = compileOutgoingPathRedactors(outgoing);
+    if ("error" in compiled) invalid(compiled.error);
+    redactOutgoingPath = Object.freeze(compiled);
+  }
+  return Object.freeze({
+    requestHeaders: Object.freeze([...(h.requestHeaders ?? [])]),
+    responseHeaders: Object.freeze([...(h.responseHeaders ?? [])]),
+    redactQueryKeys: Object.freeze([...(h.redactQueryKeys ?? [])]),
+    recordPath,
+    redactPathParams: resolveStringList(
+      "http.redactPathParams",
+      h.redactPathParams,
+    ),
+    redactOutgoingPath,
+  });
+}
+
+function isClass(fn: unknown): boolean {
+  try {
+    return /^class[\s{]/.test(Function.prototype.toString.call(fn));
+  } catch {
+    return false;
+  }
+}
+
+/** `errors` (D-94) with defaults applied. Throws on an invalid value. */
+export function resolveErrors(errors: unknown): {
+  readonly expected: ExpectedRule;
+} {
+  if (errors === undefined) return Object.freeze({ expected: undefined });
+  if (errors === null || typeof errors !== "object") {
+    invalid("errors must be an object");
+  }
+  const expected: unknown = (errors as { expected?: unknown }).expected;
+  if (expected === undefined || expected === false) {
+    return Object.freeze({ expected });
+  }
+  if (typeof expected === "function") {
+    // A bare class is a mistake for `[SomeClass]`: called as a predicate it would throw every time.
+    if (isClass(expected)) {
+      invalid(
+        "errors.expected must be an array to match classes: write [SomeError], not SomeError",
+      );
+    }
+    return Object.freeze({
+      expected: expected as (exception: unknown) => boolean | undefined,
+    });
+  }
+  if (!Array.isArray(expected)) {
+    invalid(
+      "errors.expected must be false, a function or an array of classes, class names or RegExps",
+    );
+  }
+  for (const m of expected as unknown[]) {
+    // A class has an object `prototype`; an arrow function (a predicate put in the array) has
+    // none, and `instanceof` would throw on every exception.
+    const isConstructor =
+      typeof m === "function" &&
+      typeof (m as { prototype?: unknown }).prototype === "object" &&
+      (m as { prototype?: unknown }).prototype !== null;
+    if (typeof m !== "string" && !isConstructor && !(m instanceof RegExp)) {
+      invalid(
+        "errors.expected entries must be a class, a class name or a RegExp (pass a predicate on its own, not in the array)",
+      );
+    }
+  }
+  return Object.freeze({
+    expected: Object.freeze([...(expected as ClassMatcher[])]),
+  });
 }
 
 const ENHANCER_KINDS: readonly NestrixEnhancerKind[] = [

@@ -256,6 +256,31 @@ describe("failures", () => {
     expect(out.text).toContain("Not for tokens.");
   });
 
+  it("hasErrors against a backend that does not know it says the backend is too old (D-94)", async () => {
+    const old = await mockServer((_method, url) =>
+      url.searchParams.has("hasErrors")
+        ? {
+            status: 400,
+            body: {
+              error: {
+                code: "bad_request",
+                message: "Unknown parameter: hasErrors",
+              },
+            },
+          }
+        : {
+            status: 200,
+            body: { items: [], head: null, older: null, reset: false },
+          },
+    );
+    const c = await connect({ url: old.url, token: LONG, timeoutMs: 5000 });
+    const out = await c.call("find_traces", { hasErrors: true });
+    await c.close();
+    await old.close();
+    expect(out.isError).toBe(true);
+    expect(out.text).toContain("too old for the hasErrors filter");
+  });
+
   it("a 404 on api/v1/meta says the URL is not a Nestrix dashboard or server", async () => {
     const other = await mockServer(() => ({
       status: 404,

@@ -22,8 +22,13 @@ export function installIntegrations(
   const disposers: Array<() => void> = [];
   const { integrations } = options;
   const steps: Array<[string, () => () => void]> = [];
-  if (integrations.pg)
-    steps.push(["pg", () => enablePg(diagnostics, internals.pg)]);
+  if (integrations.pg !== false) {
+    const pool = {
+      waitThresholdMillis: integrations.pg.poolWaitThresholdMillis,
+      metrics: options.metrics !== false,
+    };
+    steps.push(["pg", () => enablePg(diagnostics, internals.pg, pool)]);
+  }
   if (integrations.mysql2)
     steps.push(["mysql2", () => subscribeMysql2(diagnostics)]);
   if (integrations.ioredis !== false) {

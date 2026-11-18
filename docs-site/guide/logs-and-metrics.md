@@ -126,6 +126,7 @@ Nestrix records metrics through `@opentelemetry/api`'s metrics API. If your app 
 
 - **`http.server.request.duration`**, a histogram in seconds with the bucket boundaries the HTTP semantic conventions advise, for every request, sampled or not. Attributes: `http.request.method`, `url.scheme`, `http.route` (when a handler matched), `http.response.status_code` and `error.type` (on the same rule as the span's error status). Requests under `ignore.paths` and the dashboard path are not counted.
 - **Runtime metrics**, read only when a reader collects: `nodejs.eventloop.delay.p50`, `.p99` and `.max`, `v8js.memory.heap.used` and `v8js.memory.heap.space.size` (per `v8js.heap.space.name`), `process.memory.usage` (RSS) and `process.cpu.time` (per `cpu.mode`). Names follow `@opentelemetry/semantic-conventions` 1.45.0, where they are still experimental and may be renamed.
+- **`pg` pool metrics** while the `pg` integration is on: `db.client.connection.wait_time` (seconds), `db.client.connection.count` (`db.client.connection.state` `idle` or `used`) and `db.client.connection.pending_requests`, per `db.client.connection.pool.name` (`host:port/database`). See [the `pg` pool wait](/guide/levels#level-3-database-and-cache).
 
 With no `MeterProvider` registered and no export, nothing is recorded and the event-loop monitor does not run.
 

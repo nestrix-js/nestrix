@@ -19,7 +19,9 @@
  * that arrives, and on its earliest span otherwise.
  *
  * Row fields from the root: name, kind, service, start, duration, method, route, status code,
- * error (status error), trace type, release (`service.version` of the root's resource). `user_id`
+ * error (status error), trace type, release (`service.version` of the root's resource).
+ * `has_errors` (D-94): any span failed (`SpanRow.isFailure`), merged by OR; a row from before
+ * migration 0012 (`NULL`) starts from `error_count > 0`. `user_id`
  * is the root's `user.id`, else the first `user.id` seen in the trace. Aggregates: span and error
  * counts (newly inserted spans only, so a retried export does not count twice), distinct services,
  * distinct span names (at most 64, each cut to 256 characters) for `search`.
@@ -62,6 +64,8 @@ interface TraceUpsert {
   errorCount: number;
   /** Any span of this batch is a job span; merged with the stored flag by OR in SQL. */
   hasJob: boolean;
+  /** Any span of this batch failed; merged with the stored flag by OR in SQL (D-94). */
+  hasErrors: boolean;
   services: string[];
   spanNames: string[];
 }
@@ -143,6 +147,7 @@ export async function upsertTraces(
     const services = new Set(spans.map((s) => s.serviceName));
     const names = spans.map((s) => s.name);
     const hasJob = spans.some((s) => s.isJob);
+    const hasErrors = spans.some((s) => s.isFailure);
     const firstUser = spans.find((s) => s.userId !== null)?.userId ?? null;
     if (existing === undefined) {
       let earliest = spans[0] as SpanRow;
@@ -156,6 +161,7 @@ export async function upsertTraces(
         spanCount: spans.length,
         errorCount: errors,
         hasJob,
+        hasErrors,
         services: [...services].sort(),
         spanNames: mergeNames([], names),
       });
@@ -186,6 +192,7 @@ export async function upsertTraces(
       spanCount: existing.span_count + spans.length,
       errorCount: existing.error_count + errors,
       hasJob,
+      hasErrors,
       services: [...new Set([...existing.services, ...services])].sort(),
       spanNames: mergeNames(existing.span_names, names),
     });
@@ -202,7 +209,7 @@ export async function upsertTraces(
          trace_id, partition_time, seq, root_span_id, root_parent_span_id, resource_id,
          service_name, name, kind, start_time, start_ns, duration_ns, http_method, http_route,
          http_status, is_error, trace_type, release, user_id, span_count, error_count,
-         services, span_names, has_job)
+         services, span_names, has_job, has_errors)
        SELECT u.trace_id, u.partition_time, coalesce(u.seq, nextval('traces_seq')),
               u.root_span_id, u.root_parent_span_id, u.resource_id, u.service_name, u.name,
               u.kind, u.start_time, u.start_ns, u.duration_ns, u.http_method, u.http_route,
@@ -210,16 +217,17 @@ export async function upsertTraces(
               u.error_count,
               ARRAY(SELECT jsonb_array_elements_text(u.services::jsonb)),
               ARRAY(SELECT jsonb_array_elements_text(u.span_names::jsonb)),
-              u.has_job
+              u.has_job, u.has_errors
          FROM unnest(
            $1::text[], $2::timestamptz[], $3::bigint[], $4::text[], $5::text[], $6::bigint[],
            $7::text[], $8::text[], $9::text[], $10::timestamptz[], $11::bigint[], $12::bigint[],
            $13::text[], $14::text[], $15::int[], $16::boolean[], $17::text[], $18::text[],
-           $19::text[], $20::int[], $21::int[], $22::text[], $23::text[], $24::boolean[]
+           $19::text[], $20::int[], $21::int[], $22::text[], $23::text[], $24::boolean[],
+           $25::boolean[]
          ) AS u(trace_id, partition_time, seq, root_span_id, root_parent_span_id, resource_id,
                 service_name, name, kind, start_time, start_ns, duration_ns, http_method,
                 http_route, http_status, is_error, trace_type, release, user_id, span_count,
-                error_count, services, span_names, has_job)
+                error_count, services, span_names, has_job, has_errors)
        ON CONFLICT (trace_id, partition_time) DO UPDATE SET
          root_span_id = EXCLUDED.root_span_id,
          root_parent_span_id = EXCLUDED.root_parent_span_id,
@@ -242,6 +250,7 @@ export async function upsertTraces(
          services = EXCLUDED.services,
          span_names = EXCLUDED.span_names,
          has_job = traces.has_job OR EXCLUDED.has_job,
+         has_errors = coalesce(traces.has_errors, traces.error_count > 0) OR EXCLUDED.has_errors,
          updated_at = now()`,
       [
         col((u) => u.traceId),
@@ -268,6 +277,7 @@ export async function upsertTraces(
         col((u) => JSON.stringify(u.services)),
         col((u) => JSON.stringify(u.spanNames)),
         col((u) => u.hasJob),
+        col((u) => u.hasErrors),
       ],
     );
   }
@@ -280,11 +290,12 @@ export async function upsertTraces(
          services = ARRAY(SELECT jsonb_array_elements_text(u.services::jsonb)),
          span_names = ARRAY(SELECT jsonb_array_elements_text(u.span_names::jsonb)),
          has_job = t.has_job OR u.has_job,
+         has_errors = coalesce(t.has_errors, t.error_count > 0) OR u.has_errors,
          updated_at = now()
          FROM unnest($1::text[], $2::timestamptz[], $3::text[], $4::int[], $5::int[],
-                     $6::text[], $7::text[], $8::boolean[])
+                     $6::text[], $7::text[], $8::boolean[], $9::boolean[])
               AS u(trace_id, partition_time, user_id, span_count, error_count, services,
-                   span_names, has_job)
+                   span_names, has_job, has_errors)
         WHERE t.trace_id = u.trace_id AND t.partition_time = u.partition_time`,
       [
         partial.map((u) => u.traceId),
@@ -295,6 +306,7 @@ export async function upsertTraces(
         partial.map((u) => JSON.stringify(u.services)),
         partial.map((u) => JSON.stringify(u.spanNames)),
         partial.map((u) => u.hasJob),
+        partial.map((u) => u.hasErrors),
       ],
     );
   }

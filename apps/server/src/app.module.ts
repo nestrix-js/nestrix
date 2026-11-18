@@ -3,9 +3,12 @@ import { NestrixModule } from "@nestrix-js/nestjs";
 import { AlertsModule } from "./alerts/alerts.module.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { ReadQueryGuard } from "./auth/query-guard.js";
+import { SessionStoreModule } from "./auth/session-store.module.js";
 import { TokensModule } from "./auth/tokens.module.js";
 import type { ServerConfig } from "./config.js";
 import { ServerConfigModule } from "./config.module.js";
+import { HEALTH_PATH_PATTERN } from "./health/health.js";
+import { HealthModule } from "./health/health.module.js";
 import { IngestModule } from "./ingest/ingest.module.js";
 import { MemoryIngestSink } from "./ingest/memory-sink.js";
 import { INGEST_PATH_PATTERN } from "./ingest/tokens.js";
@@ -49,12 +52,13 @@ export class AppModule {
           // The server's own storage queries are not traced (a trace of each write would be
           // exported to the receiver, whose write would be traced again).
           integrations: { pg: false },
-          ignore: { paths: [INGEST_PATH_PATTERN] },
+          ignore: { paths: [INGEST_PATH_PATTERN, HEALTH_PATH_PATTERN] },
         }),
         // Admin login (P5-04): its middleware is mounted by `configureApp`, its guard is global
         // and covers every controller, the query API included.
         AuthModule,
         UiModule,
+        HealthModule,
         ...(options.inMemory
           ? [IngestModule.forRoot({ sink: { useClass: MemoryIngestSink } })]
           : [
@@ -72,6 +76,9 @@ export class AppModule {
               QueryModule.forRoot({ guard: { useClass: ReadQueryGuard } }),
               // API tokens (P8-01): `/api/v1/tokens` is admin-only; tokens only read the query API.
               TokensModule,
+              // Logout revocations and the login limiter in PostgreSQL, shared by every instance
+              // (issue #31, D-96).
+              SessionStoreModule,
               // Alert rules, evaluator and webhooks (P7-03); `/api/v1/alerts` is admin-only.
               AlertsModule.forRoot(),
               // SLOs over the rollups (P7-04); `/api/v1/slos` is admin-only.

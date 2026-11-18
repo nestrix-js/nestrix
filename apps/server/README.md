@@ -48,7 +48,72 @@ docker build -f apps/server/Dockerfile -t nestrix-server .
 docker run -p 4318:4318 -e DATABASE_URL=postgres://… -e NESTRIX_INGEST_KEYS=… -e NESTRIX_ADMIN_PASSWORD=… nestrix-server
 ```
 
-The image's health check requests `/login` and passes for any status below 500.
+The image's health check requests `/readyz` (below) and passes only on 200.
+
+### Health probes
+
+Two routes answer without a login or an API key, are never redirected to `/login`, are not counted by the login or ingest rate limits, are not traced, and carry no data:
+
+| Route | Answers |
+|---|---|
+| `GET /livez` | `200 {"status":"ok"}` while the process serves HTTP. Does not look at the database. |
+| `GET /readyz` | `200 {"status":"ok"}` when `SELECT 1` succeeds within 2 seconds, every migration file is recorded as applied and a partition exists for today in every table. Otherwise `503 {"status":"unavailable","reason":"…"}` with `database` (unreachable, refused or too slow), `migrations` or `partitions`; and `503` with `shutting-down` from the moment shutdown begins, so an orchestrator stops sending traffic first. |
+
+Stopping PostgreSQL turns `/readyz` to 503 on the next probe and back to 200 within a probe or two after it returns (a pooled connection that died with the database is discarded first); `/livez` stays 200. The database check uses the server's own connection pool, so a pool held by ingest for more than 2 seconds also reads as not ready. Concurrent probes share one check.
+
+Docker Compose (the image already has this check; the form is for another image or for tuning):
+
+```yaml
+services:
+  nestrix:
+    image: ghcr.io/nestrix-js/nestrix-server:latest
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4318/readyz').then(r=>process.exit(r.status===200?0:1),()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+```
+
+Docker Swarm takes the same `healthcheck` in the stack file, under the service.
+
+Kubernetes:
+
+```yaml
+livenessProbe:
+  httpGet: { path: /livez, port: 4318 }
+  periodSeconds: 10
+  failureThreshold: 3
+readinessProbe:
+  httpGet: { path: /readyz, port: 4318 }
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+startupProbe:
+  httpGet: { path: /readyz, port: 4318 }
+  periodSeconds: 2
+  failureThreshold: 30
+```
+
+Use `/livez` for liveness: a database outage should take the instance out of the Service, not restart it. A load balancer takes `/readyz`.
+
+### Secrets from files
+
+Docker Swarm secrets and Kubernetes secret volumes arrive as files. For `DATABASE_URL`, `NESTRIX_INGEST_KEYS`, `NESTRIX_ADMIN_PASSWORD` and `NESTRIX_SESSION_SECRET`, set `<NAME>_FILE` to the file's path instead (for example `NESTRIX_ADMIN_PASSWORD_FILE=/run/secrets/nestrix_admin_password`). The file is read once at start and one trailing line break (`\n` or `\r\n`) is removed. Setting both `X` and `X_FILE`, a missing or unreadable file and an empty file are configuration errors; the message names the variable and the path, never the content. The value is then checked like any other (lengths, URL form).
+
+`DATABASE_PASSWORD_FILE` keeps the password out of the URL: set `DATABASE_URL` (or `DATABASE_URL_FILE`) to `postgres://user@host:5432/db` and the file's content becomes that user's password (percent-encoded for you). It is an error if the URL already has a password (in the user information or as `?password=`) or has no user name; there is no precedence rule to remember.
+
+```yaml
+services:
+  nestrix:
+    image: ghcr.io/nestrix-js/nestrix-server:latest
+    environment:
+      DATABASE_URL: postgres://nestrix@postgres:5432/nestrix
+      DATABASE_PASSWORD_FILE: /run/secrets/db_password
+      NESTRIX_INGEST_KEYS_FILE: /run/secrets/nestrix_ingest_keys
+      NESTRIX_ADMIN_PASSWORD_FILE: /run/secrets/nestrix_admin_password
+    secrets: [db_password, nestrix_ingest_keys, nestrix_admin_password]
+```
 
 ## Point your apps at it
 
@@ -66,16 +131,20 @@ The key may instead be sent as `x-nestrix-key: <key>`. Keys are compared in cons
 
 ## Configuration
 
-Read once from the environment at start and validated. A bad value exits with one message listing every problem; secret values are never echoed.
+Read once from the environment at start and validated. A bad value exits with one message listing every problem; secret values are never echoed. The four secrets (`DATABASE_URL`, `NESTRIX_INGEST_KEYS`, `NESTRIX_ADMIN_PASSWORD`, `NESTRIX_SESSION_SECRET`) also accept a `_FILE` form.
 
 | Variable | Default | Validation and meaning |
 |---|---|---|
-| `DATABASE_URL` | required | A `postgres://` or `postgresql://` URL. |
+| `DATABASE_URL` | required | A `postgres://` or `postgresql://` URL. Or `DATABASE_URL_FILE`; see "Secrets from files". |
+| `DATABASE_PASSWORD_FILE` | unset | Path of a file holding the database password, added to the user of `DATABASE_URL`. An error if the URL already has a password or no user name. |
+| `NESTRIX_LOG_FORMAT` | `json` when `NODE_ENV=production` (the image sets it), else `text` | `json`: one JSON object per line (`level`, `timestamp`, `pid`, `context`, `message`), no colours. `text`: Nest's text lines. |
+| `NESTRIX_LOG_LEVEL` | `info` | `verbose`, `debug`, `info`, `warn`, `error` or `fatal` (`log` is accepted for `info`). At `info` and above the lines that list every mapped route are not written; `debug` and `verbose` show them. |
 | `PORT` | `4318` | Whole number, 1 to 65535. |
-| `NESTRIX_INGEST_KEYS` | none | Comma-separated keys, each at least 32 characters. |
+| `NESTRIX_INGEST_KEYS` | none | Comma-separated keys, each at least 32 characters. Or `NESTRIX_INGEST_KEYS_FILE`. |
 | `NESTRIX_INGEST_AUTH` | unset | Only `none` is accepted: an explicit opt-out of ingest authentication, logged as a warning on every start. Setting it together with `NESTRIX_INGEST_KEYS` is an error. |
-| `NESTRIX_ADMIN_PASSWORD` | none | At least 12 characters. Without it the UI, `/login` and the query API answer 503 and a log line says why; ingest still works. |
-| `NESTRIX_SESSION_SECRET` | random per start | At least 32 characters. Part of the session signing key; see "Admin login" for what it does and does not do. |
+| `NESTRIX_ADMIN_PASSWORD` | none | At least 12 characters. Or `NESTRIX_ADMIN_PASSWORD_FILE`. Without it the UI, `/login` and the query API answer 503 and a log line says why; ingest still works. |
+| `NESTRIX_SESSION_SECRET` | random per start | At least 32 characters. Or `NESTRIX_SESSION_SECRET_FILE`. With the admin password, the session signing key. Set it (the same value on every instance) so sessions survive restarts and work on every instance; unset, sessions end at restart and work only on the instance that issued them. See "Admin login". |
+| `NESTRIX_TRUSTED_PROXIES` | unset | Comma-separated IPv4 and IPv6 CIDRs or single addresses (`10.0.0.0/8, 2001:db8::/32, 192.168.1.7`) of your reverse proxies or load balancers. Only a connection from one of them may name the client in `X-Forwarded-For`, which the login limit then keys on. An invalid entry is a configuration error. See "Admin login". |
 | `NESTRIX_RETENTION_DAYS` | `7` | Whole number, 1 to 3650. |
 | `NESTRIX_MAX_SPANS_PER_TRACE` | `50000` | Whole number, 1 000 to 10 000 000. Spans stored per trace; see "Span limit per trace". |
 | `NESTRIX_MAX_CONNECTIONS` | `1024` | Whole number, 1 to 1 000 000. Node's `server.maxConnections`. |
@@ -87,11 +156,14 @@ Not configurable by environment: the ingest limits and rate limit below, and the
 ## Admin login
 
 - `POST /login` checks the password in constant time and sets an `HttpOnly`, `SameSite=Strict` cookie, valid for 8 hours from sign-in (absolute, not extended). The cookie is `Secure` unless the request is plain HTTP to a loopback host.
-- **A restart signs everyone out**, even with a fixed `NESTRIX_SESSION_SECRET`, because sign-out revocations are held in memory and a per-process random value is part of the signing key. Changing the admin password also ends every session. Plan on signing in again after an upgrade.
-- The cookie name includes the port (`nestrix_admin_<port>`), because browsers share cookies across ports on one host.
-- Rate limits: 5 login attempts per minute per client address (IPv6 by /64), counted on every attempt, and a global budget of 60 failed logins a minute across all clients; once it is spent every `POST /login` answers 429 until the oldest failure leaves the minute.
+- **Sessions survive restarts and work on every instance** when `NESTRIX_SESSION_SECRET` is set: the cookie is signed with a key derived from that secret and the admin password only. Without the variable a random secret is drawn at each start, so a restart signs everyone out and a cookie works only on the instance that issued it (a log line at start says so). Changing the admin password ends every session.
+- **Sign-out** (`POST /logout`) is stored in PostgreSQL until the session would have expired, and every request with a session cookie is checked against it, so a sign-out on one instance is refused by the next request on any other, with no delay. Requests without a validly signed cookie never reach the database. The same check refuses a cookie past its expiry on the database's clock, so an instance whose clock runs behind cannot accept an expired or signed-out cookie.
+- **If the database cannot answer**, the server refuses rather than guesses: a request with a session cookie answers 503 (`Retry-After: 5`), `POST /login` answers 503 without checking the password, and `POST /logout` answers 503 and keeps the cookie, so you can retry instead of believing a cookie is dead while it still works.
+- The cookie name includes the port the server listens on (`nestrix_admin_<port>`), because browsers share cookies across ports on one host.
+- Rate limits: 5 login attempts per minute per client address (IPv6 by /64), counted on every attempt, and a global budget of 60 failed logins a minute across all clients; once it is spent every `POST /login` answers 429 until the oldest failure leaves the minute. Both are kept in PostgreSQL and shared by every instance, using the database's clock. An attempt that the client's own limit admits takes a slot of the global budget before the password is checked, in one atomic step across all instances, and gives it back if the password is right; so even a burst of simultaneous attempts from many addresses gets at most 60 a minute to the password check, and the rest answer 429. One address flooding the login holds at most its own 5 slots, so it cannot lock out admins at other addresses. Each instance also keeps the same per-client window in memory and checks it first, so a flood's excess is refused (429) without touching the database; and at most 2 login-limit transactions use database connections at once per instance (the pool has 10, shared with ingest and the dashboard). Further attempts wait in memory, holding no connection, up to 500 for up to 5 seconds, and beyond that answer 429 with `Retry-After: 1`.
+- **Client address.** By default the limit keys on the connection's address and `X-Forwarded-For` is ignored, so behind a proxy all visitors share one limit. Set `NESTRIX_TRUSTED_PROXIES` to your proxies' addresses to key on the real client: only when the connection comes from one of them, `X-Forwarded-For` is read from right to left (every line, in order), trusted proxies are skipped, and the first address that is not one of them is the client. An entry that is not an IP address stops the walk at the last trusted hop. `Forwarded` and `X-Real-IP` are not read. List only proxies that overwrite or append to `X-Forwarded-For`: a trusted proxy that passes on a client's header unchanged lets that client choose its key (the global budget still applies). Trusting everything (`0.0.0.0/0, ::/0`) lets any client pick its key.
 - Every request except the ingest routes (`/v1/traces`, `/v1/logs`, `/v1/nestrix/check-in`, `/v1/nestrix/profiles/…`), `/login` and `/logout` needs a session, including paths added later; the query API's read routes also accept an API token (below). A state-changing request needs a same-origin `Origin` header. The API never emits CORS headers, so a browser page on another origin cannot read it.
-- **Behind a reverse proxy:** pass the `Host` header through (`proxy_set_header Host $host;` in nginx), or the `Origin` check fails and login answers 403. Serve it over HTTPS: on a non-loopback host the cookie is `Secure`, so a browser will not send it over plain HTTP. The limiter keys on the connection's address and never trusts `X-Forwarded-For`, so behind a proxy all visitors share one login limit.
+- **Behind a reverse proxy:** pass the `Host` header through (`proxy_set_header Host $host;` in nginx), or the `Origin` check fails and login answers 403. Serve it over HTTPS: on a non-loopback host the cookie is `Secure`, so a browser will not send it over plain HTTP. Set `NESTRIX_TRUSTED_PROXIES` to the proxy's address so each visitor gets its own login limit (above).
 
 ## API tokens
 
@@ -102,7 +174,7 @@ Read-only, revocable tokens let tools such as the Nestrix MCP server (`@nestrix-
 - **Use:** `Authorization: Bearer nxt_...`. Never in a query string or a cookie; those are ignored.
 - **What a token reads:** `GET` and `HEAD` on every read route of the query API: `/api/v1/meta`, `/api/v1/traces` (and `/traces/timeline`), `/api/v1/trace` (and `/trace/logs`), `/api/v1/errors` (and `/errors/groups`), `/api/v1/routes` (and `/routes/histogram`, `/routes/compare`), `/api/v1/classes`, `/api/v1/queries`, `/api/v1/map`, `/api/v1/dependencies`, and the remote-profiling reads `/api/v1/instances`, `/api/v1/remote-profiles` (and `/:id`, `/:id/download`). Nothing else: a request with a token on the dashboard, `/login`, `/logout`, the token routes, alerts or SLOs (reads included: alert rules hold webhook URLs) or any write, starting a remote capture included, answers 401, even if it also carries a session cookie. The ingest routes (`/v1/traces`, `/v1/logs`, `/v1/nestrix/…`) take only ingest keys; an API token is not an ingest key and an ingest key is not an API token.
 - **Revocation is immediate:** every request looks the token up in the database, so the next request after a revoke is refused.
-- **Failures share the login's budget, within a per-client allowance:** a refused token counts toward the global budget of 60 failed logins a minute, but each client (by socket address) may count only 5 refused tokens a minute; beyond that its bad tokens answer 429 with `Retry-After` and are not counted. While the global budget is spent, further bad tokens answer 429 too, as `POST /login` does. A valid token is checked first and is never refused by either limit, so one client guessing tokens cannot lock out the others' tokens.
+- **Failures share the login's budget, within a per-client allowance:** a refused token counts toward the global budget of 60 failed logins a minute, but each client (by client address, as for the login limit) may count only 5 refused tokens a minute (kept in PostgreSQL like the login limit, so shared by every instance); beyond that its bad tokens answer 429 with `Retry-After` and are not counted. While the global budget is spent, further bad tokens answer 429 too, as `POST /login` does. A valid token is checked first and is never refused by either limit, so one client guessing tokens cannot lock out the others' tokens.
 - Tokens work only while `NESTRIX_ADMIN_PASSWORD` is set (otherwise the API answers 503). `last_used_at` is updated at most once a minute. Tokens are never logged.
 - Only send tokens over HTTPS: on plain HTTP they cross the network in clear text.
 
@@ -241,7 +313,52 @@ Service level objectives are managed on the dashboard's **SLOs** page or through
 
 ## Upgrading
 
-Pull or rebuild the image and restart. Migrations are applied at start, in order, under a PostgreSQL advisory lock, so several instances starting together are safe; each runs in a transaction, and a migration file changed after it was applied stops the start. There is no downgrade: back up the database before upgrading. A restart signs every admin out (see "Admin login").
+Pull or rebuild the image and restart. Migrations are applied at start, in order, under a PostgreSQL advisory lock, so several instances starting together are safe; each runs in a transaction, and a migration file changed after it was applied stops the start. There is no downgrade: back up the database before upgrading. With `NESTRIX_SESSION_SECRET` set, admins stay signed in across the restart (see "Admin login").
+
+### Upgrading to shared sessions (issue #31)
+
+Migration `0014_admin_sessions.sql` adds the tables for sign-outs and the login limit. Session cookies issued by earlier versions were signed with a per-process key and are refused after the upgrade: every admin signs in once more. From then on a restart keeps sessions, as long as `NESTRIX_SESSION_SECRET` and `NESTRIX_ADMIN_PASSWORD` stay the same.
+
+## Running several instances
+
+Several server instances can share one PostgreSQL database behind a load balancer, for availability and ingest throughput, and be restarted one at a time without signing anyone out. Example with two replicas:
+
+```yaml
+# docker-compose.yml (excerpt): two replicas behind one proxy, one database
+services:
+  nestrix-a: &nestrix
+    image: ghcr.io/nestrix-js/nestrix-server:latest
+    environment:
+      DATABASE_URL: postgres://nestrix:${PGPASSWORD}@postgres:5432/nestrix
+      NESTRIX_INGEST_KEYS: ${NESTRIX_INGEST_KEYS}
+      NESTRIX_ADMIN_PASSWORD: ${NESTRIX_ADMIN_PASSWORD}
+      NESTRIX_SESSION_SECRET: ${NESTRIX_SESSION_SECRET}  # the same on every replica
+      NESTRIX_TRUSTED_PROXIES: 172.30.0.10               # the proxy below
+      PORT: "4318"                                       # the same on every replica
+  nestrix-b: *nestrix
+  proxy:
+    image: nginx:stable
+    networks: { default: { ipv4_address: 172.30.0.10 } }
+    # upstream nestrix { server nestrix-a:4318; server nestrix-b:4318; }
+    # location / { proxy_pass http://nestrix;
+    #   proxy_set_header Host $host;
+    #   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; }
+networks:
+  default: { ipam: { config: [{ subnet: 172.30.0.0/24 }] } }
+```
+
+What every replica needs:
+
+- **The same `NESTRIX_SESSION_SECRET` and `NESTRIX_ADMIN_PASSWORD`.** A session from one replica is then accepted by the others and after restarts. Without a configured secret each replica draws its own, and a request routed to another replica is sent to `/login`.
+- **The same `PORT`.** The session cookie's name carries the port the server listens on, so replicas listening on different ports would each look for a different cookie.
+- **`NESTRIX_TRUSTED_PROXIES` set to the load balancer's address** (or range), so the login limit keys on each visitor; without it every visitor shares the balancer's limit.
+- **Pass `Host` through** (`proxy_set_header Host $host;`), as for one instance.
+
+What is shared and what is not:
+
+- Shared through the database: sign-outs (honoured by every replica on the next request), the login limit per client and the global budget of failed logins, migrations (applied once, under an advisory lock, even when replicas start together), partition maintenance and alert evaluation (one replica at a time, under advisory locks), API tokens and their revocation.
+- Per replica: the ingest limits (rate limit per key, memory budget for requests in flight, connections). With two replicas, an ingest key can send up to twice the per-key rate in all.
+- No sticky sessions are needed for the admin login.
 
 ### Upgrading to 0.2.0: the `spans` index
 
@@ -257,6 +374,26 @@ ALTER INDEX spans_parent_idx ATTACH PARTITION spans_pYYYYMMDD_parent_idx;
 ```
 
 Partitions created after that inherit the index.
+
+### Upgrading to the `hasErrors` filter: the `traces` index
+
+Two migrations, each in its own transaction:
+
+- `0012_traces_has_errors.sql` adds three nullable columns with no default: `traces.has_errors`, `spans.is_occurrence` and `spans.error_key`. Each `ADD COLUMN` takes an `ACCESS EXCLUSIVE` lock on its table and partitions, but rewrites nothing, so the transaction is a catalog change and commits at once; it waits for queries already running on `traces` and `spans` to finish, and new ones wait behind it for that moment.
+- `0013_traces_has_errors_index.sql` builds the partial index for `traces?hasErrors=true`. A partitioned table's index cannot be built `CONCURRENTLY`, so it takes a `SHARE` lock on `traces` and each partition while it builds: reads go on, ingest's trace writes wait. `spans` is not locked. On a small install this takes seconds. On a large one, build the index first without blocking writes, then upgrade; the migration then finds it and does nothing:
+
+```sql
+-- the column first (a catalog change; 0012's ADD COLUMN IF NOT EXISTS then skips it):
+ALTER TABLE traces ADD COLUMN IF NOT EXISTS has_errors boolean;
+-- for each partition traces_pYYYYMMDD (list them with \d+ traces), outside a transaction:
+CREATE INDEX CONCURRENTLY traces_pYYYYMMDD_has_errors_idx ON traces_pYYYYMMDD (seq DESC)
+  WHERE (coalesce(has_errors, error_count > 0) OR is_error);
+-- once, on the parent without touching the partitions:
+CREATE INDEX traces_has_errors_seq_idx ON ONLY traces (seq DESC)
+  WHERE (coalesce(has_errors, error_count > 0) OR is_error);
+-- for each partition:
+ALTER INDEX traces_has_errors_seq_idx ATTACH PARTITION traces_pYYYYMMDD_has_errors_idx;
+```
 
 ## Security notes
 

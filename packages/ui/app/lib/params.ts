@@ -54,6 +54,8 @@ export const requestFilterParsers = {
   type: parseAsStringLiteral(traceListParams.type.values),
   release: stringParser(traceListParams.release),
   user: stringParser(traceListParams.user),
+  // D-94: any span failed (a failed job, an error recorded below the root).
+  hasErrors: parseAsStringLiteral(traceListParams.hasErrors.values),
   // The time range the request timeline sets.
   fromUnixMs: numberParser({ ...traceListParams.fromUnixMs, integer: true }),
   toUnixMs: numberParser({ ...traceListParams.toUnixMs, integer: true }),

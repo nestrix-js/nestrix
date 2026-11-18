@@ -76,6 +76,11 @@ import { type DashboardResponse, JSON_TYPE } from "./respond.js";
 /** `PROTOCOL_VERSION` of `@nestrix-js/protocol` (a value, so it cannot be imported). */
 export const PROTOCOL_VERSION: MetaResponse["protocolVersion"] = 1;
 
+/** `hasErrors=true|false` (D-94); absent: no filter. */
+function booleanParam(value: unknown): boolean | undefined {
+  return value === "true" ? true : value === "false" ? false : undefined;
+}
+
 export const traceListSpec: TraceListParamsSpec = {
   limit: { kind: "int", min: 1, max: 200, default: 50 },
   before: { kind: "cursor", maxLength: 256 },
@@ -89,6 +94,7 @@ export const traceListSpec: TraceListParamsSpec = {
   type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
   release: { kind: "string", maxLength: 255 },
   user: { kind: "string", maxLength: 256 },
+  hasErrors: { kind: "enum", values: ["true", "false"] },
   service: { kind: "string", maxLength: 256 },
   fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
   toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
@@ -120,6 +126,7 @@ export const traceTimelineSpec: TraceTimelineParamsSpec = {
   type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
   release: { kind: "string", maxLength: 255 },
   user: { kind: "string", maxLength: 256 },
+  hasErrors: { kind: "enum", values: ["true", "false"] },
   service: { kind: "string", maxLength: 256 },
 };
 
@@ -530,6 +537,7 @@ export function tracesHandler(
           type: v.type as TraceType | undefined,
           release: v.release as string | undefined,
           user: v.user as string | undefined,
+          hasErrors: booleanParam(v.hasErrors),
           fromUnixMs: v.fromUnixMs as number | undefined,
           toUnixMs: v.toUnixMs as number | undefined,
         })) ?? EMPTY_PAGE;
@@ -875,6 +883,7 @@ export function timelineHandler(
       type: v.type as TraceType | undefined,
       release: v.release as string | undefined,
       user: v.user as string | undefined,
+      hasErrors: booleanParam(v.hasErrors),
     },
   );
   return ok(result);

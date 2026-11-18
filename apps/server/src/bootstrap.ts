@@ -8,8 +8,10 @@ import {
   type HttpServerConfig,
   type ServerConfig,
 } from "./config.js";
+import { HealthService, healthMiddleware } from "./health/health.js";
 import { INGEST_PATH_PATTERN } from "./ingest/tokens.js";
 import { unknownOtlpPathMiddleware } from "./ingest/unknown-path.js";
+import { ServerLogger } from "./logging.js";
 
 /**
  * True for the ingest path as Express routes it: case-insensitive, with or without a trailing
@@ -38,6 +40,8 @@ export function configureApp(
 ): void {
   if (config !== undefined) configureHttpServer(app, config.http);
   app.disable("x-powered-by");
+  // #32: `/livez` and `/readyz` first: no credential, no redirect to the login, no limiter.
+  app.use(healthMiddleware(app.get(HealthService)));
   // #39: a `/v1/…` path that is not an ingest route (`/v1/metrics`) answers an OTLP 404, before
   // the admin login, so exporters see "not found" instead of 403/503 (src/ingest/unknown-path.ts).
   app.use(
@@ -82,7 +86,7 @@ export async function createApp(
 ): Promise<NestExpressApplication> {
   const app = await NestFactory.create<NestExpressApplication>(
     AppModule.forRoot(config),
-    { bodyParser: false },
+    { bodyParser: false, logger: new ServerLogger(config.log) },
   );
   configureApp(app, config);
   app.enableShutdownHooks();

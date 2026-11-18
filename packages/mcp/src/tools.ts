@@ -158,7 +158,7 @@ export function createMcpServer(
     "find_traces",
     {
       title: "Find traces",
-      description: `Lists stored traces (one per request or job), newest first, one compact line each with its trace id. Filter by route template (exact, for example /users/:id), method, status, minimum duration, free text (matches span names and the route), type (http, job, scheduled, other; job also matches requests that enqueued a job), release or user. Only sampled traces still in the in-memory store are listed, at most 50 per call; use route_stats for request counts (${statisticsCounting()}).`,
+      description: `Lists stored traces (one per request or job), newest first, one compact line each with its trace id. Filter by route template (exact, for example /users/:id), method, status, hasErrors (any span failed), minimum duration, free text (matches span names and the route), type (http, job, scheduled, other; job also matches requests that enqueued a job), release or user. Only sampled traces still in the in-memory store are listed, at most 50 per call; use route_stats for request counts (${statisticsCounting()}).`,
       inputSchema: {
         route: z
           .string()
@@ -181,6 +181,12 @@ export function createMcpServer(
           .optional()
           .describe("Case-insensitive text found in a span name or the route."),
         type: z.enum(["http", "job", "scheduled", "other"]).optional(),
+        hasErrors: z
+          .boolean()
+          .optional()
+          .describe(
+            "true: only traces where any span failed (a failed job, or an error recorded below the root), even when the request itself succeeded. status=error is the root's own outcome.",
+          ),
         release: z.string().max(255).optional().describe("service.version."),
         user: z
           .string()
@@ -200,8 +206,29 @@ export function createMcpServer(
     },
     (args) =>
       run(async () => {
-        const params = { ...args, limit: args.limit ?? 20 };
-        const list = await client.traces(params);
+        const params = {
+          ...args,
+          hasErrors:
+            args.hasErrors === undefined ? undefined : String(args.hasErrors),
+          limit: args.limit ?? 20,
+        };
+        let list: Awaited<ReturnType<typeof client.traces>>;
+        try {
+          list = await client.traces(params);
+        } catch (error) {
+          // A dashboard or server from before D-94 rejects the unknown parameter with a 400.
+          if (
+            error instanceof NestrixError &&
+            error.status === 400 &&
+            args.hasErrors !== undefined
+          ) {
+            throw new NestrixError(
+              "This Nestrix dashboard or server is too old for the hasErrors filter (it answered HTTP 400). Update @nestrix-js/nestjs or the server image, or search without hasErrors.",
+              400,
+            );
+          }
+          throw error;
+        }
         const mode = await modeOf();
         const filters = Object.entries(args)
           .filter(([, v]) => v !== undefined && v !== "")

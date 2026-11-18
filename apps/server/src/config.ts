@@ -4,6 +4,12 @@
  * process can exit with one clear message. Secret values are never echoed in messages.
  */
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import type { LogLevel } from "@nestjs/common";
+import {
+  parseTrustedProxies,
+  type TrustedProxies,
+} from "./auth/client-address.js";
 
 export const MIB = 1024 * 1024;
 
@@ -60,6 +66,17 @@ export interface AlertsConfig {
   readonly publicUrl: string | undefined;
 }
 
+export interface LogConfig {
+  /** `NESTRIX_LOG_FORMAT`: one JSON object per line (`json`) or Nest's text lines. */
+  readonly json: boolean;
+  /** `NESTRIX_LOG_LEVEL` (`info` is Nest's `log`). */
+  readonly level: LogLevelName;
+  /** Nest log levels enabled at `level`: it and everything more severe. */
+  readonly levels: readonly LogLevel[];
+  /** True at `info` and above: the route-mapping lines (RouterExplorer, RoutesResolver) are dropped. */
+  readonly hideRouteMapping: boolean;
+}
+
 export interface ServerConfig {
   readonly port: number;
   readonly databaseUrl: string;
@@ -75,7 +92,31 @@ export interface ServerConfig {
   /** `NESTRIX_MAX_SPANS_PER_TRACE` (D-78): spans stored per trace; later ones are counted, not stored. */
   readonly maxSpansPerTrace: number;
   readonly alerts: AlertsConfig;
+  readonly log: LogConfig;
+  /**
+   * `NESTRIX_TRUSTED_PROXIES` (issue #31, D-96): reverse proxies whose `X-Forwarded-For` names the
+   * client the login limiter keys on. `undefined`: none, the socket peer is the client.
+   */
+  readonly trustedProxies: TrustedProxies | undefined;
 }
+
+export const LOG_LEVEL_NAMES = [
+  "verbose",
+  "debug",
+  "info",
+  "warn",
+  "error",
+  "fatal",
+] as const;
+export type LogLevelName = (typeof LOG_LEVEL_NAMES)[number];
+const NEST_LEVEL: Readonly<Record<LogLevelName, LogLevel>> = {
+  verbose: "verbose",
+  debug: "debug",
+  info: "log",
+  warn: "warn",
+  error: "error",
+  fatal: "fatal",
+};
 
 export type ConfigResult =
   | { ok: true; config: ServerConfig }
@@ -135,16 +176,91 @@ function integer(
   return value;
 }
 
-export function loadConfig(env: Env = process.env): ConfigResult {
+/** Removes exactly one trailing line break (`\n` or `\r\n`), as `echo` and most secret stores leave one. */
+export function trimOneNewline(text: string): string {
+  if (text.endsWith("\r\n")) return text.slice(0, -2);
+  if (text.endsWith("\n")) return text.slice(0, -1);
+  return text;
+}
+
+type ReadFile = (path: string) => string;
+const readUtf8: ReadFile = (path) => readFileSync(path, "utf8");
+
+/**
+ * The content of the file named by `fileVar` (#33, D-95) with one trailing line break removed, or
+ * `undefined` after an error was added: an unreadable file, or an empty one. The content is never
+ * put in a message (the path and the system's error code are).
+ */
+function readSecretFile(
+  fileVar: string,
+  path: string,
+  errors: string[],
+  readFile: ReadFile,
+): string | undefined {
+  let text: string;
+  try {
+    text = trimOneNewline(readFile(path));
+  } catch (error) {
+    const code = (error as { code?: unknown } | null)?.code;
+    errors.push(
+      `${fileVar}: cannot read "${path}"${typeof code === "string" ? ` (${code})` : ""}.`,
+    );
+    return undefined;
+  }
+  if (text.trim() === "") {
+    errors.push(`${fileVar}: "${path}" is empty.`);
+    return undefined;
+  }
+  return text;
+}
+
+/**
+ * The value of secret `name`: the variable itself, or the file named by `<name>_FILE`. Setting
+ * both is an error.
+ */
+function secret(
+  env: Env,
+  name: string,
+  errors: string[],
+  readFile: ReadFile,
+): string | undefined {
+  const direct = present(env, name);
+  const fileVar = `${name}_FILE`;
+  const path = present(env, fileVar)?.trim();
+  if (path === undefined) return direct;
+  if (direct !== undefined) {
+    errors.push(`${name} and ${fileVar} are both set; set only one of them.`);
+    return undefined;
+  }
+  return readSecretFile(fileVar, path, errors, readFile);
+}
+
+export function loadConfig(
+  env: Env = process.env,
+  readFile: ReadFile = readUtf8,
+): ConfigResult {
   const errors: string[] = [];
 
   const port = integer(env, "PORT", DEFAULT_PORT, 1, 65535, errors);
 
-  const databaseUrl = present(env, "DATABASE_URL")?.trim() ?? "";
+  let databaseUrl = secret(env, "DATABASE_URL", errors, readFile)?.trim() ?? "";
+  const passwordPath = present(env, "DATABASE_PASSWORD_FILE")?.trim();
+  const databasePassword =
+    passwordPath === undefined
+      ? undefined
+      : readSecretFile(
+          "DATABASE_PASSWORD_FILE",
+          passwordPath,
+          errors,
+          readFile,
+        );
   if (databaseUrl === "") {
-    errors.push(
-      "DATABASE_URL is required, e.g. postgres://localhost:5432/nestrix.",
-    );
+    // A both-set, unreadable or empty DATABASE_URL_FILE has said why already.
+    if (!errors.some((e) => e.startsWith("DATABASE_URL"))) {
+      errors.push(
+        "DATABASE_URL (or DATABASE_URL_FILE) is required, e.g. postgres://localhost:5432/nestrix.",
+      );
+    }
   } else {
     let protocol: string | undefined;
     try {
@@ -155,10 +271,28 @@ export function loadConfig(env: Env = process.env): ConfigResult {
     if (protocol !== "postgres:" && protocol !== "postgresql:") {
       // The value may hold a password: it is not echoed.
       errors.push("DATABASE_URL must be a postgres:// or postgresql:// URL.");
+    } else if (databasePassword !== undefined) {
+      // Conservative: a URL that already carries a password is ambiguous, so it is refused.
+      const url = new URL(databaseUrl);
+      if (url.password !== "" || url.searchParams.has("password")) {
+        errors.push(
+          "DATABASE_PASSWORD_FILE is set but DATABASE_URL already contains a password; remove one of them.",
+        );
+      } else if (url.username === "") {
+        errors.push(
+          "DATABASE_PASSWORD_FILE needs a user name in DATABASE_URL (postgres://user@host/db).",
+        );
+      } else {
+        url.password = databasePassword;
+        databaseUrl = url.href;
+      }
     }
   }
+  if (databaseUrl === "" && databasePassword !== undefined) {
+    errors.push("DATABASE_PASSWORD_FILE is set but DATABASE_URL is not.");
+  }
 
-  const keys = (env.NESTRIX_INGEST_KEYS ?? "")
+  const keys = (secret(env, "NESTRIX_INGEST_KEYS", errors, readFile) ?? "")
     .split(",")
     .map((k) => k.trim())
     .filter((k) => k !== "");
@@ -184,7 +318,7 @@ export function loadConfig(env: Env = process.env): ConfigResult {
   const auth: IngestConfig["auth"] =
     keys.length > 0 ? "keys" : authOptOut === "none" ? "none" : "unconfigured";
 
-  const adminPassword = present(env, "NESTRIX_ADMIN_PASSWORD");
+  const adminPassword = secret(env, "NESTRIX_ADMIN_PASSWORD", errors, readFile);
   if (
     adminPassword !== undefined &&
     adminPassword.length < MIN_ADMIN_PASSWORD_LENGTH
@@ -194,7 +328,12 @@ export function loadConfig(env: Env = process.env): ConfigResult {
     );
   }
 
-  const sessionSecretText = present(env, "NESTRIX_SESSION_SECRET");
+  const sessionSecretText = secret(
+    env,
+    "NESTRIX_SESSION_SECRET",
+    errors,
+    readFile,
+  );
   if (
     sessionSecretText !== undefined &&
     sessionSecretText.length < MIN_SESSION_SECRET_LENGTH
@@ -272,6 +411,44 @@ export function loadConfig(env: Env = process.env): ConfigResult {
     }
   }
 
+  const formatRaw = present(env, "NESTRIX_LOG_FORMAT")?.trim().toLowerCase();
+  if (formatRaw !== undefined && formatRaw !== "json" && formatRaw !== "text") {
+    errors.push(
+      `NESTRIX_LOG_FORMAT accepts "json" or "text" (got "${formatRaw}").`,
+    );
+  }
+  const json =
+    formatRaw === undefined
+      ? present(env, "NODE_ENV")?.trim() === "production"
+      : formatRaw === "json";
+
+  let level: LogLevelName = "info";
+  const levelRaw = present(env, "NESTRIX_LOG_LEVEL")?.trim().toLowerCase();
+  if (levelRaw !== undefined) {
+    const known = LOG_LEVEL_NAMES.find((n) => n === levelRaw);
+    // `log` is Nest's own name for info.
+    if (known !== undefined) level = known;
+    else if (levelRaw === "log") level = "info";
+    else {
+      errors.push(
+        `NESTRIX_LOG_LEVEL accepts ${LOG_LEVEL_NAMES.join(", ")} (got "${levelRaw}").`,
+      );
+    }
+  }
+  const levelIndex = LOG_LEVEL_NAMES.indexOf(level);
+  const log: LogConfig = Object.freeze({
+    json,
+    level,
+    levels: Object.freeze(
+      LOG_LEVEL_NAMES.slice(levelIndex).map((n) => NEST_LEVEL[n]),
+    ),
+    hideRouteMapping: levelIndex >= LOG_LEVEL_NAMES.indexOf("info"),
+  });
+  // Issue #31, D-96: only these peers may name the client in X-Forwarded-For.
+  const trusted = parseTrustedProxies(present(env, "NESTRIX_TRUSTED_PROXIES"));
+  if (!trusted.ok) errors.push(...trusted.errors);
+  const trustedProxies = trusted.ok ? trusted.value : undefined;
+
   if (errors.length > 0) return { ok: false, errors };
 
   return {
@@ -297,6 +474,8 @@ export function loadConfig(env: Env = process.env): ConfigResult {
         allowedHosts: Object.freeze(allowedHosts),
         publicUrl,
       }),
+      log,
+      trustedProxies,
     }),
   };
 }
