@@ -11,7 +11,8 @@
  *
  * What is rejected (OTLP partial success, `rejectedDataPoints`): a point with no time, a time more
  * than a day ahead or past `int8`, a delta point without a start time, a start after the time, no
- * value or a value that is not finite (NaN, ±Infinity), an unspecified temporality, and a histogram
+ * value, a value that is not finite (NaN, ±Infinity) or whose magnitude exceeds 1e100 (a histogram's
+ * sum included),  an unspecified temporality, and a histogram
  * whose bounds are not finite and strictly increasing, number more than `MAX_HISTOGRAM_BOUNDS`, or do
  * not match its bucket count. A rejected point never rejects the rest of the request.
  *
@@ -20,6 +21,7 @@
  * end up with the same attributes, time and bounds are merged (`CatalogEntry.merge`).
  */
 
+import { createHash } from "node:crypto";
 import {
   type CatalogEntry,
   type CatalogKind,
@@ -45,6 +47,10 @@ import type {
 } from "./model.js";
 
 export const UNKNOWN_SERVICE = "unknown_service";
+/** A service name is cut to this (the query parameter's limit). */
+export const MAX_SERVICE_NAME_LENGTH = 256;
+/** A value or histogram sum with a larger magnitude is rejected (it would overflow float8 sums). */
+export const MAX_METRIC_VALUE = 1e100;
 /** `service.instance.id` is cut to this. */
 export const MAX_INSTANCE_ID_LENGTH = 256;
 /** `DataPointFlags.NO_RECORDED_VALUE_MASK`. */
@@ -59,6 +65,7 @@ type RejectReason =
   | "start time after time"
   | "missing value"
   | "value is not finite"
+  | "value out of range"
   | "unspecified temporality"
   | "invalid histogram buckets";
 
@@ -71,6 +78,25 @@ interface Context {
 
 function reject(ctx: Context, reason: RejectReason): void {
   ctx.rejected.set(reason, (ctx.rejected.get(reason) ?? 0) + 1);
+}
+
+/**
+ * The instance key of a resource without `service.instance.id`: a short stable hash of its sorted
+ * attributes, so two replicas that differ in any attribute (host, pid) are two series and one
+ * replica keeps one series across exports.
+ */
+function derivedInstanceId(resource: Record<string, unknown>): string {
+  const entries = Object.keys(resource)
+    .sort()
+    .map((k) => [k, resource[k]]);
+  const hash = createHash("sha256")
+    .update(
+      JSON.stringify(entries, (_k, v) =>
+        typeof v === "bigint" ? v.toString() : v,
+      ),
+    )
+    .digest("hex");
+  return `attrs-${hash.slice(0, 12)}`;
 }
 
 function resourceString(value: unknown, max: number): string | undefined {
@@ -104,10 +130,11 @@ export function toIngestMetricBatch(
   for (const rm of request.resourceMetrics) {
     const resource = attributes(rm.resource?.attributes ?? []);
     const serviceName =
-      resourceString(resource["service.name"], 16 * 1024) ?? UNKNOWN_SERVICE;
+      resourceString(resource["service.name"], MAX_SERVICE_NAME_LENGTH) ??
+      UNKNOWN_SERVICE;
     const instanceId =
       resourceString(resource["service.instance.id"], MAX_INSTANCE_ID_LENGTH) ??
-      "";
+      derivedInstanceId(resource);
     const merged = new Map<string, IngestMetricPoint>();
     for (const sm of rm.scopeMetrics) {
       for (const metric of sm.metrics) mapMetric(metric, ctx, merged);
@@ -312,15 +339,20 @@ function numberPoint(
     reject(ctx, "value is not finite");
     return;
   }
+  if (Math.abs(value) > MAX_METRIC_VALUE) {
+    reject(ctx, "value out of range");
+    return;
+  }
   const { attributes: attrs, key } = keptAttributes(p.attributes, entry);
   const mergeKey = `${temporality}\u0000${key}\u0000${p.timeUnixNano}`;
   const fullKey = `${entry.name}\u0000${mergeKey}`;
   const existing = merged.get(fullKey);
   if (existing !== undefined) {
-    existing.value =
+    existing.value = clampValue(
       entry.kind === "gauge" && entry.merge === "max"
         ? Math.max(existing.value, value)
-        : existing.value + value;
+        : existing.value + value,
+    );
     existing.startTimeUnixNano = earlierStart(
       existing.startTimeUnixNano,
       p.startTimeUnixNano,
@@ -337,6 +369,10 @@ function numberPoint(
     startTimeUnixNano: p.startTimeUnixNano,
     value,
   });
+}
+
+function clampValue(v: number): number {
+  return Math.max(-MAX_METRIC_VALUE, Math.min(MAX_METRIC_VALUE, v));
 }
 
 /** The earlier of two start times, ignoring an unknown (0) one. */
@@ -383,6 +419,10 @@ function histogramPoint(
   }
   const sum =
     p.sum !== undefined && Number.isFinite(p.sum) ? (p.sum as number) : null;
+  if (sum !== null && Math.abs(sum) > MAX_METRIC_VALUE) {
+    reject(ctx, "value out of range");
+    return;
+  }
   const { attributes: attrs, key } = keptAttributes(p.attributes, entry);
   const fullKey = `${entry.name}\u0000${temporality}\u0000${key}\u0000${p.timeUnixNano}\u0000${bounds.join(",")}`;
   const existing = merged.get(fullKey);
@@ -392,7 +432,9 @@ function histogramPoint(
       into[i] = (into[i] as number) + (buckets[i] as number);
     existing.count = (existing.count ?? 0) + count;
     existing.sum =
-      existing.sum === null || sum === null ? null : (existing.sum ?? 0) + sum;
+      existing.sum === null || sum === null
+        ? null
+        : clampValue((existing.sum ?? 0) + sum);
     existing.startTimeUnixNano = earlierStart(
       existing.startTimeUnixNano,
       p.startTimeUnixNano,

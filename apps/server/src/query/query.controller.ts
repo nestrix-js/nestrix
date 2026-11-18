@@ -350,8 +350,8 @@ export class QueryController {
   @Get("metrics/catalog")
   @Headers()
   async metricCatalog(@Req() req: RequestLike) {
-    const v = parse(req, metricCatalogSpec);
     requireMetrics(this.metricsService);
+    const v = parse(req, metricCatalogSpec);
     return metricsCall(() =>
       this.metricsService.catalog({
         service: v.service as string | undefined,
@@ -366,8 +366,8 @@ export class QueryController {
   @Get("metrics/series")
   @Headers()
   async metricSeries(@Req() req: RequestLike) {
-    const v = parse(req, metricSeriesSpec);
     requireMetrics(this.metricsService);
+    const v = parse(req, metricSeriesSpec);
     if (typeof v.metric !== "string") {
       const body: ApiError = {
         error: {

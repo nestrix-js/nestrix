@@ -185,21 +185,28 @@ const METRIC_DATA_FIELDS = [
   "summary",
 ] as const;
 
+/** A JSON field by its camelCase name or, failing that, its snake_case spelling (protobuf JSON accepts both). */
+function field(o: Record<string, unknown>, camel: string): unknown {
+  if (Object.hasOwn(o, camel)) return o[camel];
+  return o[camel.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)];
+}
+
 /** Removes `exemplars` from every data point in place; returns the data point count. */
 function dropExemplars(request: Record<string, unknown>): number {
   let points = 0;
-  for (const rm of objects(request.resourceMetrics)) {
-    for (const sm of objects(rm.scopeMetrics)) {
+  for (const rm of objects(field(request, "resourceMetrics"))) {
+    for (const sm of objects(field(rm, "scopeMetrics"))) {
       for (const metric of objects(sm.metrics)) {
-        for (const field of METRIC_DATA_FIELDS) {
-          if (!Object.hasOwn(metric, field)) continue;
-          const data = metric[field];
+        for (const kind of METRIC_DATA_FIELDS) {
+          const data =
+            metric[kind] ??
+            metric[kind.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)];
           if (data === null || typeof data !== "object") continue;
           for (const point of objects(
-            (data as Record<string, unknown>).dataPoints,
+            field(data as Record<string, unknown>, "dataPoints"),
           )) {
             points++;
-            if (Object.hasOwn(point, "exemplars")) delete point.exemplars;
+            delete point.exemplars;
           }
         }
       }
@@ -250,8 +257,8 @@ function objects(value: unknown): Record<string, unknown>[] {
  */
 function rewriteIds(request: Record<string, unknown>): number {
   let spans = 0;
-  for (const rs of objects(request.resourceSpans)) {
-    for (const ss of objects(rs.scopeSpans)) {
+  for (const rs of objects(field(request, "resourceSpans"))) {
+    for (const ss of objects(field(rs, "scopeSpans"))) {
       for (const span of objects(ss.spans)) {
         spans++;
         if ("traceId" in span) span.traceId = hexToBase64(span.traceId);

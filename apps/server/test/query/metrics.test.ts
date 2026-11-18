@@ -174,7 +174,7 @@ describe.skipIf(noDatabase)(`metrics ${skipReason}`, () => {
       valueUnit: "s/s",
       defaultAggregation: "sum",
     });
-    expect(c.services).toEqual(["shop"]);
+    expect(c.services).toContain("shop");
     expect(c.instances.map((i) => i.instanceId).sort()).toEqual(["a", "b"]);
     expect(c.ingest.storedPoints).toBeGreaterThan(100);
     expect(c.ingest.maxSeriesPerService).toBe(2000);
@@ -279,6 +279,94 @@ describe.skipIf(noDatabase)(`metrics ${skipReason}`, () => {
     ]) {
       const res = await server.get(`/api/v1/metrics/series?${q}`);
       expect(res.status, q).toBe(400);
+    }
+  });
+
+  it("a delta counter is its per-minute sum over 60 s, and a delta histogram's quantiles come from each minute's own buckets", async () => {
+    for (let i = 0; i < 5; i++) {
+      const t = BASE + i * MIN + 5_000;
+      const res = await send(
+        resource(
+          "d1",
+          [
+            {
+              name: "process.cpu.time",
+              unit: "s",
+              sum: {
+                isMonotonic: true,
+                aggregationTemporality: 1,
+                dataPoints: [
+                  {
+                    startTimeUnixNano: ns(t - MIN),
+                    timeUnixNano: ns(t),
+                    asDouble: 30,
+                    attributes: [attr("cpu.mode", "user")],
+                  },
+                ],
+              },
+            },
+            {
+              name: "http.server.request.duration",
+              unit: "s",
+              histogram: {
+                aggregationTemporality: 1,
+                dataPoints: [
+                  {
+                    startTimeUnixNano: ns(t - MIN),
+                    timeUnixNano: ns(t),
+                    count: "10",
+                    sum: 1,
+                    explicitBounds: [0.1, 1],
+                    bucketCounts: ["8", "2", "0"],
+                  },
+                ],
+              },
+            },
+          ],
+          "deltasvc",
+        ),
+      );
+      expect(res.status).toBe(200);
+    }
+    const rate = await series("metric=process.cpu.time&service=deltasvc");
+    expect(rate.series[0]?.values[2]).toBeCloseTo(0.5, 6);
+    const q = await series(
+      "metric=http.server.request.duration&service=deltasvc",
+    );
+    expect(q.series[0]?.values[2]).toBeCloseTo(0.0625, 6);
+    expect(q.series[0]?.values[10]).toBeNull();
+  });
+
+  it("drops a point older than two hours and counts it", async () => {
+    const before = await server.json<MetricCatalogResponse>(
+      `/api/v1/metrics/catalog?fromUnixMs=${BASE}&toUnixMs=${BASE + 40 * MIN}`,
+    );
+    const res = await send(
+      resource(
+        "o1",
+        [gauge("process.memory.usage", Date.now() - 3 * 3_600_000, 7)],
+        "oldsvc",
+      ),
+    );
+    expect(res.status).toBe(200);
+    const after = await server.json<MetricCatalogResponse>(
+      `/api/v1/metrics/catalog?fromUnixMs=${BASE}&toUnixMs=${BASE + 40 * MIN}`,
+    );
+    expect(after.ingest.outOfRange).toBe(before.ingest.outOfRange + 1);
+    expect(after.services).not.toContain("oldsvc");
+  });
+
+  it("sends no CORS headers on either route", async () => {
+    for (const path of [
+      `/api/v1/metrics/catalog?fromUnixMs=${BASE}&toUnixMs=${BASE + MIN}`,
+      `/api/v1/metrics/series?metric=process.cpu.time&fromUnixMs=${BASE}&toUnixMs=${BASE + 10 * MIN}`,
+    ]) {
+      const res = await server.get(path, { origin: "https://evil.example" });
+      expect(res.status, path).toBe(200);
+      const cors = [...res.headers.keys()].filter((k) =>
+        k.startsWith("access-control-"),
+      );
+      expect(cors, path).toEqual([]);
     }
   });
 

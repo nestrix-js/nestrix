@@ -150,6 +150,8 @@ describe("read routes open to tokens", () => {
     "/api/v1/routes/explain",
     "/api/v1/queries",
     "/api/v1/dependencies",
+    "/api/v1/metrics/catalog",
+    "/api/v1/metrics/series",
   ])("%s is a read route", (path) =>
     expect(TOKEN_READ_ROUTE.test(path)).toBe(true),
   );
