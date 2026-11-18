@@ -22,7 +22,7 @@ The CI jobs are defined in `.github/workflows/ci.yml` (`verify`, `consume`, `jae
 
 | | Status | Evidence |
 |---|---|---|
-| `@nestjs/common`, `@nestjs/core` 12.0.0 | Tested | `packages/conformance-nest12-0` pins 12.0.0 and runs the shared conformance files (Express and Fastify); part of `verify`. |
+| `@nestjs/common`, `@nestjs/core` 12.0.0 | Tested | `packages/conformance-nest12-0` pins 12.0.0 (`@nestjs/microservices` and `@nestjs/platform-fastify` at 12.0.4, the first releases patched for their security advisories) and runs the shared conformance files (Express and Fastify); part of `verify`. |
 | 12.3.2 | Tested | `packages/conformance-nest12-3-2` pins 12.3.2 and runs them on Express, Fastify and platform-node. |
 | Latest 12.x (12.4.2 in the lockfile) | Tested | `packages/nestjs` itself, in `verify`; the nightly job (`conformance-latest`, `latest-nest`) updates `@nestjs/*` to the newest 12.x and re-runs the conformance suite and the whole `verify`. |
 | Other 12.x between 12.0.0 and 12.4.2 | Expected to work | Same public APIs; the three versions above bracket them. |
@@ -47,7 +47,7 @@ An optional peer. Message propagation needs 12.0.4 or later (`ClientProxy#setOnD
 | | Status | Evidence |
 |---|---|---|
 | 12.4.x | Tested | `test/microservices/*.test.ts` (in `verify`). |
-| 12.0.4 to 12.3.x | Expected to work | Conformance packages carry 12.0.0 and 12.3.2 of `@nestjs/microservices` but run no message tests; not run on 12.0.4. |
+| 12.0.4 to 12.3.x | Expected to work | Conformance packages carry 12.0.4 (the 12.0 line) and 12.3.2 of `@nestjs/microservices` but run no message tests. |
 | 12.0.0 to 12.0.3 | Not supported | No dispatch hook. |
 
 ## OpenTelemetry
