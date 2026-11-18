@@ -63,3 +63,12 @@ export function table(rows: string[][]): string[] {
 export function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
+
+/** A window length as words: "15 minutes", "6 hours", "24 hours", "7 days" (the standalone server's longer windows). */
+export function windowWords(minutes: number): string {
+  if (minutes >= 2880 && minutes % 1440 === 0) {
+    return plural(minutes / 1440, "day");
+  }
+  if (minutes >= 360 && minutes % 60 === 0) return plural(minutes / 60, "hour");
+  return plural(minutes, "minute");
+}

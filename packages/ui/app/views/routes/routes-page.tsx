@@ -32,6 +32,7 @@ import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser, stringParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
+import { windowChoices, windowLabel } from "@/lib/windows";
 import { routeDetailHref } from "@/views/route/route-detail";
 import { ComparePanel } from "@/views/routes/compare-panel";
 import { RouteHistogram } from "@/views/routes/route-histogram";
@@ -53,10 +54,6 @@ import {
   statisticsNote,
 } from "@/views/routes/route-stats";
 
-const WINDOWS = [
-  { value: 15, label: "15 min" },
-  { value: 60, label: "60 min" },
-] as const;
 const DEFAULT_WINDOW = 15;
 const VIEWS = [
   ["routes", "Routes"],
@@ -88,11 +85,14 @@ function RouteCharts({
 }) {
   const data = useMemo(() => chartData(stats), [stats]);
   const { label, note } = describeRoute(stats);
+  const [first, second] = stats.series;
+  const bucketMinutes =
+    first && second ? (second.timeUnixMs - first.timeUnixMs) / 60_000 : 1;
   return (
     <Section
       testId="route-detail"
       title={`${describeMethod(stats.method)} ${label}`}
-      description={`${note ? `${note}; ` : ""}last ${windowMinutes} minutes, one point per minute; slowest request ${formatDuration(stats.maxMs)}`}
+      description={`${note ? `${note}; ` : ""}last ${windowLabel(windowMinutes)}, one point per ${windowLabel(bucketMinutes)}; slowest request ${formatDuration(stats.maxMs)}`}
       source="counted before sampling"
       className="space-y-4"
     >
@@ -304,7 +304,9 @@ export function RoutesPage() {
           <>
             <SegmentedControl
               label="Time window"
-              options={WINDOWS}
+              options={windowChoices(
+                meta.data?.statistics.windowMinutesOptions,
+              )}
               value={windowMinutes}
               onChange={(minutes) =>
                 void setQuery({

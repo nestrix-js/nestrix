@@ -19,6 +19,7 @@ import { EmptyState, ErrorState } from "@/components/kit/states";
 import { Button } from "@/components/ui/button";
 import {
   ApiRequestError,
+  getMeta,
   getRoutes,
   getTimeline,
   getTraces,
@@ -29,6 +30,7 @@ import { pollInterval, usePaused } from "@/lib/live";
 import { type RequestFilters, requestFilterParsers } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { useCursorList } from "@/lib/use-cursor-list";
+import { windowChoices, windowLabel } from "@/lib/windows";
 import { columnLabels, columnsFor } from "@/views/requests/columns";
 import { DebouncedInput } from "@/views/requests/debounced-input";
 import { RequestTimeline } from "@/views/requests/request-timeline";
@@ -58,10 +60,7 @@ const ERROR_FILTERS = [
   },
   { label: "No errors", value: "false", title: "No span failed" },
 ];
-const WINDOWS = [
-  { value: 15, label: "15 min" },
-  { value: 60, label: "60 min" },
-] as const;
+const DEFAULT_WINDOW = 15;
 // The request list has no previous window to compare with, so the tiles show an honest dash.
 const NO_PREVIOUS = "The request list does not compare with a previous window.";
 const SOURCE_TRACES = "from sampled traces";
@@ -122,7 +121,8 @@ export function RequestsPage() {
   });
 
   // The window is shared by the tiles and the timeline, so it lives here.
-  const [windowMinutes, setWindowMinutes] = useState<number>(WINDOWS[0].value);
+  const meta = useQuery({ queryKey: ["meta"], queryFn: getMeta });
+  const [windowMinutes, setWindowMinutes] = useState<number>(DEFAULT_WINDOW);
   const [paused] = usePaused();
   const timeline = useQuery({
     queryKey: ["timeline", windowMinutes, timelineParams],
@@ -347,7 +347,9 @@ export function RequestsPage() {
           <>
             <SegmentedControl
               label="Timeline window"
-              options={WINDOWS}
+              options={windowChoices(
+                meta.data?.statistics.windowMinutesOptions,
+              )}
               value={windowMinutes}
               onChange={setWindowMinutes}
             />
@@ -369,7 +371,7 @@ export function RequestsPage() {
             testId="kpi-requests"
             label="Requests"
             value={totals.total.toLocaleString("en")}
-            unit={`in ${windowMinutes} min`}
+            unit={`in ${windowLabel(windowMinutes)}`}
             delta="—"
             deltaTitle={NO_PREVIOUS}
             series={totals.perBucket}

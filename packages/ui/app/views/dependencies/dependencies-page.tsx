@@ -44,6 +44,7 @@ import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser, stringParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
+import { windowChoices, windowLabel } from "@/lib/windows";
 import {
   dependencyChanges,
   rowP95Change,
@@ -58,10 +59,6 @@ import {
   healthTone,
 } from "@/views/dependencies/dependency-health";
 
-const WINDOWS = [
-  { value: 15, label: "15 min" },
-  { value: 60, label: "60 min" },
-] as const;
 const DEFAULT_WINDOW = 15;
 const CARDS = 8;
 const CHART_TOP = 4;
@@ -274,7 +271,9 @@ export function DependenciesPage() {
           <>
             <SegmentedControl
               label="Time window"
-              options={WINDOWS}
+              options={windowChoices(
+                meta.data?.statistics.windowMinutesOptions,
+              )}
               value={windowMinutes}
               onChange={(minutes) =>
                 void setQuery({
@@ -352,7 +351,7 @@ export function DependenciesPage() {
                 testId="kpi-dependencies"
                 label="Dependencies"
                 value={String(rows.length)}
-                unit={`in ${shownWindow} min`}
+                unit={`in ${windowLabel(shownWindow)}`}
                 delta={changes.dependencies.text}
                 deltaTone={changes.dependencies.tone}
                 deltaTitle={changes.dependencies.title}

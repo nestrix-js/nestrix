@@ -66,6 +66,8 @@ export interface DependenciesResponse {
   fromUnixMs: number;
   toUnixMs: number;
   bucketMs: number;
+  /** Standalone server: true when only the newest sampled client and producer spans were read (see `AppMapResponse.truncated`). */
+  truncated?: boolean;
   dependencies: DependencyStats[];
   /**
    * Whether statistics cover the whole previous window (the same length, just before this one),

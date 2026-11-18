@@ -185,6 +185,7 @@ export interface ErrorGroupsResponse {
   bucketMs: number;
   fromUnixMs: number;
   toUnixMs: number;
+  truncated?: boolean;
   /** Most occurrences first, at most 100. */
   groups: ErrorGroup[];
   /**
@@ -279,6 +280,7 @@ export interface ClassStatsResponse {
   windowMinutes: number;
   fromUnixMs: number;
   toUnixMs: number;
+  ownTimeTruncated?: boolean;
   methodsState: "on" | "off" | "no-data-in-range";
   methodsEnabled: boolean;
   classes: ClassStats[];
@@ -330,6 +332,7 @@ export interface AppMapResponse {
   windowMinutes: number;
   fromUnixMs: number;
   toUnixMs: number;
+  truncated?: boolean;
   nodes: MapNode[];
   edges: MapEdge[];
   previousCovered?: boolean;
@@ -407,6 +410,7 @@ export interface DependenciesResponse {
   fromUnixMs: number;
   toUnixMs: number;
   bucketMs: number;
+  truncated?: boolean;
   dependencies: DependencyStats[];
   previousCovered?: boolean;
   note?: string | null;

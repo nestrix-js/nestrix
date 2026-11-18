@@ -39,9 +39,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getErrorGroups, getErrorInsights } from "@/lib/api";
+import { getErrorGroups, getErrorInsights, getMeta } from "@/lib/api";
 import { pollInterval, usePaused } from "@/lib/live";
 import { useService } from "@/lib/service";
+import { windowChoices, windowLabel } from "@/lib/windows";
 import {
   bucketTotals,
   type GroupState,
@@ -62,10 +63,7 @@ import {
   WEEKDAYS,
 } from "@/views/errors/errors-stats";
 
-const WINDOWS = [
-  { value: 15, label: "15 min" },
-  { value: 60, label: "60 min" },
-] as const;
+const DEFAULT_WINDOW = 15;
 const COLUMNS = 8;
 const SOURCE = "from sampled traces";
 const NO_PREVIOUS =
@@ -261,7 +259,7 @@ function Charts({ data }: { data: ErrorGroupsResponse }) {
       <div className="grid gap-4 lg:grid-cols-3">
         <Section
           title="Errors over time, by type"
-          description={`Per ${data.bucketMs / 60_000} min, last ${data.windowMinutes} min`}
+          description={`Per ${windowLabel(data.bucketMs / 60_000)}, last ${windowLabel(data.windowMinutes)}`}
           source={SOURCE}
           testId="card-errors-time"
           className="lg:col-span-2"
@@ -283,7 +281,7 @@ function Charts({ data }: { data: ErrorGroupsResponse }) {
         </Section>
         <Section
           title="By exception type"
-          description={`Last ${data.windowMinutes} min`}
+          description={`Last ${windowLabel(data.windowMinutes)}`}
           source={SOURCE}
           testId="card-errors-types"
         >
@@ -442,7 +440,8 @@ function Insights({ service }: { service: string | undefined }) {
 
 /** The errors of the last 15 or 60 minutes grouped by type, normalised message and route. */
 export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
-  const [windowMinutes, setWindowMinutes] = useState<number>(WINDOWS[0].value);
+  const meta = useQuery({ queryKey: ["meta"], queryFn: getMeta });
+  const [windowMinutes, setWindowMinutes] = useState<number>(DEFAULT_WINDOW);
   const [service] = useService();
   const [paused] = usePaused();
   const groups = useQuery({
@@ -484,7 +483,9 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
             {viewToggle}
             <SegmentedControl
               label="Time window"
-              options={WINDOWS}
+              options={windowChoices(
+                meta.data?.statistics.windowMinutesOptions,
+              )}
               value={windowMinutes}
               onChange={setWindowMinutes}
             />
@@ -531,7 +532,7 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
                 testId="kpi-events"
                 label="Error events"
                 value={`${data.groups.length >= GROUP_CAP ? "≥ " : ""}${countText(derived.total)}`}
-                unit={`in ${shownWindow} min`}
+                unit={`in ${windowLabel(shownWindow)}`}
                 delta="—"
                 deltaTitle={NO_PREVIOUS}
                 series={derived.buckets}

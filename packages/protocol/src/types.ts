@@ -83,7 +83,11 @@ export interface MetaResponse {
   statistics: {
     /** Unix ms from which route statistics have been counted (process start). */
     sinceUnixMs: number;
-    /** Windows the routes endpoint accepts. */
+    /**
+     * Windows the aggregate endpoints accept: 15 and 60 when embedded; the standalone server adds
+     * 360, 1440, 10080 and 43200 as far as its retention reaches (and also takes `fromUnixMs` /
+     * `toUnixMs`).
+     */
     windowMinutesOptions: number[];
   };
   warnings: ApiWarning[];
@@ -326,6 +330,11 @@ export interface ClassStatsResponse {
    * embedded dashboard reports `on` or `off`). `on` otherwise.
    */
   methodsState: "on" | "off" | "no-data-in-range";
+  /**
+   * Standalone server: true when the own-time estimate (`ownMs`, `ownAvgMs`) was read from the
+   * newest sampled method spans only, because the range holds more than the server reads.
+   */
+  ownTimeTruncated?: boolean;
   /** Kept for compatibility: true unless `methodsState` is `off`. `classes` is empty when false. */
   methodsEnabled: boolean;
   classes: ClassStats[];
@@ -394,6 +403,11 @@ export interface AppMapResponse {
   windowMinutes: number;
   fromUnixMs: number;
   toUnixMs: number;
+  /**
+   * Standalone server: true when the range holds more client and producer spans than the server
+   * reads, so the map is built from the newest ones (the same holds for `DependenciesResponse`).
+   */
+  truncated?: boolean;
   nodes: MapNode[];
   edges: MapEdge[];
   /**

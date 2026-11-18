@@ -31,6 +31,7 @@ import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser, stringParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
+import { windowChoices, windowLabel } from "@/lib/windows";
 import { classChanges, rowAvgChange } from "@/views/classes/class-changes";
 import {
   formatShare,
@@ -50,10 +51,6 @@ import {
   sortMethods,
 } from "@/views/classes/class-stats";
 
-const WINDOWS = [
-  { value: 15, label: "15 min" },
-  { value: 60, label: "60 min" },
-] as const;
 const DEFAULT_WINDOW = 15;
 const STATS = "counted before sampling";
 const OWN_SOURCE = "estimated from sampled traces";
@@ -193,7 +190,9 @@ export function ClassesPage() {
           <>
             <SegmentedControl
               label="Time window"
-              options={WINDOWS}
+              options={windowChoices(
+                meta.data?.statistics.windowMinutesOptions,
+              )}
               value={windowMinutes}
               onChange={(minutes) =>
                 void setQuery({
@@ -300,7 +299,7 @@ export function ClassesPage() {
                   testId="kpi-calls"
                   label="Calls"
                   value={summary.calls.toLocaleString("en")}
-                  unit={`in ${shownWindow} min`}
+                  unit={`in ${windowLabel(shownWindow)}`}
                   delta={changes.calls.text}
                   deltaTone={changes.calls.tone}
                   deltaTitle={changes.calls.title}

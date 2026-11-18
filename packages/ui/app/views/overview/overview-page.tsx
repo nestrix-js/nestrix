@@ -43,6 +43,7 @@ import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
+import { windowChoices, windowLabel } from "@/lib/windows";
 import { LatencyChart, ThroughputBars } from "@/views/overview/overview-charts";
 import {
   apdexShares,
@@ -81,7 +82,6 @@ import {
   formatPercent,
 } from "@/views/slos/slo-format";
 
-const WINDOWS = [15, 60] as const;
 const DEFAULT_WINDOW = 15;
 
 const SOURCE_STATS = "before sampling";
@@ -132,7 +132,7 @@ function HealthCard({ data }: { data: OverviewResponse }) {
             {level.label}
           </span>
           <span className="text-xs text-muted-foreground">
-            compared with the previous {data.windowMinutes} minutes
+            compared with the previous {windowLabel(data.windowMinutes)}
           </span>
         </div>
         <p
@@ -951,12 +951,12 @@ function EmptyState({ windowMinutes }: { windowMinutes: number }) {
       className="space-y-2 rounded-lg border border-dashed border-border p-10 text-center"
     >
       <p className="text-lg font-semibold">
-        No requests in the last {windowMinutes} minutes
+        No requests in the last {windowLabel(windowMinutes)}
       </p>
       <p className="text-sm text-muted-foreground">
         Send some traffic to the application and the health score, what changed
-        and the charts appear here. Try the 60 minute window if it was quiet
-        just now.
+        and the charts appear here. Try a longer window if it was quiet just
+        now.
       </p>
     </section>
   );
@@ -987,21 +987,23 @@ export function OverviewPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">Overview</h2>
         <fieldset className="flex items-center gap-1" aria-label="Time window">
-          {WINDOWS.map((minutes) => (
-            <Button
-              key={minutes}
-              size="sm"
-              variant={windowMinutes === minutes ? "default" : "outline"}
-              aria-pressed={windowMinutes === minutes}
-              onClick={() =>
-                void setQuery({
-                  windowMinutes: minutes === DEFAULT_WINDOW ? null : minutes,
-                })
-              }
-            >
-              {minutes} min
-            </Button>
-          ))}
+          {windowChoices(meta.data?.statistics.windowMinutesOptions).map(
+            ({ value: minutes, label }) => (
+              <Button
+                key={minutes}
+                size="sm"
+                variant={windowMinutes === minutes ? "default" : "outline"}
+                aria-pressed={windowMinutes === minutes}
+                onClick={() =>
+                  void setQuery({
+                    windowMinutes: minutes === DEFAULT_WINDOW ? null : minutes,
+                  })
+                }
+              >
+                {label}
+              </Button>
+            ),
+          )}
         </fieldset>
       </div>
 

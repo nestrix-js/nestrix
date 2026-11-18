@@ -55,9 +55,18 @@ const READ_ONLY = {
 } as const;
 
 const windowMinutes = z
-  .union([z.literal(15), z.literal(60)])
+  .union([
+    z.literal(15),
+    z.literal(60),
+    z.literal(360),
+    z.literal(1440),
+    z.literal(10_080),
+    z.literal(43_200),
+  ])
   .optional()
-  .describe("Statistics window in minutes: 15 (default) or 60.");
+  .describe(
+    "Statistics window in minutes: 15 (default) or 60; a standalone server also takes 360 (6 hours), 1440 (24 hours), 10080 (7 days) and 43200 (30 days) within its retention.",
+  );
 const service = z
   .string()
   .max(256)
@@ -305,7 +314,7 @@ export function createMcpServer(
     "route_stats",
     {
       title: "Route statistics",
-      description: `Per-route request count, errors, error rate and latency percentiles (p50, p95, p99, max) over the last 15 or 60 minutes, slowest p95 first, at most 25 routes. ${statisticsCounting()} Resets when the app restarts.`,
+      description: `Per-route request count, errors, error rate and latency percentiles (p50, p95, p99, max) over the last 15 minutes (default) up to 30 days (windowMinutes), slowest p95 first, at most 25 routes. ${statisticsCounting()} Resets when the app restarts.`,
       inputSchema: { windowMinutes, service },
       annotations: READ_ONLY,
     },
@@ -341,7 +350,7 @@ export function createMcpServer(
     {
       title: "App map",
       description:
-        "What the app talks to: databases, caches, queues and outbound HTTP services, with call counts, errors and latency, from the sampled traces of the last 15 or 60 minutes (counts reflect sampling).",
+        "What the app talks to: databases, caches, queues and outbound HTTP services, with call counts, errors and latency, from the sampled traces of the last 15 minutes (default) up to 30 days (windowMinutes; counts reflect sampling).",
       inputSchema: { windowMinutes, service },
       annotations: READ_ONLY,
     },
