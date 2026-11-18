@@ -6,6 +6,8 @@ import { ReadQueryGuard } from "./auth/query-guard.js";
 import { TokensModule } from "./auth/tokens.module.js";
 import type { ServerConfig } from "./config.js";
 import { ServerConfigModule } from "./config.module.js";
+import { HEALTH_PATH_PATTERN } from "./health/health.js";
+import { HealthModule } from "./health/health.module.js";
 import { IngestModule } from "./ingest/ingest.module.js";
 import { MemoryIngestSink } from "./ingest/memory-sink.js";
 import { INGEST_PATH_PATTERN } from "./ingest/tokens.js";
@@ -49,12 +51,13 @@ export class AppModule {
           // The server's own storage queries are not traced (a trace of each write would be
           // exported to the receiver, whose write would be traced again).
           integrations: { pg: false },
-          ignore: { paths: [INGEST_PATH_PATTERN] },
+          ignore: { paths: [INGEST_PATH_PATTERN, HEALTH_PATH_PATTERN] },
         }),
         // Admin login (P5-04): its middleware is mounted by `configureApp`, its guard is global
         // and covers every controller, the query API included.
         AuthModule,
         UiModule,
+        HealthModule,
         ...(options.inMemory
           ? [IngestModule.forRoot({ sink: { useClass: MemoryIngestSink } })]
           : [
