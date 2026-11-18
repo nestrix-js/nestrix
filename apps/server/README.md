@@ -48,7 +48,72 @@ docker build -f apps/server/Dockerfile -t nestrix-server .
 docker run -p 4318:4318 -e DATABASE_URL=postgres://… -e NESTRIX_INGEST_KEYS=… -e NESTRIX_ADMIN_PASSWORD=… nestrix-server
 ```
 
-The image's health check requests `/login` and passes for any status below 500.
+The image's health check requests `/readyz` (below) and passes only on 200.
+
+### Health probes
+
+Two routes answer without a login or an API key, are never redirected to `/login`, are not counted by the login or ingest rate limits, are not traced, and carry no data:
+
+| Route | Answers |
+|---|---|
+| `GET /livez` | `200 {"status":"ok"}` while the process serves HTTP. Does not look at the database. |
+| `GET /readyz` | `200 {"status":"ok"}` when `SELECT 1` succeeds within 2 seconds, every migration file is recorded as applied and a partition exists for today in every table. Otherwise `503 {"status":"unavailable","reason":"…"}` with `database` (unreachable, refused or too slow), `migrations` or `partitions`; and `503` with `shutting-down` from the moment shutdown begins, so an orchestrator stops sending traffic first. |
+
+Stopping PostgreSQL turns `/readyz` to 503 on the next probe and back to 200 within a probe or two after it returns (a pooled connection that died with the database is discarded first); `/livez` stays 200. The database check uses the server's own connection pool, so a pool held by ingest for more than 2 seconds also reads as not ready. Concurrent probes share one check.
+
+Docker Compose (the image already has this check; the form is for another image or for tuning):
+
+```yaml
+services:
+  nestrix:
+    image: ghcr.io/nestrix-js/nestrix-server:latest
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4318/readyz').then(r=>process.exit(r.status===200?0:1),()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+```
+
+Docker Swarm takes the same `healthcheck` in the stack file, under the service.
+
+Kubernetes:
+
+```yaml
+livenessProbe:
+  httpGet: { path: /livez, port: 4318 }
+  periodSeconds: 10
+  failureThreshold: 3
+readinessProbe:
+  httpGet: { path: /readyz, port: 4318 }
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+startupProbe:
+  httpGet: { path: /readyz, port: 4318 }
+  periodSeconds: 2
+  failureThreshold: 30
+```
+
+Use `/livez` for liveness: a database outage should take the instance out of the Service, not restart it. A load balancer takes `/readyz`.
+
+### Secrets from files
+
+Docker Swarm secrets and Kubernetes secret volumes arrive as files. For `DATABASE_URL`, `NESTRIX_INGEST_KEYS`, `NESTRIX_ADMIN_PASSWORD` and `NESTRIX_SESSION_SECRET`, set `<NAME>_FILE` to the file's path instead (for example `NESTRIX_ADMIN_PASSWORD_FILE=/run/secrets/nestrix_admin_password`). The file is read once at start and one trailing line break (`\n` or `\r\n`) is removed. Setting both `X` and `X_FILE`, a missing or unreadable file and an empty file are configuration errors; the message names the variable and the path, never the content. The value is then checked like any other (lengths, URL form).
+
+`DATABASE_PASSWORD_FILE` keeps the password out of the URL: set `DATABASE_URL` (or `DATABASE_URL_FILE`) to `postgres://user@host:5432/db` and the file's content becomes that user's password (percent-encoded for you). It is an error if the URL already has a password (in the user information or as `?password=`) or has no user name; there is no precedence rule to remember.
+
+```yaml
+services:
+  nestrix:
+    image: ghcr.io/nestrix-js/nestrix-server:latest
+    environment:
+      DATABASE_URL: postgres://nestrix@postgres:5432/nestrix
+      DATABASE_PASSWORD_FILE: /run/secrets/db_password
+      NESTRIX_INGEST_KEYS_FILE: /run/secrets/nestrix_ingest_keys
+      NESTRIX_ADMIN_PASSWORD_FILE: /run/secrets/nestrix_admin_password
+    secrets: [db_password, nestrix_ingest_keys, nestrix_admin_password]
+```
 
 ## Point your apps at it
 
@@ -66,16 +131,19 @@ The key may instead be sent as `x-nestrix-key: <key>`. Keys are compared in cons
 
 ## Configuration
 
-Read once from the environment at start and validated. A bad value exits with one message listing every problem; secret values are never echoed.
+Read once from the environment at start and validated. A bad value exits with one message listing every problem; secret values are never echoed. The four secrets (`DATABASE_URL`, `NESTRIX_INGEST_KEYS`, `NESTRIX_ADMIN_PASSWORD`, `NESTRIX_SESSION_SECRET`) also accept a `_FILE` form.
 
 | Variable | Default | Validation and meaning |
 |---|---|---|
-| `DATABASE_URL` | required | A `postgres://` or `postgresql://` URL. |
+| `DATABASE_URL` | required | A `postgres://` or `postgresql://` URL. Or `DATABASE_URL_FILE`; see "Secrets from files". |
+| `DATABASE_PASSWORD_FILE` | unset | Path of a file holding the database password, added to the user of `DATABASE_URL`. An error if the URL already has a password or no user name. |
+| `NESTRIX_LOG_FORMAT` | `json` when `NODE_ENV=production` (the image sets it), else `text` | `json`: one JSON object per line (`level`, `timestamp`, `pid`, `context`, `message`), no colours. `text`: Nest's text lines. |
+| `NESTRIX_LOG_LEVEL` | `info` | `verbose`, `debug`, `info`, `warn`, `error` or `fatal` (`log` is accepted for `info`). At `info` and above the lines that list every mapped route are not written; `debug` and `verbose` show them. |
 | `PORT` | `4318` | Whole number, 1 to 65535. |
-| `NESTRIX_INGEST_KEYS` | none | Comma-separated keys, each at least 32 characters. |
+| `NESTRIX_INGEST_KEYS` | none | Comma-separated keys, each at least 32 characters. Or `NESTRIX_INGEST_KEYS_FILE`. |
 | `NESTRIX_INGEST_AUTH` | unset | Only `none` is accepted: an explicit opt-out of ingest authentication, logged as a warning on every start. Setting it together with `NESTRIX_INGEST_KEYS` is an error. |
-| `NESTRIX_ADMIN_PASSWORD` | none | At least 12 characters. Without it the UI, `/login` and the query API answer 503 and a log line says why; ingest still works. |
-| `NESTRIX_SESSION_SECRET` | random per start | At least 32 characters. Part of the session signing key; see "Admin login" for what it does and does not do. |
+| `NESTRIX_ADMIN_PASSWORD` | none | At least 12 characters. Or `NESTRIX_ADMIN_PASSWORD_FILE`. Without it the UI, `/login` and the query API answer 503 and a log line says why; ingest still works. |
+| `NESTRIX_SESSION_SECRET` | random per start | At least 32 characters. Or `NESTRIX_SESSION_SECRET_FILE`. Part of the session signing key; see "Admin login" for what it does and does not do. |
 | `NESTRIX_RETENTION_DAYS` | `7` | Whole number, 1 to 3650. |
 | `NESTRIX_MAX_SPANS_PER_TRACE` | `50000` | Whole number, 1 000 to 10 000 000. Spans stored per trace; see "Span limit per trace". |
 | `NESTRIX_MAX_CONNECTIONS` | `1024` | Whole number, 1 to 1 000 000. Node's `server.maxConnections`. |
