@@ -37,6 +37,7 @@ import {
   type MetricDropCounts,
 } from "../ingest/model.js";
 import { MAX_NS } from "./derive.js";
+import { EnvironmentTracker } from "./environments.js";
 import { type PartitionManager, utcDay } from "./partitions.js";
 import { isTransient } from "./writer.js";
 
@@ -362,6 +363,7 @@ export class PostgresMetricWriter {
     private readonly pool: Pool,
     private readonly partitions: PartitionManager,
     options: MetricWriterOptions = {},
+    private readonly environments = new EnvironmentTracker(),
   ) {
     this.maxInflight = options.maxInflightPoints ?? 50_000;
     this.retryAfterSeconds = options.retryAfterSeconds ?? 5;
@@ -478,6 +480,13 @@ export class PostgresMetricWriter {
         [...rows.entries()]
           .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
           .map(([, r]) => r),
+      );
+      await this.environments.touch(
+        this.pool,
+        [...rows.values()].map((r) => ({
+          service: r.service,
+          environment: r.environment,
+        })),
       );
     }
     this.counters.storedPoints += stored;

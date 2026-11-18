@@ -16,6 +16,7 @@ import {
   type RuleFields,
   toApiEvent,
   toApiRule,
+  withSloScope,
 } from "./store.js";
 import { ALERTS_OPTIONS, type ResolvedAlertsOptions } from "./tokens.js";
 import { WebhookSender } from "./webhook.js";
@@ -228,7 +229,7 @@ export class AlertsService {
     const eventId = Number(rows[0]?.id);
     const body = JSON.stringify(
       buildPayload(
-        rule,
+        await withSloScope(this.pool, rule),
         eventId,
         "test",
         null,

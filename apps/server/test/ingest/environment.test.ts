@@ -1,5 +1,6 @@
 /** Issue #28 (D-101): ingest keys bound to an environment. */
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Logger } from "@nestjs/common";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../../src/config.js";
 import {
   auth,
@@ -34,6 +35,31 @@ describe("NESTRIX_INGEST_KEYS bindings", () => {
       const r = loadConfig({ DATABASE_URL: DB, NESTRIX_INGEST_KEYS: keys });
       expect(r.ok, keys).toBe(false);
     }
+  });
+});
+
+describe("startup warning for mixed keys", () => {
+  const warned = async (keys: string): Promise<string[]> => {
+    const spy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => {});
+    try {
+      const server = await startServer(
+        testConfig({ NESTRIX_INGEST_KEYS: keys }),
+      );
+      await server.close();
+      return spy.mock.calls
+        .map((c) => String(c[0]))
+        .filter((m) => m.includes("NESTRIX_INGEST_KEYS mixes"));
+    } finally {
+      spy.mockRestore();
+    }
+  };
+
+  it("warns once when bound and unbound keys are mixed, and not otherwise", async () => {
+    const mixed = await warned(`staging:${KEY},${OTHER_KEY}`);
+    expect(mixed).toHaveLength(1);
+    expect(mixed[0]).toContain("mixes 1 environment-bound and 1 unbound");
+    expect(await warned(`staging:${KEY},production:${OTHER_KEY}`)).toEqual([]);
+    expect(await warned(`${KEY},${OTHER_KEY}`)).toEqual([]);
   });
 });
 

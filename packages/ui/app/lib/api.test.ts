@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   apiUrl,
   baseUrl,
+  getInstances,
   getLogs,
+  getRemoteProfiles,
   setActiveEnvironment,
   shouldLogin,
   triageErrorGroup,
@@ -106,6 +108,21 @@ describe("the selected environment (D-101)", () => {
     });
     // A call that names one keeps it.
     expect(calls[2]?.body).toEqual({ key: "k", environment: "unset" });
+  });
+
+  it("sends the environment with the profiler's instance and capture lists", async () => {
+    const calls = recordFetch();
+    setActiveEnvironment("staging");
+    await getInstances("shop");
+    await getRemoteProfiles("shop");
+    expect(calls.map((c) => c.url.pathname)).toEqual([
+      "/api/v1/instances",
+      "/api/v1/remote-profiles",
+    ]);
+    for (const c of calls) {
+      expect(c.url.searchParams.get("environment")).toBe("staging");
+      expect(c.url.searchParams.get("service")).toBe("shop");
+    }
   });
 
   it("sends nothing when every environment is selected", async () => {

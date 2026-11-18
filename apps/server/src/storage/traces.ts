@@ -15,6 +15,7 @@
  * a true root), then the earliest start. Merged with the stored row:
  * - the stored root's parent arrived in this batch: the batch's candidate replaces it;
  * - otherwise a parentless root beats a root with a parent, and then the earlier start wins.
+ * A candidate from another environment than the stored row never replaces it (D-101).
  * So a trace whose spans arrive from several services in any order settles on its true root once
  * that arrives, and on its earliest span otherwise.
  *
@@ -52,6 +53,7 @@ interface StoredTrace {
   seq: string;
   root_span_id: string;
   root_parent_span_id: string | null;
+  environment: string | null;
   start_ns: string;
   user_id: string | null;
   span_count: number;
@@ -180,7 +182,7 @@ export async function upsertTraces(
   ]);
   const { rows } = await client.query<StoredTrace>(
     `SELECT trace_id, partition_time::text AS partition_time, seq::text AS seq, root_span_id, root_parent_span_id,
-            start_ns::text AS start_ns, user_id, span_count, error_count, services, span_names,
+            environment, start_ns::text AS start_ns, user_id, span_count, error_count, services, span_names,
             indexed_attributes, request_ids
        FROM traces WHERE trace_id = ANY($1::text[])
       ORDER BY seq`,
@@ -238,6 +240,10 @@ export async function upsertTraces(
     } else {
       replace = candidate.startNs < BigInt(existing.start_ns);
     }
+    // A span of another environment never takes over the stored root: one environment's key must
+    // not be able to move another's trace by sending an earlier or parentless span for a known
+    // trace id (D-101). Its spans are still stored and counted.
+    if (candidate.environment !== existing.environment) replace = false;
     const root = replace ? candidate : null;
     upserts.push({
       traceId,
