@@ -17,7 +17,9 @@ import {
   PostgresSessionRevocations,
 } from "../../src/auth/session-store.js";
 import { runMigrations } from "../../src/storage/migrate.js";
+import { STORAGE_POOL } from "../../src/storage/storage.module.js";
 import { type AlertsServer, startAlertsServer } from "../alerts/helpers.js";
+import { auth as ingestAuth, post } from "../ingest/helpers.js";
 import {
   createTestDb,
   noDatabase,
@@ -252,8 +254,14 @@ describe.skipIf(noDatabase)(`several instances ${skipReason}`, () => {
     });
 
     it("counts exactly under concurrent attempts from two instances", async () => {
-      const one = new PostgresLoginLimiter(db.pool, { limit: 3 });
-      const two = new PostgresLoginLimiter(db.pool, { limit: 3 });
+      const one = new PostgresLoginLimiter(db.pool, {
+        limit: 3,
+        maxInFlight: 20,
+      });
+      const two = new PostgresLoginLimiter(db.pool, {
+        limit: 3,
+        maxInFlight: 20,
+      });
       const results = await Promise.all(
         Array.from({ length: 20 }, (_, i) =>
           (i % 2 === 0 ? one : two).take("concurrent-client"),
@@ -394,6 +402,51 @@ describe.skipIf(noDatabase)(`several instances ${skipReason}`, () => {
     } finally {
       await x.close();
       await y.close();
+      await own.drop();
+    }
+  });
+
+  it("200 concurrent wrong passwords from one address on one instance cost at most 5 limiter transactions, and ingest keeps working", async () => {
+    const own = await createTestDb("replicas_pregate");
+    const server = await startAlertsServer(own.url, TRUSTED);
+    try {
+      const auth = server.app.get(AdminAuth);
+      const pool = server.app.get<pg.Pool>(STORAGE_POOL);
+      let connects = 0;
+      // The app's own pool (shared with ingest), with limiter connections counted.
+      const counted = {
+        connect: () => {
+          connects++;
+          return pool.connect();
+        },
+        query: pool.query.bind(pool),
+      };
+      auth.limiter = new PostgresLoginLimiter(counted as unknown as pg.Pool);
+      const logins = Array.from({ length: 200 }, async () => {
+        const res = await postLogin(server.baseUrl, "wrong-password-x", {
+          "x-forwarded-for": "203.0.113.250",
+        });
+        await res.arrayBuffer();
+        return res.status;
+      });
+      const ingest = post(
+        `${server.baseUrl}/v1/traces`,
+        JSON.stringify({ resourceSpans: [] }),
+        { "content-type": "application/json", ...ingestAuth() },
+      ).then(async (res) => {
+        await res.arrayBuffer();
+        return res.status;
+      });
+      const [statuses, ingestStatus] = await Promise.all([
+        Promise.all(logins),
+        ingest,
+      ]);
+      expect(connects).toBeLessThanOrEqual(5);
+      expect(statuses.filter((s) => s === 401)).toHaveLength(5);
+      expect(statuses.filter((s) => s === 429)).toHaveLength(195);
+      expect(ingestStatus).toBe(200);
+    } finally {
+      await server.close();
       await own.drop();
     }
   });
@@ -555,5 +608,89 @@ describe.skipIf(noDatabase)(`several instances ${skipReason}`, () => {
       }
       expect(await status(a, "/api/v1/meta", asCookieFor(a, value))).toBe(200);
     });
+  });
+});
+
+describe("PostgresLoginLimiter's in-process guards (no database)", () => {
+  /** A pool whose connections are handed out only when `open()` is called. */
+  function heldPool() {
+    let connects = 0;
+    const gates: Array<() => void> = [];
+    const pool = {
+      connect: async () => {
+        connects++;
+        await new Promise<void>((r) => gates.push(r));
+        return {
+          query: async () => ({
+            rows: [{ taken: true, reserved: true, at: "t" }],
+          }),
+          release: () => undefined,
+        };
+      },
+      query: async () => ({ rows: [] }),
+    };
+    return {
+      pool: pool as unknown as pg.Pool,
+      connects: () => connects,
+      open: () => {
+        for (const g of gates.splice(0)) g();
+      },
+    };
+  }
+  const tick = () => new Promise((r) => setTimeout(r, 10));
+
+  it("holds at most maxInFlight connections; waiters hold none; past the queue: 429 at once", async () => {
+    const held = heldPool();
+    const limiter = new PostgresLoginLimiter(held.pool, {
+      limit: 100,
+      maxInFlight: 2,
+      maxQueued: 3,
+    });
+    const calls = Array.from({ length: 6 }, (_, i) => limiter.take(`c${i}`));
+    // 2 running, 3 waiting, the 6th refused without asking for a connection.
+    expect(await calls[5]).toEqual({ ok: false, retryAfterSeconds: 1 });
+    await tick();
+    expect(held.connects()).toBe(2);
+    for (let i = 0; i < 5; i++) {
+      held.open();
+      await tick();
+      expect(held.connects()).toBeLessThanOrEqual(5);
+    }
+    const results = await Promise.all(calls.slice(0, 5));
+    expect(results.every((r) => r.ok)).toBe(true);
+    expect(held.connects()).toBe(5);
+  });
+
+  it("the pre-gate refuses a client past its window without any database work", async () => {
+    const held = heldPool();
+    const limiter = new PostgresLoginLimiter(held.pool, { limit: 2 });
+    const first = [limiter.take("same"), limiter.take("same")];
+    expect(await limiter.take("same")).toEqual({
+      ok: false,
+      retryAfterSeconds: 60,
+    });
+    for (let i = 0; i < 3; i++) {
+      held.open();
+      await tick();
+    }
+    await Promise.all(first);
+    expect(held.connects()).toBe(2);
+  });
+
+  it("a waiter gives up after queueTimeoutMs with 429", async () => {
+    const held = heldPool();
+    const limiter = new PostgresLoginLimiter(held.pool, {
+      limit: 100,
+      maxInFlight: 1,
+      queueTimeoutMs: 50,
+    });
+    const running = limiter.take("a");
+    expect(await limiter.take("b")).toEqual({
+      ok: false,
+      retryAfterSeconds: 1,
+    });
+    held.open();
+    await running;
+    expect(held.connects()).toBe(1);
   });
 });

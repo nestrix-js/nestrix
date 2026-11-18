@@ -30,6 +30,7 @@ import type {
   LoginReservation,
   LoginTake,
 } from "./login-rate-limit.js";
+import { LoginRateLimiter } from "./login-rate-limit.js";
 import type { SessionRevocations, VerifiedSession } from "./session.js";
 
 /** Revocations kept this long after their session's expiry before they are deleted. */
@@ -84,6 +85,16 @@ export interface PostgresLoginLimiterOptions {
   windowMs?: number;
   /** Failed logins (and refused API tokens) per window across all clients. Default 60. */
   globalFailureLimit?: number;
+  /**
+   * `take` transactions running at once on this instance (each holds a pool connection, and the
+   * pool of 10 is shared with ingest and the query API). Further callers wait in process, holding
+   * no connection. Default 2.
+   */
+  maxInFlight?: number;
+  /** Callers waiting for a transaction slot; beyond: 429 with `Retry-After: 1`. Default 500. */
+  maxQueued?: number;
+  /** Longest wait for a slot; then 429 with `Retry-After: 1`. Default 5 000. */
+  queueTimeoutMs?: number;
 }
 
 function decision(taken: boolean, waitSeconds: unknown): LoginRateDecision {
@@ -99,15 +110,32 @@ export class PostgresLoginLimiter implements LoginLimiter {
   private readonly limit: number;
   private readonly windowMs: number;
   private readonly globalFailureLimit: number;
+  private readonly maxInFlight: number;
+  /**
+   * Per-instance pre-gate: the same per-client window (same key, same limit), checked
+   * synchronously before any database work. It can only refuse more than the shared window,
+   * never admit more (the database stays authoritative), so the shared guarantees hold. It is the
+   * in-process `LoginRateLimiter`'s client window: bounded at `MAX_CLIENTS` live entries (fail
+   * closed), expired ones pruned.
+   */
+  private readonly gate: LoginRateLimiter;
+  private readonly maxQueued: number;
+  private readonly queueTimeoutMs: number;
+  private inFlight = 0;
+  private readonly waiters: Array<() => void> = [];
   private lastPruneMs = 0;
 
   constructor(
-    private readonly pool: Pool,
+    private readonly pool: Pick<Pool, "connect" | "query">,
     options: PostgresLoginLimiterOptions = {},
   ) {
     this.limit = options.limit ?? 5;
     this.windowMs = options.windowMs ?? 60_000;
     this.globalFailureLimit = options.globalFailureLimit ?? 60;
+    this.maxInFlight = options.maxInFlight ?? 2;
+    this.maxQueued = options.maxQueued ?? 500;
+    this.queueTimeoutMs = options.queueTimeoutMs ?? 5_000;
+    this.gate = new LoginRateLimiter(this.limit, this.windowMs);
   }
 
   async checkFailureBudget(): Promise<LoginRateDecision> {
@@ -199,6 +227,54 @@ export class PostgresLoginLimiter implements LoginLimiter {
    * back and the call rejects (the caller answers 503).
    */
   async take(key: string): Promise<LoginTake> {
+    // Before any database work: the per-instance pre-gate, synchronously (so concurrent calls see
+    // each other), then one of `maxInFlight` transaction slots. A flood from one address thus costs
+    // at most its admitted attempts in queries, and limiter work never holds more than
+    // `maxInFlight` pool connections.
+    const local = this.gate.allow(key.slice(0, MAX_CLIENT_KEY) || "unknown");
+    if (!local.ok) return local;
+    if (!(await this.acquire())) return { ok: false, retryAfterSeconds: 1 };
+    try {
+      return await this.transaction(key);
+    } finally {
+      this.handOver();
+    }
+  }
+
+  /**
+   * One of `maxInFlight` transaction slots. When all are taken the caller waits in process (no
+   * connection held), at most `maxQueued` callers for at most `queueTimeoutMs`; beyond either,
+   * `false` (the caller answers 429 with `Retry-After: 1`).
+   */
+  private acquire(): Promise<boolean> {
+    if (this.inFlight < this.maxInFlight) {
+      this.inFlight++;
+      return Promise.resolve(true);
+    }
+    if (this.waiters.length >= this.maxQueued) return Promise.resolve(false);
+    return new Promise<boolean>((resolve) => {
+      const waiter = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      const timer = setTimeout(() => {
+        const i = this.waiters.indexOf(waiter);
+        if (i !== -1) this.waiters.splice(i, 1);
+        resolve(false);
+      }, this.queueTimeoutMs);
+      timer.unref?.();
+      this.waiters.push(waiter);
+    });
+  }
+
+  /** Passes the finished transaction's slot to the next waiter, or frees it. */
+  private handOver(): void {
+    const next = this.waiters.shift();
+    if (next) next();
+    else this.inFlight--;
+  }
+
+  private async transaction(key: string): Promise<LoginTake> {
     const conn = await this.pool.connect();
     let broken: Error | undefined;
     try {
