@@ -62,7 +62,7 @@ ingress:
 
 ## Upgrade
 
-Read the release notes, back up (below), read the new digest (`docker buildx imagetools inspect ghcr.io/nestrix-js/nestrix-server:<version>`), set `image.tag` and `image.digest`, and `helm upgrade`. If the notes say "stop all replicas first": `kubectl -n nestrix scale deploy/nestrix-server --replicas=0` before `helm upgrade`.
+Read the release notes, back up (below), read the new digest (`docker buildx imagetools inspect ghcr.io/nestrix-js/nestrix-server:<version>`), set `image.tag` and `image.digest`, and `helm upgrade`. If the notes say "stop all replicas first" (the environments release, migration 0016, does): `kubectl -n nestrix scale deploy/nestrix-server --replicas=0`, then `helm upgrade --set replicaCount=1 ...` with the new tag and digest, wait for `/readyz`, then `helm upgrade` again without the override. The chart keeps `RollingUpdate` (it does no harm with no old pod running; there is no values switch for `Recreate` and none was added). Full steps: production.md, "The environments release".
 
 ## Backup and restore
 
