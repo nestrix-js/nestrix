@@ -64,7 +64,6 @@ describe("LoginRateLimiter", () => {
     for (let i = 0; i < 1000; i++) {
       const key = clientKey(`2001:db8:1:${i.toString(16)}::1`);
       if (!limiter.take(key).ok) break;
-      limiter.recordFailure();
       allowed++;
     }
     expect(allowed).toBe(60);

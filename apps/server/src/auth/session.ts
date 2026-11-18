@@ -119,8 +119,13 @@ export function verifySession(
  * store cannot answer; `AdminAuth` then fails closed (D-96).
  */
 export interface SessionRevocations {
-  /** The nonces among `nonces` whose session was revoked. */
-  revokedAmong(nonces: readonly string[]): Promise<ReadonlySet<string>>;
+  /**
+   * The nonces among `sessions` that must be refused: revoked, or (for a shared store) already
+   * expired by the store's own clock, so instance clock skew cannot outlive a deleted revocation.
+   */
+  revokedAmong(
+    sessions: readonly VerifiedSession[],
+  ): Promise<ReadonlySet<string>>;
   /** Records `session` as revoked until it expires. Idempotent. */
   revoke(session: VerifiedSession): Promise<void>;
 }
@@ -172,8 +177,12 @@ export class MemorySessionRevocations implements SessionRevocations {
       Math.floor(Date.now() / 1000),
   ) {}
 
-  async revokedAmong(nonces: readonly string[]): Promise<ReadonlySet<string>> {
-    return new Set(nonces.filter((n) => this.revoked.has(n)));
+  async revokedAmong(
+    sessions: readonly VerifiedSession[],
+  ): Promise<ReadonlySet<string>> {
+    return new Set(
+      sessions.map((s) => s.nonce).filter((n) => this.revoked.has(n)),
+    );
   }
 
   async revoke(session: VerifiedSession): Promise<void> {

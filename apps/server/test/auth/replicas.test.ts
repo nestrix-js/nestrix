@@ -24,7 +24,7 @@ import {
   skipReason,
   type TestDb,
 } from "../storage/helpers.js";
-import { ADMIN_PW, originOf, postLogin } from "./helpers.js";
+import { ADMIN_PW, originOf, postLogin, signedCookie } from "./helpers.js";
 
 const TRUSTED = { NESTRIX_TRUSTED_PROXIES: "127.0.0.1/32" };
 
@@ -273,15 +273,22 @@ describe.skipIf(noDatabase)(`several instances ${skipReason}`, () => {
           globalFailureLimit: 3,
         });
         expect((await one.checkFailureBudget()).ok).toBe(true);
-        await one.recordFailure();
-        await two.recordFailure();
+        expect((await one.reserveFailure()).ok).toBe(true);
+        const held = await two.take("held-client");
+        expect(held.ok).toBe(true);
         expect((await two.checkFailureBudget()).ok).toBe(true);
-        await one.recordFailure();
+        expect((await one.reserveFailure()).ok).toBe(true);
         const spent = await two.checkFailureBudget();
         expect(spent.ok).toBe(false);
         // A new client is refused while the budget is spent, and nothing is recorded for it.
         expect((await two.take("fresh-client")).ok).toBe(false);
-        for (let i = 0; i < 5; i++) await two.recordFailure();
+        for (let i = 0; i < 5; i++) {
+          expect((await two.reserveFailure()).ok).toBe(false);
+        }
+        // Releasing a held slot (right password) makes room for exactly one more.
+        if (held.ok) await one.release(held.reservation);
+        expect((await two.reserveFailure()).ok).toBe(true);
+        expect((await one.reserveFailure()).ok).toBe(false);
         const { rows } = await own.pool.query<{ n: number }>(
           "SELECT cardinality(failures) AS n FROM admin_login_failures",
         );
@@ -289,7 +296,8 @@ describe.skipIf(noDatabase)(`several instances ${skipReason}`, () => {
         const clients = await own.pool.query(
           "SELECT 1 FROM admin_login_clients",
         );
-        expect(clients.rows).toHaveLength(0);
+        // Only the client that held a slot has a row.
+        expect(clients.rows).toHaveLength(1);
       } finally {
         await own.drop();
       }
@@ -307,6 +315,58 @@ describe.skipIf(noDatabase)(`several instances ${skipReason}`, () => {
     });
   });
 
+  it("a burst of concurrent wrong passwords from distinct forwarded clients gets exactly the global budget to the password check", async () => {
+    // Its own database and instances, so the budget starts empty.
+    const own = await createTestDb("replicas_burst");
+    const [x, y] = await Promise.all([
+      startAlertsServer(own.url, TRUSTED),
+      startAlertsServer(own.url, TRUSTED),
+    ]);
+    try {
+      const statuses = await Promise.all(
+        Array.from({ length: 300 }, async (_, i) => {
+          const res = await postLogin(
+            (i % 2 === 0 ? x : y).baseUrl,
+            "wrong-password-x",
+            { "x-forwarded-for": `203.0.${Math.floor(i / 250)}.${i % 250}` },
+          );
+          await res.arrayBuffer();
+          return res.status;
+        }),
+      );
+      expect(statuses.filter((s) => s === 401)).toHaveLength(60);
+      expect(statuses.filter((s) => s === 429)).toHaveLength(240);
+      const clients = await own.pool.query("SELECT 1 FROM admin_login_clients");
+      expect(clients.rows).toHaveLength(60);
+      const failures = await own.pool.query<{ n: number }>(
+        "SELECT cardinality(failures) AS n FROM admin_login_failures",
+      );
+      expect(failures.rows).toEqual([{ n: 60 }]);
+    } finally {
+      await x.close();
+      await y.close();
+      await own.drop();
+    }
+  });
+
+  it("refuses a cookie past its expiry on the database's clock, even from an instance whose clock is behind", async () => {
+    const auth = a.app.get(AdminAuth);
+    const original = auth.nowSeconds;
+    const real = Math.floor(Date.now() / 1000);
+    const port = Number(new URL(a.baseUrl).port);
+    // Two hours slow: past the one-hour margin after which revocations are deleted.
+    auth.nowSeconds = () => real - 7200;
+    try {
+      const expired = signedCookie(real - 3600, undefined, undefined, port);
+      expect(await status(a, "/api/v1/meta", expired)).toBe(401);
+      // Not expired on either clock: still accepted, so the refusal above is the expiry check.
+      const fresh = signedCookie(real + 600, undefined, undefined, port);
+      expect(await status(a, "/api/v1/meta", fresh)).toBe(200);
+    } finally {
+      auth.nowSeconds = original;
+    }
+  });
+
   describe("when the database cannot answer", () => {
     it("the stores reject", async () => {
       const dead = new pg.Pool({
@@ -316,20 +376,22 @@ describe.skipIf(noDatabase)(`several instances ${skipReason}`, () => {
       dead.on("error", () => undefined);
       try {
         await expect(
-          new PostgresSessionRevocations(dead).revokedAmong(["x"]),
+          new PostgresSessionRevocations(dead).revokedAmong([
+            { nonce: "x", expiresAtSeconds: 1 },
+          ]),
         ).rejects.toThrow();
         await expect(
           new PostgresLoginLimiter(dead).take("x"),
         ).rejects.toThrow();
         await expect(
-          new PostgresLoginLimiter(dead).recordFailure(),
+          new PostgresLoginLimiter(dead).reserveFailure(),
         ).rejects.toThrow();
       } finally {
         await dead.end();
       }
     });
 
-    it("POST /login answers 503 without a cookie; a failure that cannot be counted is 503 too", async () => {
+    it("POST /login answers 503 without a cookie; a token miss that cannot be counted is 503; a failed release still signs in", async () => {
       const auth = a.app.get(AdminAuth);
       const shared = auth.limiter;
       const fail = async () => {
@@ -338,8 +400,9 @@ describe.skipIf(noDatabase)(`several instances ${skipReason}`, () => {
       try {
         auth.limiter = {
           take: fail,
+          release: fail,
+          reserveFailure: fail,
           checkFailureBudget: fail,
-          recordFailure: fail,
         };
         const res = await postLogin(a.baseUrl, ADMIN_PW, {
           "x-forwarded-for": freshClient(),
@@ -349,14 +412,21 @@ describe.skipIf(noDatabase)(`several instances ${skipReason}`, () => {
         expect(await res.text()).toContain("cannot reach its database");
 
         auth.limiter = {
-          take: () => ({ ok: true }),
+          take: () => ({ ok: true, reservation: { at: "x" } }),
+          release: fail,
+          reserveFailure: fail,
           checkFailureBudget: () => ({ ok: true }),
-          recordFailure: fail,
         };
+        // The slot was reserved before the check: a wrong password is just 401.
         const wrongPw = await postLogin(a.baseUrl, "wrong-password-x", {
           "x-forwarded-for": freshClient(),
         });
-        expect(wrongPw.status).toBe(503);
+        expect(wrongPw.status).toBe(401);
+        // The right password signs in even if its slot cannot be released (it stays counted).
+        const rightPw = await postLogin(a.baseUrl, ADMIN_PW, {
+          "x-forwarded-for": freshClient(),
+        });
+        expect(rightPw.status).toBe(303);
         // A bad API token whose failure cannot be counted: 503, not 401.
         const token = await fetch(`${a.baseUrl}/api/v1/meta`, {
           headers: {

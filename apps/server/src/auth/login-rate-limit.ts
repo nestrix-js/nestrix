@@ -24,17 +24,35 @@ export type LoginRateDecision =
   | { ok: true }
   | { ok: false; retryAfterSeconds: number };
 
+/** A slot of the global failure budget held by one `/login` attempt (opaque). */
+export interface LoginReservation {
+  readonly at: unknown;
+}
+
+export type LoginTake =
+  | { ok: true; reservation: LoginReservation }
+  | { ok: false; retryAfterSeconds: number };
+
 /**
- * What `AdminAuth` needs from a login limiter. A promise-returning implementation rejects only
- * when its store cannot answer; `AdminAuth` then refuses the attempt (503, D-96).
+ * What `AdminAuth` needs from a login limiter. The global failure budget is reserved before the
+ * password is checked, in the same atomic step that admits the attempt, so a concurrent burst can
+ * never get more attempts to the password check than the budget has room for (review of D-96).
+ * A promise-returning implementation rejects only when its store cannot answer; `AdminAuth` then
+ * refuses the attempt (503, D-96).
  */
 export interface LoginLimiter {
-  /** Records an attempt by `key` if allowed (also refused while the global budget is spent). */
-  take(key: string): LoginRateDecision | Promise<LoginRateDecision>;
+  /**
+   * A `/login` attempt by `key`. Refused while the global budget is full (nothing recorded) or
+   * the client's window is full. Admitted: counted for the client, and one budget slot is
+   * reserved; it counts as a failure unless `release`d.
+   */
+  take(key: string): LoginTake | Promise<LoginTake>;
+  /** The attempt was not a failure (right password): frees its budget slot. */
+  release(reservation: LoginReservation): void | Promise<void>;
+  /** Counts one refused API token, atomically, only while the budget has room; else refused. */
+  reserveFailure(): LoginRateDecision | Promise<LoginRateDecision>;
   /** Whether the global failure budget has room, without recording anything. */
   checkFailureBudget(): LoginRateDecision | Promise<LoginRateDecision>;
-  /** Records one failed login or refused API token against the global budget. */
-  recordFailure(): void | Promise<void>;
 }
 
 function expandIPv6(address: string): string[] | undefined {
@@ -94,15 +112,39 @@ export class LoginRateLimiter implements LoginLimiter {
     };
   }
 
-  /** Records an attempt by `key` if allowed. */
-  take(key: string): LoginRateDecision {
+  /**
+   * A `/login` attempt by `key`: refused while the global budget is full or the client's window
+   * is; otherwise counted for the client and holding one slot of the global budget, which stays
+   * a failure unless `release`d (right password).
+   */
+  take(key: string): LoginTake {
     const now = this.now();
-    this.failures = this.failures.filter(
-      (t) => now - t < this.windowMs && t <= now,
-    );
-    if (this.failures.length >= this.globalFailureLimit) {
-      return this.retryAfter(this.failures[0] as number, now);
-    }
+    const budget = this.checkFailureBudget();
+    if (!budget.ok) return budget;
+    const client = this.allow(key);
+    if (!client.ok) return client;
+    this.failures.push(now);
+    return { ok: true, reservation: { at: now } };
+  }
+
+  release(reservation: LoginReservation): void {
+    const i = this.failures.indexOf(reservation.at as number);
+    if (i !== -1) this.failures.splice(i, 1);
+  }
+
+  /** Counts one refused API token if the global budget has room; refused otherwise. */
+  reserveFailure(): LoginRateDecision {
+    const budget = this.checkFailureBudget();
+    if (budget.ok) this.failures.push(this.now());
+    return budget;
+  }
+
+  /**
+   * The client's own window only (no global budget): records an attempt by `key` if allowed.
+   * `take` uses it; so does the per-instance allowance of refused API tokens.
+   */
+  allow(key: string): LoginRateDecision {
+    const now = this.now();
     const known = this.attempts.get(key);
     const recent = (known ?? []).filter(
       (t) => now - t < this.windowMs && t <= now,
@@ -126,11 +168,7 @@ export class LoginRateLimiter implements LoginLimiter {
     return { ok: true };
   }
 
-  /**
-   * Whether the global failure budget has room, without recording an attempt. API token requests
-   * (P8-01) check this before verifying a token, and `recordFailure` when one is refused, so
-   * guessing tokens and guessing the password draw on the same budget.
-   */
+  /** Whether the global failure budget has room, without recording anything. */
   checkFailureBudget(): LoginRateDecision {
     const now = this.now();
     this.failures = this.failures.filter(
@@ -140,11 +178,6 @@ export class LoginRateLimiter implements LoginLimiter {
       return this.retryAfter(this.failures[0] as number, now);
     }
     return { ok: true };
-  }
-
-  /** Records a failed login (wrong password) or a refused API token against the global budget. */
-  recordFailure(): void {
-    this.failures.push(this.now());
   }
 
   private prune(now: number): void {

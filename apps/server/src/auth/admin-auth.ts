@@ -71,6 +71,7 @@ import {
   type LoginLimiter,
   type LoginRateDecision,
   LoginRateLimiter,
+  type LoginTake,
 } from "./login-rate-limit.js";
 import {
   LOGIN_CSS,
@@ -315,9 +316,7 @@ export class AdminAuth implements OnModuleInit {
     if (candidates.length === 0) return NO_SESSION;
     let revoked: ReadonlySet<string>;
     try {
-      revoked = await this.revocations.revokedAmong(
-        candidates.map((s) => s.nonce),
-      );
+      revoked = await this.revocations.revokedAmong(candidates);
     } catch {
       this.throttledWarn(
         "admin session check failed (database unavailable?): requests with a session answer 503",
@@ -518,9 +517,9 @@ export class AdminAuth implements OnModuleInit {
   ): Promise<false> {
     let decision: LoginRateDecision;
     try {
-      const client = this.tokenLimiter.take(this.clientOf(req));
-      decision = client.ok ? await this.limiter.checkFailureBudget() : client;
-      if (decision.ok) await this.limiter.recordFailure();
+      // The client's own allowance (per instance), then the shared budget, charged atomically.
+      const client = this.tokenLimiter.allow(this.clientOf(req));
+      decision = client.ok ? await this.limiter.reserveFailure() : client;
     } catch {
       this.throttledWarn(
         "login rate limit unavailable (database unavailable?)",
@@ -732,7 +731,7 @@ export class AdminAuth implements OnModuleInit {
    * `POST /login`. Order: password configured (503) → `Origin` matches `Host` (403) → rate limit
    * (429) → password, hashed on both sides and compared with `timingSafeEqual` (401) → session
    * cookie and `303 Location: /`. The redirect target is fixed: no open redirect. The limiter keys
-   * on `clientOf` (trusted proxies, D-96); when it cannot answer or a failure cannot be counted,
+   * on `clientOf` (trusted proxies, D-96); when it cannot answer (budget slot or client window),
    * 503 with the "unavailable" notice and no cookie (fail closed). Never rejects.
    */
   async login(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -747,7 +746,9 @@ export class AdminAuth implements OnModuleInit {
         this.loginForm(res, 403, "bad-origin");
         return;
       }
-      let rate: LoginRateDecision;
+      // Admits the attempt and reserves its slot of the global failure budget in one atomic
+      // step, before the password check: a concurrent burst gets at most the budget through.
+      let rate: LoginTake;
       try {
         rate = await this.limiter.take(this.clientOf(req));
       } catch {
@@ -768,14 +769,17 @@ export class AdminAuth implements OnModuleInit {
       const given = sha256(typeof candidate === "string" ? candidate : "");
       const matches = timingSafeEqual(given, digest);
       if (!matches || typeof candidate !== "string") {
-        try {
-          await this.limiter.recordFailure();
-        } catch {
-          this.loginUnavailable(res);
-          return;
-        }
+        // The reserved slot stays: it is this failure.
         this.loginForm(res, 401, "wrong-password");
         return;
+      }
+      try {
+        await this.limiter.release(rate.reservation);
+      } catch {
+        // The slot stays counted (the safe side); the password was right, so sign in.
+        this.throttledWarn(
+          "login rate limit: a budget slot could not be released",
+        );
       }
       const expires = this.nowSeconds() + SESSION_TTL_SECONDS;
       const token = signSession(key, expires);

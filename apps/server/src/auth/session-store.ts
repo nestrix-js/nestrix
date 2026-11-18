@@ -9,19 +9,26 @@
  *   differences between instances and the database) are deleted with each new revocation.
  * - `PostgresLoginLimiter`: the per-client `/login` window and the global failure budget, with the
  *   rules of the in-process `LoginRateLimiter` (5 attempts a minute per client, 60 failures a
- *   minute in all). Each decision is one statement: the upsert on a client's row takes its row
- *   lock, so concurrent attempts from several instances are counted exactly. Time is the
- *   database's (`statement_timestamp()`), so instances with skewed clocks agree. Per-client rows
- *   are bounded by the global budget (only an attempt that passes the budget check is recorded,
- *   and wrong passwords spend it) and deleted once their window has passed, at most once a
- *   window per instance. The budget check and the upsert are two statements, so concurrent
- *   attempts may overshoot the global budget by the number in flight, as before across a
- *   restart.
+ *   minute in all). An attempt first reserves a slot of the global budget, in one statement
+ *   under the budget row's lock (so concurrent attempts on every instance are serialised and at
+ *   most the budget get through), then upserts its client row under that row's lock (so a client
+ *   is counted exactly). The slot is released when the client's window refuses the attempt or the
+ *   password is right; otherwise it is the attempt's failure. The global budget therefore bounds
+ *   attempts in flight plus failures, and no burst can get more attempts to the password check
+ *   than it has room for. Client rows are written only by attempts that hold a slot, so new rows
+ *   per window are at most the budget plus correct-password sign-ins; rows whose window has
+ *   passed are deleted at most once a window per instance. Time is the database's
+ *   (`statement_timestamp()`), so instances with skewed clocks agree.
  *
  * Every method rejects when the database cannot answer; `AdminAuth` fails closed on that.
  */
 import type { Pool } from "pg";
-import type { LoginLimiter, LoginRateDecision } from "./login-rate-limit.js";
+import type {
+  LoginLimiter,
+  LoginRateDecision,
+  LoginReservation,
+  LoginTake,
+} from "./login-rate-limit.js";
 import type { SessionRevocations, VerifiedSession } from "./session.js";
 
 /** Revocations kept this long after their session's expiry before they are deleted. */
@@ -32,11 +39,23 @@ const MAX_CLIENT_KEY = 100;
 export class PostgresSessionRevocations implements SessionRevocations {
   constructor(private readonly pool: Pool) {}
 
-  async revokedAmong(nonces: readonly string[]): Promise<ReadonlySet<string>> {
-    if (nonces.length === 0) return new Set();
+  /**
+   * Revoked sessions, and sessions already expired by the **database's** clock. The second part
+   * closes the clock-skew gap: revocations are deleted by the database's clock (an hour after
+   * expiry), so an instance whose clock is behind could otherwise accept a signed-out cookie
+   * whose row is gone. With it, a cookie past its expiry on the database's clock is refused
+   * whatever the instance's clock says, and a deleted row's cookie is always past it.
+   */
+  async revokedAmong(
+    sessions: readonly VerifiedSession[],
+  ): Promise<ReadonlySet<string>> {
+    if (sessions.length === 0) return new Set();
     const { rows } = await this.pool.query<{ nonce: string }>(
-      "SELECT nonce FROM admin_session_revocations WHERE nonce = ANY($1::text[])",
-      [nonces],
+      `SELECT s.nonce
+         FROM unnest($1::text[], $2::float8[]) AS s(nonce, exp)
+        WHERE to_timestamp(s.exp) <= now()
+           OR EXISTS (SELECT 1 FROM admin_session_revocations r WHERE r.nonce = s.nonce)`,
+      [sessions.map((s) => s.nonce), sessions.map((s) => s.expiresAtSeconds)],
     );
     return new Set(rows.map((r) => r.nonce));
   }
@@ -102,9 +121,85 @@ export class PostgresLoginLimiter implements LoginLimiter {
     return decision((row?.n ?? 0) < this.globalFailureLimit, row?.wait);
   }
 
-  async take(key: string): Promise<LoginRateDecision> {
-    const budget = await this.checkFailureBudget();
-    if (!budget.ok) return budget;
+  /**
+   * Reserves one slot of the global budget: one statement under the row lock of
+   * `admin_login_failures` (id 1) appends `statement_timestamp()` only while fewer than the budget
+   * are in the window, so concurrent callers on every instance are serialised and at most the
+   * budget succeed. Returns the slot's time (text, microseconds) when reserved.
+   */
+  private async reserve(): Promise<
+    { ok: true; at: string } | { ok: false; retryAfterSeconds: number }
+  > {
+    const { rows } = await this.pool.query<{
+      reserved: boolean;
+      at: string;
+      wait: string | null;
+    }>(
+      `INSERT INTO admin_login_failures AS f (id, failures, reserved)
+       VALUES (1, ARRAY[statement_timestamp()], $2::int > 0)
+       ON CONFLICT (id) DO UPDATE SET
+         reserved = (SELECT count(*) FROM unnest(f.failures) t
+                      WHERE t > statement_timestamp() - $1 * interval '1 millisecond') < $2,
+         failures = ARRAY(SELECT t FROM unnest(f.failures) t
+                           WHERE t > statement_timestamp() - $1 * interval '1 millisecond'
+                           ORDER BY t)
+                    || CASE WHEN (SELECT count(*) FROM unnest(f.failures) t
+                                   WHERE t > statement_timestamp() - $1 * interval '1 millisecond') < $2
+                            THEN ARRAY[statement_timestamp()] ELSE '{}'::timestamptz[] END
+       RETURNING reserved, statement_timestamp()::text AS at,
+         extract(epoch FROM (failures[1] + $1 * interval '1 millisecond' - statement_timestamp())) AS wait`,
+      [this.windowMs, this.globalFailureLimit],
+    );
+    const row = rows[0];
+    if (row?.reserved === true) return { ok: true, at: row.at };
+    const wait = Number(row?.wait);
+    return {
+      ok: false,
+      retryAfterSeconds: Number.isFinite(wait)
+        ? Math.max(1, Math.ceil(wait))
+        : 1,
+    };
+  }
+
+  async release(reservation: LoginReservation): Promise<void> {
+    if (typeof reservation.at !== "string") return;
+    // Removes one occurrence of the slot's time (none once it has left the window).
+    await this.pool.query(
+      `UPDATE admin_login_failures
+          SET failures = CASE
+                WHEN array_position(failures, $1::timestamptz) IS NULL THEN failures
+                ELSE failures[:array_position(failures, $1::timestamptz) - 1]
+                     || failures[array_position(failures, $1::timestamptz) + 1:]
+              END
+        WHERE id = 1`,
+      [reservation.at],
+    );
+  }
+
+  async reserveFailure(): Promise<LoginRateDecision> {
+    const slot = await this.reserve();
+    return slot.ok ? { ok: true } : slot;
+  }
+
+  /**
+   * Reserve a budget slot first, then the client's window; a client refusal releases the slot.
+   * So a client row is written only by an attempt that holds a slot: new rows per window are
+   * bounded by the budget plus correct-password sign-ins.
+   */
+  async take(key: string): Promise<LoginTake> {
+    const slot = await this.reserve();
+    if (!slot.ok) return slot;
+    const reservation: LoginReservation = { at: slot.at };
+    // If this throws, the slot stays counted (the safe side); the caller answers 503.
+    const client = await this.takeClient(key);
+    if (!client.ok) {
+      await this.release(reservation);
+      return client;
+    }
+    return { ok: true, reservation };
+  }
+
+  private async takeClient(key: string): Promise<LoginRateDecision> {
     const client = key.slice(0, MAX_CLIENT_KEY) || "unknown";
     // In `DO UPDATE SET`, `c.*` is the row before this statement; RETURNING shows it after.
     const { rows } = await this.pool.query<{
@@ -130,21 +225,6 @@ export class PostgresLoginLimiter implements LoginLimiter {
     const row = rows[0];
     this.prune();
     return decision(row?.taken === true, row?.wait);
-  }
-
-  async recordFailure(): Promise<void> {
-    await this.pool.query(
-      `INSERT INTO admin_login_failures AS f (id, failures)
-       VALUES (1, ARRAY[statement_timestamp()])
-       ON CONFLICT (id) DO UPDATE SET failures = ARRAY(
-         SELECT t FROM (
-           SELECT t FROM unnest(f.failures || statement_timestamp()) t
-            WHERE t > statement_timestamp() - $1 * interval '1 millisecond'
-            ORDER BY t DESC LIMIT $2
-         ) latest ORDER BY t
-       )`,
-      [this.windowMs, this.globalFailureLimit],
-    );
   }
 
   /** Deletes clients whose window has passed, at most once a window; never awaited, never throws. */

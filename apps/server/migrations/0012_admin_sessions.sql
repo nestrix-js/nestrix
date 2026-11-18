@@ -23,9 +23,12 @@ CREATE TABLE admin_login_clients (
 );
 CREATE INDEX admin_login_clients_updated_at ON admin_login_clients (updated_at);
 
--- The global budget of failed logins and refused API tokens: one row, the times of the latest
--- failures (at most the budget of them).
+-- The global budget of failed logins and refused API tokens: one row, the times of the slots
+-- taken in the last window (at most the budget of them). A /login attempt reserves a slot before
+-- the password check, under this row's lock, and releases it on a right password; `reserved` says
+-- whether the last statement took a slot (read back with RETURNING).
 CREATE TABLE admin_login_failures (
   id smallint PRIMARY KEY CHECK (id = 1),
-  failures timestamptz[] NOT NULL
+  failures timestamptz[] NOT NULL,
+  reserved boolean NOT NULL
 );
