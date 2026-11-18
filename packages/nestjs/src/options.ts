@@ -109,9 +109,11 @@ export interface NestrixHttpOptions {
   /**
    * What the server span records as `url.path` (D-97), written when the response closes (never at
    * span start, so a sampler or `onStart` sees none). `'raw'` (default): the path as sent, with the
-   * values of `redactPathParams` written as `REDACTED` when a route matched; the raw path for a 404
-   * that matched no route; nothing for a request answered before routing with another status
-   * (a body parser's 400, a middleware's 401) or never answered. `'template'`: the matched route
+   * values of `redactPathParams` written as `REDACTED` when a route matched; with no route, the raw
+   * path for a status below 400 (static files, raw adapter routes) or a 404, and nothing for any
+   * other status from 400 (a body parser's 400, a middleware's 401, a 413) or no response. Not
+   * covered: a pre-router middleware answering 2xx/3xx itself (a redirect) on a token-bearing
+   * path keeps the raw path; `'template'` covers it. `'template'`: the matched route
    * template (`/invitations/:token`, the same value as `http.route`), or nothing when no route
    * matched. `ignore.paths` always matches the raw path.
    */
