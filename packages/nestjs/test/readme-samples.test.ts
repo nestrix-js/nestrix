@@ -66,6 +66,7 @@ const OPTIONS = [
   "export.queue.maxQueueSize",
   "export.queue.maxExportBatchSize",
   "export.queue.scheduledDelayMillis",
+  "export.onFailure",
   "ignore",
   "ignore.paths",
   "ignore.outgoing",
@@ -124,6 +125,10 @@ describe("README options", () => {
       "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
       "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
       "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+      "OTEL_EXPORTER_OTLP_HEADERS_FILE",
+      "OTEL_EXPORTER_OTLP_TRACES_HEADERS_FILE",
+      "OTEL_EXPORTER_OTLP_LOGS_HEADERS_FILE",
+      "OTEL_EXPORTER_OTLP_METRICS_HEADERS_FILE",
       "OTEL_METRIC_EXPORT_INTERVAL",
     ]) {
       expect(readme).toContain(`| \`${name}\` |`);

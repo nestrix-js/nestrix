@@ -1,7 +1,7 @@
 // Global state: no host tracer provider. Nestrix owns the provider and exports traces, metrics and
 // (where set) logs to a local sink that answers chosen statuses (D-82, #21, #39), through the real
 // OTLP exporters on platform-node.
-import type { INestApplication } from "@nestjs/common";
+import { type INestApplication, Module } from "@nestjs/common";
 import { metrics } from "@opentelemetry/api";
 import {
   afterEach,
@@ -12,10 +12,14 @@ import {
   type MockInstance,
   vi,
 } from "vitest";
-import { resetDiagnosticsForTests } from "../../src/diagnostics.js";
+import {
+  getFailureCounts,
+  resetDiagnosticsForTests,
+} from "../../src/diagnostics.js";
 import {
   exportStatusLog,
   getExportStatus,
+  type NestrixExportFailureEvent,
   resetExportStatusForTests,
 } from "../../src/export-status.js";
 import { NestrixLogger } from "../../src/logs/logger.js";
@@ -24,10 +28,12 @@ import {
   METRIC_EXPORT_DROPPED,
   METRIC_EXPORT_FAILURES,
 } from "../../src/metrics/binding.js";
+import { NestrixModule } from "../../src/nestrix.module.js";
 import type { NestrixModuleOptions } from "../../src/options.js";
 import {
   collect,
   hostMeterProvider,
+  MetricsController,
   metricsModule,
   points,
 } from "../metrics/fixture.js";
@@ -286,5 +292,143 @@ describe("export status with Nestrix's own pipeline", () => {
     expect(warnings("log records")).toHaveLength(1);
     expect(getExportStatus().traces.state).not.toBe("failing");
     expect(getExportStatus().metrics.state).toBe("inactive");
+  });
+
+  describe("export.onFailure (D-110)", () => {
+    const byKey = (events: NestrixExportFailureEvent[], signal: string) =>
+      events
+        .filter((e) => e.signal === signal)
+        .map((e) => `${e.reason}:${e.httpStatus}`);
+
+    it("is called once per failed export for a 401 and a 429, for traces and metrics, as often as the totals go up", async () => {
+      vi.stubEnv("OTEL_METRIC_EXPORT_INTERVAL", "300");
+      sink.status["/v1/traces"] = 401;
+      sink.status["/v1/metrics"] = 401;
+      const events: NestrixExportFailureEvent[] = [];
+      const baseUrl = await boot({
+        export: {
+          otlp: { endpoint: sink.base, timeoutMillis: 800 },
+          queue: { scheduledDelayMillis: 100 },
+          onFailure: (e) => events.push(e),
+        },
+      });
+      keepTraffic(baseUrl);
+      await expect
+        .poll(() => byKey(events, "traces"), { timeout: 5000 })
+        .toContain("unauthorized:401");
+      await expect
+        .poll(() => byKey(events, "metrics"), { timeout: 5000 })
+        .toContain("unauthorized:401");
+      sink.status["/v1/traces"] = 429;
+      sink.status["/v1/metrics"] = 429;
+      await expect
+        .poll(() => byKey(events, "traces"), { timeout: 5000 })
+        .toContain("rate_limited:429");
+      await expect
+        .poll(() => byKey(events, "metrics"), { timeout: 5000 })
+        .toContain("rate_limited:429");
+      expect(Object.isFrozen(events[0])).toBe(true);
+      expect(events[0]?.error).toBeInstanceOf(Error);
+      // Stop the failures, then compare: one call per counted failure, per signal and reason.
+      sink.status["/v1/traces"] = 200;
+      sink.status["/v1/metrics"] = 200;
+      await expect
+        .poll(() => getExportStatus().traces.state, { timeout: 5000 })
+        .toBe("ok");
+      await expect
+        .poll(() => getExportStatus().metrics.state, { timeout: 5000 })
+        .toBe("ok");
+      const status = getExportStatus();
+      for (const signal of ["traces", "metrics"] as const) {
+        for (const reason of ["unauthorized", "rate_limited"] as const) {
+          expect(
+            events.filter((e) => e.signal === signal && e.reason === reason),
+          ).toHaveLength(status[signal].failures[reason]);
+        }
+      }
+    });
+
+    it("reports an unreachable endpoint, keeps exporting when the callback throws, and is not called on success (forRootAsync)", async () => {
+      vi.stubEnv("OTEL_METRIC_EXPORT_INTERVAL", "300");
+      const calls: NestrixExportFailureEvent[] = [];
+      const onFailure = (e: NestrixExportFailureEvent) => {
+        calls.push(e);
+        throw new Error("callback broke");
+      };
+      @Module({
+        imports: [
+          NestrixModule.forRootAsync({
+            useFactory: () => ({
+              ui: false,
+              serviceName: "export-status-test",
+              export: {
+                otlp: { endpoint: sink.base, timeoutMillis: 800 },
+                queue: { scheduledDelayMillis: 100 },
+                onFailure,
+              },
+            }),
+          }),
+        ],
+        controllers: [MetricsController],
+      })
+      class AsyncModule {}
+      const booted = await bootOwned("node", AsyncModule);
+      app = booted.app;
+      keepTraffic(booted.baseUrl);
+      await expect
+        .poll(() => getExportStatus().traces.state, { timeout: 5000 })
+        .toBe("ok");
+      await expect
+        .poll(() => getExportStatus().metrics.state, { timeout: 5000 })
+        .toBe("ok");
+      expect(calls).toEqual([]);
+
+      await sink.down();
+      await expect
+        .poll(() => byKey(calls, "traces"), { timeout: 5000 })
+        .toContain("unreachable:null");
+      await expect
+        .poll(() => byKey(calls, "metrics"), { timeout: 5000 })
+        .toContain("unreachable:null");
+      expect(getFailureCounts().get("export.onFailure")).toBeGreaterThan(0);
+      // The app still answers and exports recover once the endpoint is back.
+      expect((await fetch(`${booted.baseUrl}/m/ok/1`)).status).toBe(200);
+      await sink.up();
+      await expect
+        .poll(() => getExportStatus().traces.state, { timeout: 5000 })
+        .toBe("ok");
+      await expect
+        .poll(() => getExportStatus().metrics.state, { timeout: 5000 })
+        .toBe("ok");
+      // Successful exports call nothing.
+      const seen = calls.length;
+      await new Promise((r) => setTimeout(r, 600));
+      expect(getExportStatus().traces.state).toBe("ok");
+      expect(calls).toHaveLength(seen);
+    });
+
+    it("is called for log export failures", async () => {
+      sink.status["/v1/logs"] = 403;
+      const onFailure = vi.fn();
+      await boot({
+        logs: { export: true },
+        metrics: false,
+        export: {
+          otlp: { endpoint: sink.base, timeoutMillis: 800 },
+          queue: { scheduledDelayMillis: 100 },
+          onFailure,
+        },
+      });
+      const logger = new NestrixLogger({ colors: false });
+      ticker = setInterval(() => logger.log("a line"), 50);
+      await expect
+        .poll(() => onFailure.mock.calls.length, { timeout: 8000 })
+        .toBeGreaterThan(0);
+      expect(onFailure.mock.calls[0]?.[0]).toMatchObject({
+        signal: "logs",
+        reason: "unauthorized",
+        httpStatus: 403,
+      });
+    });
   });
 });

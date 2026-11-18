@@ -14,8 +14,10 @@ import {
 import {
   activateExport,
   deactivateExport,
+  type ExportFailureListener,
   exportStatusLog,
   getExportStatus,
+  type NestrixExportFailureEvent,
   recordExportDropped,
   recordExportFailure,
   recordExportStopped,
@@ -355,10 +357,10 @@ describe("observeExports", () => {
       ExportResultCode.SUCCESS,
     ]);
     expect(onNotSupported).toHaveBeenCalledTimes(1);
-    expect(onNotSupported).toHaveBeenCalledWith({
-      reason: "not_supported",
-      httpStatus: 404,
-    });
+    expect(onNotSupported).toHaveBeenCalledWith(
+      { reason: "not_supported", httpStatus: 404 },
+      expect.any(OTLPExporterError),
+    );
   });
 
   it("without onNotSupported: a 404 is a failure like any other, and exports continue", () => {
@@ -420,5 +422,115 @@ describe("observeExports", () => {
     };
     const wrapped = observeExports(inner, { signal: "traces" });
     expect(() => wrapped.export([], () => {})).toThrow("sync");
+  });
+});
+
+describe("export.onFailure (D-110)", () => {
+  function listen(onFailure: ExportFailureListener["onFailure"]) {
+    const diagnostics = { logOnce: vi.fn(), countFailure: vi.fn() };
+    return { listener: { onFailure, diagnostics }, diagnostics };
+  }
+
+  it("is called once per counted failure with a frozen event, the exporter's error included, and not on success", () => {
+    const events: NestrixExportFailureEvent[] = [];
+    const { listener } = listen((e) => events.push(e));
+    activateExport("traces", listener);
+    const error = new OTLPExporterError("Unauthorized", 401);
+    const inner = {
+      results: [
+        { code: ExportResultCode.SUCCESS },
+        { code: ExportResultCode.FAILED, error },
+        { code: ExportResultCode.FAILED, error },
+        { code: ExportResultCode.SUCCESS },
+      ],
+      export(_: unknown, cb: (r: unknown) => void) {
+        cb(this.results.shift());
+      },
+      shutdown: async () => {},
+    };
+    const wrapped = observeExports(inner as never, { signal: "traces" });
+    for (let i = 0; i < 4; i++) wrapped.export([], () => {});
+    expect(events).toHaveLength(2);
+    expect(events[0]).toEqual({
+      signal: "traces",
+      reason: "unauthorized",
+      httpStatus: 401,
+      error,
+    });
+    expect(Object.isFrozen(events[0])).toBe(true);
+    // Exactly as often as the failure total goes up.
+    expect(getExportStatus().traces.failures.unauthorized).toBe(events.length);
+  });
+
+  it("has no `error` key when the exporter gave none", () => {
+    const onFailure = vi.fn();
+    activateExport("logs", listen(onFailure).listener);
+    recordExportFailure("logs", { reason: "unreachable", httpStatus: null });
+    expect(onFailure.mock.calls[0]?.[0]).toStrictEqual({
+      signal: "logs",
+      reason: "unreachable",
+      httpStatus: null,
+    });
+  });
+
+  it("is called for a metrics stop (not_supported), and never for an inactive or stopped signal", () => {
+    const onFailure = vi.fn();
+    recordExportFailure("metrics", { reason: "other", httpStatus: 400 });
+    expect(onFailure).not.toHaveBeenCalled();
+    activateExport("metrics", listen(onFailure).listener);
+    const failure = { reason: "not_supported", httpStatus: 404 } as const;
+    recordExportStopped("metrics", failure, "stopped");
+    recordExportFailure("metrics", failure);
+    expect(onFailure).toHaveBeenCalledTimes(1);
+    expect(onFailure).toHaveBeenCalledWith({ signal: "metrics", ...failure });
+    deactivateExport("metrics");
+    activateExport("traces");
+    recordExportFailure("traces", { reason: "timeout", httpStatus: null });
+    expect(onFailure).toHaveBeenCalledTimes(1);
+  });
+
+  it("rule 1: a throwing callback is counted, and the status and the export carry on", () => {
+    const { listener, diagnostics } = listen(() => {
+      throw new Error("callback");
+    });
+    activateExport("traces", listener);
+    const inner = {
+      export(_: unknown, cb: (r: unknown) => void) {
+        cb({
+          code: ExportResultCode.FAILED,
+          error: new OTLPExporterError("", 429),
+        });
+      },
+      shutdown: async () => {},
+    };
+    const wrapped = observeExports(inner as never, { signal: "traces" });
+    const cb = vi.fn();
+    expect(() => wrapped.export([], cb)).not.toThrow();
+    expect(() => wrapped.export([], cb)).not.toThrow();
+    expect(cb).toHaveBeenCalledTimes(2);
+    expect(getExportStatus().traces.failures.rate_limited).toBe(2);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(diagnostics.countFailure).toHaveBeenCalledTimes(2);
+    expect(diagnostics.countFailure).toHaveBeenCalledWith(
+      "export.onFailure",
+      expect.objectContaining({ message: "callback" }),
+    );
+  });
+
+  it("rule 1: a promise-returning callback is not awaited; its rejection is counted, not unhandled", async () => {
+    const { listener, diagnostics } = listen((() =>
+      Promise.reject(new Error("async"))) as never);
+    activateExport("logs", listener);
+    recordExportFailure("logs", { reason: "server_error", httpStatus: 503 });
+    expect(diagnostics.logOnce).toHaveBeenCalledWith(
+      "export.onFailure-async",
+      expect.stringContaining("returned a promise"),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(diagnostics.countFailure).toHaveBeenCalledWith(
+      "export.onFailure",
+      expect.objectContaining({ message: "async" }),
+    );
+    expect(getExportStatus().logs.failures.server_error).toBe(1);
   });
 });

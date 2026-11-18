@@ -62,6 +62,7 @@ export const DEFAULT_REDACTED_QUERY_KEYS: readonly string[] = Object.freeze([
   "secret",
   "client_secret",
   "code",
+  "state",
   "session",
   "sessionid",
   "jwt",

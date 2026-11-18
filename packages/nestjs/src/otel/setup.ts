@@ -279,7 +279,10 @@ function setup(
 
   if (pipeline) {
     // D-82: getExportStatus().traces reports from here on.
-    activateExport("traces");
+    activateExport("traces", {
+      onFailure: config.export.onFailure,
+      diagnostics,
+    });
   } else {
     diagnostics.logOnce(
       "otel.export-off",
