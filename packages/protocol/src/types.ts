@@ -101,6 +101,13 @@ export interface MetaResponse {
   profiler: MetaProfiler;
   /** The process runtime view (P9-06): `available: false` in the standalone server. Absent from older servers. */
   runtime?: MetaRuntime;
+  /**
+   * Attribute keys the trace and error lists can be filtered by with `attr.<key>=` (D-102),
+   * sorted: the standalone server's `NESTRIX_INDEXED_ATTRIBUTES`; on an embedded dashboard, the
+   * keys the app's `context` option and `setTraceAttributes()` have set and `contextPropagation`
+   * lists. Empty or absent: none (absent from older backends).
+   */
+  attributeFilters?: string[];
 }
 
 /** Fields shared by every cursor-paged list response. */

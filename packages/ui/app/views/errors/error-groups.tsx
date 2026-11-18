@@ -6,6 +6,7 @@ import type {
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
+import { useQueryStates } from "nuqs";
 import type * as React from "react";
 import { useMemo, useState } from "react";
 
@@ -41,6 +42,7 @@ import {
 } from "@/components/ui/table";
 import { getErrorGroups, getErrorInsights } from "@/lib/api";
 import { pollInterval, usePaused } from "@/lib/live";
+import { attributeFilterParsers, attributeParams } from "@/lib/params";
 import { useService } from "@/lib/service";
 import {
   bucketTotals,
@@ -61,6 +63,7 @@ import {
   typeBreakdown,
   WEEKDAYS,
 } from "@/views/errors/errors-stats";
+import { AttributeFilter } from "@/views/requests/attribute-filter";
 
 const WINDOWS = [
   { value: 15, label: "15 min" },
@@ -445,9 +448,12 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
   const [windowMinutes, setWindowMinutes] = useState<number>(WINDOWS[0].value);
   const [service] = useService();
   const [paused] = usePaused();
+  // D-102: shared with the "all errors" view through the URL.
+  const [attribute, setAttribute] = useQueryStates(attributeFilterParsers);
+  const attrs = attributeParams(attribute.attrKey, attribute.attrValue);
   const groups = useQuery({
-    queryKey: ["errors", "groups", windowMinutes, service],
-    queryFn: () => getErrorGroups({ windowMinutes, service }),
+    queryKey: ["errors", "groups", windowMinutes, service, attrs],
+    queryFn: () => getErrorGroups({ windowMinutes, service, ...attrs }),
     refetchInterval: pollInterval(paused),
     refetchIntervalInBackground: false,
     placeholderData: keepPreviousData,
@@ -482,6 +488,11 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
         controls={
           <>
             {viewToggle}
+            <AttributeFilter
+              attrKey={attribute.attrKey}
+              attrValue={attribute.attrValue}
+              onChange={(next) => void setAttribute(next)}
+            />
             <SegmentedControl
               label="Time window"
               options={WINDOWS}

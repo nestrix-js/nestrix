@@ -1,3 +1,4 @@
+export { setTraceAttributes } from "./context/trace-attributes.js";
 export {
   type RecordErrorOptions,
   recordError,

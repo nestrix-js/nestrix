@@ -31,6 +31,7 @@ import {
   ERROR_TYPE_VALUE_OTHER,
   HTTP_REQUEST_METHOD_VALUE_OTHER,
 } from "@opentelemetry/semantic-conventions";
+import { outgoingBaggage } from "../context/trace-attributes.js";
 import type { Diagnostics } from "../diagnostics.js";
 import { recordExceptionEvent } from "../errors/exception.js";
 import type { UrlMatcher } from "../options.js";
@@ -389,6 +390,8 @@ export function recordClientError(
  *   replaces) both change what the caller sends.
  * - Otherwise each field is added only when the request does not already carry it, so a header
  *   another tool set (`baggage`) is neither duplicated nor overwritten.
+ * - With `contextPropagation.outgoing` (D-102), the allow-listed trace attributes of the current
+ *   work are added to `baggage` (and allow-listed keys from incoming baggage are taken out of it).
  * - A failure to add a header is expected in one case (`node:http` with array headers throws
  *   `ERR_HTTP_HEADERS_SENT`) and leaves the request as the caller built it; it is not counted.
  */
@@ -400,15 +403,20 @@ export function injectContext(
 ): void {
   if (has("traceparent")) return;
   try {
-    propagation.inject(
-      trace.setSpan(parent, span),
-      {},
-      {
-        set(_carrier, key, value) {
-          if (!has(key)) add(key, value);
-        },
+    const ctx = trace.setSpan(parent, span);
+    const fields: Record<string, string> = {};
+    propagation.inject(ctx, fields, {
+      set(carrier, key, value) {
+        carrier[key] = value;
       },
-    );
+    });
+    // D-102: allow-listed trace attributes, only with `contextPropagation.outgoing`.
+    const baggage = outgoingBaggage(ctx, fields.baggage);
+    if (baggage === null) delete fields.baggage;
+    else if (baggage !== undefined) fields.baggage = baggage;
+    for (const key of Object.keys(fields)) {
+      if (!has(key)) add(key, fields[key] as string);
+    }
   } catch {
     // The request goes out unchanged, without our headers.
   }

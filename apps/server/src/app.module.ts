@@ -65,7 +65,11 @@ export class AppModule {
               StorageModule.forRoot({
                 databaseUrl: config.databaseUrl,
                 retentionDays: config.retentionDays,
-                writer: { maxSpansPerTrace: config.maxSpansPerTrace },
+                writer: {
+                  maxSpansPerTrace: config.maxSpansPerTrace,
+                  // Issue #27, D-102: stored per trace for the `attr.<key>=` filters.
+                  indexedAttributes: config.indexedAttributes,
+                },
               }),
               ingest,
               // Remote CPU profiling (P10-02, D-76): instance check-in and upload on the ingest

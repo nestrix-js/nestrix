@@ -45,6 +45,7 @@ describe.skipIf(noDatabase)(`migrations ${skipReason}`, () => {
       "0012_traces_has_errors.sql",
       "0013_traces_has_errors_index.sql",
       "0014_admin_sessions.sql",
+      "0017_traces_attributes.sql",
     ];
     const applied = [...a.applied, ...b.applied];
     expect(applied).toEqual(all);

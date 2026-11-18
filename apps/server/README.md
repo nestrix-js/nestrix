@@ -145,6 +145,7 @@ Read once from the environment at start and validated. A bad value exits with on
 | `NESTRIX_ADMIN_PASSWORD` | none | At least 12 characters. Or `NESTRIX_ADMIN_PASSWORD_FILE`. Without it the UI, `/login` and the query API answer 503 and a log line says why; ingest still works. |
 | `NESTRIX_SESSION_SECRET` | random per start | At least 32 characters. Or `NESTRIX_SESSION_SECRET_FILE`. With the admin password, the session signing key. Set it (the same value on every instance) so sessions survive restarts and work on every instance; unset, sessions end at restart and work only on the instance that issued them. See "Admin login". |
 | `NESTRIX_TRUSTED_PROXIES` | unset | Comma-separated IPv4 and IPv6 CIDRs or single addresses (`10.0.0.0/8, 2001:db8::/32, 192.168.1.7`) of your reverse proxies or load balancers. Only a connection from one of them may name the client in `X-Forwarded-For`, which the login limit then keys on. An invalid entry is a configuration error. See "Admin login". |
+| `NESTRIX_INDEXED_ATTRIBUTES` | unset (nothing indexed) | Comma-separated span attribute keys (`tenant.id,app.client_id`), at most 16, each a letter then letters, digits, `_`, `.` or `-`. Their values are stored per trace at ingest and can then filter the trace list, the timeline, the errors and the error groups with `attr.<key>=<value>` (dashboard, query API, MCP tools). A key not listed is a `400`. Only spans ingested while a key is listed are indexed: adding a key later does not backfill. An invalid entry is a configuration error. See "Attribute filters". |
 | `NESTRIX_RETENTION_DAYS` | `7` | Whole number, 1 to 3650. |
 | `NESTRIX_MAX_SPANS_PER_TRACE` | `50000` | Whole number, 1 000 to 10 000 000. Spans stored per trace; see "Span limit per trace". |
 | `NESTRIX_MAX_CONNECTIONS` | `1024` | Whole number, 1 to 1 000 000. Node's `server.maxConnections`. |
@@ -152,6 +153,12 @@ Read once from the environment at start and validated. A bad value exits with on
 | `NESTRIX_PUBLIC_URL` | unset | `http://` or `https://` address of the dashboard, without credentials, query or fragment. Put in alert notifications as a link. |
 
 Not configurable by environment: the ingest limits and rate limit below, and the HTTP timeouts (`requestTimeout` 60 s, `headersTimeout` 20 s).
+
+## Attribute filters
+
+Apps set attributes such as a tenant id with the `context` option or `setTraceAttributes()` of `@nestrix-js/nestjs` (its README, "Tenants, request ids and other attributes"). The server stores nothing extra for them unless `NESTRIX_INDEXED_ATTRIBUTES` lists the key: then each trace's value (its root span's, else the first span's that has the key, as text) goes into `traces.indexed_attributes`, and `attr.<key>=<value>` matches it exactly. `meta.attributeFilters` lists the indexed keys, and the dashboard offers them as a filter. Up to 4 filters per request; values up to 256 characters.
+
+Request ids: the recorded `x-request-id` request and response header values of a trace's spans (the app's default header allowlist records them) are kept in `traces.request_ids`, at most 16 per trace, so the trace list's `search` finds a trace by the exact id a customer quotes. This is a copy of a value already stored on the span, not a new one.
 
 ## Admin login
 
@@ -394,6 +401,10 @@ CREATE INDEX traces_has_errors_seq_idx ON ONLY traces (seq DESC)
 -- for each partition:
 ALTER INDEX traces_has_errors_seq_idx ATTACH PARTITION traces_pYYYYMMDD_has_errors_idx;
 ```
+
+### Upgrading to attribute filters (issue #27)
+
+`0017_traces_attributes.sql` adds two nullable columns with no default, `traces.indexed_attributes` and `traces.request_ids`, and a partial GIN index on each, in one transaction. The `ACCESS EXCLUSIVE` lock of the `ADD COLUMN`s is held while the indexes build, so the trace list and ingest's trace writes wait until they are built. Every existing row is `NULL` in both columns and the indexes are partial, so the build is one scan of `traces` (a row per trace, not per span) that adds no entries: seconds on a small install. On a large one, create the columns and indexes first as for `0013` above (the columns, then per partition `CREATE INDEX CONCURRENTLY ... USING gin (indexed_attributes jsonb_path_ops) WHERE indexed_attributes IS NOT NULL` and the same `USING gin (request_ids) WHERE request_ids IS NOT NULL`, then `traces_indexed_attributes_idx` and `traces_request_ids_idx` `ON ONLY traces` and `ATTACH PARTITION`); every statement in the migration is `IF NOT EXISTS`. Traces stored before the upgrade have no indexed attributes and no request ids, so the filters and the request-id search do not find them.
 
 ## Security notes
 

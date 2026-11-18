@@ -71,6 +71,8 @@ export interface WriterOptions {
   logs?: LogWriterOptions;
   /** Spans stored per trace; later ones are counted, not stored (D-78). Default 50 000. */
   maxSpansPerTrace?: number;
+  /** `NESTRIX_INDEXED_ATTRIBUTES` (D-102): attribute keys stored per trace for filtering. Default none. */
+  indexedAttributes?: readonly string[];
 }
 
 export interface WriterStats {
@@ -206,6 +208,7 @@ export class PostgresIngestSink implements IngestSink {
   private readonly retryAfterSeconds: number;
   private readonly resourceCacheSize: number;
   private readonly maxSpansPerTrace: number;
+  private readonly indexedKeys: ReadonlySet<string>;
   private readonly queue: Pending[] = [];
   private queuedSpans = 0;
   private working = false;
@@ -236,6 +239,7 @@ export class PostgresIngestSink implements IngestSink {
     this.retryAfterSeconds = options.retryAfterSeconds ?? 5;
     this.resourceCacheSize = options.resourceCacheSize ?? 10_000;
     this.maxSpansPerTrace = options.maxSpansPerTrace ?? 50_000;
+    this.indexedKeys = new Set(options.indexedAttributes ?? []);
     this.logs = new PostgresLogWriter(pool, partitions, {
       retryAfterSeconds: this.retryAfterSeconds,
       ...options.logs,
@@ -410,7 +414,7 @@ export class PostgresIngestSink implements IngestSink {
         const resource = deriveResource(rs.resource);
         resources.set(resource.hash, resource);
         for (const span of rs.spans) {
-          const row = deriveSpan(span, resource);
+          const row = deriveSpan(span, resource, this.indexedKeys);
           if (row === null) invalid++;
           else {
             rows.push(row);

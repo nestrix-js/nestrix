@@ -18,6 +18,7 @@ Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app pro
 - [Large traces: `maxSpansPerTrace`](#large-traces-maxspanspertrace)
 - [Microservices](#microservices)
 - [Releases and users](#releases-and-users)
+- [Tenants, request ids and other attributes](#tenants-request-ids-and-other-attributes)
 - [Metrics](#metrics)
 - [Custom spans](#custom-spans)
 - [Errors: occurrences, expected exceptions, `recordError`](#errors-occurrences-expected-exceptions-recorderror)
@@ -451,6 +452,10 @@ That sample sets most options to their defaults, except where a default is "unse
 | `maxSpansPerTrace` | `10000` | Most spans one trace records in this process; at least `100`; `false` turns the limit off. Spans past it are counted, not recorded. When your app owns the SDK, only Nestrix's own spans are limited. See [Large traces](#large-traces-maxspanspertrace). |
 | `serviceVersion` | the chain in [Releases and users](#releases-and-users) | The `service.version` every trace carries. |
 | `user` | none (off) | A synchronous function that returns the user id for a request, recorded as `user.id`. See [Releases and users](#releases-and-users). |
+| `context` | none (off) | A synchronous function that returns attributes of a request (`{ 'tenant.id': ... }`), set on its server span. See [Tenants, request ids and other attributes](#tenants-request-ids-and-other-attributes). |
+| `contextPropagation` | `{ keys: [] }` | Which `context` and `setTraceAttributes()` keys travel to the jobs a request queues (BullMQ metadata) and, with `outgoing: true`, in the `baggage` header of outgoing requests. See [Tenants, request ids and other attributes](#tenants-request-ids-and-other-attributes). |
+| `contextPropagation.keys` | `[]` | At most 16 attribute names. Only these travel, and a worker reads back only the keys it lists itself. |
+| `contextPropagation.outgoing` | `false` | `true` also sends the keys in the `baggage` header of outgoing `node:http` and `fetch` requests, to every downstream service. |
 | `methods` | see below | Method spans for your own classes. Needs `NestrixInstrument`. See [`methods`](#methods). |
 | `integrations` | see below | Database and cache spans. See [`integrations`](#integrations). |
 | `export` | see below | Export settings. |
@@ -994,6 +999,64 @@ export class AppModule {}
 ```
 
 The dashboard's request list shows release and user columns when any stored trace has them, and filters by release, user and trace type (HTTP, jobs, scheduled).
+
+## Tenants, request ids and other attributes
+
+To answer "what happened to tenant X's requests and jobs" or "show me the trace of request id Y", put the tenant (or API client) on the trace and filter by it. Nothing here is recorded unless you configure it: a tenant id can be personal data.
+
+**`context`.** A synchronous function, read like `user`: once per sampled request, with the request object your guards get, after they ran. It returns a plain object; each entry becomes an attribute of the request's server span.
+
+<!-- sample: tenant-context -->
+
+```ts
+import { Module } from "@nestjs/common";
+import { NestrixModule } from "@nestrix-js/nestjs";
+
+@Module({
+  imports: [
+    NestrixModule.forRoot({
+      // Off unless set. `request` is what your guards get, after they ran.
+      context: (request: {
+        user?: { tenantId?: string; clientId?: string };
+      }) => ({
+        "tenant.id": request.user?.tenantId,
+        "app.client_id": request.user?.clientId,
+      }),
+      // Carried to the jobs the request queues; the worker must list the same keys.
+      contextPropagation: { keys: ["tenant.id"] },
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+Values are strings (cut to 256 characters), finite numbers or booleans; `undefined` skips a key. At most 32 keys; a name starts with a letter and uses letters, digits, `_`, `.` and `-`. Names Nestrix or the OpenTelemetry conventions own are refused: the `nestrix.`, `http.`, `url.`, `exception.`, `error.`, `server.`, `client.`, `network.`, `db.`, `messaging.`, `rpc.`, `service.`, `telemetry.`, `otel.`, `code.` and `user_agent.` prefixes, and `user.id` (that is the `user` option). A throw, a promise, a result that is not a plain object or an invalid entry records nothing for it and is counted; the request is never affected. Values go through `redact`.
+
+**`setTraceAttributes(attributes)`.** For work without a request (a BullMQ job, a scheduled tick), or a value known only inside the handler: sets the same kind of attributes on the local root span of the current trace (the request's server span, the job's or tick's root span, else the active span). Same rules as `context`; it never throws and does nothing while Nestrix is disabled.
+
+<!-- sample: tenant-job -->
+
+```ts
+import { Processor, WorkerHost } from "@nestjs/bullmq";
+import type { Job } from "bullmq";
+import { setTraceAttributes } from "@nestrix-js/nestjs";
+
+@Processor("reports")
+export class ReportProcessor extends WorkerHost {
+  async process(job: Job<{ tenantId: string }>): Promise<void> {
+    // On the job's root span; listed in contextPropagation.keys, it also reaches the jobs this one queues.
+    setTraceAttributes({ "tenant.id": job.data.tenantId });
+  }
+}
+```
+
+**Jobs.** `contextPropagation.keys` (at most 16) lists the keys that travel, as W3C baggage, in the job metadata `bullmqTelemetry()` stores with each job. The worker reads back only the keys its own `contextPropagation.keys` lists and sets them on the job's consumer span, so a job queued by tenant `acme`'s request carries `tenant.id = acme` in the worker, and the jobs it queues carry it on. A value that arrived in an incoming request's `baggage` header is never passed on as the request's own: only values Nestrix set travel. Nestrix does not put them in the OpenTelemetry context's baggage, so a host propagator does not send them anywhere.
+
+**Outgoing requests.** With `contextPropagation: { keys, outgoing: true }` the same keys are also added to the `baggage` header of outgoing `node:http` and `fetch` requests. Every downstream service then receives your tenant ids, so leave it off unless they are your own.
+
+**Filtering.** The trace list, the timeline, the error list and the error groups take `attr.<key>=<value>` (at most 4, all must match, the value compared exactly with the attribute's text: `12`, `true`). The value is the trace root's, else the first span's in the trace that has the key. The embedded dashboard accepts any well-formed key and offers the keys this process set or propagates (`meta.attributeFilters`); the [standalone server](../../apps/server/README.md) only the keys it indexes (`NESTRIX_INDEXED_ATTRIBUTES`).
+
+**Request ids.** `x-request-id` is on the default header allowlist, so its value is recorded on the server span. The request list's search box also matches a recorded request id exactly (request or response header), so the id a customer quotes from an error answer finds its trace.
 
 ## Metrics
 

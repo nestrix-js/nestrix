@@ -66,6 +66,35 @@ const service = z
     "Only this service (service.name). Only useful on the Nestrix server, which stores several services.",
   );
 
+/**
+ * `attr.<key>=<value>` filters (issue #27, D-102; `@nestrix-js/protocol`'s attribute filter
+ * constants, repeated here because the protocol package is types only for this one).
+ */
+const ATTRIBUTE_KEY = /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/;
+const attributes = z
+  .record(
+    z
+      .string()
+      .regex(ATTRIBUTE_KEY, "An attribute name, for example tenant.id."),
+    z.string().min(1).max(256),
+  )
+  .refine((o) => Object.keys(o).length <= 4, "At most 4 attribute filters.")
+  .optional()
+  .describe(
+    'Exact attribute values the trace must have, for example {"tenant.id": "acme"}. Only keys the app sets (embedded) or the server indexes (NESTRIX_INDEXED_ATTRIBUTES) can be used: overview lists them as attribute filters; another key is an error.',
+  );
+
+/** The `attributes` argument as query parameters. */
+function attributeParams(
+  value: Record<string, string> | undefined,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, text] of Object.entries(value ?? {})) {
+    out[`attr.${key}`] = text;
+  }
+  return out;
+}
+
 function text(value: string): CallToolResult {
   return { content: [{ type: "text", text: value }] };
 }
@@ -158,7 +187,7 @@ export function createMcpServer(
     "find_traces",
     {
       title: "Find traces",
-      description: `Lists stored traces (one per request or job), newest first, one compact line each with its trace id. Filter by route template (exact, for example /users/:id), method, status, hasErrors (any span failed), minimum duration, free text (matches span names and the route), type (http, job, scheduled, other; job also matches requests that enqueued a job), release or user. Only sampled traces still in the in-memory store are listed, at most 50 per call; use route_stats for request counts (${statisticsCounting()}).`,
+      description: `Lists stored traces (one per request or job), newest first, one compact line each with its trace id. Filter by route template (exact, for example /users/:id), method, status, hasErrors (any span failed), minimum duration, free text (matches span names and the route, or exactly a recorded x-request-id), attributes (for example a tenant id), type (http, job, scheduled, other; job also matches requests that enqueued a job), release or user. Only sampled traces still in the in-memory store are listed, at most 50 per call; use route_stats for request counts (${statisticsCounting()}).`,
       inputSchema: {
         route: z
           .string()
@@ -179,7 +208,10 @@ export function createMcpServer(
           .string()
           .max(200)
           .optional()
-          .describe("Case-insensitive text found in a span name or the route."),
+          .describe(
+            "Case-insensitive text found in a span name or the route; an exact request id (the x-request-id header) also finds its trace.",
+          ),
+        attributes,
         type: z.enum(["http", "job", "scheduled", "other"]).optional(),
         hasErrors: z
           .boolean()
@@ -206,8 +238,10 @@ export function createMcpServer(
     },
     (args) =>
       run(async () => {
+        const { attributes: attrs, ...rest } = args;
         const params = {
-          ...args,
+          ...rest,
+          ...attributeParams(attrs),
           hasErrors:
             args.hasErrors === undefined ? undefined : String(args.hasErrors),
           limit: args.limit ?? 20,
@@ -230,7 +264,7 @@ export function createMcpServer(
           throw error;
         }
         const mode = await modeOf();
-        const filters = Object.entries(args)
+        const filters = Object.entries({ ...rest, ...attributeParams(attrs) })
           .filter(([, v]) => v !== undefined && v !== "")
           .map(([k, v]) => `${k}=${String(v)}`)
           .join(", ");
@@ -279,6 +313,7 @@ export function createMcpServer(
           .max(512)
           .optional()
           .describe("Route template, exact match."),
+        attributes,
         service,
         limit: z
           .number()
@@ -290,11 +325,16 @@ export function createMcpServer(
       },
       annotations: READ_ONLY,
     },
-    ({ route, service, limit }) =>
+    ({ route, attributes: attrs, service, limit }) =>
       run(async () =>
         withNote(
           renderErrors(
-            await client.errors({ route, service, limit: limit ?? 20 }),
+            await client.errors({
+              route,
+              service,
+              ...attributeParams(attrs),
+              limit: limit ?? 20,
+            }),
             route === undefined ? undefined : clean(route, 160),
           ),
         ),

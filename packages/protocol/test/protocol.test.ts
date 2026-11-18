@@ -19,6 +19,11 @@ describe("package entry", () => {
     expect(Object.keys(protocol).sort()).toEqual(
       [
         "PROTOCOL_VERSION",
+        // D-102: the attribute filter constants.
+        "ATTRIBUTE_FILTER_KEY_PATTERN",
+        "ATTRIBUTE_FILTER_PREFIX",
+        "MAX_ATTRIBUTE_FILTERS",
+        "MAX_ATTRIBUTE_FILTER_VALUE_LENGTH",
         "appMapParams",
         "classStatsParams",
         "errorGroupParams",

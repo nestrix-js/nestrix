@@ -1,4 +1,8 @@
 import {
+  MAX_PROPAGATED_KEYS,
+  traceAttributeKeyProblem,
+} from "./context/keys.js";
+import {
   type SecretDigests,
   secretDigests,
 } from "./dashboard/startup-token.js";
@@ -39,6 +43,11 @@ export interface ResolvedOtlp {
 /** The `user` option's function type. */
 export type NestrixUserFunction = NonNullable<NestrixModuleOptions["user"]>;
 
+/** The `context` option's function type (D-102). */
+export type NestrixContextFunction = NonNullable<
+  NestrixModuleOptions["context"]
+>;
+
 /** Every option with its default applied. Deeply frozen. */
 export interface ResolvedOptions {
   /** `false` only when `NestrixModule.forRootAsync`'s factory returned `enabled: false`. */
@@ -48,6 +57,13 @@ export interface ResolvedOptions {
   readonly serviceVersion: string | undefined;
   /** The `user` option (P3-03), checked to be a function; `undefined` when off. */
   readonly user: NestrixUserFunction | undefined;
+  /** The `context` option (D-102), checked to be a function; `undefined` when off. */
+  readonly context: NestrixContextFunction | undefined;
+  /** `contextPropagation` (D-102): keys carried as baggage; empty by default. */
+  readonly contextPropagation: {
+    readonly keys: readonly string[];
+    readonly outgoing: boolean;
+  };
   readonly resourceAttributes: Readonly<
     Record<string, string | number | boolean>
   >;
@@ -640,6 +656,50 @@ export function resolveUser(user: unknown): NestrixUserFunction | undefined {
   return user as NestrixUserFunction;
 }
 
+/** The `context` option (D-102): a function or absent. Throws on anything else. */
+export function resolveContext(
+  value: unknown,
+): NestrixContextFunction | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "function") {
+    invalid(`context must be a function, got ${typeof value}`);
+  }
+  return value as NestrixContextFunction;
+}
+
+/**
+ * `contextPropagation` (D-102): `{ keys, outgoing? }`, each key a valid trace attribute name, at
+ * most 16. Absent: no keys. Throws at `forRoot()` on anything else.
+ */
+export function resolveContextPropagation(
+  value: unknown,
+): ResolvedOptions["contextPropagation"] {
+  if (value === undefined || value === null) {
+    return Object.freeze({ keys: Object.freeze([]), outgoing: false });
+  }
+  if (typeof value !== "object" || Array.isArray(value)) {
+    invalid("contextPropagation must be an object { keys, outgoing? }");
+  }
+  const v = value as { keys?: unknown; outgoing?: unknown };
+  const keys = resolveStringList("contextPropagation.keys", v.keys ?? []);
+  if (keys.length > MAX_PROPAGATED_KEYS) {
+    invalid(
+      `contextPropagation.keys must list at most ${MAX_PROPAGATED_KEYS} keys`,
+    );
+  }
+  for (const key of keys) {
+    const problem = traceAttributeKeyProblem(key);
+    if (problem !== undefined) {
+      invalid(`contextPropagation.keys: ${JSON.stringify(key)} ${problem}`);
+    }
+  }
+  checkBoolean("contextPropagation.outgoing", v.outgoing);
+  return Object.freeze({
+    keys: Object.freeze([...new Set(keys)]),
+    outgoing: v.outgoing === true,
+  });
+}
+
 function checkBoolean(name: string, value: unknown): void {
   if (value !== undefined && typeof value !== "boolean") {
     invalid(`${name} must be a boolean, got ${typeof value}`);
@@ -773,6 +833,8 @@ export function resolveOptions(
     serviceName: blank(o.serviceName) ?? blank(env.OTEL_SERVICE_NAME),
     serviceVersion: resolveServiceVersion(o, env),
     user: resolveUser(o.user),
+    context: resolveContext(o.context),
+    contextPropagation: resolveContextPropagation(o.contextPropagation),
     resourceAttributes: Object.freeze({ ...o.resourceAttributes }),
     sampleRate,
     maxSpansPerTrace: maxSpansPerTrace as number | false,

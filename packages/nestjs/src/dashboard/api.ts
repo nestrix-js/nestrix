@@ -44,6 +44,8 @@ import type {
   TraceTimelineParamsSpec,
   TraceType,
 } from "@nestrix-js/protocol";
+import { TRACE_ATTRIBUTE_KEY } from "../context/keys.js";
+import { seenTraceAttributeKeys } from "../context/trace-attributes.js";
 import { buildEmbeddedExplain } from "../explain/embedded.js";
 import { methodsEnabled } from "../methods/registry.js";
 import { buildEmbeddedOverview } from "../overview/embedded.js";
@@ -75,6 +77,15 @@ import { type DashboardResponse, JSON_TYPE } from "./respond.js";
 
 /** `PROTOCOL_VERSION` of `@nestrix-js/protocol` (a value, so it cannot be imported). */
 export const PROTOCOL_VERSION: MetaResponse["protocolVersion"] = 1;
+
+/**
+ * D-102: the embedded store holds every attribute already, so any well-formed key can be filtered
+ * by (nothing is indexed); `meta.attributeFilters` lists the keys this app sets.
+ */
+const embeddedAttributeKey: AttributeKeyCheck = (key) =>
+  TRACE_ATTRIBUTE_KEY.test(key)
+    ? undefined
+    : "is not an attribute name (letters, digits, '_', '.' and '-', starting with a letter)";
 
 /** `hasErrors=true|false` (D-94); absent: no filter. */
 function booleanParam(value: unknown): boolean | undefined {
@@ -270,6 +281,26 @@ function label(name: string): string {
   return JSON.stringify(name.length > 64 ? `${name.slice(0, 64)}…` : name);
 }
 
+/** `attr.<key>=<value>` query parameters (D-102; `@nestrix-js/protocol`'s attribute filter constants). */
+export const ATTRIBUTE_FILTER_PREFIX = "attr.";
+export const MAX_ATTRIBUTE_FILTERS = 4;
+export const MAX_ATTRIBUTE_FILTER_VALUE_LENGTH = 256;
+/** Why an attribute key cannot be filtered by (a phrase after the parameter's name), or `undefined`. */
+export type AttributeKeyCheck = (key: string) => string | undefined;
+
+/** The attribute filters of parsed values, as `[key, value]` pairs in query order. */
+export function attributeFiltersOf(
+  values: Values,
+): Array<readonly [string, string]> {
+  const out: Array<readonly [string, string]> = [];
+  for (const [name, value] of Object.entries(values)) {
+    if (name.startsWith(ATTRIBUTE_FILTER_PREFIX) && typeof value === "string") {
+      out.push([name.slice(ATTRIBUTE_FILTER_PREFIX.length), value]);
+    }
+  }
+  return out;
+}
+
 const INTEGER = /^-?\d{1,16}$/;
 const DECIMAL = /^-?\d{1,16}(?:\.\d{1,16})?$/;
 
@@ -332,6 +363,7 @@ function parseOne(
 export function parseQuery(
   target: unknown,
   spec: Readonly<Record<string, ParamSpec>>,
+  attributes?: AttributeKeyCheck,
 ): Parsed {
   try {
     const url = typeof target === "string" ? target : "";
@@ -342,9 +374,46 @@ export function parseQuery(
     const values: Values = {};
     const seen = new Set<string>();
     let count = 0;
+    let attributeCount = 0;
     for (const [name, text] of params) {
       if (++count > MAX_QUERY_PARAMS) {
         return { ok: false, message: "Too many query parameters." };
+      }
+      if (
+        attributes !== undefined &&
+        name.startsWith(ATTRIBUTE_FILTER_PREFIX) &&
+        !Object.hasOwn(spec, name)
+      ) {
+        // D-102: `attr.<key>=<value>`, at most MAX_ATTRIBUTE_FILTERS, keys checked by the backend.
+        if (seen.has(name)) {
+          return {
+            ok: false,
+            message: `Query parameter ${label(name)} is given more than once.`,
+          };
+        }
+        seen.add(name);
+        if (++attributeCount > MAX_ATTRIBUTE_FILTERS) {
+          return {
+            ok: false,
+            message: `At most ${MAX_ATTRIBUTE_FILTERS} attribute filters (attr.<key>) can be given.`,
+          };
+        }
+        const problem = attributes(name.slice(ATTRIBUTE_FILTER_PREFIX.length));
+        if (problem !== undefined) {
+          return {
+            ok: false,
+            message: `Query parameter ${label(name)} ${problem}.`,
+          };
+        }
+        if (text.length > MAX_ATTRIBUTE_FILTER_VALUE_LENGTH) {
+          return {
+            ok: false,
+            message: `Query parameter ${label(name)} must be at most ${MAX_ATTRIBUTE_FILTER_VALUE_LENGTH} characters.`,
+          };
+        }
+        // An empty filter is no filter, as for every string parameter.
+        if (text !== "") values[name] = text;
+        continue;
       }
       if (!Object.hasOwn(spec, name)) {
         return {
@@ -510,6 +579,7 @@ export function metaHandler(
     mode: "embedded",
     profiler: { ...(sources.profiler?.() ?? NO_PROFILER) },
     runtime: { available: true },
+    attributeFilters: seenTraceAttributeKeys(),
   };
   return ok(body);
 }
@@ -518,7 +588,7 @@ export function tracesHandler(
   target: unknown,
   sources: ApiSources,
 ): DashboardResponse {
-  const parsed = parseQuery(target, traceListSpec);
+  const parsed = parseQuery(target, traceListSpec, embeddedAttributeKey);
   if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
   const v = parsed.values;
   const body: TraceListResponse =
@@ -540,6 +610,7 @@ export function tracesHandler(
           hasErrors: booleanParam(v.hasErrors),
           fromUnixMs: v.fromUnixMs as number | undefined,
           toUnixMs: v.toUnixMs as number | undefined,
+          attributes: attributeFiltersOf(v),
         })) ?? EMPTY_PAGE;
   return ok(body);
 }
@@ -587,7 +658,7 @@ export function errorsHandler(
   target: unknown,
   sources: ApiSources,
 ): DashboardResponse {
-  const parsed = parseQuery(target, errorListSpec);
+  const parsed = parseQuery(target, errorListSpec, embeddedAttributeKey);
   if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
   const v = parsed.values;
   const body: ErrorListResponse =
@@ -598,6 +669,7 @@ export function errorsHandler(
           before: v.before as string | undefined,
           after: v.after as string | undefined,
           route: v.route as string | undefined,
+          attributes: attributeFiltersOf(v),
         })) ?? EMPTY_PAGE;
   return ok(body);
 }
@@ -607,14 +679,17 @@ export function errorGroupsHandler(
   sources: ApiSources,
   now?: number,
 ): DashboardResponse {
-  const parsed = parseQuery(target, errorGroupSpec);
+  const parsed = parseQuery(target, errorGroupSpec, embeddedAttributeKey);
   if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
   const windowMinutes = parsed.values.windowMinutes as number;
   const body: ErrorGroupsResponse =
     (otherService(parsed.values, sources)
       ? undefined
-      : sources.store?.groupErrors(windowMinutes, now)) ??
-    groupErrors([], windowMinutes, now ?? Date.now());
+      : sources.store?.groupErrors(
+          windowMinutes,
+          now,
+          attributeFiltersOf(parsed.values),
+        )) ?? groupErrors([], windowMinutes, now ?? Date.now());
   return ok(body);
 }
 
@@ -868,7 +943,7 @@ export function timelineHandler(
   sources: ApiSources,
   now: number = Date.now(),
 ): DashboardResponse {
-  const parsed = parseQuery(target, traceTimelineSpec);
+  const parsed = parseQuery(target, traceTimelineSpec, embeddedAttributeKey);
   if (!parsed.ok) return apiError(400, "bad_request", parsed.message);
   const v = parsed.values;
   const result = buildTimeline(
@@ -884,6 +959,7 @@ export function timelineHandler(
       release: v.release as string | undefined,
       user: v.user as string | undefined,
       hasErrors: booleanParam(v.hasErrors),
+      attributes: attributeFiltersOf(v),
     },
   );
   return ok(result);

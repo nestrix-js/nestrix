@@ -74,7 +74,7 @@ import {
 } from "./error-insights.js";
 import { occurrenceSql, TRACE_HAS_ERRORS_SQL } from "./error-sql.js";
 import { QUERY_OPTIONS, type ResolvedQueryOptions } from "./options.js";
-import { routeStatsSpec, type Values } from "./params.js";
+import { attributeFiltersOf, routeStatsSpec, type Values } from "./params.js";
 import {
   uncovered,
   withPreviousClasses,
@@ -125,6 +125,18 @@ const CLASS_KINDS: ReadonlySet<string> = new Set<ClassKind>([
 export class NotFoundError extends Error {}
 
 /** Unix nanoseconds (a `bigint` column, a string from `pg`) as fractional ms, to microseconds. */
+/**
+ * The `attr.<key>=<value>` filters of parsed values (D-102) as the JSON object `indexed_attributes`
+ * must contain, or `undefined` for none. Sent as a bind parameter, never spliced into the SQL.
+ */
+function attributesJson(v: Values): string | undefined {
+  const filters = attributeFiltersOf(v);
+  if (filters.length === 0) return undefined;
+  const object: Record<string, string> = {};
+  for (const [key, value] of filters) object[key] = value;
+  return JSON.stringify(object);
+}
+
 function msOf(ns: string | bigint | number): number {
   return Number(BigInt(ns) / 1000n) / 1000;
 }
@@ -419,6 +431,8 @@ export class QueryService {
       profiler: { available: false, running: false, remote: true },
       // Process runtime samples exist only in the embedded dashboard.
       runtime: { available: false },
+      // D-102: the keys stored at ingest, and so accepted as `attr.<key>=` filters.
+      attributeFilters: [...this.config.indexedAttributes].sort(),
     };
   }
 
@@ -436,6 +450,11 @@ export class QueryService {
     if (v.release !== undefined)
       where.push(`release = ${params.add(v.release)}`);
     if (v.user !== undefined) where.push(`user_id = ${params.add(v.user)}`);
+    // D-102: `attr.<key>=<value>`, keys checked against NESTRIX_INDEXED_ATTRIBUTES by the parser.
+    const attributes = attributesJson(v);
+    if (attributes !== undefined) {
+      where.push(`indexed_attributes @> ${params.add(attributes)}::jsonb`);
+    }
     // D-94: any span failed (`traces.has_errors`), the root included.
     if (v.hasErrors === "true") where.push(TRACE_HAS_ERRORS_SQL);
     else if (v.hasErrors === "false") where.push(`NOT ${TRACE_HAS_ERRORS_SQL}`);
@@ -474,9 +493,12 @@ export class QueryService {
     }
     if (v.search !== undefined) {
       const needle = params.add(String(v.search).toLowerCase());
+      // D-102: or exactly a recorded request id (`x-request-id`), as the customer quotes it.
+      const exact = params.add([String(v.search)]);
       where.push(
         `(position(${needle} in lower(coalesce(http_route, ''))) > 0
-          OR EXISTS (SELECT 1 FROM unnest(span_names) AS n WHERE position(${needle} in lower(n)) > 0))`,
+          OR EXISTS (SELECT 1 FROM unnest(span_names) AS n WHERE position(${needle} in lower(n)) > 0)
+          OR request_ids @> ${exact}::text[])`,
       );
     }
     if (v.fromUnixMs !== undefined) {
@@ -609,6 +631,13 @@ export class QueryService {
         `EXISTS (SELECT 1 FROM traces t WHERE t.trace_id = s.trace_id AND t.http_route = ${params.add(v.route)})`,
       );
     }
+    // D-102: the error's trace has these indexed attribute values.
+    const attributes = attributesJson(v);
+    if (attributes !== undefined) {
+      where.push(
+        `EXISTS (SELECT 1 FROM traces t WHERE t.trace_id = s.trace_id AND t.indexed_attributes @> ${params.add(attributes)}::jsonb)`,
+      );
+    }
     const position = (cursor: ErrorPosition, operator: "<" | ">"): string =>
       `(s.start_time, s.trace_id, s.span_id) ${operator} (${params.add(cursor.ts)}::timestamptz, ${params.add(cursor.traceId)}, ${params.add(cursor.spanId)})`;
 
@@ -690,20 +719,26 @@ export class QueryService {
     windowMinutes: number,
     service: string | undefined,
     now: number = Date.now(),
+    filters?: Values,
   ): Promise<ErrorGroupsResponse> {
     const empty = groupErrors([], windowMinutes, now);
+    // D-102: the groups (and their history) of the traces with these attribute values only.
+    const attributes =
+      filters === undefined ? undefined : attributesJson(filters);
     const [inWindow, earlier] = await Promise.all([
       this.errorOccurrences(
         new Date(empty.fromUnixMs),
         undefined,
         service,
         WINDOW_ROW_CAP,
+        attributes,
       ),
       this.errorOccurrences(
         new Date(now - INSIGHTS_MS),
         new Date(empty.fromUnixMs),
         service,
         HISTORY_ROW_CAP,
+        attributes,
       ),
     ]);
     // Newest first: a full page means older rows were left out.
@@ -726,6 +761,7 @@ export class QueryService {
     before: Date | undefined,
     service: string | undefined,
     limit: number,
+    attributes?: string,
   ): Promise<ErrorOccurrence[]> {
     const params = new Params();
     const fromParam = params.add(from);
@@ -738,6 +774,9 @@ export class QueryService {
     }
     if (service !== undefined) {
       where.push(`s.service_name = ${params.add(service)}`);
+    }
+    if (attributes !== undefined) {
+      where.push(`t.indexed_attributes @> ${params.add(attributes)}::jsonb`);
     }
     const rows = await this.rows<
       ErrorRow & {

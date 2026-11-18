@@ -15,6 +15,12 @@
  *   consumer span or `nestrix.entry = job`; `scheduled` for `nestrix.entry = scheduled`; else
  *   `other`.
  * - `user_id`: the string attribute `user.id`.
+ * - indexed attributes (issue #27, D-102): the span's values of the `NESTRIX_INDEXED_ATTRIBUTES`
+ *   keys, as text (a string cut to 256 characters, a finite number in decimal, `true`/`false`);
+ *   other values (arrays, empty strings) are not indexed. Request ids: the recorded
+ *   `http.request.header.x-request-id` / `http.response.header.x-request-id` values (the header
+ *   allowlist records them as string arrays), each cut to 256, at most 4 per span; `REDACTED` is
+ *   not a request id.
  * - route rollup (`route_minutes`): every server span with `http.request.method`, keyed by
  *   method, route (`(unmatched)` without `http.route`) and the minute of its end; an error there
  *   is a status error or a 5xx (the embedded route statistics' definition: 5xx or thrown handler).
@@ -139,6 +145,70 @@ export function nsToIso(ns: bigint): string {
  */
 export const MAX_NS = 9_223_372_036_854_775_807n;
 
+/** Longest indexed attribute value or request id (D-102); the query side compares exactly. */
+export const MAX_INDEXED_VALUE_LENGTH = 256;
+const MAX_REQUEST_IDS_PER_SPAN = 4;
+const REQUEST_ID_ATTRIBUTES = [
+  "http.request.header.x-request-id",
+  "http.response.header.x-request-id",
+] as const;
+
+function cutIndexed(text: string): string {
+  if (text.length <= MAX_INDEXED_VALUE_LENGTH) return text;
+  const last = text.charCodeAt(MAX_INDEXED_VALUE_LENGTH - 1);
+  // Never inside a surrogate pair (cleanString made the input well-formed).
+  return text.slice(
+    0,
+    last >= 0xd800 && last <= 0xdbff
+      ? MAX_INDEXED_VALUE_LENGTH - 1
+      : MAX_INDEXED_VALUE_LENGTH,
+  );
+}
+
+/** An attribute value as the attribute filters compare it, or `null` when it is not indexed. */
+export function indexedTextOf(value: unknown): string | null {
+  if (typeof value === "string") return value === "" ? null : cutIndexed(value);
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value) : null;
+  }
+  if (typeof value === "boolean") return value ? "true" : "false";
+  return null;
+}
+
+function indexedAttributesOf(
+  a: IngestAttributes,
+  keys: ReadonlySet<string> | undefined,
+): Record<string, string> | null {
+  if (keys === undefined || keys.size === 0) return null;
+  let out: Record<string, string> | null = null;
+  for (const key of keys) {
+    if (!Object.hasOwn(a, key)) continue;
+    const text = indexedTextOf(a[key]);
+    if (text === null) continue;
+    out ??= {};
+    out[key] = text;
+  }
+  return out;
+}
+
+function requestIdsOf(a: IngestAttributes): string[] {
+  const out: string[] = [];
+  for (const key of REQUEST_ID_ATTRIBUTES) {
+    if (!Object.hasOwn(a, key)) continue;
+    const value = a[key];
+    const list = Array.isArray(value) ? value : [value];
+    for (const item of list) {
+      if (out.length >= MAX_REQUEST_IDS_PER_SPAN) return out;
+      if (typeof item !== "string" || item === "" || item === "REDACTED") {
+        continue;
+      }
+      const id = cutIndexed(item);
+      if (!out.includes(id)) out.push(id);
+    }
+  }
+  return out;
+}
+
 function stringAttr(a: IngestAttributes, key: string): string | null {
   const v = a[key];
   return typeof v === "string" && v !== "" ? v : null;
@@ -206,6 +276,10 @@ export interface SpanRow {
   /** A consumer span or `nestrix.entry = 'job'`: marks its trace `has_job`, whatever the root. */
   isJob: boolean;
   userId: string | null;
+  /** Values of the `NESTRIX_INDEXED_ATTRIBUTES` keys the span has, as text; `null`: none (D-102). */
+  indexedAttributes: Record<string, string> | null;
+  /** Recorded `x-request-id` request and response header values (D-102). */
+  requestIds: string[];
   className: string | null;
   methodName: string | null;
   classKind: string;
@@ -215,10 +289,14 @@ export interface SpanRow {
   isRouteError: boolean;
 }
 
-/** A row, or `null` when the span's times cannot be stored (the receiver checks them first). */
+/**
+ * A row, or `null` when the span's times cannot be stored (the receiver checks them first).
+ * `indexedKeys`: `NESTRIX_INDEXED_ATTRIBUTES` (D-102); absent or empty, nothing is indexed.
+ */
 export function deriveSpan(
   span: IngestSpan,
   resource: ResourceRow,
+  indexedKeys?: ReadonlySet<string>,
 ): SpanRow | null {
   const startNs = span.startTimeUnixNano;
   const endNs = span.endTimeUnixNano;
@@ -296,6 +374,8 @@ export function deriveSpan(
     traceType: traceTypeOf(span.kind, attributes),
     isJob: span.kind === "consumer" || attributes["nestrix.entry"] === "job",
     userId: stringAttr(attributes, "user.id"),
+    indexedAttributes: indexedAttributesOf(attributes, indexedKeys),
+    requestIds: requestIdsOf(attributes),
     className,
     methodName,
     classKind:

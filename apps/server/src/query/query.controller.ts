@@ -10,11 +10,14 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import type { ApiError, QuerySort } from "@nestrix-js/protocol";
+import type { ServerConfig } from "../config.js";
+import { SERVER_CONFIG } from "../config.module.js";
 import { QUERY_HEADERS, QueryExceptionFilter } from "./exception.filter.js";
 import { ExplainService } from "./explain.service.js";
 import { QueryGuardGate } from "./guard.js";
 import { OverviewService } from "./overview.service.js";
 import {
+  type AttributeKeyCheck,
   appMapSpec,
   classStatsSpec,
   dependencySpec,
@@ -54,8 +57,13 @@ const Headers = () =>
 function parse(
   req: RequestLike,
   spec: Parameters<typeof parseQuery>[1],
+  attributes?: AttributeKeyCheck,
 ): Values {
-  const parsed: Parsed = parseQuery(req.originalUrl ?? req.url, spec);
+  const parsed: Parsed = parseQuery(
+    req.originalUrl ?? req.url,
+    spec,
+    attributes,
+  );
   if (!parsed.ok) {
     const body: ApiError = {
       error: { code: "bad_request", message: parsed.message },
@@ -82,6 +90,18 @@ export class QueryController {
   @Inject(TraceLogsService)
   private readonly traceLogsService!: TraceLogsService;
 
+  @Inject(SERVER_CONFIG)
+  private readonly config!: ServerConfig;
+
+  /**
+   * D-102: only keys stored at ingest (NESTRIX_INDEXED_ATTRIBUTES) can be filtered by; any other
+   * key is a 400, so a filter never silently matches nothing because it was not indexed.
+   */
+  private readonly indexedKey: AttributeKeyCheck = (key) =>
+    this.config.indexedAttributes.includes(key)
+      ? undefined
+      : "is not an indexed attribute of this server (NESTRIX_INDEXED_ATTRIBUTES)";
+
   @Get("meta")
   @Headers()
   meta(@Req() req: RequestLike) {
@@ -92,13 +112,13 @@ export class QueryController {
   @Get("traces")
   @Headers()
   traces(@Req() req: RequestLike) {
-    return this.query.listTraces(parse(req, traceListSpec));
+    return this.query.listTraces(parse(req, traceListSpec, this.indexedKey));
   }
 
   @Get("traces/timeline")
   @Headers()
   timeline(@Req() req: RequestLike) {
-    return this.query.timeline(parse(req, traceTimelineSpec));
+    return this.query.timeline(parse(req, traceTimelineSpec, this.indexedKey));
   }
 
   @Get("trace")
@@ -144,16 +164,18 @@ export class QueryController {
   @Get("errors")
   @Headers()
   errors(@Req() req: RequestLike) {
-    return this.query.listErrors(parse(req, errorListSpec));
+    return this.query.listErrors(parse(req, errorListSpec, this.indexedKey));
   }
 
   @Get("errors/groups")
   @Headers()
   errorGroups(@Req() req: RequestLike) {
-    const v = parse(req, errorGroupSpec);
+    const v = parse(req, errorGroupSpec, this.indexedKey);
     return this.query.errorGroups(
       v.windowMinutes as number,
       v.service as string | undefined,
+      undefined,
+      v,
     );
   }
 

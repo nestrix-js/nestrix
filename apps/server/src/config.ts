@@ -98,6 +98,12 @@ export interface ServerConfig {
    * client the login limiter keys on. `undefined`: none, the socket peer is the client.
    */
   readonly trustedProxies: TrustedProxies | undefined;
+  /**
+   * `NESTRIX_INDEXED_ATTRIBUTES` (issue #27, D-102): span attribute keys stored per trace in an
+   * indexed column at ingest and offered as `attr.<key>=` filters. Empty by default: nothing is
+   * indexed. Keys arriving before a key was listed are not backfilled.
+   */
+  readonly indexedAttributes: readonly string[];
 }
 
 export const LOG_LEVEL_NAMES = [
@@ -132,6 +138,38 @@ export const DEFAULT_MAX_CONNECTIONS = 1024;
 export const DEFAULT_MAX_SPANS_PER_TRACE = 50_000;
 export const MIN_MAX_SPANS_PER_TRACE = 1_000;
 export const MAX_MAX_SPANS_PER_TRACE = 10_000_000;
+/** `NESTRIX_INDEXED_ATTRIBUTES` (D-102): at most this many keys, each matching the protocol's pattern. */
+export const MAX_INDEXED_ATTRIBUTES = 16;
+const INDEXED_ATTRIBUTE_KEY = /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/;
+
+/**
+ * The keys of `NESTRIX_INDEXED_ATTRIBUTES` (comma-separated, spaces ignored, duplicates dropped),
+ * with a message per problem in `errors`.
+ */
+export function parseIndexedAttributes(
+  raw: string | undefined,
+  errors: string[],
+): string[] {
+  const keys: string[] = [];
+  for (const entry of (raw ?? "").split(",")) {
+    const key = entry.trim();
+    if (key === "") continue;
+    if (!INDEXED_ATTRIBUTE_KEY.test(key)) {
+      errors.push(
+        `NESTRIX_INDEXED_ATTRIBUTES: "${key.slice(0, 64)}" is not an attribute name (a letter, then at most 127 letters, digits, '_', '.' or '-').`,
+      );
+      continue;
+    }
+    if (!keys.includes(key)) keys.push(key);
+  }
+  if (keys.length > MAX_INDEXED_ATTRIBUTES) {
+    errors.push(
+      `NESTRIX_INDEXED_ATTRIBUTES lists ${keys.length} keys; at most ${MAX_INDEXED_ATTRIBUTES} can be indexed.`,
+    );
+  }
+  return keys;
+}
+
 export const DEFAULT_INGEST: Omit<IngestConfig, "auth" | "keys"> = {
   // As the OpenTelemetry Collector's OTLP receiver. A single request at every cap below is
   // charged about 20 MiB + (400k + 100k) x 512 B = 264 MiB of the budget, so it always fits.
@@ -448,6 +486,10 @@ export function loadConfig(
   const trusted = parseTrustedProxies(present(env, "NESTRIX_TRUSTED_PROXIES"));
   if (!trusted.ok) errors.push(...trusted.errors);
   const trustedProxies = trusted.ok ? trusted.value : undefined;
+  const indexedAttributes = parseIndexedAttributes(
+    present(env, "NESTRIX_INDEXED_ATTRIBUTES"),
+    errors,
+  );
 
   if (errors.length > 0) return { ok: false, errors };
 
@@ -476,6 +518,7 @@ export function loadConfig(
       }),
       log,
       trustedProxies,
+      indexedAttributes: Object.freeze(indexedAttributes),
     }),
   };
 }
