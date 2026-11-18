@@ -117,7 +117,9 @@ export interface ObserveOptions {
    * export is answered `SUCCESS` without sending. When absent, `not_supported` is a failure like
    * any other.
    */
-  onNotSupported?: ((failure: NestrixExportFailure) => void) | undefined;
+  onNotSupported?:
+    | ((failure: NestrixExportFailure, error: unknown) => void)
+    | undefined;
 }
 
 /**
@@ -140,10 +142,10 @@ export function observeExports<T, E extends ObservableExporter<T>>(
       if (failure.reason === "not_supported" && onNotSupported !== undefined) {
         if (stopped) return;
         stopped = true;
-        onNotSupported(failure);
+        onNotSupported(failure, result.error);
         return;
       }
-      recordExportFailure(signal, failure);
+      recordExportFailure(signal, failure, result.error);
     } catch {
       // Observing never changes the export.
     }

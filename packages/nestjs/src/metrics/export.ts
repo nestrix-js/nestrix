@@ -18,6 +18,7 @@ import {
   activateExport,
   deactivateExport,
   type NestrixExportFailure,
+  type NestrixExportFailureCallback,
   recordExportStopped,
 } from "../export-status.js";
 import {
@@ -94,6 +95,8 @@ export interface MetricExportConfig {
   >;
   readonly otelResourceAttributes?: string | undefined;
   readonly shutdownTimeoutMillis?: number | undefined;
+  /** `export.onFailure` (D-110). */
+  readonly onFailure?: NestrixExportFailureCallback | undefined;
 }
 
 export interface MetricExportHandle {
@@ -185,7 +188,8 @@ async function load(state: Shared, config: MetricExportConfig): Promise<void> {
       {
         signal: "metrics",
         tracker,
-        onNotSupported: (failure) => stopNotSupported(state, failure),
+        onNotSupported: (failure, error) =>
+          stopNotSupported(state, failure, error),
       },
     );
     const reader = new sdk.PeriodicExportingMetricReader({
@@ -215,7 +219,10 @@ async function load(state: Shared, config: MetricExportConfig): Promise<void> {
   state.provider = provider;
   state.agents = agents;
   state.activated = true;
-  activateExport("metrics");
+  activateExport("metrics", {
+    onFailure: config.onFailure,
+    diagnostics: state.diagnostics,
+  });
   notifyAll(state);
 }
 
@@ -239,12 +246,17 @@ export const METRICS_NOT_SUPPORTED_MESSAGE = (failure: NestrixExportFailure) =>
  * instruments rebind to the API's no-op and the runtime monitors stop) and shuts it down, bounded.
  * Called from the exporter's result callback, so the work starts on a later tick. Never throws.
  */
-function stopNotSupported(state: Shared, failure: NestrixExportFailure): void {
+function stopNotSupported(
+  state: Shared,
+  failure: NestrixExportFailure,
+  error: unknown,
+): void {
   try {
     recordExportStopped(
       "metrics",
       failure,
       METRICS_NOT_SUPPORTED_MESSAGE(failure),
+      error,
     );
   } catch {
     // Never throws.

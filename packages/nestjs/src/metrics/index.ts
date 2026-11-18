@@ -35,6 +35,7 @@ export function startMetrics(
   options: Pick<
     ResolvedOptions,
     | "metrics"
+    | "export"
     | "serviceName"
     | "serviceVersion"
     | "resourceAttributes"
@@ -76,6 +77,7 @@ export function startMetrics(
               serviceVersion: options.serviceVersion,
               resourceAttributes: options.resourceAttributes,
               otelResourceAttributes: options.otelResourceAttributes,
+              onFailure: options.export.onFailure,
             },
             diagnostics,
             () => binding.refresh(),

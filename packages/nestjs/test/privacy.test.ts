@@ -34,7 +34,8 @@ describe("defaults", () => {
       "proxy-authorization",
       "set-cookie",
     ]);
-    expect(DEFAULT_REDACTED_QUERY_KEYS).toHaveLength(21);
+    expect(DEFAULT_REDACTED_QUERY_KEYS).toHaveLength(22);
+    expect(DEFAULT_REDACTED_QUERY_KEYS).toContain("state");
     expect(REQUEST_HEADER_PREFIX).toBe("http.request.header.");
     expect(RESPONSE_HEADER_PREFIX).toBe("http.response.header.");
   });

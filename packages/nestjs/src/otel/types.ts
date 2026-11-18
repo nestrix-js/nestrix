@@ -3,6 +3,7 @@
  * (resolve-options.ts) satisfies `TelemetryConfig` as it is, and the optional fields
  * below are the ones the caller adds when wiring.
  */
+import type { NestrixExportFailureCallback } from "../export-status.js";
 import type { RedactableSpan, RedactHook } from "../options.js";
 import type { StoreLimits } from "../store/limits.js";
 import type { TraceStore } from "../store/store.js";
@@ -60,6 +61,8 @@ export interface TelemetryConfig {
   readonly export: {
     readonly otlp: TelemetryOtlpConfig | false;
     readonly queue: TelemetryQueueConfig;
+    /** `export.onFailure` (D-110): called for the traces signal of the owned pipeline. */
+    readonly onFailure?: NestrixExportFailureCallback | undefined;
   };
   /** The user's hook. Runs after `scrub`, for every span the owned pipeline exports. */
   readonly redact: RedactHook | undefined;

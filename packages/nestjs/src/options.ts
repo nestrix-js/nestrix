@@ -6,6 +6,8 @@
  * `resolve-options.ts` (P1-02); nothing here has behaviour.
  */
 
+import type { NestrixExportFailureCallback } from "./export-status.js";
+
 /** A span as the `redact` hook sees it. Mutations are applied to the exported span. */
 export interface RedactableSpan {
   readonly name: string;
@@ -82,6 +84,15 @@ export interface NestrixExportOptions {
    * and polling stops with one log line. Starting a capture pauses the main thread briefly.
    */
   profiler?: boolean;
+  /**
+   * Called once per failed export of Nestrix's own OTLP pipeline (traces, logs and metrics), after
+   * the exporter's own retries: exactly when `getExportStatus()`'s `failures` total for that signal
+   * goes up (D-110). Receives a frozen `{ signal, reason, httpStatus, error? }`. Synchronous; runs
+   * on the exporter's timer, never in a request. A throw, or a promise's rejection, is counted and
+   * logged once and never changes the export. Not called when the host's OpenTelemetry SDK owns
+   * the signal: Nestrix does not see those exports. Not a function throws, like other options.
+   */
+  onFailure?: NestrixExportFailureCallback;
 }
 
 export interface NestrixIgnoreOptions {

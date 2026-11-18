@@ -161,6 +161,8 @@ When Nestrix owns the pipeline, it tells you when telemetry is not getting throu
 
 With Nestrix disabled, export off, or your own OpenTelemetry SDK owning the signal, every signal is `inactive`, no counter is added and nothing is logged: Nestrix does not read a host's exporters (D-69).
 
+- **`export.onFailure`**: a synchronous callback, called once per failed export (after the exporter's retries, so exactly as often as `failures` goes up) with a frozen `{ signal, reason, httpStatus, error? }`. Use it to count failed exports in a metrics registry of your own (`prom-client`) without polling. A throw or a rejected promise is counted and logged once; the export and the app carry on. Never called when your own SDK owns the signal.
+
 ### In a readiness check: degraded, not down
 
 Report telemetry as a detail of your health endpoint. Do not fail readiness or liveness on it: an observability outage must not make Kubernetes restart your pods or take them out of the load balancer.

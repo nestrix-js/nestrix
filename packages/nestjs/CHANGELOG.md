@@ -1,5 +1,20 @@
 # @nestrix-js/nestjs
 
+## 0.7.0
+
+### Minor Changes
+
+- [#63](https://github.com/nestrix-js/nestrix/pull/63) [`13debc2`](https://github.com/nestrix-js/nestrix/commit/13debc20f5ea6c1f94e1a0618d573359fca3d04e) Thanks [@lamberto15](https://github.com/lamberto15)! - New `export.onFailure` option ([#60](https://github.com/nestrix-js/nestrix/issues/60), D-110): a synchronous callback called once per failed export of Nestrix's own OTLP pipeline, for traces, logs and metrics, after the exporter's own retries (exactly when `getExportStatus()`'s `failures` total for that signal goes up). It receives a frozen `{ signal, reason, httpStatus, error? }` (`NestrixExportFailureEvent`, exported with `NestrixExportFailureCallback`), so an app can count failed exports in its own metrics, such as a `prom-client` counter, without polling. A callback that throws or returns a rejected promise is counted and logged once and never affects the export or the app. It is not called when the host's OpenTelemetry SDK owns the signal. A value that is not a function throws, like other invalid options.
+
+- [#63](https://github.com/nestrix-js/nestrix/pull/63) [`13debc2`](https://github.com/nestrix-js/nestrix/commit/13debc20f5ea6c1f94e1a0618d573359fca3d04e) Thanks [@lamberto15](https://github.com/lamberto15)! - OTLP headers can come from a secret file ([#62](https://github.com/nestrix-js/nestrix/issues/62), D-111). `OTEL_EXPORTER_OTLP_HEADERS_FILE`, `OTEL_EXPORTER_OTLP_TRACES_HEADERS_FILE`, `OTEL_EXPORTER_OTLP_LOGS_HEADERS_FILE` and `OTEL_EXPORTER_OTLP_METRICS_HEADERS_FILE` name a file (a Docker or Kubernetes secret) whose trimmed content is used as the matching headers variable, in the same `key=value,...` format, read once at startup. The variable itself wins when both are set, and `export.otlp.headers` still wins over both, key by key. A missing, unreadable or empty file logs one error (never its content) and Nestrix exports without those headers; the app still starts.
+
+- [#63](https://github.com/nestrix-js/nestrix/pull/63) [`13debc2`](https://github.com/nestrix-js/nestrix/commit/13debc20f5ea6c1f94e1a0618d573359fca3d04e) Thanks [@lamberto15](https://github.com/lamberto15)! - `state` joins the query-string keys whose values are recorded as `REDACTED` by default ([#61](https://github.com/nestrix-js/nestrix/issues/61)). OAuth and OpenID Connect callbacks carry `code` (already redacted) and `state`, which binds the callback to the browser session that started it. Routes that use `?state=` as an ordinary filter now record it as `REDACTED` too; nothing else changes, and `http.redactQueryKeys` still only adds keys.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @nestrix-js/ui@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes

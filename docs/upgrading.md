@@ -133,7 +133,19 @@ New export: `getExportStatus()`, a read-only snapshot per signal (state, last su
 
 `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG`, `OTEL_SDK_DISABLED` and `OTEL_EXPORTER_OTLP_PROTOCOL` have no effect in 1.x. Use the `sampleRate` option, and `enabled: false` or `NESTRIX_ENABLED=false` to switch Nestrix off. Export is OTLP/HTTP with protobuf only. A new 1.0 install is not affected, but a config copied from another OpenTelemetry setup will not behave as it did there.
 
+### `state` is a redacted query key
+
+New in 0.7 (#61). `?state=` values are recorded as `REDACTED`, like `code`: OAuth and OpenID Connect callbacks carry both, and `state` binds the callback to the session that started it. A route that uses `state` as an ordinary filter records it as `REDACTED` too.
+
 ## Added
+
+### `export.onFailure`: a callback per failed export
+
+New in 0.7 (#60, D-110). `export.onFailure({ signal, reason, httpStatus, error? })` is called once per failed export of Nestrix's own pipeline, after the exporter's retries, so a metrics registry of your own can count failures without polling `getExportStatus()`. Synchronous; a throw changes nothing. Not called with a host-owned SDK.
+
+### OTLP headers from a secret file
+
+New in 0.7 (#62, D-111). `OTEL_EXPORTER_OTLP_HEADERS_FILE` (and the `_TRACES_`, `_LOGS_` and `_METRICS_` forms) names a file holding the headers variable's value, for a Docker or Kubernetes secret. The variable wins when both are set; a missing or empty file logs one error and exports without those headers.
 
 ### `emitLog()`: logs from your own logger
 

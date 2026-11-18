@@ -8,6 +8,9 @@
  *
  * Fed from the exporters' result callbacks (otel/observe-export.ts), which run on the batch
  * processors' and the metric reader's timers, never in a request path. Nothing here throws.
+ *
+ * `export.onFailure` (D-110) is called from the same place, once per failed export: exactly when
+ * a signal's `failures` total goes up.
  */
 import { Logger } from "@nestjs/common";
 
@@ -57,6 +60,34 @@ export interface NestrixExportFailure {
   readonly httpStatus: number | null;
 }
 
+/** What `export.onFailure` receives: one failed export of one signal. Frozen. */
+export interface NestrixExportFailureEvent extends NestrixExportFailure {
+  readonly signal: NestrixExportSignal;
+  /**
+   * The exporter's own error, when it gave one. It can carry the endpoint's response text: log
+   * it with care.
+   */
+  readonly error?: unknown;
+}
+
+/**
+ * `export.onFailure`: called once per failed export of Nestrix's own OTLP pipeline, after the
+ * exporter's retries. Synchronous: a returned promise is not awaited. Never called for exports a
+ * host-owned SDK makes.
+ */
+export type NestrixExportFailureCallback = (
+  failure: NestrixExportFailureEvent,
+) => void;
+
+/** Where a throwing `export.onFailure` is counted (Diagnostics' shape). */
+export interface ExportFailureListener {
+  readonly onFailure: NestrixExportFailureCallback | undefined;
+  readonly diagnostics: {
+    logOnce(key: string, message: string): void;
+    countFailure(where: string, error: unknown): void;
+  };
+}
+
 export interface NestrixSignalExportStatus {
   readonly state: NestrixExportState;
   /** When the last export succeeded, in milliseconds since the epoch. */
@@ -95,6 +126,8 @@ interface SignalState {
   logged: Set<NestrixExportFailureReason>;
   /** `dropped` when the current failing episode began. */
   droppedAtEpisodeStart: number;
+  /** `export.onFailure` of the app whose exporter this is (D-110). */
+  listener: ExportFailureListener | undefined;
 }
 
 function zeroFailures(): Record<NestrixExportFailureReason, number> {
@@ -120,6 +153,7 @@ function freshState(state: NestrixExportState): SignalState {
     dropped: 0,
     logged: new Set(),
     droppedAtEpisodeStart: 0,
+    listener: undefined,
   };
 }
 
@@ -170,6 +204,55 @@ const DESCRIBE: Record<NestrixExportFailureReason, string> = {
   not_supported: "the endpoint does not accept this signal",
   other: "the export failed",
 };
+
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return (
+    value !== null &&
+    (typeof value === "object" || typeof value === "function") &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
+}
+
+/**
+ * Calls `export.onFailure` with a frozen event. A throw is counted (`export.onFailure`, logged
+ * once); a returned promise is not awaited, and its rejection is counted the same way, so it
+ * never becomes an unhandled rejection. Never throws.
+ */
+function notifyFailure(
+  s: SignalState,
+  signal: NestrixExportSignal,
+  failure: NestrixExportFailure,
+  error: unknown,
+): void {
+  const listener = s.listener;
+  const callback = listener?.onFailure;
+  if (listener === undefined || callback === undefined) return;
+  const { diagnostics } = listener;
+  try {
+    const event: NestrixExportFailureEvent = Object.freeze(
+      error === undefined
+        ? { signal, reason: failure.reason, httpStatus: failure.httpStatus }
+        : {
+            signal,
+            reason: failure.reason,
+            httpStatus: failure.httpStatus,
+            error,
+          },
+    );
+    const returned: unknown = callback(event);
+    if (isThenable(returned)) {
+      diagnostics.logOnce(
+        "export.onFailure-async",
+        "export.onFailure returned a promise. Nestrix calls it synchronously and does not wait for it; a rejection is counted, not thrown.",
+      );
+      Promise.resolve(returned).then(undefined, (reason: unknown) =>
+        diagnostics.countFailure("export.onFailure", reason),
+      );
+    }
+  } catch (thrown) {
+    diagnostics.countFailure("export.onFailure", thrown);
+  }
+}
 
 function describe(failure: NestrixExportFailure): string {
   const status =
@@ -250,11 +333,16 @@ export function exportCounts(): {
 
 /**
  * Nestrix's own exporter for `signal` starts: a fresh status (`pending`). Counts start again at
- * zero, because this is a new pipeline. Never throws.
+ * zero, because this is a new pipeline. `listener` carries the owning app's `export.onFailure`
+ * (D-110). Never throws.
  */
-export function activateExport(signal: NestrixExportSignal): void {
+export function activateExport(
+  signal: NestrixExportSignal,
+  listener?: ExportFailureListener,
+): void {
   try {
     states[signal] = freshState("pending");
+    states[signal].listener = listener;
   } catch {
     // Never throws.
   }
@@ -265,6 +353,7 @@ export function deactivateExport(signal: NestrixExportSignal): void {
   try {
     states[signal].state = "inactive";
     states[signal].logged.clear();
+    states[signal].listener = undefined;
   } catch {
     // Never throws.
   }
@@ -299,11 +388,13 @@ export function recordExportSuccess(signal: NestrixExportSignal): void {
 
 /**
  * An export of `signal` failed. Logs one warning when the signal starts failing, and one more for
- * each other reason seen in the same failing episode; never one per batch. Never throws.
+ * each other reason seen in the same failing episode; never one per batch. Calls `export.onFailure`
+ * every time, with the exporter's `error`. Never throws.
  */
 export function recordExportFailure(
   signal: NestrixExportSignal,
   failure: NestrixExportFailure,
+  error?: unknown,
 ): void {
   try {
     const s = states[signal];
@@ -314,6 +405,7 @@ export function recordExportFailure(
     s.lastFailure = failure;
     s.consecutiveFailures++;
     s.failures[failure.reason]++;
+    notifyFailure(s, signal, failure, error);
     if (!wasFailing) {
       s.droppedAtEpisodeStart = s.dropped;
       s.logged.clear();
@@ -351,13 +443,15 @@ export function recordExportDropped(
 }
 
 /**
- * The endpoint does not accept `signal` (`not_supported`): the failure is counted, the state becomes
- * `stopped` and one warning says so. The caller stops the exporter. Never throws.
+ * The endpoint does not accept `signal` (`not_supported`): the failure is counted (and passed to
+ * `export.onFailure`), the state becomes `stopped` and one warning says so. The caller stops the
+ * exporter. Never throws.
  */
 export function recordExportStopped(
   signal: NestrixExportSignal,
   failure: NestrixExportFailure,
   message: string,
+  error?: unknown,
 ): void {
   try {
     const s = states[signal];
@@ -367,6 +461,7 @@ export function recordExportStopped(
     s.lastFailure = failure;
     s.consecutiveFailures++;
     s.failures[failure.reason]++;
+    notifyFailure(s, signal, failure, error);
     safeLog("warn", message);
   } catch {
     // Never throws.

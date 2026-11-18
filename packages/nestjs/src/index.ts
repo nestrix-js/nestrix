@@ -6,6 +6,8 @@ export {
 export {
   getExportStatus,
   type NestrixExportFailure,
+  type NestrixExportFailureCallback,
+  type NestrixExportFailureEvent,
   type NestrixExportFailureReason,
   type NestrixExportSignal,
   type NestrixExportState,
