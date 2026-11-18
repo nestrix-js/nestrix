@@ -31,6 +31,7 @@ const PAGE1: LogSearchResponse = {
   dropped: { total: 12, rateCap: 10, traceCap: 2, outOfRange: 0 },
   items: [
     {
+      id: "l1",
       timeUnixMs: T + 3000,
       timeUnixNano: String((T + 3000) * 1_000_000),
       severity: 17,
@@ -43,6 +44,7 @@ const PAGE1: LogSearchResponse = {
       truncated: false,
     },
     {
+      id: "l2",
       timeUnixMs: T + 2000,
       timeUnixNano: String((T + 2000) * 1_000_000),
       severity: 9,
@@ -52,6 +54,7 @@ const PAGE1: LogSearchResponse = {
       truncated: true,
     },
     {
+      id: "l3",
       timeUnixMs: T + 1000,
       timeUnixNano: String((T + 1000) * 1_000_000),
       severity: 13,
@@ -69,6 +72,7 @@ const PAGE2: LogSearchResponse = {
   older: null,
   items: [
     {
+      id: "l4",
       timeUnixMs: T,
       timeUnixNano: String(T * 1_000_000),
       severity: 5,

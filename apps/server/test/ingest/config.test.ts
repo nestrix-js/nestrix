@@ -100,7 +100,16 @@ describe("loadConfig", () => {
       retentionDays: 7,
       maxPerTrace: 1_000,
       maxPerMinute: 30_000,
+      searchConcurrency: 2,
     });
+    expect(
+      store({ NESTRIX_LOG_SEARCH_CONCURRENCY: "16" })?.searchConcurrency,
+    ).toBe(16);
+    for (const bad of ["0", "17", "x"]) {
+      expect(
+        errors({ DATABASE_URL: DB, NESTRIX_LOG_SEARCH_CONCURRENCY: bad })[0],
+      ).toMatch(/^NESTRIX_LOG_SEARCH_CONCURRENCY must be a whole number/);
+    }
     expect(store({ NESTRIX_RETENTION_DAYS: "14" })?.retentionDays).toBe(14);
     expect(
       store({ NESTRIX_LOGS: "ALL", NESTRIX_LOG_RETENTION_DAYS: "2" }),

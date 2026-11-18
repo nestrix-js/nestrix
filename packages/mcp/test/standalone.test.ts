@@ -62,6 +62,7 @@ beforeAll(async () => {
         body: {
           items: [
             {
+              id: "lfix1",
               timeUnixMs: 1_790_000_000_000,
               timeUnixNano: "1790000000000000000",
               severity: 17,
@@ -74,6 +75,7 @@ beforeAll(async () => {
               truncated: true,
             },
             {
+              id: "lfix2",
               timeUnixMs: 1_789_999_999_000,
               timeUnixNano: "1789999999000000000",
               severity: 9,

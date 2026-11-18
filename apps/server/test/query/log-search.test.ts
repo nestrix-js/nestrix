@@ -382,3 +382,36 @@ describe.skipIf(noDatabase)(`log rate cap ${skipReason}`, () => {
     expect(res.dropped.total).toBe(15);
   });
 });
+
+describe.skipIf(noDatabase)(`log rate budget ${skipReason}`, () => {
+  let db: TestDb;
+  let server: QueryServer;
+  beforeAll(async () => {
+    db = await createTestDb("logsearchb");
+    server = await startQueryServer(db.url, true, true, {
+      NESTRIX_LOGS: "all",
+      NESTRIX_LOGS_MAX_PER_MINUTE: "10",
+    });
+  });
+  afterAll(async () => {
+    await server?.close();
+    await db?.drop();
+  });
+
+  it("does not spend the budget on a retried export that stores nothing", async () => {
+    const sink = server.app.get(PostgresIngestSink);
+    const first = Array.from({ length: 5 }, (_, i) =>
+      line(i, { body: `first ${i}` }),
+    );
+    await sink.writeLogs(batch(first));
+    await sink.writeLogs(batch(first)); // the same payload again: all duplicates
+    await sink.writeLogs(
+      batch(
+        Array.from({ length: 5 }, (_, i) => line(i, { body: `second ${i}` })),
+      ),
+    );
+    const res = await server.json<LogSearchResponse>("/api/v1/logs?limit=200");
+    expect(res.items).toHaveLength(10);
+    expect(res.dropped.rateCap).toBe(0);
+  });
+});
