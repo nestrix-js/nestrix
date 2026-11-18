@@ -93,8 +93,8 @@ export class OverviewService {
       ),
       this.statisticsSince(scope),
       this.statusMix(curFromMs, now, scope),
-      this.kindRows(curFromMs, now, scope),
-      this.kindRows(prevFromMs, curFromMs - 1, scope),
+      this.kindRows(curFromMs, now + 1, scope),
+      this.kindRows(prevFromMs, curFromMs, scope),
       this.newReleases(curFromMs, now, scope),
       this.query.errorGroups(windowMinutes, scope, now),
       this.query.errorGroups(windowMinutes, scope, curFromMs - 1),
@@ -212,7 +212,7 @@ export class OverviewService {
     };
   }
 
-  /** Own time (duration minus the children's) of spans started in the range, by what decides their kind. */
+  /** Own time (duration minus the children's) of spans started in `[fromMs, toMs)`, by what decides their kind. */
   private async kindRows(
     fromMs: number,
     toMs: number,
@@ -221,7 +221,7 @@ export class OverviewService {
     const p = new Params();
     const where = [
       `s.start_time >= ${p.add(new Date(fromMs))}`,
-      `s.start_time <= ${p.add(new Date(toMs))}`,
+      `s.start_time < ${p.add(new Date(toMs))}`,
     ];
     where.push(...scopeSql(scope, p.add, "s"));
     // One pass: the window's spans once, their children summed once per parent. A child may start

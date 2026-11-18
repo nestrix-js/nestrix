@@ -574,20 +574,28 @@ export class QueryService {
       else cursorCondition = `seq > ${params.add(seq)}`;
     }
     const conditions = cursorCondition ? [...where, cursorCondition] : where;
-    const text = `SELECT trace_id, seq::text AS seq, root_span_id, name, http_method, http_route, http_status,
-                         is_error, start_ns::text AS start_ns, duration_ns::text AS duration_ns,
-                         span_count, trace_type, has_job, ${TRACE_HAS_ERRORS_SQL} AS has_errors,
-                         release, user_id
-                    FROM traces
-                   ${conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""}
-                   ORDER BY seq DESC
-                   LIMIT ${params.add(limit + 1)}`;
-    const [rows, head] = await Promise.all([
-      this.rows<SummaryRow>(text, params.values),
-      this.rows<{ seq: string | null }>(
-        "SELECT max(seq)::text AS seq FROM traces",
-      ),
-    ]);
+    // The page and the head in one statement, so one snapshot (audit): a trace committed while
+    // the list is read is either on the page or after the head, never covered by the head alone.
+    // `seq` is taken under `TRACES_LOCK` and committed in order, so a snapshot has no gap below
+    // its newest `seq`. The one-row `head` side keeps the head when the page is empty.
+    const text = `WITH head AS (SELECT max(seq) AS head_seq FROM traces),
+                  page AS (
+                    SELECT trace_id, seq AS order_seq, seq::text AS seq, root_span_id, name, http_method,
+                           http_route, http_status, is_error, start_ns::text AS start_ns,
+                           duration_ns::text AS duration_ns, span_count, trace_type, has_job,
+                           ${TRACE_HAS_ERRORS_SQL} AS has_errors, release, user_id
+                      FROM traces
+                     ${conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""}
+                     ORDER BY seq DESC
+                     LIMIT ${params.add(limit + 1)})
+                  SELECT h.head_seq::text AS head_seq, p.*
+                    FROM head h LEFT JOIN page p ON true
+                   ORDER BY p.order_seq DESC`;
+    const joined = await this.rows<
+      SummaryRow & { head_seq: string | null; trace_id: string | null }
+    >(text, params.values);
+    const rows = joined.filter((r) => r.trace_id !== null) as SummaryRow[];
+    const head = [{ seq: joined[0]?.head_seq ?? null }];
     // More newer items than one page: the poller cannot catch up without a gap.
     if (
       v.after !== undefined &&
@@ -702,19 +710,48 @@ export class QueryService {
     const select = `SELECT s.trace_id, s.span_id, s.name, s.kind, s.status_message, s.events,
                            s.start_ns::text AS start_ns, s.end_ns::text AS end_ns,
                            s.http_route, s.http_method, s.http_status,
-                           ${TS_SQL.replace("%s", "s.start_time")} AS ts
+                           ${TS_SQL.replace("%s", "s.start_time")} AS ts, s.start_time AS order_time
                       FROM spans s`;
     const order = "ORDER BY s.start_time DESC, s.trace_id DESC, s.span_id DESC";
-    const [rows, head] = await Promise.all([
-      this.rows<ErrorRow>(
-        `${select} WHERE ${conditions.join(" AND ")} ${order} LIMIT ${params.add(limit + 1)}`,
-        params.values,
-      ),
-      this.rows<{ trace_id: string; span_id: string; ts: string }>(
-        `SELECT s.trace_id, s.span_id, ${TS_SQL.replace("%s", "s.start_time")} AS ts
-           FROM spans s WHERE ${occurrenceSql("s")} ${order} LIMIT 1`,
-      ),
-    ]);
+    // The page and the head in one statement, so one snapshot (audit): an error committed while
+    // the list is read is on the page or after the head. Known limit (D-107): the cursor is the
+    // span's start, so an error stored after a newer one (a long span, a late export) sorts below
+    // the head and a live poll does not show it; a reload does.
+    const joined = await this.rows<
+      ErrorRow & {
+        head_trace_id: string | null;
+        head_span_id: string | null;
+        head_ts: string | null;
+        trace_id: string | null;
+      }
+    >(
+      `WITH head AS (
+         SELECT s.trace_id, s.span_id, ${TS_SQL.replace("%s", "s.start_time")} AS ts
+           FROM spans s WHERE ${occurrenceSql("s")} ${order} LIMIT 1),
+       page AS (
+         ${select}
+          WHERE ${conditions.join(" AND ")} ${order} LIMIT ${params.add(limit + 1)})
+       SELECT h.trace_id AS head_trace_id, h.span_id AS head_span_id, h.ts AS head_ts, p.*
+         FROM (SELECT 1) one
+         LEFT JOIN head h ON true
+         LEFT JOIN page p ON true
+        ORDER BY p.order_time DESC, p.trace_id DESC, p.span_id DESC`,
+      params.values,
+    );
+    const rows = joined.filter((r) => r.trace_id !== null) as ErrorRow[];
+    const first = joined[0];
+    const head =
+      first?.head_trace_id != null &&
+      first.head_span_id != null &&
+      first.head_ts != null
+        ? [
+            {
+              trace_id: first.head_trace_id,
+              span_id: first.head_span_id,
+              ts: first.head_ts,
+            },
+          ]
+        : [];
     if (
       v.after !== undefined &&
       cursorCondition !== undefined &&
@@ -776,12 +813,14 @@ export class QueryService {
     const attributes =
       filters === undefined ? undefined : attributesJson(filters);
     const [inWindow, earlier, stored] = await Promise.all([
+      // Both ends of the window in SQL, before the newest-first cap: newer errors cannot crowd out
+      // a historical window's occurrences (audit, D-107).
       this.errorOccurrences(
         new Date(empty.fromUnixMs),
         undefined,
         scope,
         windowCap,
-        { attributes },
+        { until: new Date(now + 1), attributes },
       ),
       this.errorOccurrences(
         new Date(historyStart),
@@ -792,8 +831,9 @@ export class QueryService {
       ),
       loadTriaged(this.pool, scope),
     ]);
-    // Newest first: a full page means older rows were left out.
-    const oldestRead = earlier[earlier.length - 1]?.timeUnixMs;
+    // Newest first (by start): a full page means older rows were left out.
+    const oldestRow = earlier[earlier.length - 1];
+    const oldestRead = oldestRow?.startUnixMs ?? oldestRow?.timeUnixMs;
     const historyFrom =
       earlier.length >= HISTORY_ROW_CAP && oldestRead !== undefined
         ? oldestRead
@@ -836,9 +876,11 @@ export class QueryService {
   }
 
   /**
-   * Error spans from `from` (and before `before`, up to and including `until`), as occurrences with
-   * their release: newest first, or oldest first with `ascending`. The error-group sync reads the
-   * same occurrences the lists do through this method.
+   * Error spans from `from` (and before `before` and before `until`, both exclusive), as
+   * occurrences with their release: newest first, or oldest first with `ascending`. `after` (with
+   * `ascending`) continues a read past the last row of a full page, on the total order
+   * `(start_time, trace_id, span_id)`: its fields are an occurrence's `startTime`, `traceId` and
+   * `spanId`. The error-group sync reads the same occurrences the lists do through this method.
    */
   async errorOccurrences(
     from: Date,
@@ -849,6 +891,7 @@ export class QueryService {
       until?: Date;
       ascending?: boolean;
       attributes?: string | undefined;
+      after?: { startTime: string; traceId: string; spanId: string };
     } = {},
   ): Promise<ErrorOccurrence[]> {
     const params = new Params();
@@ -861,7 +904,13 @@ export class QueryService {
       where.push(`s.start_time < ${params.add(before)}`);
     }
     if (options.until !== undefined) {
-      where.push(`s.start_time <= ${params.add(options.until)}`);
+      where.push(`s.start_time < ${params.add(options.until)}`);
+    }
+    if (options.after !== undefined) {
+      const a = options.after;
+      where.push(
+        `(s.start_time, s.trace_id, s.span_id) > (${params.add(a.startTime)}::timestamptz, ${params.add(a.traceId)}, ${params.add(a.spanId)})`,
+      );
     }
     where.push(...scopeSql(scope, params.add, "s"));
     // D-102: the error's trace has these indexed attribute values (a JSON object, a bind parameter).
@@ -879,10 +928,11 @@ export class QueryService {
         root_method: string | null;
         root_status: number | null;
         root_release: string | null;
+        start_text: string;
       }
     >(
       `SELECT s.trace_id, s.span_id, s.name, s.kind, s.status_message, s.events,
-              s.start_ns::text AS start_ns, s.end_ns::text AS end_ns,
+              s.start_ns::text AS start_ns, s.end_ns::text AS end_ns, s.start_time::text AS start_text,
               s.http_route, s.http_method, s.http_status, s.service_name, s.environment,
               t.http_route AS root_route, t.http_method AS root_method, t.http_status AS root_status,
               t.release AS root_release
@@ -917,6 +967,9 @@ export class QueryService {
         service: r.service_name ?? undefined,
         release: r.root_release ?? undefined,
         environment: r.environment ?? undefined,
+        // The instant `s.start_time` holds (microseconds), which the bounds above compare.
+        startUnixMs: msOf(r.start_ns),
+        startTime: r.start_text,
       };
     });
   }
@@ -1297,10 +1350,9 @@ export class QueryService {
     ) {
       return uncovered(current);
     }
-    const before = current.fromUnixMs - 1;
     return withPreviousClasses(
       current,
-      await this.classes(windowMinutes, scope, before, before),
+      await this.classes(windowMinutes, scope, current.fromUnixMs - 1),
     );
   }
 
@@ -1346,8 +1398,6 @@ export class QueryService {
     windowMinutes: number,
     scope: Scope,
     now: number = Date.now(),
-    /** Count own time only from spans that started by then (the previous window's end). */
-    ownUntilMs?: number,
   ): Promise<ClassStatsResponse> {
     const w = windowOf(windowMinutes, now);
     const rows = await classRollups(this.pool, {
@@ -1356,7 +1406,8 @@ export class QueryService {
       scope,
     });
 
-    // Own time per call, from the stored method spans started in the window.
+    // Own time per call, from the stored method spans started in the window: both ends, on the
+    // current side as on the previous one, so a later call cannot move an earlier window (audit).
     const own = new Map<string, Map<string, number>>();
     let ownTimeTruncated = false;
     if (rows.length > 0) {
@@ -1364,10 +1415,8 @@ export class QueryService {
       const spanWhere = [
         "s.class_name IS NOT NULL",
         `s.start_time >= ${p.add(new Date(w.fromMs))}`,
+        `s.start_time < ${p.add(new Date(now + 1))}`,
       ];
-      if (ownUntilMs !== undefined) {
-        spanWhere.push(`s.start_time <= ${p.add(new Date(ownUntilMs))}`);
-      }
       spanWhere.push(...scopeSql(scope, p.add, "s"));
       const skewFrom = p.add(new Date(w.fromMs - SKEW_MS));
       const ownRows = await this.rows<{

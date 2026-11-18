@@ -11,11 +11,22 @@
  * - One instance runs at a time (session advisory lock `ERROR_GROUPS_LOCK`); the others skip.
  * - A watermark (`error_group_sync`) marks the spans already counted. Each run reads the
  *   occurrences that started after the watermark minus `overlapMs`, up to `now - lagMs`, in
- *   chunks of an hour (the first run reads 7 days, like the lists' history). Occurrences after
- *   the watermark are counted; the overlap only repairs first/last seen and the releases, which
- *   are min/max and so idempotent. The counts are therefore exact for spans that arrive before
- *   the watermark passes them and a lower bound for the rare span that arrives later (a job that
- *   ends minutes after it started).
+ *   chunks of an hour (the first run reads 7 days, like the lists' history). A chunk
+ *   `(watermark, to]` counts the occurrences whose occurrence time it holds, plus those after
+ *   `to` whose span started before the next chunk's read (`to - overlapMs`); the others after
+ *   `to` are left to the next chunk, which reads them again (`countedInChunk`). Chunks meet, so
+ *   each occurrence is counted once (audit: a span crossing `to` used to count on both runs).
+ *   The overlap otherwise only repairs first/last seen and the releases, which are min/max and
+ *   so idempotent. Pages: a chunk reads `rowCap` rows at a time, continuing on the total order
+ *   `(start_time, trace_id, span_id)` until a short page, so a full page inside the overlap loses
+ *   nothing; after `MAX_PAGES_PER_CHUNK` pages it stops at the last row's start (the watermark
+ *   there, the rest next run).
+ *   Known limit (D-103 (2), D-107 (9)): a span is read only while the watermark has not passed
+ *   its start plus `overlapMs` (2 minutes by default, plus the lag). A span stored after that
+ *   (a job that ends minutes after it started, a late export, a slow clock) is never read: it has
+ *   no group, no `new_error_group` alert and no count, not just a low one. The fix is an
+ *   ingest-order column on `spans` (D-107 (9)), which the sync would follow instead of the start
+ *   time.
  * - One transaction per chunk: group rows locked, regressions decided, rows upserted, watermark
  *   moved. A crash repeats the chunk and counts nothing twice.
  * - Regression: a `resolved` group with an occurrence after `resolved_at` whose release differs
@@ -53,7 +64,7 @@ export interface ErrorSyncOptions {
   overlapMs?: number;
   /** How far back the first run reads. Default 7 days. */
   backfillMs?: number;
-  /** Rows read per query; more than this in one chunk continue in the next run. Default 20 000. */
+  /** Rows read per page; a chunk reads up to ten pages, the rest continue in the next run. Default 20 000. */
   rowCap?: number;
   /** Open groups unseen for this long are deleted. Default 90 days. */
   openRetentionMs?: number;
@@ -75,6 +86,8 @@ export interface SyncRun {
 
 const CHUNK_MS = 3_600_000;
 const MAX_CHUNKS = 200;
+/** Pages of `rowCap` rows one chunk reads before it stops at the last row's start (no loss). */
+const MAX_PAGES_PER_CHUNK = 10;
 const PRUNE_EVERY_MS = 3_600_000;
 const BATCH = 1000;
 
@@ -106,13 +119,37 @@ interface Agg {
 }
 
 /**
- * Groups occurrences by (service, environment, group key). `countAfterMs`: only later ones are
- * counted.
+ * Whether the run over the chunk `(wmMs, toMs]` counts `o` (audit, D-103). Runs read the
+ * occurrences whose span started in `[wm - overlap, to]`, and successive chunks meet (the next
+ * one starts at `toMs`), so each occurrence is counted by exactly one run that reads it: the one
+ * whose chunk holds its occurrence time, or, when its span started before the next run's read
+ * (`toMs - overlapMs`), this one, since no later run sees it. An occurrence at or before the
+ * watermark is never counted (it arrived after the watermark passed it).
+ */
+export function countedInChunk(
+  o: Pick<ErrorOccurrence, "timeUnixMs" | "startUnixMs">,
+  wmMs: number,
+  toMs: number,
+  overlapMs: number,
+): boolean {
+  if (o.timeUnixMs <= wmMs) return false;
+  if (o.timeUnixMs <= toMs) return true;
+  const start = o.startUnixMs ?? o.timeUnixMs;
+  return start < toMs - overlapMs;
+}
+
+/**
+ * Groups occurrences by (service, environment, group key). `counted`: a number counts the ones
+ * after it; a function decides per occurrence (the sync passes {@link countedInChunk}).
  */
 export function aggregate(
   occurrences: readonly ErrorOccurrence[],
-  countAfterMs: number,
+  counted: number | ((o: ErrorOccurrence) => boolean),
 ): Map<string, Agg> {
+  const isCounted =
+    typeof counted === "number"
+      ? (o: ErrorOccurrence) => o.timeUnixMs > counted
+      : counted;
   const out = new Map<string, Agg>();
   for (const o of occurrences) {
     if (o.service === undefined) continue;
@@ -142,8 +179,8 @@ export function aggregate(
       };
       out.set(id, a);
     }
-    const counted = o.timeUnixMs > countAfterMs;
-    if (counted) a.counted++;
+    const counts = isCounted(o);
+    if (counts) a.counted++;
     if (o.timeUnixMs < a.firstMs) a.firstMs = o.timeUnixMs;
     if (o.timeUnixMs > a.lastMs) a.lastMs = o.timeUnixMs;
     a.times.push({ ms: o.timeUnixMs, release: o.release });
@@ -161,12 +198,12 @@ export function aggregate(
         a.releases.set(o.release, {
           firstMs: o.timeUnixMs,
           lastMs: o.timeUnixMs,
-          counted: counted ? 1 : 0,
+          counted: counts ? 1 : 0,
         });
       } else {
         if (o.timeUnixMs < r.firstMs) r.firstMs = o.timeUnixMs;
         if (o.timeUnixMs > r.lastMs) r.lastMs = o.timeUnixMs;
-        if (counted) r.counted++;
+        if (counts) r.counted++;
       }
     }
   }
@@ -310,22 +347,42 @@ export class ErrorGroupSync {
       }
       for (let i = 0; i < MAX_CHUNKS && wm < hiMs; i++) {
         let to = Math.min(hiMs, wm + CHUNK_MS);
-        let rows = await this.query.errorOccurrences(
-          new Date(wm - this.o.overlapMs),
-          undefined,
-          ALL,
-          this.o.rowCap,
-          { until: new Date(to), ascending: true },
-        );
-        if (rows.length >= this.o.rowCap) {
-          // A full page: stop the chunk before its last millisecond and read on from there next
-          // time. When that would not move the watermark (the whole page is one millisecond),
-          // take the page as it is.
-          const cut = Math.floor(rows[rows.length - 1]?.timeUnixMs ?? to) - 1;
-          if (cut > wm) {
-            to = cut;
-            rows = rows.filter((r) => r.timeUnixMs <= to);
+        // Pages of `rowCap` rows, ascending by (start, trace, span); a full page continues from
+        // its last row until a short one, so nothing between the pages is skipped, however many
+        // rows the overlap `[wm - overlapMs, wm]` alone holds (audit).
+        let rows: ErrorOccurrence[] = [];
+        let after:
+          | { startTime: string; traceId: string; spanId: string }
+          | undefined;
+        for (let pages = 1; ; pages++) {
+          const page: ErrorOccurrence[] = await this.query.errorOccurrences(
+            new Date(wm - this.o.overlapMs),
+            undefined,
+            ALL,
+            this.o.rowCap,
+            { until: new Date(to + 1), ascending: true, after },
+          );
+          rows = rows.concat(page);
+          const last = page[page.length - 1];
+          if (page.length < this.o.rowCap || last === undefined) break;
+          // Past the page budget, stop the chunk before the last row's start millisecond and read
+          // on from there next time; every row that started by then was read. Only when that
+          // moves the watermark: inside the overlap (`cut <= wm`) the run reads on, since the
+          // watermark cannot go back.
+          if (pages >= MAX_PAGES_PER_CHUNK) {
+            const cut = Math.floor(last.startUnixMs ?? last.timeUnixMs) - 1;
+            if (cut > wm) {
+              to = cut;
+              rows = rows.filter((r) => (r.startUnixMs ?? r.timeUnixMs) <= to);
+              break;
+            }
           }
+          if (last.startTime === undefined) break;
+          after = {
+            startTime: last.startTime,
+            traceId: last.traceId,
+            spanId: last.spanId,
+          };
         }
         const done = await this.apply(client, rows, wm, to);
         total.counted += done.counted;
@@ -376,7 +433,11 @@ export class ErrorGroupSync {
     wmMs: number,
     toMs: number,
   ): Promise<{ counted: number; groups: number; regressed: number }> {
-    const aggs = [...aggregate(rows, wmMs).values()];
+    const aggs = [
+      ...aggregate(rows, (o) =>
+        countedInChunk(o, wmMs, toMs, this.o.overlapMs),
+      ).values(),
+    ];
     let counted = 0;
     for (const a of aggs) counted += a.counted;
     let regressed = 0;

@@ -2,7 +2,8 @@
  * Error groups (P9-04): error occurrences grouped by (error type, normalised message, route).
  * Pure functions. `packages/nestjs/src/store/error-groups.ts` is the embedded copy
  * (the server cannot import this package's internals); keep the two in step, both have the same
- * unit tests.
+ * unit tests. One server-only difference: `ErrorOccurrence.startUnixMs` (the time the server's SQL
+ * bounds by) places an occurrence in the window, and the window ends exactly at `now`.
  */
 import type {
   ErrorGroup,
@@ -26,6 +27,14 @@ export interface ErrorOccurrence {
   readonly release?: string | undefined;
   /** The span's environment (standalone server, D-101); absent is unset. */
   readonly environment?: string | undefined;
+  /**
+   * Server only: the span's start (microsecond precision), the time its SQL reads are bounded by.
+   * When set, it decides which window, bucket and history an occurrence belongs to (`timeUnixMs`
+   * stays the shown time), so the grouping agrees with the rows the bounds selected (D-107).
+   */
+  readonly startUnixMs?: number | undefined;
+  /** Server only: `start_time` exactly (text, microseconds), the keyset the sync continues from. */
+  readonly startTime?: string | undefined;
 }
 
 const MAX_PATTERN = 300;
@@ -95,6 +104,8 @@ interface Acc {
   /** The group's earliest occurrence inside the window, and its release. */
   firstMs: number;
   firstRelease: string | undefined;
+  /** The latest occurrence's time on the state's time base (see `stateMs` in `groupErrors`). */
+  lastStateMs: number;
 }
 
 /** What is known of a group from before the window (P15-02). */
@@ -169,40 +180,50 @@ export function groupErrors(
   const releaseFirstSeen = new Map<string, number>();
   let oldest = fromUnixMs;
   for (const o of occurrences) {
-    if (o.timeUnixMs > now + bucketMs) continue;
-    if (o.timeUnixMs < oldest) oldest = o.timeUnixMs;
+    // The server's occurrences carry the start its SQL bounded by: they belong to the window only
+    // up to its end, exclusive (`now + 1`, so the previous window ends where this one starts and
+    // no start falls between). The embedded copy keeps a bucket of slack on the exception time.
+    const at = o.startUnixMs ?? o.timeUnixMs;
+    if (o.startUnixMs !== undefined ? at >= now + 1 : at > now + bucketMs)
+      continue;
+    // One time base for everything that decides a group's state (before the window or inside it,
+    // first and last, releases first seen): the span start on the server (the base that placed
+    // the occurrence in the window), the exception time in the embedded copy. The shown times
+    // (`firstSeenUnixMs`, `lastSeenUnixMs`, `recent`) stay on the exception time (D-107).
+    const stateMs = o.startUnixMs !== undefined ? at : o.timeUnixMs;
+    if (at < oldest) oldest = at;
     const pattern = o.message === undefined ? "" : normaliseMessage(o.message);
     const key = groupKeyOf(o.errorType, pattern, o.route);
     if (o.release !== undefined) {
       const seen = releaseFirstSeen.get(o.release);
-      if (seen === undefined || o.timeUnixMs < seen)
-        releaseFirstSeen.set(o.release, o.timeUnixMs);
+      if (seen === undefined || stateMs < seen)
+        releaseFirstSeen.set(o.release, stateMs);
       const e = ends.get(key);
       if (e === undefined) {
         ends.set(key, {
-          firstMs: o.timeUnixMs,
+          firstMs: stateMs,
           firstRelease: o.release,
-          lastMs: o.timeUnixMs,
+          lastMs: stateMs,
           lastRelease: o.release,
         });
       } else {
-        if (o.timeUnixMs < e.firstMs) {
-          e.firstMs = o.timeUnixMs;
+        if (stateMs < e.firstMs) {
+          e.firstMs = stateMs;
           e.firstRelease = o.release;
         }
-        if (o.timeUnixMs >= e.lastMs) {
-          e.lastMs = o.timeUnixMs;
+        if (stateMs >= e.lastMs) {
+          e.lastMs = stateMs;
           e.lastRelease = o.release;
         }
       }
     }
-    if (o.timeUnixMs < fromUnixMs) {
+    if (at < fromUnixMs) {
       const b = before.get(key);
       if (b === undefined) {
-        before.set(key, { firstMs: o.timeUnixMs, lastMs: o.timeUnixMs });
+        before.set(key, { firstMs: stateMs, lastMs: stateMs });
       } else {
-        if (o.timeUnixMs < b.firstMs) b.firstMs = o.timeUnixMs;
-        if (o.timeUnixMs > b.lastMs) b.lastMs = o.timeUnixMs;
+        if (stateMs < b.firstMs) b.firstMs = stateMs;
+        if (stateMs > b.lastMs) b.lastMs = stateMs;
       }
       continue;
     }
@@ -226,22 +247,24 @@ export function groupErrors(
         services: new Set(),
         latest: o,
         releases: new Map(),
-        firstMs: o.timeUnixMs,
+        firstMs: stateMs,
         firstRelease: o.release,
+        lastStateMs: stateMs,
       };
       groups.set(key, acc);
     }
-    if (o.timeUnixMs < acc.firstMs) {
-      acc.firstMs = o.timeUnixMs;
+    if (stateMs < acc.firstMs) {
+      acc.firstMs = stateMs;
       acc.firstRelease = o.release;
     }
+    if (stateMs > acc.lastStateMs) acc.lastStateMs = stateMs;
     if (o.release !== undefined)
       acc.releases.set(o.release, (acc.releases.get(o.release) ?? 0) + 1);
     const g = acc.group;
     g.count++;
     const index = Math.min(
       buckets - 1,
-      Math.floor((o.timeUnixMs - fromUnixMs) / bucketMs),
+      Math.floor((at - fromUnixMs) / bucketMs),
     );
     g.series[index] = (g.series[index] ?? 0) + 1;
     if (o.timeUnixMs < g.firstSeenUnixMs) g.firstSeenUnixMs = o.timeUnixMs;
@@ -269,10 +292,9 @@ export function groupErrors(
     group.exampleTraceId = latest.traceId;
     if (latest.message !== undefined) group.latestMessage = latest.message;
     const b = before.get(key);
-    group.firstEverUnixMs = Math.min(
-      b?.firstMs ?? Infinity,
-      group.firstSeenUnixMs,
-    );
+    // On the state's time base, so `firstEverUnixMs` before the window means a state other than
+    // `new` and inside it means `new` (the server: the first span start; D-107).
+    group.firstEverUnixMs = Math.min(b?.firstMs ?? Infinity, acc.firstMs);
     group.lastEverUnixMs = group.lastSeenUnixMs;
     const e = ends.get(key);
     if (e !== undefined) {
@@ -289,7 +311,7 @@ export function groupErrors(
       before: b,
       firstInWindowMs: acc.firstMs,
       firstInWindowRelease: acc.firstRelease,
-      lastMs: group.lastSeenUnixMs,
+      lastMs: acc.lastStateMs,
       toUnixMs: now,
       bucketMs,
       releaseFirstSeen,
