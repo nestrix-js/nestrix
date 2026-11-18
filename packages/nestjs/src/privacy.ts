@@ -503,3 +503,355 @@ export function scrubSpanAttributes(
     }
   }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Path segments (issue #48, D-97)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Route parameter names whose values are written as `REDACTED` in the server span's `url.path`
+ * (`http.redactPathParams` adds to them). Compared case-insensitively with the name declared in
+ * the route (`:token`). Narrower than {@link DEFAULT_REDACTED_QUERY_KEYS}: `key`, `code` and
+ * `auth` name ordinary values in paths too often (`/settings/:key`, `/countries/:code`). Lowercase.
+ */
+export const DEFAULT_REDACTED_PATH_PARAMS: readonly string[] = Object.freeze([
+  "token",
+  "access_token",
+  "refresh_token",
+  "id_token",
+  "api_key",
+  "apikey",
+  "password",
+  "passwd",
+  "secret",
+  "client_secret",
+  "signature",
+  "sig",
+  "jwt",
+  "session",
+  "sessionid",
+]);
+
+/** {@link DEFAULT_REDACTED_PATH_PARAMS} plus the user's additions, lowercased and trimmed. */
+export function buildRedactedPathParams(
+  extra?: readonly string[],
+): ReadonlySet<string> {
+  return normaliseNames(DEFAULT_REDACTED_PATH_PARAMS, extra);
+}
+
+type RouteSegment =
+  | { readonly param: false; readonly text: string }
+  | { readonly param: true; readonly names: readonly string[] };
+
+interface ParsedRoute {
+  /** Every parameter name in the route, lowercased (`:name` and `*name`). */
+  readonly names: readonly string[];
+  /**
+   * The route has syntax whose segments cannot be lined up one to one with the request path:
+   * a wildcard, an optional group, a regular-expression parameter or an optional parameter.
+   */
+  readonly complex: boolean;
+  readonly segments: readonly RouteSegment[];
+}
+
+const PARAM_NAME = /[:*]([A-Za-z_$][\w$]*)/g;
+const COMPLEX_ROUTE = /[(){}*?+]/;
+const MAX_PARSED_ROUTES = 2048;
+const parsedRoutes = new Map<string, ParsedRoute>();
+
+function namesIn(text: string): string[] {
+  const names: string[] = [];
+  for (const m of text.matchAll(PARAM_NAME)) {
+    names.push((m[1] as string).toLowerCase());
+  }
+  return names;
+}
+
+/** A path segment as routers compare it: percent-decoded (UTF-8 when well-formed), lowercased. */
+function decodeForCompare(segment: string): string {
+  if (!segment.includes("%")) return segment.toLowerCase();
+  if (!MALFORMED_ESCAPE.test(segment)) {
+    try {
+      return decodeURIComponent(segment).toLowerCase();
+    } catch {
+      // Bad UTF-8 in well-formed escapes: fall through.
+    }
+  }
+  return lenientDecode(segment).toLowerCase();
+}
+
+function parseRoute(route: string): ParsedRoute {
+  const cached = parsedRoutes.get(route);
+  if (cached !== undefined) return cached;
+  // Nest reports the declared path before its own normalisation: repeated slashes are possible.
+  let normalised = route.replace(/\/{2,}/g, "/");
+  if (normalised.length > 1 && normalised.endsWith("/")) {
+    normalised = normalised.slice(0, -1);
+  }
+  if (normalised.startsWith("/")) normalised = normalised.slice(1);
+  const segments: RouteSegment[] =
+    normalised === ""
+      ? []
+      : normalised
+          .split("/")
+          .map((text) =>
+            text.includes(":")
+              ? { param: true, names: namesIn(text) }
+              : { param: false, text: decodeForCompare(text) },
+          );
+  const parsed: ParsedRoute = {
+    names: namesIn(route),
+    complex: COMPLEX_ROUTE.test(route),
+    segments,
+  };
+  if (parsedRoutes.size >= MAX_PARSED_ROUTES) parsedRoutes.clear();
+  parsedRoutes.set(route, parsed);
+  return parsed;
+}
+
+function anyListed(
+  names: readonly string[],
+  listed: ReadonlySet<string>,
+): boolean {
+  for (const name of names) if (listed.has(name)) return true;
+  return false;
+}
+
+/** Whether `route` declares a parameter whose lowercase name is in `listed`. Never throws. */
+export function routeHasListedParam(
+  route: string | undefined,
+  listed: ReadonlySet<string>,
+): boolean {
+  if (typeof route !== "string" || listed.size === 0) return false;
+  try {
+    return anyListed(parseRoute(route).names, listed);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * The server span's `url.path` with the values of listed route parameters written as `REDACTED`
+ * (`http.redactPathParams`, D-97). `route` is the template Nest reported for the request
+ * (`/invitations/:token`); `listed` holds lowercase parameter names.
+ *
+ * - No route, or a route with no listed parameter: `path` unchanged.
+ * - The request path is lined up with the route segment by segment. A segment that holds a listed
+ *   parameter is replaced whole (`/files/:token.:ext` gives `/files/REDACTED`). Other segments,
+ *   and one trailing slash, are kept as sent.
+ * - When the two cannot be lined up exactly (a different number of segments, a static segment
+ *   that differs after percent-decoding and lowercasing, an empty segment, a wildcard, an
+ *   optional group, an optional or a regular-expression parameter in the route), the route
+ *   template itself is returned: it holds no value from the request.
+ * - Never throws; on an internal failure, the route template is returned.
+ */
+export function redactPathParams(
+  path: string,
+  route: string | undefined,
+  listed: ReadonlySet<string>,
+): string {
+  if (typeof route !== "string" || listed.size === 0) return path;
+  try {
+    const parsed = parseRoute(route);
+    if (!anyListed(parsed.names, listed)) return path;
+    if (parsed.complex || typeof path !== "string") return route;
+    let p = path;
+    let trailing = "";
+    if (p.length > 1 && p.endsWith("/")) {
+      p = p.slice(0, -1);
+      trailing = "/";
+    }
+    if (!p.startsWith("/")) return route;
+    const raw = p === "/" ? [] : p.slice(1).split("/");
+    const segments = parsed.segments;
+    if (raw.length !== segments.length) return route;
+    const out: string[] = [];
+    for (let i = 0; i < segments.length; i++) {
+      const segment = segments[i] as RouteSegment;
+      const value = raw[i] as string;
+      if (value === "") return route;
+      if (!segment.param) {
+        if (decodeForCompare(value) !== segment.text) return route;
+        out.push(value);
+      } else {
+        out.push(anyListed(segment.names, listed) ? REDACTED : value);
+      }
+    }
+    return `/${out.join("/")}${trailing}`;
+  } catch {
+    return route;
+  }
+}
+
+/** One compiled `http.redactOutgoingPath` entry. */
+export type OutgoingPathRedactor =
+  | {
+      readonly kind: "pattern";
+      /** Lowercased `scheme://host[:port]`, or `undefined` for any origin. */
+      readonly origin: string | undefined;
+      /** A string must equal the segment; `null` matches any one and keeps it; `true` any one, redacted. */
+      readonly segments: ReadonlyArray<string | null | true>;
+    }
+  | { readonly kind: "regexp"; readonly re: RegExp; readonly global: boolean };
+
+const PATTERN_ORIGIN = /^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/?#]+)(\/[^?#]*)?$/;
+
+/**
+ * Compiles `http.redactOutgoingPath` entries, or returns an error message (naming the entry's
+ * position, not its value) for an entry that is not usable, so the options are refused at startup.
+ * - A string is a path pattern, `/v1/invitations/:token`, optionally preceded by an origin,
+ *   `https://api.example.com/v1/invitations/:token` (scheme, host and port compared
+ *   case-insensitively with the recorded `url.full`). Segments are compared exactly; `:name`
+ *   matches any one non-empty segment and redacts it; `*` matches any one and keeps it. The
+ *   pattern matches the start of the path in whole segments, so it also covers
+ *   `/v1/invitations/abc/accept`. It must hold at least one `:name` segment.
+ * - A `RegExp` is run on the path (from the first `/` after the host, up to `?`). Each capture
+ *   group's text is replaced by `REDACTED`, or the whole match when no group took part; with the
+ *   `g` flag every match is, without it the first.
+ */
+export function compileOutgoingPathRedactors(
+  entries: readonly unknown[],
+): OutgoingPathRedactor[] | { error: string } {
+  const out: OutgoingPathRedactor[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const where = `http.redactOutgoingPath[${i}]`;
+    if (entry instanceof RegExp) {
+      let flags = entry.flags;
+      if (!flags.includes("d")) flags += "d";
+      if (!flags.includes("g")) flags += "g";
+      out.push({
+        kind: "regexp",
+        re: new RegExp(entry.source, flags),
+        global: entry.flags.includes("g"),
+      });
+      continue;
+    }
+    if (typeof entry !== "string") {
+      return { error: `${where} must be a string or a RegExp` };
+    }
+    let origin: string | undefined;
+    let path = entry;
+    if (!entry.startsWith("/")) {
+      const m = PATTERN_ORIGIN.exec(entry);
+      if (m === null) {
+        return {
+          error: `${where} must start with "/" or with an absolute URL's origin`,
+        };
+      }
+      origin = (m[1] as string).toLowerCase();
+      path = m[2] ?? "/";
+    }
+    if (path.includes("?") || path.includes("#")) {
+      return { error: `${where} must not hold a query or a fragment` };
+    }
+    const parts = path.split("/").slice(1);
+    if (parts.length > 0 && parts[parts.length - 1] === "") parts.pop();
+    const segments = parts.map((s): string | null | true =>
+      s === "*" ? null : s.startsWith(":") ? true : s,
+    );
+    if (!segments.includes(true)) {
+      return { error: `${where} must hold at least one ":name" segment` };
+    }
+    out.push({ kind: "pattern", origin, segments: Object.freeze(segments) });
+  }
+  return out;
+}
+
+const URL_ORIGIN = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/?#]*/;
+
+function redactByPattern(
+  path: string,
+  segments: ReadonlyArray<string | null | true>,
+): string {
+  const raw = path.split("/");
+  // raw[0] is "" (the path starts with "/").
+  if (raw.length - 1 < segments.length) return path;
+  for (let i = 0; i < segments.length; i++) {
+    const want = segments[i];
+    const value = raw[i + 1] as string;
+    if (value === "") return path;
+    if (typeof want === "string" && want !== value) return path;
+  }
+  for (let i = 0; i < segments.length; i++) {
+    if (segments[i] === true) raw[i + 1] = REDACTED;
+  }
+  return raw.join("/");
+}
+
+function redactByRegExp(path: string, re: RegExp, global: boolean): string {
+  // Ranges to replace; `re` always carries `d` (group indices) and `g` (lastIndex is honoured).
+  const ranges: Array<[number, number]> = [];
+  re.lastIndex = 0;
+  for (;;) {
+    const m = re.exec(path);
+    if (m === null) break;
+    let groups = 0;
+    const indices = m.indices;
+    if (indices !== undefined) {
+      for (let g = 1; g < indices.length; g++) {
+        const r = indices[g];
+        if (r === undefined) continue;
+        groups++;
+        if (r[1] > r[0]) ranges.push([r[0], r[1]]);
+      }
+    }
+    if (groups === 0 && m[0].length > 0) {
+      ranges.push([m.index, m.index + m[0].length]);
+    }
+    if (!global) break;
+    if (m[0].length === 0) re.lastIndex++;
+  }
+  re.lastIndex = 0;
+  if (ranges.length === 0) return path;
+  ranges.sort((a, b) => a[0] - b[0]);
+  let out = "";
+  let at = 0;
+  for (const [start, end] of ranges) {
+    if (end <= at) continue; // nested in a range already replaced
+    out += path.slice(at, Math.max(start, at)) + REDACTED;
+    at = end;
+  }
+  return out + path.slice(at);
+}
+
+/**
+ * Applies the `http.redactOutgoingPath` redactors to a recorded `url.full` (scheme, host, path,
+ * already-redacted query). Only the path changes; origin and query are kept. Never throws: when
+ * a redactor fails, the whole path becomes `/REDACTED` (fail closed) and `onError` is told.
+ */
+export function redactOutgoingPath(
+  full: string,
+  redactors: readonly OutgoingPathRedactor[],
+  onError?: (error: unknown) => void,
+): string {
+  if (redactors.length === 0 || typeof full !== "string") return full;
+  let origin = "";
+  let query = "";
+  try {
+    const originMatch = URL_ORIGIN.exec(full);
+    origin = originMatch === null ? "" : originMatch[0];
+    const afterOrigin = full.slice(origin.length);
+    const q = afterOrigin.indexOf("?");
+    query = q === -1 ? "" : afterOrigin.slice(q);
+    let path = q === -1 ? afterOrigin : afterOrigin.slice(0, q);
+    if (!path.startsWith("/")) return full;
+    const lowerOrigin = origin.toLowerCase();
+    for (const r of redactors) {
+      if (r.kind === "pattern") {
+        if (r.origin !== undefined && r.origin !== lowerOrigin) continue;
+        path = redactByPattern(path, r.segments);
+      } else {
+        path = redactByRegExp(path, r.re, r.global);
+      }
+    }
+    return `${origin}${path}${query}`;
+  } catch (error) {
+    try {
+      onError?.(error);
+    } catch {
+      // The caller's counter failed; the URL is still redacted.
+    }
+    return `${origin}/${REDACTED}${query}`;
+  }
+}

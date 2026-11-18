@@ -426,6 +426,9 @@ import { NestrixModule } from "@nestrix-js/nestjs";
         requestHeaders: ["x-correlation-id"],
         responseHeaders: ["cache-control"],
         redactQueryKeys: ["ticket"],
+        recordPath: "raw",
+        redactPathParams: ["inviteCode"],
+        redactOutgoingPath: ["https://api.example.com/v1/invitations/:token"],
       },
       redact: () => undefined,
     }),
@@ -451,7 +454,7 @@ That sample sets most options to their defaults, except where a default is "unse
 | `integrations` | see below | Database and cache spans. See [`integrations`](#integrations). |
 | `export` | see below | Export settings. |
 | `ignore` | none | Requests that get no span. |
-| `http` | none | Extra allowlisted headers and redacted query keys. |
+| `http` | none | Extra allowlisted headers, redacted query keys and route parameters, and what `url.path` records. |
 | `redact` | none | A synchronous hook that sees every exported span and every span the dashboard stores. |
 | `ui` | `'auto'` | The embedded dashboard: `false`, `'auto'` or an object. See [Dashboard](#dashboard) and [`ui`](#ui). |
 | `store` | see below | Limits of the dashboard's in-memory store. See [`store`](#store). |
@@ -512,7 +515,7 @@ All three must be positive integers.
 | Option | Default | |
 |---|---|---|
 | `ignore.paths` | none | Incoming requests that get no server span. Matched against the request path without the query string. A string must equal the path exactly: `"/health"` does not match `"/health/live"`. |
-| `ignore.outgoing` | none | Outgoing requests that get no client span and no `traceparent` header. Matched against the recorded `url.full` (credentials removed, listed query values already `REDACTED`). A string is a **prefix**, for example `"https://o123.ingest.sentry.io/"`. |
+| `ignore.outgoing` | none | Outgoing requests that get no client span and no `traceparent` header. Matched against the recorded `url.full` (credentials removed, listed query values already `REDACTED`; the path as sent, before `http.redactOutgoingPath`). A string is a **prefix**, for example `"https://o123.ingest.sentry.io/"`. |
 
 A matcher is a string, a `RegExp` or a function. In `ignore.paths` a `RegExp` is applied with `search`, so the `g` flag and `lastIndex` do not matter. In `ignore.outgoing` its `lastIndex` is reset to 0 and `test` is called. A function receives the path or URL and must return `true` to match. A matcher that throws counts as a match, and the failure is counted. Counts are internal for now: there is no public accessor, and drops because the queue is full are counted but not logged.
 
@@ -541,13 +544,16 @@ An ignored request gets no Nestrix span, but other tools' spans inside it are no
 
 ### `http`
 
-These add to the privacy defaults below; they never replace them.
+The lists add to the privacy defaults below; they never replace them.
 
 | Option | Default | |
 |---|---|---|
 | `http.requestHeaders` | none | Extra request headers recorded as `http.request.header.<name>`. |
 | `http.responseHeaders` | none | Extra response headers recorded as `http.response.header.<name>`. |
 | `http.redactQueryKeys` | none | Extra query-string keys whose values are replaced by `REDACTED`. |
+| `http.recordPath` | `'raw'` | What the server span records as `url.path`. `'raw'`: the path as sent, with the values of `http.redactPathParams` written as `REDACTED`. `'template'`: the matched route template (`/invitations/:token`, the same value as `http.route`); a request that matched no route (a 404) records no `url.path`. `ignore.paths` always matches the raw path. |
+| `http.redactPathParams` | none | Extra route parameter names (`token` for `/invitations/:token`) whose values are written as `REDACTED` in `url.path`, case-insensitive. Added to the default list (see Privacy). |
+| `http.redactOutgoingPath` | none | Path patterns whose `:name` segments are written as `REDACTED` in an outgoing request's `url.full`: `'/v1/invitations/:token'`, or with an origin, `'https://api.example.com/v1/invitations/:token'`. `*` matches any one segment; other segments must be equal; a pattern matches the start of the path. A `RegExp` runs on the path, and each capture group (or the whole match) becomes `REDACTED`. |
 
 ### `redact`
 
@@ -1212,9 +1218,10 @@ By default Nestrix records no request or response bodies, no query bind paramete
 - **Response headers recorded:** `content-type`, `content-length`.
 - **Always `REDACTED`, even if you list them:** `authorization`, `proxy-authorization`, `cookie`, `set-cookie`.
 - **Query values replaced by `REDACTED`** for these keys, case-insensitive: `AWSAccessKeyId`, `Signature`, `sig`, `X-Goog-Signature`, `token`, `access_token`, `refresh_token`, `id_token`, `api_key`, `apikey`, `key`, `password`, `passwd`, `secret`, `client_secret`, `code`, `session`, `sessionid`, `jwt`, `auth`, `authorization`.
-- `url.full` on outgoing requests has credentials removed and the same query keys redacted.
+- **Route parameter values replaced by `REDACTED`** in the server span's `url.path` for parameters with these names, case-insensitive: `token`, `access_token`, `refresh_token`, `id_token`, `api_key`, `apikey`, `password`, `passwd`, `secret`, `client_secret`, `signature`, `sig`, `jwt`, `session`, `sessionid`. A request to `/invitations/abc123` on the route `/invitations/:token` records `url.path` `/invitations/REDACTED`. The route is known only once the response closes, so the raw path is replaced then: what your exporters receive is redacted, but a sampler or span processor of your own SDK sees the raw path at span start. With `http.recordPath: 'template'`, `url.path` is the route template instead (and is not set at span start). When the request path and its route cannot be lined up segment by segment (a wildcard, an optional or regular-expression parameter), the template is recorded.
+- `url.full` on outgoing requests has credentials removed and the same query keys redacted. Path segments of outgoing URLs are kept unless `http.redactOutgoingPath` covers them.
 
-`http.requestHeaders`, `http.responseHeaders` and `http.redactQueryKeys` add to these lists.
+`http.requestHeaders`, `http.responseHeaders`, `http.redactQueryKeys` and `http.redactPathParams` add to these lists.
 
 Key-based redaction cannot clean free text. Exception messages and status messages are stored as they are. Use `redact` for those.
 

@@ -22,7 +22,14 @@ describe("resolveOptions defaults", () => {
         profiler: false,
       },
       ignore: { paths: [], outgoing: [] },
-      http: { requestHeaders: [], responseHeaders: [], redactQueryKeys: [] },
+      http: {
+        requestHeaders: [],
+        responseHeaders: [],
+        redactQueryKeys: [],
+        recordPath: "raw",
+        redactPathParams: [],
+        redactOutgoingPath: [],
+      },
       redact: undefined,
       ui: {
         mode: "auto",

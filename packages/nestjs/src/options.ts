@@ -106,6 +106,32 @@ export interface NestrixHttpOptions {
   responseHeaders?: string[];
   /** Extra query-string keys whose values are replaced by `REDACTED`. Added to the default list. */
   redactQueryKeys?: string[];
+  /**
+   * What the server span records as `url.path` (D-97). `'raw'` (default): the path as sent, with
+   * the values of `redactPathParams` written as `REDACTED`. `'template'`: the matched route
+   * template (`/invitations/:token`, the same value as `http.route`); a request that matched no
+   * route (a 404) records no `url.path`, and a sampler or `onStart` sees none either, since the
+   * route is known only once the request is routed. `ignore.paths` always matches the raw path.
+   */
+  recordPath?: "raw" | "template";
+  /**
+   * Extra route parameter names (`token` for `/invitations/:token`) whose values are written as
+   * `REDACTED` in the server span's `url.path`, compared case-insensitively. Added to the default
+   * list (`token`, `password`, `secret`, `jwt`, `session`, ...; README "Privacy"). Applied when the
+   * response closes, using the route Nest matched, so a request that matched no route keeps its
+   * raw path.
+   */
+  redactPathParams?: string[];
+  /**
+   * Path patterns for outgoing requests whose matching segments are written as `REDACTED` in the
+   * client span's `url.full` (D-97). A string is a path, optionally after an origin:
+   * `'/v1/invitations/:token'` or `'https://api.example.com/v1/invitations/:token'`; `:name`
+   * segments are redacted, `*` matches any one segment, other segments must be equal, and the
+   * pattern matches the start of the path in whole segments. A `RegExp` runs on the path; each
+   * capture group's text (or the whole match, with no group) becomes `REDACTED`, every match with
+   * `g`. `ignore.outgoing` still sees the path as sent. Default: none.
+   */
+  redactOutgoingPath?: (string | RegExp)[];
 }
 
 /** Built-in token authentication for the dashboard (architecture §4.7). Compared in constant time. */
