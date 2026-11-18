@@ -2,6 +2,7 @@ import {
   type SecretDigests,
   secretDigests,
 } from "./dashboard/startup-token.js";
+import { isDisabledByEnv } from "./kill-switch.js";
 import {
   DEFAULT_METHODS,
   DISABLED_METHODS,
@@ -256,11 +257,7 @@ const DEFAULT_TIMEOUT_MILLIS = 10_000;
 const TRACES_PATH = "/v1/traces";
 const LOGS_PATH = "/v1/logs";
 
-/** Whether `NESTRIX_ENABLED` switches Nestrix off. `false` and `0`, any case, do. */
-export function isDisabledByEnv(env: Environment): boolean {
-  const value = env.NESTRIX_ENABLED?.trim().toLowerCase();
-  return value === "false" || value === "0";
-}
+export { isDisabledByEnv };
 
 function invalid(message: string): never {
   throw new Error(`Invalid Nestrix options: ${message}`);

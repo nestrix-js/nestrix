@@ -111,7 +111,7 @@ class SettingsModule {}
 export class AppModule {}
 ```
 
-With `forRootAsync`, an `enabled: false` returned from the factory disables Nestrix, but the module's providers are still registered and are inert (they record, export and serve nothing). With `forRoot`, `enabled: false` registers nothing at all.
+With `forRootAsync`, an `enabled: false` returned from the factory disables Nestrix, but the module's providers are still registered and are inert (they record, export and serve nothing, and the OpenTelemetry SDK, the exporters and the dashboard code are never loaded). With `forRoot`, `enabled: false` registers nothing at all. If you also pass `NestrixInstrument`, see [When Nestrix is switched off](#method-spans-level-2) for switching method wrappers from configuration with `nestrixInstrumentIf`.
 
 ### A host that already runs an OpenTelemetry SDK
 
@@ -391,7 +391,7 @@ Redaction runs shortly after the span ends, not in the request, so a span waits 
 
 Every option is optional. `NestrixModule.forRoot(options?)` and the object `forRootAsync`'s factory returns take the same shape. Invalid values (for example a `sampleRate` outside 0 to 1, or a non-positive queue size) throw. With `forRoot`, that happens when `forRoot()` is called, which is when your module file loads, and also with `enabled: false`. With `forRootAsync`, it happens when the factory's result is resolved during `NestFactory.create`. `export.otlp.timeoutMillis` is validated only when an endpoint resolves.
 
-The package exports these types: `NestrixModuleOptions`, `NestrixModuleAsyncOptions`, `NestrixExportOptions`, `NestrixOtlpOptions`, `NestrixQueueOptions`, `NestrixIgnoreOptions`, `NestrixHttpOptions`, `RedactHook`, `RedactableSpan`, `UrlMatcher`, `TraceIds`, `NestrixLogRecord`, `NestrixUiOptions`, `NestrixUiTokenAuth`, `NestrixUiCustomAuth`, `NestrixStoreOptions`, `NestrixMetricsOptions`, `NestrixLogsOptions`, `NestrixMethodsOptions`, `NestrixIntegrationsOptions`, `NestrixEnhancerKind`, `ClassMatcher` and `NestInstrument`. The package also exports `NestrixModule`, `NestrixLogger`, `emitLog`, `getTraceIds`, `Span`, `withSpan`, `nestrixSpanProcessor`, `NestrixInstrument`, `composeInstrument`, `nestrixPreRequestHook` and `instrumentClient`. `SpanOptions` is not re-exported: import it from `@opentelemetry/api`.
+The package exports these types: `NestrixModuleOptions`, `NestrixModuleAsyncOptions`, `NestrixExportOptions`, `NestrixOtlpOptions`, `NestrixQueueOptions`, `NestrixIgnoreOptions`, `NestrixHttpOptions`, `RedactHook`, `RedactableSpan`, `UrlMatcher`, `TraceIds`, `NestrixLogRecord`, `NestrixUiOptions`, `NestrixUiTokenAuth`, `NestrixUiCustomAuth`, `NestrixStoreOptions`, `NestrixMetricsOptions`, `NestrixLogsOptions`, `NestrixMethodsOptions`, `NestrixIntegrationsOptions`, `NestrixEnhancerKind`, `ClassMatcher` and `NestInstrument`. The package also exports `NestrixModule`, `NestrixLogger`, `emitLog`, `getTraceIds`, `Span`, `withSpan`, `nestrixSpanProcessor`, `NestrixInstrument`, `nestrixInstrumentIf`, `composeInstrument`, `nestrixPreRequestHook` and `instrumentClient`. `SpanOptions` is not re-exported: import it from `@opentelemetry/api`.
 
 <!-- sample: all-options -->
 
@@ -590,7 +590,7 @@ Ignored while the dashboard is off. See [Memory and the `store` option](#memory-
 
 | Variable | Effect |
 |---|---|
-| `NESTRIX_ENABLED` | `false` or `0` (any case) registers nothing at all. |
+| `NESTRIX_ENABLED` | `false` or `0` (any case) registers nothing at all, and `NestrixInstrument` leaves instances untouched. Importing the package then loads neither the OpenTelemetry SDK nor the exporters nor the dashboard code: they are loaded with `import()` while Nest builds an app that has Nestrix on. |
 | `OTEL_SERVICE_NAME` | Default for `serviceName`. |
 | `OTEL_RESOURCE_ATTRIBUTES` | `key=value,key2=value2`, merged into the resource; `resourceAttributes` wins. |
 | `GIT_SHA` | The release (`service.version`) when no option or `OTEL_RESOURCE_ATTRIBUTES` sets one. |
@@ -665,6 +665,26 @@ declare const otherTool: { instanceDecorator: (instance: unknown) => unknown };
 export async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, {
     instrument: composeInstrument(NestrixInstrument, otherTool),
+  });
+  await app.listen(3000);
+}
+```
+
+**When Nestrix is switched off.** With `NESTRIX_ENABLED=false`, or when every `NestrixModule` in the process is a `forRoot({ enabled: false })`, `NestrixInstrument` leaves every instance exactly as Nest created it: no wrappers, no own properties. Nest decorates most instances before an async factory has run, so an `enabled: false` returned from `forRootAsync` cannot do the same: the instances keep switched-off wrappers (each call costs about 30 ns more). To switch from configuration, decide before `NestFactory.create` and pass the instrument only when tracing is on, with `nestrixInstrumentIf`:
+
+<!-- sample: instrument-if -->
+
+```ts
+import { NestFactory } from "@nestjs/core";
+import { nestrixInstrumentIf } from "@nestrix-js/nestjs";
+import { AppModule } from "./app.module";
+
+export async function bootstrap(): Promise<void> {
+  // Read before Nest builds the app: the same setting your forRootAsync factory uses.
+  const tracing = process.env.TRACING !== "off";
+  const app = await NestFactory.create(AppModule, {
+    // `NestrixInstrument` when true; `undefined` (no instrument at all) when false.
+    instrument: nestrixInstrumentIf(tracing),
   });
   await app.listen(3000);
 }

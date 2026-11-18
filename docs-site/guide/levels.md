@@ -33,6 +33,19 @@ await app.listen(3000);
 
 Nest accepts one `instrument` object. To combine with another tool, use `composeInstrument(NestrixInstrument, otherTool)`.
 
+With `NESTRIX_ENABLED=false`, or when every `NestrixModule` in the process is `forRoot({ enabled: false })`, `NestrixInstrument` leaves every instance as Nest created it. An `enabled: false` from `forRootAsync` is known only after Nest has decorated most instances, which then keep switched-off wrappers (about 30 ns per call). To switch method spans from configuration, decide before `NestFactory.create` and use `nestrixInstrumentIf`, which returns `NestrixInstrument` when its argument is true and `undefined` otherwise:
+
+```ts
+import { NestFactory } from "@nestjs/core";
+import { nestrixInstrumentIf } from "@nestrix-js/nestjs";
+import { AppModule } from "./app.module";
+
+const tracing = process.env.TRACING !== "off";
+const app = await NestFactory.create(AppModule, {
+  instrument: nestrixInstrumentIf(tracing),
+});
+```
+
 A method span is named `Class.method` and carries `nestrix.class`, `nestrix.method` and `nestrix.component` (`controller`, `service`, `repository`, `processor`, `guard`, `pipe`, `interceptor`, `filter` or `provider`). Spans nest under the request's server span: controller, then service, then repository, then the database span.
 
 **What is traced by default.** The controllers, services, repositories and queue processors that your application's modules list. Nestrix reads the static `@Module()` metadata from the root module, following `imports` that are module classes.
