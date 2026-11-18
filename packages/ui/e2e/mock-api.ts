@@ -3,6 +3,8 @@
 // overlapping polls, a new epoch (`reset`), failures and delays. Not the P2-03 store.
 
 import type {
+  AlertEvent,
+  AlertRule,
   ApiToken,
   AppMapResponse,
   ClassStatsResponse,
@@ -232,6 +234,19 @@ export class MockApi {
   sloRefusal: string | null = null;
   /** Write requests to `slos` seen: method, path after `slos`, parsed body. */
   sloWrites: { method: string; id: string | null; body: unknown }[] = [];
+  /** The standalone server's alert rules and their deliveries (`alerts` endpoint). */
+  alerts: AlertRule[] = [];
+  alertEvents: AlertEvent[] = [];
+  /** When set, creates and updates of `alerts` answer 400 with this message. */
+  alertRefusal: string | null = null;
+  /** Write requests to `alerts` seen: method, path after `alerts`, parsed body. */
+  alertWrites: { method: string; path: string; body: unknown }[] = [];
+  /** What a test notification's delivery ends as. */
+  testDelivery: Pick<AlertEvent, "delivery" | "responseStatus" | "error"> = {
+    delivery: "sent",
+    responseStatus: 200,
+    error: null,
+  };
   /** The standalone server's API tokens (`tokens` endpoint), newest first. */
   tokens: ApiToken[] = [];
   /** Write requests to `tokens` seen: method, id, parsed body. */
@@ -313,6 +328,11 @@ export class MockApi {
     this.slos = [];
     this.sloRefusal = null;
     this.sloWrites = [];
+    this.alerts = [];
+    this.alertEvents = [];
+    this.alertWrites = [];
+    this.alertRefusal = null;
+    this.testDelivery = { delivery: "sent", responseStatus: 200, error: null };
     this.runtimeAvailable = true;
     this.runtimeSamples = [];
     this.tokens = [];
@@ -589,6 +609,111 @@ export class MockApi {
         : {}),
     };
     this.slos[at] = updated;
+    return { status: 200, body: updated };
+  }
+
+  /**
+   * `alerts`, `alerts/<id>`, `alerts/<id>/test` and `alerts/events?rule=`. A create answers the
+   * fixed secret once, as the server does; the list never carries it.
+   */
+  handleAlerts(
+    method: string,
+    rest: string,
+    query: URLSearchParams,
+    body: unknown,
+  ): { status: number; body: unknown } {
+    this.requests.push(rest === "" ? "alerts" : `alerts/${rest}`);
+    if (this.unauthorized)
+      return {
+        status: 401,
+        body: { error: { code: "unauthorized", message: "Sign in" } },
+      };
+    if (method === "GET" && rest === "")
+      return { status: 200, body: { rules: this.alerts } };
+    if (method === "GET" && rest === "events") {
+      const rule = query.get("rule");
+      return {
+        status: 200,
+        body: {
+          events: this.alertEvents.filter(
+            (e) => rule === null || e.ruleId === rule,
+          ),
+        },
+      };
+    }
+    this.alertWrites.push({ method, path: rest, body });
+    const input = (body ?? {}) as Record<string, unknown>;
+    const refused = (message: string) => ({
+      status: 400,
+      body: { error: { code: "bad_request", message } },
+    });
+    if (method === "POST" && rest === "") {
+      if (this.alertRefusal !== null) return refused(this.alertRefusal);
+      const rule: AlertRule = {
+        id: String(this.alerts.length + 100),
+        name: String(input.name),
+        service: String(input.service ?? "from-slo"),
+        route: (input.route as string | null | undefined) ?? null,
+        metric: input.metric as AlertRule["metric"],
+        sloId: (input.sloId as string | undefined) ?? null,
+        comparator: ">",
+        threshold: Number(input.threshold),
+        windowMinutes: Number(input.windowMinutes),
+        forMinutes: Number(input.forMinutes),
+        minRequests: Number(input.minRequests),
+        webhookUrl: String(input.webhookUrl),
+        enabled: input.enabled !== false,
+        createdAtUnixMs: 0,
+        updatedAtUnixMs: 0,
+        state: {
+          state: "ok",
+          sinceUnixMs: null,
+          lastValue: null,
+          lastEvaluatedAtUnixMs: null,
+          lastNotifiedAtUnixMs: null,
+        },
+      };
+      this.alerts.push(rule);
+      return {
+        status: 201,
+        body: { rule, secret: "whsec_mock-signing-secret" },
+      };
+    }
+    const [id, action] = rest.split("/");
+    const at = this.alerts.findIndex((r) => r.id === id);
+    const found = this.alerts[at];
+    if (found === undefined)
+      return {
+        status: 404,
+        body: { error: { code: "not_found", message: "No such alert rule." } },
+      };
+    if (method === "POST" && action === "test") {
+      const event: AlertEvent = {
+        id: String(this.alertEvents.length + 500),
+        ruleId: found.id,
+        atUnixMs: Date.now(),
+        kind: "test",
+        value: null,
+        threshold: found.threshold,
+        attempts: 1,
+        ...this.testDelivery,
+      };
+      this.alertEvents.unshift(event);
+      return { status: 200, body: { event } };
+    }
+    if (method === "DELETE") {
+      this.alerts.splice(at, 1);
+      return { status: 204, body: undefined };
+    }
+    if (this.alertRefusal !== null) return refused(this.alertRefusal);
+    const updated: AlertRule = {
+      ...found,
+      ...(input.name !== undefined ? { name: String(input.name) } : {}),
+      ...(input.threshold !== undefined
+        ? { threshold: Number(input.threshold) }
+        : {}),
+    };
+    this.alerts[at] = updated;
     return { status: 200, body: updated };
   }
 

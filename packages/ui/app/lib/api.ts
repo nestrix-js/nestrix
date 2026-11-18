@@ -1,4 +1,11 @@
 import type {
+  AlertEventListResponse,
+  AlertRule,
+  AlertRuleCreate,
+  AlertRuleCreateResponse,
+  AlertRuleListResponse,
+  AlertRuleUpdate,
+  AlertTestResponse,
   ApiError,
   ApiTokenCreate,
   ApiTokenCreateResponse,
@@ -241,3 +248,25 @@ export const createToken = (name: string) =>
   } satisfies ApiTokenCreate);
 export const revokeToken = (id: string) =>
   requestJson<undefined>("DELETE", `tokens/${encodeURIComponent(id)}`);
+
+// Alert rules: the standalone server only (`/api/v1/alerts`, admin session, same-origin writes).
+export const getAlerts = () => getJson<AlertRuleListResponse>("alerts");
+export const createAlert = (body: AlertRuleCreate) =>
+  requestJson<AlertRuleCreateResponse>("POST", "alerts", undefined, body);
+export const updateAlert = (id: string, body: AlertRuleUpdate) =>
+  requestJson<AlertRule>(
+    "PATCH",
+    `alerts/${encodeURIComponent(id)}`,
+    undefined,
+    body,
+  );
+export const deleteAlert = (id: string) =>
+  requestJson<undefined>("DELETE", `alerts/${encodeURIComponent(id)}`);
+/** Sends one clearly marked `test` notification through the real delivery path. */
+export const testAlert = (id: string) =>
+  requestJson<AlertTestResponse>(
+    "POST",
+    `alerts/${encodeURIComponent(id)}/test`,
+  );
+export const getAlertEvents = (rule: string, limit = 20) =>
+  getJson<AlertEventListResponse>("alerts/events", { rule, limit });

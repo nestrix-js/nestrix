@@ -10,6 +10,7 @@ import {
 import { AppShell } from "@/components/app-shell";
 import { NuqsHashAdapter } from "@/lib/nuqs-hash-adapter";
 import { isRequestListLink } from "@/lib/params";
+import { AlertsPage } from "@/views/alerts/alerts-page";
 import { ClassesPage } from "@/views/classes/classes-page";
 import { DependenciesPage } from "@/views/dependencies/dependencies-page";
 import { ErrorsPage } from "@/views/errors/errors-page";
@@ -106,6 +107,11 @@ const slosRoute = createRoute({
   path: "/slos",
   component: SlosPage,
 });
+const alertsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/alerts",
+  component: AlertsPage,
+});
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
@@ -133,6 +139,7 @@ export const router = createRouter({
     profilerRoute,
     runtimeRoute,
     slosRoute,
+    alertsRoute,
     settingsRoute,
     traceRoute,
   ]),

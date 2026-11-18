@@ -258,7 +258,7 @@ One job that fans out can put millions of spans in a single trace. The server st
 
 ## Alerting
 
-Alert rules are managed through the API (`/api/v1/alerts`, admin session required); the dashboard has no alerts page yet. A rule watches one service, optionally one route, over a window of 5 to 60 minutes:
+Alert rules are managed on the dashboard's **Alerts** page or through the API (`/api/v1/alerts`, admin session required). The page lists each rule with its service and route, metric, threshold, window, pending duration, minimum requests and state (firing, pending, resolved, no data, disabled); creates, edits and deletes rules (a burn-rate rule picks its SLO from a list); sends a test notification; and shows each rule's delivery history (status, HTTP status, error category, time, never a secret). The signing secret of a new rule is shown once, when it is created; the list shows only the origin of a webhook URL, because the path of such a URL is often a secret. A rule watches one service, optionally one route, over a window of 5 to 60 minutes:
 
 - `metric`: `error_rate` (a fraction; 0.05 is 5%), `p95_ms`, or `slo_burn_rate` (give `sloId`; the rule takes its service and route from that [SLO](#slos) and fires when the SLO's burn rate over the rule's window is above `threshold`), compared with `>` to a `threshold`.
 - `forMinutes` (0 to 60, default 2): how long the condition must hold before the alert fires.
@@ -274,7 +274,9 @@ curl -X POST https://nestrix.example.com/api/v1/alerts \
   -d '{"name":"checkout errors","service":"checkout","metric":"error_rate","threshold":0.05,"windowMinutes":5,"webhookUrl":"https://hooks.example.com/nestrix"}'
 ```
 
-The response includes the signing `secret` (`whsec_…`) **once**; store it. `POST /api/v1/alerts/:id/test` sends a test notification, and `GET /api/v1/alerts/events` lists deliveries.
+The response includes the signing `secret` (`whsec_…`) **once**; store it. `POST /api/v1/alerts/:id/test` sends a test notification (state `test`, one attempt, same signature and destination checks, recorded in the history), and `GET /api/v1/alerts/events` lists deliveries.
+
+**No data and sampling.** A rule's value comes from the per-minute route rollups, counted from the stored spans, so it reflects the sampling of the services that send them. A window with fewer than `minRequests` requests is no data: the state does not change, and the page says so beside the rules.
 
 **Webhooks.** The server sends a `POST` with a JSON body (state `firing`, `resolved` or `test`, the rule, value, threshold, service, route, times and a dashboard `url` when `NESTRIX_PUBLIC_URL` is set) and two headers: `x-nestrix-timestamp` (Unix seconds) and `x-nestrix-signature: sha256=<hex>`, the HMAC-SHA256 of `<timestamp>.<raw body>` with the rule's secret. Each attempt has a 5 s limit; up to 3 attempts, retried on network errors, timeouts, 408, 429 and 5xx; redirects are never followed. Delivery is at most once across a server crash. Every notification has an `eventId` (also the `x-nestrix-delivery` header), the same on every retry of that notification. A receiver should:
 
