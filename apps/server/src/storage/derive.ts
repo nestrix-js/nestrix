@@ -253,12 +253,12 @@ function stringAttr(a: IngestAttributes, key: string): string | null {
 
 /** The keep probability Nestrix writes on each local root it exports (issue #30, D-100). */
 export const ATTR_SAMPLING_PROBABILITY = "nestrix.sampling.probability";
-/** Smallest probability honoured: a weight above 1,000,000 per span is not credible. */
-const MIN_SAMPLING_PROBABILITY = 1e-6;
+/** Smallest probability honoured: a weight above 1,000 per span is not credible, and the int columns hold ~2.1 billion (D-100). */
+const MIN_SAMPLING_PROBABILITY = 1e-3;
 
 /**
  * How many requests one stored server span stands for in the route rollup: `1 / p` for a span
- * that carries a numeric `nestrix.sampling.probability` p in (0, 1] (clamped at 1e-6), else 1.
+ * that carries a numeric `nestrix.sampling.probability` p in (0, 1] (clamped at 1e-3), else 1.
  * A span from a host-owned sampler, from another SDK, or with a remote parent carries none: its
  * rate is unknown here and it counts once, as before.
  */

@@ -33,8 +33,8 @@ describe("samplingWeightOf and wholeWeight", () => {
       ).toBe(1);
     }
     expect(samplingWeightOf({})).toBe(1);
-    // Clamped: one span never stands for more than a million requests.
-    expect(samplingWeightOf({ [ATTR_SAMPLING_PROBABILITY]: 1e-12 })).toBe(1e6);
+    // Clamped: one span never stands for more than a thousand requests.
+    expect(samplingWeightOf({ [ATTR_SAMPLING_PROBABILITY]: 1e-12 })).toBe(1000);
   });
 
   it("rounds a weight to a whole number without bias", () => {
@@ -191,6 +191,32 @@ describe.skipIf(noDatabase)(`weighted route rollup ${skipReason}`, () => {
     expect(
       await METRICS.error_rate(db.pool, { ...rule, environment: null }, now),
     ).toBeCloseTo(2 / 22);
+  });
+
+  it("saturates the int columns instead of failing the insert when weighted counts overflow", async () => {
+    const sink = new PostgresIngestSink(db.pool, partitions);
+    const service = `overflow-${hex(3)}`;
+    const minute = Math.floor(now / 60_000) * 60_000 - 60_000;
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) => server(minute + i, 1e-12, 503));
+    await sink.write(batch(service, many(3)));
+    // A route-minute already near the int4 limit (a very busy, heavily sampled route).
+    await db.pool.query(
+      `UPDATE route_minutes
+          SET count = 2147483000, errors = 2147483000,
+              hist = ARRAY(SELECT 2147483000 FROM unnest(hist))
+        WHERE service_name = $1`,
+      [service],
+    );
+    await sink.write(batch(service, many(3)));
+    const { rows } = await db.pool.query(
+      "SELECT count, errors, hist FROM route_minutes WHERE service_name = $1",
+      [service],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].count).toBe(2_147_483_647);
+    expect(rows[0].errors).toBe(2_147_483_647);
+    expect(Math.max(...(rows[0].hist as number[]))).toBe(2_147_483_647);
   });
 
   it("class rollups are not weighted", async () => {

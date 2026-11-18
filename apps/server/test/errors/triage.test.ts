@@ -622,7 +622,7 @@ describe.skipIf(noDatabase)(`error triage ${skipReason}`, () => {
     for (const bad of [
       { key: "not json" },
       { key: JSON.stringify(["Error", "x"]) },
-      { key: JSON.stringify(["Error", "x", null]) + " " },
+      { key: `${JSON.stringify(["Error", "x", null])} ` },
       { key, extra: 1 },
       { key, service: "" },
     ]) {

@@ -169,6 +169,13 @@ export function wholeWeight(
   return fraction > 0 && random() < fraction ? whole + 1 : whole;
 }
 
+const INT4_MAX = 2_147_483_647;
+
+/** SQL: element-wise histogram sum that saturates at 2^31-1 (nestrix_hist_add wraps to an overflow error). */
+const saturatingHistAdd = (a: string, b: string) =>
+  `ARRAY(SELECT LEAST(coalesce(x, 0)::bigint + coalesce(y, 0), ${INT4_MAX})::int
+           FROM unnest(${a}, ${b}) WITH ORDINALITY AS t(x, y, i) ORDER BY i)`;
+
 function addToRollup(
   map: Map<string, Rollup & { key: RollupKey }>,
   key: RollupKey,
@@ -192,12 +199,13 @@ function addToRollup(
   }
   const ms =
     Number.isFinite(s.durationMs) && s.durationMs > 0 ? s.durationMs : 0;
-  r.count += weight;
-  if (error) r.errors += weight;
+  // The int columns hold at most 2^31-1: saturate rather than fail the insert (D-100).
+  r.count = Math.min(r.count + weight, INT4_MAX);
+  if (error) r.errors = Math.min(r.errors + weight, INT4_MAX);
   r.totalMs += ms * weight;
   if (ms > r.maxMs) r.maxMs = ms;
   const b = bucketIndex(ms);
-  r.hist[b] = (r.hist[b] ?? 0) + weight;
+  r.hist[b] = Math.min((r.hist[b] ?? 0) + weight, INT4_MAX);
 }
 
 /**
@@ -828,11 +836,11 @@ export class PostgresIngestSink implements IngestSink {
                 AS u(minute, service_name, environment, method, route, count, errors, total_ms,
                      max_ms, hist)
          ON CONFLICT (minute, service_name, environment, method, route) DO UPDATE SET
-           count = r.count + EXCLUDED.count,
-           errors = r.errors + EXCLUDED.errors,
+           count = LEAST(r.count::bigint + EXCLUDED.count, ${INT4_MAX})::int,
+           errors = LEAST(r.errors::bigint + EXCLUDED.errors, ${INT4_MAX})::int,
            total_ms = r.total_ms + EXCLUDED.total_ms,
            max_ms = greatest(r.max_ms, EXCLUDED.max_ms),
-           hist = nestrix_hist_add(r.hist, EXCLUDED.hist)`,
+           hist = ${saturatingHistAdd("r.hist", "EXCLUDED.hist")}`,
         [
           list.map((r) => r.key[0]),
           list.map((r) => r.key[1]),
@@ -862,11 +870,11 @@ export class PostgresIngestSink implements IngestSink {
                      count, errors, total_ms, max_ms, hist)
          ON CONFLICT (minute, service_name, environment, class_name, method_name) DO UPDATE SET
            class_kind = EXCLUDED.class_kind,
-           count = c.count + EXCLUDED.count,
-           errors = c.errors + EXCLUDED.errors,
+           count = LEAST(c.count::bigint + EXCLUDED.count, ${INT4_MAX})::int,
+           errors = LEAST(c.errors::bigint + EXCLUDED.errors, ${INT4_MAX})::int,
            total_ms = c.total_ms + EXCLUDED.total_ms,
            max_ms = greatest(c.max_ms, EXCLUDED.max_ms),
-           hist = nestrix_hist_add(c.hist, EXCLUDED.hist)`,
+           hist = ${saturatingHistAdd("c.hist", "EXCLUDED.hist")}`,
         [
           list.map((r) => r.key[0]),
           list.map((r) => r.key[1]),

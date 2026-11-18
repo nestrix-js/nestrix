@@ -73,7 +73,9 @@ for (const entry of [`${BASE_PATH}/`, BASE_PATH]) {
     // Portals: popovers and hover cards position with style properties, which the CSP
     // allows through the CSSOM; opening them must not raise a violation.
     await page.getByRole("button", { name: "Status filter" }).click();
-    await expect(page.getByRole("option", { name: "error" })).toBeVisible();
+    await expect(
+      page.getByRole("option", { name: "error", exact: true }),
+    ).toBeVisible();
     await page.keyboard.press("Escape");
     await requestRows(page).first().locator("time").hover();
     await expect(page.getByText("UTC", { exact: true })).toBeVisible();
@@ -123,7 +125,7 @@ test("nuqs reads and writes search params inside the hash URL", async ({
 
   // A second param next to it, set through the faceted filter.
   await page.getByRole("button", { name: "Status filter" }).click();
-  await page.getByRole("option", { name: "error" }).click();
+  await page.getByRole("option", { name: "error", exact: true }).click();
   await page.keyboard.press("Escape");
   await expect(rows).toHaveCount(6);
   await expect
