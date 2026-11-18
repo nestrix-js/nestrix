@@ -35,23 +35,45 @@ afterAll(async () => {
   await server.close();
 });
 
-async function runChild(waitMs: number, script = CHILD) {
+/**
+ * Runs a child. A number waits that long before `app.close()`. A function waits until it returns
+ * true (polled against the fake server), so the test does not depend on how fast the machine is.
+ */
+async function runChild(wait: number | (() => boolean), script = CHILD) {
+  const until = typeof wait === "function" ? wait : undefined;
   const child = spawn(
     process.execPath,
-    ["--no-warnings", script, server.url, String(waitMs)],
-    { stdio: ["ignore", "pipe", "pipe"] },
+    [
+      "--no-warnings",
+      script,
+      server.url,
+      String(until ? 0 : wait),
+      ...(until ? ["stdin"] : []),
+    ],
+    { stdio: [until ? "pipe" : "ignore", "pipe", "pipe"] },
   );
+  let poller: NodeJS.Timeout | undefined;
+  if (until) {
+    const stop = Date.now() + 15_000;
+    poller = setInterval(() => {
+      if (until() || Date.now() > stop) {
+        clearInterval(poller);
+        child.stdin?.end("close\n");
+      }
+    }, 10);
+  }
   let stdout = "";
   let stderr = "";
   let printedAt = 0;
-  child.stdout.on("data", (c: Buffer) => {
+  child.stdout?.on("data", (c: Buffer) => {
     stdout += c;
     printedAt ||= Date.now();
   });
-  child.stderr.on("data", (c: Buffer) => {
+  child.stderr?.on("data", (c: Buffer) => {
     stderr += c;
   });
   const [code] = (await once(child, "exit")) as [number | null];
+  clearInterval(poller);
   return {
     code,
     stderr,
@@ -66,7 +88,7 @@ describe("the process exits after app.close()", () => {
     server.aborted = 0;
     server.respond = (hit) =>
       hit.path === CHECK_IN ? "hang" : { status: 200, json: {} };
-    const run = await runChild(300);
+    const run = await runChild(() => server.checkIns().length > 0);
     expect(run.stderr).toBe("");
     expect(run.code).toBe(0);
     expect(server.checkIns()).toHaveLength(1);
@@ -81,7 +103,8 @@ describe("the process exits after app.close()", () => {
       hit.path === CHECK_IN
         ? { status: 200, json: { nextCheckInMs: 20 } }
         : { status: 200, json: {} };
-    const run = await runChild(300);
+    // Close once three check-ins have arrived, however long a loaded machine takes to get there.
+    const run = await runChild(() => server.checkIns().length > 2);
     expect(run.stderr).toBe("");
     expect(run.code).toBe(0);
     expect(server.checkIns().length).toBeGreaterThan(2);
@@ -101,7 +124,8 @@ describe("the process exits after app.close()", () => {
       }
       return { status: 200, json: {} };
     };
-    const run = await runChild(400);
+    // The second check-in comes after the first answer ordered the capture, so it is running.
+    const run = await runChild(() => server.checkIns().length > 1);
     expect(run.stderr).toBe("");
     expect(run.code).toBe(0);
     expect(run.result.capturing).toBe(true);
@@ -117,7 +141,10 @@ describe("the process exits without app.close()", () => {
   it("with a check-in in flight to a server that never answers", async () => {
     server.hits.length = 0;
     server.respond = () => "hang";
-    const run = await runChild(300, NOCLOSE_CHILD);
+    const run = await runChild(
+      () => server.checkIns().length > 0,
+      NOCLOSE_CHILD,
+    );
     expect(run.stderr).toBe("");
     expect(run.code).toBe(0);
     // The request was really in flight when the host finished its work.

@@ -92,7 +92,7 @@ export class OverviewService {
         scope,
       ),
       this.statisticsSince(scope),
-      this.statusMix(curFromMs, now, scope),
+      this.statusMix(curFromMs, now + 1, scope),
       this.kindRows(curFromMs, now + 1, scope),
       this.kindRows(prevFromMs, curFromMs, scope),
       this.newReleases(curFromMs, now, scope),
@@ -184,7 +184,7 @@ export class OverviewService {
     const p = new Params();
     const where = [
       `start_time >= ${p.add(new Date(fromMs))}`,
-      `start_time <= ${p.add(new Date(toMs))}`,
+      `start_time < ${p.add(new Date(toMs))}`,
     ];
     where.push(...scopeSql(scope, p.add));
     const [row] = await this.rows<{

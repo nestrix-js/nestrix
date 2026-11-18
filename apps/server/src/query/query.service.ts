@@ -1643,19 +1643,20 @@ export class QueryService {
     const count = Math.ceil((windowMinutes * MINUTE_MS) / bucketMs);
     const first = Math.floor(now / bucketMs) - count + 1;
     const from = new Date(first * bucketMs);
-    const to = new Date(now);
+    // Exclusive end: a span at `now + 0.4 ms` is not in this window (D-107).
+    const to = new Date(now + 1);
     const t = new Params();
     const fromParam = t.add(from);
     const toParam = t.add(to);
     const where = [
       "s.kind IN ('client', 'producer')",
       `s.start_time >= ${fromParam}`,
-      `s.start_time <= ${toParam}`,
+      `s.start_time < ${toParam}`,
       `NOT EXISTS (SELECT 1 FROM spans c
                    WHERE c.trace_id = s.trace_id AND c.parent_span_id = s.span_id
                      AND c.kind IN ('server', 'consumer') AND c.service_name <> s.service_name
                      AND c.start_time >= ${fromParam}::timestamptz - interval '${SKEW_MS / 1000} seconds'
-                     AND c.start_time <= ${toParam}::timestamptz + interval '${SKEW_MS / 1000} seconds')`,
+                     AND c.start_time < ${toParam}::timestamptz + interval '${SKEW_MS / 1000} seconds')`,
     ];
     where.push(...scopeSql(scope, t.add, "s"));
     const attributes = TARGET_KEYS.map((key) =>
@@ -1835,7 +1836,8 @@ export class QueryService {
   ): Promise<AppMapResponse> {
     const w = windowOf(windowMinutes, now);
     const from = new Date(w.fromMs);
-    const to = new Date(now);
+    // Exclusive end: a span at `now + 0.4 ms` is not in this window (D-107).
+    const to = new Date(now + 1);
 
     // External targets: client and producer spans that do not call into another service.
     const t = new Params();
@@ -1844,12 +1846,12 @@ export class QueryService {
     const targetWhere = [
       "s.kind IN ('client', 'producer')",
       `s.start_time >= ${fromParam}`,
-      `s.start_time <= ${toParam}`,
+      `s.start_time < ${toParam}`,
       `NOT EXISTS (SELECT 1 FROM spans c
                    WHERE c.trace_id = s.trace_id AND c.parent_span_id = s.span_id
                      AND c.kind IN ('server', 'consumer') AND c.service_name <> s.service_name
                      AND c.start_time >= ${fromParam}::timestamptz - interval '${SKEW_MS / 1000} seconds'
-                     AND c.start_time <= ${toParam}::timestamptz + interval '${SKEW_MS / 1000} seconds')`,
+                     AND c.start_time < ${toParam}::timestamptz + interval '${SKEW_MS / 1000} seconds')`,
     ];
     targetWhere.push(...scopeSql(scope, t.add, "s"));
     const attributes = TARGET_KEYS.map((key) =>
@@ -1886,9 +1888,9 @@ export class QueryService {
       "c.kind IN ('server', 'consumer')",
       "c.service_name <> p.service_name",
       `p.start_time >= ${eFrom}`,
-      `p.start_time <= ${eTo}`,
+      `p.start_time < ${eTo}`,
       `c.start_time >= ${eFrom}::timestamptz - interval '${SKEW_MS / 1000} seconds'`,
-      `c.start_time <= ${eTo}::timestamptz + interval '${SKEW_MS / 1000} seconds'`,
+      `c.start_time < ${eTo}::timestamptz + interval '${SKEW_MS / 1000} seconds'`,
     ];
     // An edge belongs to the scope when either end does.
     const callerIn = scopeSql(scope, e.add, "p");

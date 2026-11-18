@@ -34,6 +34,10 @@ export default defineConfig({
           { text: "MCP for AI assistants", link: "/guide/mcp" },
           { text: "Microservices", link: "/guide/microservices" },
           { text: "Logs and metrics", link: "/guide/logs-and-metrics" },
+          {
+            text: "Compared with hosted APMs",
+            link: "/guide/compared-with-hosted-apms",
+          },
         ],
       },
       {

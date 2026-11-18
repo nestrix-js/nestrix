@@ -48,9 +48,16 @@ async function startApp(adapter: string): Promise<string> {
       "packages/nestjs/dist is missing: run `pnpm build` before this test.",
     );
   }
-  const c = spawn(process.execPath, [APP, adapter], {
-    stdio: ["ignore", "pipe", "pipe", "ipc"],
-  });
+  // No JIT inlining: once `hotRouteWork` is inlined into its caller `cpu`, the profiler can charge
+  // the inlined samples to `cpu`, and under CPU load `cpu` then outranks it. The test asserts which
+  // function the profile names, not how V8 compiled it.
+  const c = spawn(
+    process.execPath,
+    ["--no-turbo-inlining", "--no-maglev-inlining", APP, adapter],
+    {
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+    },
+  );
   child = c;
   let stderr = "";
   c.stderr?.on("data", (d: Buffer) => {

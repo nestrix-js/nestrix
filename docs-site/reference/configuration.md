@@ -73,6 +73,7 @@ Method spans need `instrument: NestrixInstrument` in `main.ts`; without it these
 | `export.queue.maxExportBatchSize` | `512` | Spans per export request. Must not exceed `maxQueueSize`. |
 | `export.queue.scheduledDelayMillis` | `5000` | How often a partial batch is exported. A full batch is exported at once. |
 | `export.profiler` | `false` | Lets the [standalone server](/guide/standalone-server#remote-cpu-profiling) take CPU profiles of this instance: it checks in every 15 s and uploads a capture an admin ordered. Needs `export.otlp.endpoint` or `OTEL_EXPORTER_OTLP_ENDPOINT` (a full traces URL alone is not enough). With a base from `OTEL_EXPORTER_OTLP_ENDPOINT` only `OTEL_EXPORTER_OTLP_HEADERS` and `export.otlp.headers` are sent, never `OTEL_EXPORTER_OTLP_TRACES_HEADERS`. A non-boolean throws. |
+| `export.onFailure` | none | Called once per failed export of Nestrix's own OTLP pipeline (traces, logs and metrics), after the exporter's retries, with a frozen `{ signal, reason, httpStatus, error? }` (D-110). Synchronous; runs on the exporter's timer, never in a request. A throw or rejection is counted and logged once and never changes the export. Not called when the host's OpenTelemetry SDK owns the signal. Not a function throws. |
 
 All three queue values must be positive integers.
 

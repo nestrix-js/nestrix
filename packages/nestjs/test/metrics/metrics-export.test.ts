@@ -20,6 +20,10 @@ import {
   startMetricsReceiver,
 } from "./receiver.js";
 
+// These tests start Node processes, run tsc or wait on a real OTLP receiver; under a loaded full
+// run they can pass the 5 s default. Raising the limit changes no assertion.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
+
 let app: INestApplication | undefined;
 let receiver: MetricsReceiver;
 
