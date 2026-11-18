@@ -6,7 +6,7 @@
 // constructor, during `NestFactory.create`, as before; only the moment the code is loaded moves.
 // `NestrixModule.forRoot()` starts the load early (it is known to be on there), so by the time Nest
 // constructs providers the module is normally already evaluated.
-import { diagnostics } from "./diagnostics.js";
+import { describeError, diagnostics, logErrorOnce } from "./diagnostics.js";
 
 export type NestrixRuntime = typeof import("./runtime.js");
 
@@ -23,11 +23,19 @@ export function loadNestrixRuntime(): Promise<NestrixRuntime | undefined> {
         (runtime) => runtime,
         (error: unknown) => {
           diagnostics.countFailure("core.runtime-load", error);
+          logErrorOnce(
+            "core.runtime-load",
+            `Nestrix could not load its runtime module ("core.runtime-load"), so it records and exports nothing: ${describeError(error)}`,
+          );
           return undefined;
         },
       );
     } catch (error) {
       diagnostics.countFailure("core.runtime-load", error);
+      logErrorOnce(
+        "core.runtime-load",
+        `Nestrix could not load its runtime module ("core.runtime-load"), so it records and exports nothing: ${describeError(error)}`,
+      );
       return Promise.resolve(undefined);
     }
   }

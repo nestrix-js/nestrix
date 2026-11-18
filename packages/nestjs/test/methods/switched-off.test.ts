@@ -9,7 +9,7 @@ import "reflect-metadata";
 import { execFile, execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import {
   Controller,
@@ -262,6 +262,53 @@ describe("enabled, with the runtime loaded lazily (D-99)", () => {
       }
     });
   }
+});
+
+describe("the runtime module fails to load (D-99, rule 1)", () => {
+  it("CommonJS app with a load hook that throws for dist/runtime.js: boots, serves, logs the failure at error level", async () => {
+    const receiver = await startReceiver();
+    try {
+      const { stdout, stderr } = await promisify(execFile)(
+        process.execPath,
+        [
+          "--import",
+          pathToFileURL(
+            join(pkgDir, "test", "fixtures", "fail-runtime-hook.mjs"),
+          ).href,
+          join(pkgDir, "test", "fixtures", "lazy-runtime-app.cjs"),
+          receiver.url.replace(/\/v1\/traces$/, ""),
+          "forRoot",
+          "log",
+        ],
+        {
+          cwd: pkgDir,
+          env: { ...process.env, NESTRIX_ENABLED: "", NO_COLOR: "1" },
+        },
+      );
+      const lines = stdout.trim().split("\n");
+      expect(JSON.parse(lines[lines.length - 1] as string)).toEqual({
+        status: 200,
+        body: "hello",
+      });
+      const output = `${stdout}\n${stderr}`;
+      // Visible with `logger: ['error', 'warn']`: both lines are error level.
+      expect(output).toContain('"core.runtime-load"');
+      expect(output).toContain("injected: dist/runtime.js failed to load");
+      expect(output).toContain(
+        "Nestrix could not load its OpenTelemetry setup",
+      );
+      expect(output).toMatch(
+        /ERROR \[Nestrix\] Nestrix could not load its runtime module \("core\.runtime-load"\)/,
+      );
+      expect(output).toMatch(
+        /ERROR \[Nestrix\] Nestrix could not load its OpenTelemetry setup/,
+      );
+      // Nothing was set up, so nothing is exported.
+      expect(receiver.posts).toBe(0);
+    } finally {
+      await receiver.close();
+    }
+  });
 });
 
 // Last: defines an enabled module, which switches the "only disabled modules" rule off for the
