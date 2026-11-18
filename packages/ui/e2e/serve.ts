@@ -108,6 +108,35 @@ export function startServer(): Promise<{
           },
           answer.body === undefined ? "" : JSON.stringify(answer.body),
         );
+      } else if (path.startsWith(`${BASE_PATH}/api/v1/alerts`)) {
+        const rest = path
+          .slice(`${BASE_PATH}/api/v1/alerts`.length)
+          .replace(/^\//, "");
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(chunk as Buffer);
+        const text = Buffer.concat(chunks).toString("utf8");
+        // A write needs the same-origin Origin, as the real server demands (403 otherwise).
+        const origin = `http://${req.headers.host}`;
+        const answer =
+          req.method !== "GET" && req.headers.origin !== origin
+            ? {
+                status: 403,
+                body: { error: { code: "forbidden", message: "Origin" } },
+              }
+            : mock.handleAlerts(
+                req.method ?? "GET",
+                rest,
+                new URL(req.url ?? "/", "http://localhost").searchParams,
+                text === "" ? undefined : JSON.parse(text),
+              );
+        send(
+          answer.status,
+          {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+          },
+          answer.body === undefined ? "" : JSON.stringify(answer.body),
+        );
       } else if (path.startsWith(`${BASE_PATH}/api/v1/slos`)) {
         const rest = path.slice(`${BASE_PATH}/api/v1/slos`.length);
         const chunks: Buffer[] = [];

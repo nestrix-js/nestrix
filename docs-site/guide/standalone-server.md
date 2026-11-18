@@ -105,7 +105,7 @@ When more than one service name has been seen, the dashboard shows a service sel
 
 ## Alerting
 
-Alert rules (error rate, p95 or an SLO's burn rate over a window, for one service or route) are managed through `/api/v1/alerts` and notify a webhook when they fire and when they resolve. The dashboard has no alerts page yet. Webhooks are signed (`x-nestrix-signature`, HMAC-SHA256 of the timestamp and body) and refused when the host resolves to a private address, unless it is in `NESTRIX_WEBHOOK_ALLOWED_HOSTS`. The server's README has the rule fields and a verification example.
+Alert rules (error rate, p95 or an SLO's burn rate over a window, for one service or route) are managed on the dashboard's **Alerts** page (list, create, edit, delete, send a test notification, delivery history) or through `/api/v1/alerts`, and notify a webhook when they fire and when they resolve. Webhooks are signed (`x-nestrix-signature`, HMAC-SHA256 of the timestamp and body) and refused when the host resolves to a private address, unless it is in `NESTRIX_WEBHOOK_ALLOWED_HOSTS`. The server's README has the rule fields and a verification example.
 
 ## SLOs
 
