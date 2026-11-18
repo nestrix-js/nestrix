@@ -40,6 +40,59 @@ export interface TraceLogRecord {
   service?: string;
 }
 
+/**
+ * Log search, standalone server only (issue #17, D-106; the embedded dashboard has no such route).
+ *
+ * - `GET api/v1/logs` (parameters: `LogSearchParamsSpec`): `LogSearchResponse`, newest first,
+ *   paged with `before` (the previous page's `older`). The window defaults to the last 24 hours.
+ *   `text` is a full text search over the stored message (`match=words`, the default: whole words,
+ *   `websearch` syntax with quotes, `or` and `-`) or a case-insensitive substring
+ *   (`match=substring`, a scan of the time window). `severity` is a minimum level.
+ * - What is stored depends on the server's `NESTRIX_LOGS`: `trace` (default) keeps only lines
+ *   with a trace id, 200 per trace; `all` also keeps lines without one. Search reads whatever is
+ *   stored in either mode.
+ */
+export interface LogSearchRecord {
+  /** Milliseconds, fractional part kept. */
+  timeUnixMs: number;
+  /** Exact time as a decimal string of nanoseconds. */
+  timeUnixNano: string;
+  /** OTLP `SeverityNumber`, as in `TraceLogRecord`. */
+  severity: number;
+  level: string;
+  context?: string;
+  /** Cut to 8,192 characters; see `truncated`. */
+  message: string;
+  service: string;
+  /** Absent for a line written outside any trace. */
+  traceId?: string;
+  spanId?: string;
+  /** Whether the trace is stored (a link to it works). Absent when there is no `traceId`. */
+  traceExists?: boolean;
+  /** The message was longer than 8,192 characters and was cut. */
+  truncated: boolean;
+}
+
+/** Lines not stored, for the days the search window touches. */
+export interface LogSearchDropped {
+  total: number;
+  /** `all` mode: more than `NESTRIX_LOGS_MAX_PER_MINUTE` lines in a minute. */
+  rateCap: number;
+  /** A trace already held its per-trace maximum. */
+  traceCap: number;
+  /** Older than the log retention or too far ahead. */
+  outOfRange: number;
+}
+
+export interface LogSearchResponse {
+  items: LogSearchRecord[];
+  /** Cursor for the next (older) page, `null` on the last. */
+  older: string | null;
+  /** The server's `NESTRIX_LOGS` setting. */
+  capture: "trace" | "all";
+  dropped: LogSearchDropped;
+}
+
 /** `GET api/v1/trace/logs`. */
 export interface TraceLogsResponse {
   traceId: string;

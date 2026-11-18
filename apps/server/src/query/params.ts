@@ -13,6 +13,7 @@ import type {
   ErrorGroupParamsSpec,
   ErrorInsightsParamsSpec,
   ErrorListParamsSpec,
+  LogSearchParamsSpec,
   MetaParamsSpec,
   OverviewParamsSpec,
   ParamSpec,
@@ -41,6 +42,21 @@ export const traceListSpec: TraceListParamsSpec = {
   user: { kind: "string", maxLength: 256 },
   hasErrors: { kind: "enum", values: ["true", "false"] },
   service: { kind: "string", maxLength: 256 },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+};
+
+export const logSearchSpec: LogSearchParamsSpec = {
+  limit: { kind: "int", min: 1, max: 200, default: 100 },
+  before: { kind: "cursor", maxLength: 256 },
+  service: { kind: "string", maxLength: 256 },
+  severity: {
+    kind: "enum",
+    values: ["trace", "debug", "info", "warn", "error", "fatal"],
+  },
+  text: { kind: "string", maxLength: 200 },
+  match: { kind: "enum", values: ["words", "substring"] },
+  traceId: { kind: "string", maxLength: 32, pattern: "^[0-9a-f]{32}$" },
   fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
   toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
 };

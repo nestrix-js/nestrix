@@ -14,6 +14,7 @@ import { AlertsPage } from "@/views/alerts/alerts-page";
 import { ClassesPage } from "@/views/classes/classes-page";
 import { DependenciesPage } from "@/views/dependencies/dependencies-page";
 import { ErrorsPage } from "@/views/errors/errors-page";
+import { LogsPage } from "@/views/logs/logs-page";
 import { MapPage } from "@/views/map/map-page";
 import { OverviewPage } from "@/views/overview/overview-page";
 import { ProfilerPage } from "@/views/profiler/profiler-page";
@@ -77,6 +78,11 @@ const classesRoute = createRoute({
   path: "/classes",
   component: ClassesPage,
 });
+const logsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/logs",
+  component: LogsPage,
+});
 const mapRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/map",
@@ -133,6 +139,7 @@ export const router = createRouter({
     routesRoute,
     routeDetailRoute,
     classesRoute,
+    logsRoute,
     mapRoute,
     queriesRoute,
     dependenciesRoute,

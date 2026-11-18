@@ -1,7 +1,11 @@
 /**
- * Stores OTLP log records next to their traces (P9-07): the `logs` table (migrations/0007_logs.sql).
+ * Stores OTLP log records (P9-07): the `logs` table (migrations/0007_logs.sql, 0021).
  *
- * Context for a trace, not a log backend (D-19 as amended). Bounds:
+ * By default context for a trace (D-19 as amended, D-75). With `mode: "all"` (`NESTRIX_LOGS=all`,
+ * issue #17, D-106) records without a trace id are stored too (trace id `''`), the per-trace cap is
+ * `allMaxPerTrace` and at most `maxPerMinute` lines are stored per minute by this process. Every
+ * dropped line is counted per UTC day and reason in `log_drops` (shown by `GET api/v1/logs`).
+ * Bounds:
  *
  * - per trace: at most `maxPerTrace` (200) lines are ever stored; later ones are dropped and counted
  *   (`droppedOverCap`). The count is read and the rows inserted in one transaction under a per-trace
@@ -34,8 +38,16 @@ export const MAX_LOGS_PER_TRACE = 200;
 export interface LogWriterOptions {
   /** Records being written at once before `write` answers busy. Default 20 000. */
   maxInflightRecords?: number;
-  /** Lines kept per trace. Default 200. */
+  /** Lines kept per trace in `trace` mode. Default 200. */
   maxPerTrace?: number;
+  /** `trace` (default): only records with a trace id. `all`: also records without one. */
+  mode?: "trace" | "all";
+  /** Lines kept per trace in `all` mode. Default 1000. */
+  allMaxPerTrace?: number;
+  /** Lines stored per clock minute in `all` mode; the rest is counted as dropped. Default 30 000. */
+  maxPerMinute?: number;
+  /** Clock, for tests. */
+  now?: () => number;
   /** `Retry-After` given with `IngestBusyError`. Default 5. */
   retryAfterSeconds?: number;
 }
@@ -48,6 +60,8 @@ export interface LogWriterStats {
   droppedOverCap: number;
   /** Lines outside the stored days. */
   outOfRange: number;
+  /** Lines not stored because this minute's `maxPerMinute` was reached (`all` mode). */
+  droppedRateCap: number;
   busyRejections: number;
 }
 
@@ -62,8 +76,12 @@ interface LogRow {
   body: string;
   context: string | null;
   serviceName: string;
+  truncated: boolean;
   hash: string;
 }
+
+/** Why a line was not stored; the keys of `log_drops.reason`. */
+export type LogDropReason = "trace_cap" | "rate_cap" | "out_of_range";
 
 function rowOf(record: IngestLogRecord, serviceName: string): LogRow | null {
   const ns = record.timeUnixNano;
@@ -95,6 +113,7 @@ function rowOf(record: IngestLogRecord, serviceName: string): LogRow | null {
     body: record.body,
     context,
     serviceName,
+    truncated: record.truncated === true,
     hash,
   };
 }
@@ -103,6 +122,11 @@ export class PostgresLogWriter {
   private readonly maxInflight: number;
   private readonly maxPerTrace: number;
   private readonly retryAfterSeconds: number;
+  private readonly all: boolean;
+  private readonly maxPerMinute: number;
+  private readonly now: () => number;
+  private minute = -1;
+  private minuteCount = 0;
   private inflight = 0;
   private closed = false;
   private readonly counters = {
@@ -110,6 +134,7 @@ export class PostgresLogWriter {
     duplicateLogs: 0,
     droppedOverCap: 0,
     outOfRange: 0,
+    droppedRateCap: 0,
     busyRejections: 0,
   };
 
@@ -119,7 +144,12 @@ export class PostgresLogWriter {
     options: LogWriterOptions = {},
   ) {
     this.maxInflight = options.maxInflightRecords ?? 20_000;
-    this.maxPerTrace = options.maxPerTrace ?? MAX_LOGS_PER_TRACE;
+    this.all = options.mode === "all";
+    this.maxPerTrace = this.all
+      ? (options.allMaxPerTrace ?? 1_000)
+      : (options.maxPerTrace ?? MAX_LOGS_PER_TRACE);
+    this.maxPerMinute = options.maxPerMinute ?? 30_000;
+    this.now = options.now ?? Date.now;
     this.retryAfterSeconds = options.retryAfterSeconds ?? 5;
   }
 
@@ -162,6 +192,8 @@ export class PostgresLogWriter {
     for (const rl of batch.resourceLogs) {
       const { serviceName } = deriveResource(rl.resource);
       for (const record of rl.records) {
+        // The mapper already drops these in `trace` mode; the writer holds the rule too.
+        if (!this.all && record.traceId === "") continue;
         const row = rowOf(record, serviceName);
         if (row === null) {
           invalid++;
@@ -181,16 +213,42 @@ export class PostgresLogWriter {
       }
     }
 
-    const { first, last } = this.partitions.acceptedDays();
+    const { first, last } = this.partitions.acceptedLogDays();
     const inRange = rows.filter((r) => r.day >= first && r.day <= last);
     await this.partitions.ensureDays(new Set(inRange.map((r) => r.day)));
-    const storable = inRange.filter((r) => this.partitions.hasDay(r.day));
-    this.counters.outOfRange += invalid + rows.length - storable.length;
-    if (storable.length === 0) return;
+    let storable = inRange.filter((r) => this.partitions.hasDay(r.day));
+    const outOfRange = invalid + rows.length - storable.length;
+    this.counters.outOfRange += outOfRange;
+    const drops = new Map<LogDropReason, number>();
+    if (outOfRange > 0) drops.set("out_of_range", outOfRange);
+    if (this.all && storable.length > 0) {
+      const minute = Math.floor(this.now() / 60_000);
+      if (minute !== this.minute) {
+        this.minute = minute;
+        this.minuteCount = 0;
+      }
+      const room = Math.max(0, this.maxPerMinute - this.minuteCount);
+      if (storable.length > room) {
+        const over = storable.length - room;
+        storable = storable.slice(0, room);
+        this.counters.droppedRateCap += over;
+        drops.set("rate_cap", over);
+      }
+      this.minuteCount += storable.length;
+    }
+    if (storable.length === 0) {
+      await this.recordDrops(drops);
+      return;
+    }
 
     // By trace, oldest line first: the first `maxPerTrace` lines of a trace are the ones kept.
     const byTrace = new Map<string, LogRow[]>();
+    const traceless: LogRow[] = [];
     for (const r of storable) {
+      if (r.traceId === "") {
+        traceless.push(r);
+        continue;
+      }
       let list = byTrace.get(r.traceId);
       if (list === undefined) {
         list = [];
@@ -233,8 +291,10 @@ export class PostgresLogWriter {
         insert.push(...list.slice(0, room));
         overCap += Math.max(0, list.length - room);
       }
+      insert.push(...traceless);
       const inserted = await this.insert(client, insert);
       await client.query("COMMIT");
+      if (overCap > 0) drops.set("trace_cap", overCap);
       this.counters.writtenLogs += inserted;
       this.counters.duplicateLogs += insert.length - inserted;
       this.counters.droppedOverCap += overCap;
@@ -248,6 +308,24 @@ export class PostgresLogWriter {
     } finally {
       client.release(broken);
     }
+    await this.recordDrops(drops);
+  }
+
+  /** Adds the drops to today's `log_drops` rows. Statistics only: a failure never fails the export. */
+  private async recordDrops(drops: Map<LogDropReason, number>): Promise<void> {
+    if (drops.size === 0) return;
+    try {
+      const day = new Date(this.now()).toISOString().slice(0, 10);
+      const reasons = [...drops.keys()];
+      await this.pool.query(
+        `INSERT INTO log_drops (day, reason, dropped)
+         SELECT $1::date, r, n FROM unnest($2::text[], $3::bigint[]) AS u(r, n)
+         ON CONFLICT (day, reason) DO UPDATE SET dropped = log_drops.dropped + EXCLUDED.dropped`,
+        [day, reasons, reasons.map((r) => drops.get(r) as number)],
+      );
+    } catch {
+      // Counted in memory (`stats()`); the persisted count may miss this batch.
+    }
   }
 
   private async insert(client: PoolClient, rows: LogRow[]): Promise<number> {
@@ -256,10 +334,10 @@ export class PostgresLogWriter {
     const result = await client.query(
       `INSERT INTO logs (
          trace_id, span_id, time, time_ns, severity_number, severity_text, body, context,
-         service_name, record_hash)
+         service_name, record_hash, truncated)
        SELECT * FROM unnest(
          $1::text[], $2::text[], $3::timestamptz[], $4::bigint[], $5::int[], $6::text[],
-         $7::text[], $8::text[], $9::text[], $10::text[])
+         $7::text[], $8::text[], $9::text[], $10::text[], $11::boolean[])
        ON CONFLICT DO NOTHING`,
       [
         col((r) => r.traceId),
@@ -272,6 +350,7 @@ export class PostgresLogWriter {
         col((r) => r.context),
         col((r) => r.serviceName),
         col((r) => r.hash),
+        col((r) => r.truncated),
       ],
     );
     return result.rowCount ?? 0;

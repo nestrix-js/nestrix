@@ -97,6 +97,24 @@ export const traceListParams = {
 } as const;
 export type TraceListParamsSpec = typeof traceListParams;
 
+/** `GET <path>/api/v1/logs`, standalone server only (issue #17). */
+export const logSearchParams = {
+  limit: { kind: "int", min: 1, max: 200, default: 100 },
+  before: { kind: "cursor", maxLength: 256 },
+  service: { kind: "string", maxLength: 256 },
+  /** Minimum level. */
+  severity: {
+    kind: "enum",
+    values: ["trace", "debug", "info", "warn", "error", "fatal"],
+  },
+  text: { kind: "string", maxLength: 200 },
+  match: { kind: "enum", values: ["words", "substring"] },
+  traceId: { kind: "string", maxLength: 32, pattern: "^[0-9a-f]{32}$" },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+} as const;
+export type LogSearchParamsSpec = typeof logSearchParams;
+
 /** `GET <path>/api/v1/dependencies` */
 export const dependencyParams = {
   windowMinutes: {

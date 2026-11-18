@@ -127,7 +127,7 @@ OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer <one of NESTRIX_INGEST_KEYS>
 
 The key may instead be sent as `x-nestrix-key: <key>`. Keys are compared in constant time. With neither `NESTRIX_INGEST_KEYS` nor `NESTRIX_INGEST_AUTH=none`, ingest answers 401 to everything and a start-up log line says how to configure it.
 
-**`/v1/traces` and `/v1/logs` are accepted.** Logs are kept only as context for a trace: a log record that carries a trace id is stored next to its trace (at most 200 per trace) and shown in the trace view; a record without one is accepted and discarded. The server is not a log backend (no log search) and has no metrics receiver: send metrics, and logs you want to keep or search, to an OpenTelemetry Collector (see "Traces and trace logs only" below).
+**`/v1/traces` and `/v1/logs` are accepted.** Logs are kept only as context for a trace: a log record that carries a trace id is stored next to its trace (at most 200 per trace) and shown in the trace view; a record without one is accepted and discarded. Set `NESTRIX_LOGS=all` to keep every record and search them (see "Log search" below); by default the server is not a log backend. It has no metrics receiver: send metrics to an OpenTelemetry Collector.
 
 ## Configuration
 
@@ -146,6 +146,10 @@ Read once from the environment at start and validated. A bad value exits with on
 | `NESTRIX_SESSION_SECRET` | random per start | At least 32 characters. Or `NESTRIX_SESSION_SECRET_FILE`. With the admin password, the session signing key. Set it (the same value on every instance) so sessions survive restarts and work on every instance; unset, sessions end at restart and work only on the instance that issued them. See "Admin login". |
 | `NESTRIX_TRUSTED_PROXIES` | unset | Comma-separated IPv4 and IPv6 CIDRs or single addresses (`10.0.0.0/8, 2001:db8::/32, 192.168.1.7`) of your reverse proxies or load balancers. Only a connection from one of them may name the client in `X-Forwarded-For`, which the login limit then keys on. An invalid entry is a configuration error. See "Admin login". |
 | `NESTRIX_RETENTION_DAYS` | `7` | Whole number, 1 to 3650. |
+| `NESTRIX_LOGS` | `trace` | `trace` keeps only log records that carry a trace id (200 per trace); `all` keeps every record and enables log search over them (D-106). |
+| `NESTRIX_LOG_RETENTION_DAYS` | `NESTRIX_RETENTION_DAYS` | Days of log lines kept; 1 to `NESTRIX_RETENTION_DAYS`. |
+| `NESTRIX_LOGS_MAX_PER_TRACE` | `1000` | `all` only: lines kept per trace, 200 to 100000. |
+| `NESTRIX_LOGS_MAX_PER_MINUTE` | `30000` | `all` only: lines this process stores per minute; more are dropped and counted. |
 | `NESTRIX_MAX_SPANS_PER_TRACE` | `50000` | Whole number, 1 000 to 10 000 000. Spans stored per trace; see "Span limit per trace". |
 | `NESTRIX_MAX_CONNECTIONS` | `1024` | Whole number, 1 to 1 000 000. Node's `server.maxConnections`. |
 | `NESTRIX_WEBHOOK_ALLOWED_HOSTS` | empty | Comma-separated host names or IP addresses (no scheme, port or path) that alert webhooks may reach although they resolve to private addresses. |
@@ -208,6 +212,12 @@ What the answers mean:
 | 503 | Memory budget full (`Retry-After: 1`), the write queue is full, or the database is unavailable (`Retry-After: 5`) | Retry; OTLP exporters do. |
 
 The 20 MiB limit matches the OpenTelemetry Collector's OTLP receiver. A batch of 2 048 spans, as the SDK's batch processor sends them, is far below every cap.
+
+### Log search
+
+With `NESTRIX_LOGS=all` the server stores every log record it receives, with or without a trace id, and the dashboard gets a Logs page (`GET /api/v1/logs`, also readable with an API token and through the MCP tool `search_logs`). The default `trace` keeps the behaviour above; the page and route still work and search what is stored. Filters: service, minimum severity, text, trace id and a time range (default last 24 hours); results are newest first and paged with a cursor. `text` matches whole words by default (PostgreSQL full text search; quotes, `or` and `-word` work); `match=substring` is a case-insensitive scan of the time range, so narrow the range first (a scan over 15 seconds answers 503). Lines are cut to 8,192 characters and marked truncated; lines not stored because of the per-trace cap, the per-minute cap or the retention window are counted and shown next to the results. A line with a trace id links to the trace when that trace is stored. Storage is bounded by `NESTRIX_LOG_RETENTION_DAYS` and the two caps.
+
+Upgrade note: migration 0021 builds four indexes on `logs`. A partitioned table's indexes cannot be built concurrently, so log writes wait while it runs (reads and span ingest do not); a large install can pre-build them per partition with `CREATE INDEX CONCURRENTLY`, then `CREATE INDEX ... ON ONLY logs` and `ALTER INDEX ... ATTACH PARTITION` (the file's statements are `IF NOT EXISTS`, so they then do nothing). See the comments in `migrations/0021_logs_search.sql`.
 
 ### Traces and trace logs only
 

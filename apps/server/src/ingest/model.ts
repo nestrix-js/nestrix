@@ -70,6 +70,7 @@ export interface IngestBatch {
  * record without one is not kept. Strings are capped and made safe for PostgreSQL by the mapper.
  */
 export interface IngestLogRecord {
+  /** 32 hex characters, or `""` for a record without a trace (`NESTRIX_LOGS=all` only). */
   traceId: string;
   /** Absent when the record names no span. */
   spanId?: string;
@@ -82,6 +83,8 @@ export interface IngestLogRecord {
   body: string;
   /** The `nestrix.log.context` attribute (Nest's logger context), when it is a string. */
   context?: string;
+  /** The body was longer than `MAX_LOG_BODY_LENGTH` and was cut (D-106). */
+  truncated?: boolean;
 }
 
 /** One OTLP `ResourceLogs`: the resource once, its kept records flattened across scopes. */

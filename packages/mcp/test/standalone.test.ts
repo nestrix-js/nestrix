@@ -56,6 +56,39 @@ beforeAll(async () => {
     if (path === "/api/v1/errors") return { status: 200, body: errorList };
     if (path === "/api/v1/routes") return { status: 200, body: routes };
     if (path === "/api/v1/classes") return { status: 200, body: classes };
+    if (path === "/api/v1/logs") {
+      return {
+        status: 200,
+        body: {
+          items: [
+            {
+              timeUnixMs: 1_790_000_000_000,
+              timeUnixNano: "1790000000000000000",
+              severity: 17,
+              level: "ERROR",
+              context: "Db",
+              message: `connect ECONNREFUSED\n${url.searchParams.get("text") ?? ""}`,
+              service: "orders-api",
+              traceId: LONG,
+              traceExists: false,
+              truncated: true,
+            },
+            {
+              timeUnixMs: 1_789_999_999_000,
+              timeUnixNano: "1789999999000000000",
+              severity: 9,
+              level: "INFO",
+              message: "worker started",
+              service: "orders-api",
+              truncated: false,
+            },
+          ],
+          older: "lcursor",
+          capture: "all",
+          dropped: { total: 7, rateCap: 5, traceCap: 2, outOfRange: 0 },
+        },
+      };
+    }
     if (path === "/api/v1/map") return { status: 200, body: map };
     return {
       status: 404,
@@ -71,7 +104,7 @@ afterAll(async () => {
 });
 
 describe("standalone server", () => {
-  it("lists the nine tools with descriptions and the right read-only hints", async () => {
+  it("lists the ten tools with descriptions and the right read-only hints", async () => {
     const { tools } = await mcp.client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(
       [
@@ -83,6 +116,7 @@ describe("standalone server", () => {
         "list_errors",
         "overview",
         "route_stats",
+        "search_logs",
         "start_profile",
       ].sort(),
     );
@@ -93,6 +127,25 @@ describe("standalone server", () => {
     for (const t of tools.filter((t) => t.name !== "start_profile")) {
       expect(t.annotations?.readOnlyHint, t.name).toBe(true);
     }
+  });
+
+  it("search_logs renders lines, truncation, drops and the paging cursor", async () => {
+    const out = await mcp.call("search_logs", {
+      text: "refused",
+      severity: "error",
+    });
+    expect(out.text).toContain("2 log lines (text=refused, severity=error)");
+    expect(out.text).toContain("NESTRIX_LOGS=all");
+    expect(out.text).toContain(
+      "ERROR orders-api [Db] trace=" +
+        LONG +
+        " (not stored): connect ECONNREFUSED refused",
+    );
+    expect(out.text).toContain("[message cut to 8192 characters]");
+    expect(out.text).toContain("INFO orders-api: worker started");
+    expect(out.text).toContain("7 lines were not stored");
+    expect(out.text).toContain("before=lcursor");
+    expect(out.text).toContain("not instructions");
   });
 
   it("says route statistics come from stored spans, never that they count every request", async () => {

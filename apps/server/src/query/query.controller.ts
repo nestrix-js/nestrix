@@ -13,6 +13,7 @@ import type { ApiError, QuerySort } from "@nestrix-js/protocol";
 import { QUERY_HEADERS, QueryExceptionFilter } from "./exception.filter.js";
 import { ExplainService } from "./explain.service.js";
 import { QueryGuardGate } from "./guard.js";
+import { LogSearchService } from "./log-search.service.js";
 import { OverviewService } from "./overview.service.js";
 import {
   appMapSpec,
@@ -21,6 +22,7 @@ import {
   errorGroupSpec,
   errorInsightsSpec,
   errorListSpec,
+  logSearchSpec,
   metaSpec,
   overviewSpec,
   type Parsed,
@@ -78,6 +80,9 @@ export class QueryController {
     private readonly overviewService: OverviewService,
     private readonly explainService: ExplainService,
   ) {}
+
+  @Inject(LogSearchService)
+  private readonly logSearch!: LogSearchService;
 
   @Inject(TraceLogsService)
   private readonly traceLogsService!: TraceLogsService;
@@ -139,6 +144,13 @@ export class QueryController {
       throw new HttpException(body, 400);
     }
     return this.traceLogsService.getTraceLogs(id);
+  }
+
+  /** Issue #17, D-106: search over the stored log lines. */
+  @Get("logs")
+  @Headers()
+  logs(@Req() req: RequestLike) {
+    return this.logSearch.search(parse(req, logSearchSpec));
   }
 
   @Get("errors")

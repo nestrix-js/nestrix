@@ -129,7 +129,9 @@ export class IngestReceiver implements OnApplicationBootstrap {
   private readonly logs: Signal<IngestLogBatch> = {
     shape: LOG_SHAPE,
     decode: (body, format, limits) =>
-      toIngestLogBatch(decodeLogsRequest(body, format, limits)),
+      toIngestLogBatch(decodeLogsRequest(body, format, limits), undefined, {
+        keepTraceless: this.config.logStore.mode === "all",
+      }),
     store: (batch, format) => this.storeLogs(batch, format),
   };
 
