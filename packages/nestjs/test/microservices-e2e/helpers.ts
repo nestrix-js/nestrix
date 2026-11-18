@@ -149,9 +149,11 @@ export function describeTransport(c: TransportCase): void {
 
   describe.skipIf(skip !== undefined)(`${c.system} end to end`, () => {
     let booted: BootedApp | undefined;
+    // Closing leaves the consumer group and disconnects from the broker; on a loaded machine Kafka
+    // takes longer than the 10 s default hook timeout to answer.
     afterAll(async () => {
       await booted?.close();
-    });
+    }, 60_000);
 
     it("one HTTP request: send and emit are one connected trace across the broker", async () => {
       const started = Date.now();
