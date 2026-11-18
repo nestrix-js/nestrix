@@ -475,7 +475,7 @@ Method spans need `instrument: NestrixInstrument` in `main.ts`; see [Method span
 | Option | Default | |
 |---|---|---|
 | `integrations` | an object | Database and cache spans. See [Database and cache spans](#database-and-cache-spans-level-3). |
-| `integrations.pg` | `true` | On when `pg` is installed. `false` turns it off. |
+| `integrations.pg` | `true` | On when `pg` is installed. `false` turns it off. `{ poolWaitThresholdMillis }` sets when a pool wait gets a `pg.pool.connect` span (default `5` ms; `false` for none). See [`pg` pool wait](#database-and-cache-spans-level-3). |
 | `integrations.mysql2` | `false` | Opt-in. Once on, mysql2 swallows an unhandled query error instead of crashing. |
 | `integrations.ioredis` | `false` | Opt-in, with the same kind of swallowed error. `true`, or `{ rootSpans: true }` to also keep commands that run outside any trace (dropped by default). |
 
@@ -744,7 +744,7 @@ export class AppModule {}
 
 | Library | Default | How |
 |---|---|---|
-| `pg` | on, when `pg` is installed | Wraps `Client.prototype.query` and `Pool.prototype.query`. Covers raw `pg`, `pg-cursor`, `pg-query-stream` and ORMs built on `pg` (TypeORM, Drizzle, Prisma on `@prisma/adapter-pg`, MikroORM). |
+| `pg` | on, when `pg` is installed | Wraps `Client.prototype.query`, `Pool.prototype.query` and `Pool.prototype.connect` (pool wait, below). Covers raw `pg`, `pg-cursor`, `pg-query-stream` and ORMs built on `pg` (TypeORM, Drizzle, Prisma on `@prisma/adapter-pg`, MikroORM). |
 | `mysql2` | **off** | Subscribes to mysql2's tracing channels (mysql2 3.20 or later). |
 | `ioredis` | **off** | Subscribes to ioredis's channels (ioredis 5.11 or later). |
 
@@ -754,7 +754,14 @@ export class AppModule {}
 
 **`ioredis` and root commands.** A command that runs with no active span (the connection handshake, or commands queued before the connection was ready) is dropped by default, because it belongs to no request. `integrations.ioredis: { rootSpans: true }` keeps them as root spans.
 
-**What a span records.** The statement with literals replaced by `?` (strings, numbers, hex and boolean literals; `IN (...)` lists collapsed; comments dropped; cut to 2,048 characters). If Nestrix cannot parse a statement safely, it records a fixed placeholder, never the raw text. **Bind parameters are never recorded**, and there is no option to. For Redis the span records the command and its first argument (`GET user:1`), never values. A database span **covers the query only**: time spent waiting for a pooled connection is not in it, so a saturated pool shows as a gap before the span, not as a slow query.
+**What a span records.** The statement with literals replaced by `?` (strings, numbers, hex and boolean literals; `IN (...)` lists collapsed; comments dropped; cut to 2,048 characters). If Nestrix cannot parse a statement safely, it records a fixed placeholder, never the raw text. **Bind parameters are never recorded**, and there is no option to. For Redis the span records the command and its first argument (`GET user:1`), never values. A database span **covers the query only**: time spent waiting for a pooled connection is not in it, so a saturated pool shows as a gap before the span, not as a slow query. For `pg` that gap is measured and, above a threshold, labelled (below).
+
+**`pg` pool wait.** Nestrix also wraps `Pool.prototype.connect` (which `pool.query()` uses too) and measures how long each acquisition waited for a client, so a slow query and a request that waited for a free connection look different:
+
+- **Metrics**, through `@opentelemetry/api` (so your `MeterProvider` or Prometheus bridge sees them; nothing with `metrics: false`): `db.client.connection.wait_time` (histogram, seconds, every successful acquisition), `db.client.connection.count` with `db.client.connection.state` `idle` or `used`, and `db.client.connection.pending_requests` (callers queued for a client), read from the pool when a reader collects. Each carries `db.client.connection.pool.name`.
+- **A `pg.pool.connect` span** inside a trace when an acquisition waited at least `integrations.pg.poolWaitThresholdMillis` (default `5`): it fills the gap between the span that called `pool.connect()` and the first query. With a free client there is no span and no event. `poolWaitThresholdMillis: false` turns the span off (the metrics stay); `0` adds one for every acquisition.
+
+The pool name is `host:port/database` from the first client the pool hands out (pg's resolved connection parameters; never the user or password), with an IPv6 host in brackets; pools with the same name are summed, and a pool appears once it has handed out a client. A failed acquisition records no wait and no `pg.pool.connect` span; a failed `pool.query()` keeps its own error span. The wait often includes opening a new connection when the pool is below `max`, so the first requests after start can show a short `pg.pool.connect` span too. The names follow `@opentelemetry/semantic-conventions` 1.45.0, where they are still experimental and may be renamed. Decision D-98.
 
 If the library is not installed the integration reports itself disabled and does nothing. An integration that is off subscribes to nothing.
 
@@ -965,6 +972,7 @@ Nestrix records metrics through `@opentelemetry/api`'s metrics API. If your app 
 
 - **`http.server.request.duration`**, a histogram in seconds with the bucket boundaries the HTTP semantic conventions advise, for every request, sampled or not: it is right at any `sampleRate` and under your own sampler. Attributes: `http.request.method`, `url.scheme` (`http` or `https`), `http.route` (when a handler matched), `http.response.status_code` (when a response was sent) and `error.type` (on the same rule as the span's error status). Requests under `ignore.paths` and the dashboard path are not counted.
 - **Runtime metrics**, read only when a reader collects: `nodejs.eventloop.delay.p50`, `.p99` and `.max` (seconds, covering the time since the last collection by any reader, so with two readers each sees only the window the other left), `v8js.memory.heap.used` and `v8js.memory.heap.space.size` (bytes, per `v8js.heap.space.name`), `process.memory.usage` (RSS, bytes) and `process.cpu.time` (seconds, per `cpu.mode`). Names follow `@opentelemetry/semantic-conventions` 1.45.0, where they are still experimental and may be renamed. `v8js.memory.heap.limit` is deprecated there and not reported.
+- **`pg` pool metrics** while the `pg` integration is on: `db.client.connection.wait_time`, `db.client.connection.count` and `db.client.connection.pending_requests`, per `db.client.connection.pool.name`. See [`pg` pool wait](#database-and-cache-spans-level-3).
 
 With no `MeterProvider` registered and no export, nothing is recorded and the event-loop monitor does not run.
 

@@ -36,7 +36,11 @@ describe("resolveOptions defaults", () => {
       logs: { export: false, otlp: false },
       methods: { enabled: true, include: [], exclude: [], enhancers: [] },
       metrics: { runtime: true, export: false },
-      integrations: { pg: true, mysql2: false, ioredis: false },
+      integrations: {
+        pg: { poolWaitThresholdMillis: 5 },
+        mysql2: false,
+        ioredis: false,
+      },
     });
   });
 

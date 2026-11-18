@@ -198,8 +198,16 @@ export interface NestrixMethodsOptions {
 
 /** Database and cache integrations (level 3, phase 3). */
 export interface NestrixIntegrationsOptions {
-  /** `pg` query spans. Default `true`: on when `pg` is installed (D-50). */
-  pg?: boolean;
+  /**
+   * `pg` query spans. Default `true`: on when `pg` is installed (D-50). Also measures how long
+   * `pool.connect()` (and so `pool.query()`) waited for a client (D-98): the
+   * `db.client.connection.wait_time` histogram and the `db.client.connection.count` and
+   * `db.client.connection.pending_requests` metrics, per pool, unless `metrics` is `false`; and a
+   * `pg.pool.connect` span when an acquisition inside a trace waited at least
+   * `poolWaitThresholdMillis` (default 5; `false` adds no such span, `0` one for every
+   * acquisition).
+   */
+  pg?: boolean | { poolWaitThresholdMillis?: number | false };
   /**
    * `mysql2` query spans. Default `false` (D-49): once on, mysql2 swallows an error from an
    * event-emitter query that has no `'error'` listener, where it would otherwise crash the process.
