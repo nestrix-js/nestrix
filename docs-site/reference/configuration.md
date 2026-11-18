@@ -25,6 +25,7 @@ A table is checked against `packages/nestjs/src/options.ts` by `docs-site/script
 | `store` | an object | Limits of the dashboard's in-memory store. See [`store`](#store). |
 | `logs` | `{ export: false }` | Log export over OTLP. See [`logs`](#logs). |
 | `metrics` | on | Request-duration and runtime metrics. `false` records no metrics at all. See [`metrics`](#metrics). |
+| `errors` | an object | Which recorded exceptions count as errors. See [`errors`](#errors). |
 
 ## Large traces (`maxSpansPerTrace`)
 
@@ -143,6 +144,12 @@ Ignored while the dashboard is off.
 |---|---|---|
 | `metrics.runtime` | `true` | Event-loop delay, V8 heap, RSS and CPU time as observable instruments. They start only once a real `MeterProvider` is registered. `false` keeps the request histogram only. |
 | `metrics.export` | `true` | Export over OTLP/HTTP from Nestrix's own `MeterProvider`, when Nestrix owns the tracer provider, an endpoint is set and `@opentelemetry/sdk-metrics` and `@opentelemetry/exporter-metrics-otlp-http` are installed. `false` keeps recording through the API, so a `MeterProvider` your app registers still receives the metrics. |
+
+## `errors`
+
+| Option | Default | Description |
+|---|---|---|
+| `errors.expected` | an exception whose mapped status is below 500 | Expected exceptions are recorded on their span, marked `nestrix.exception.expected = true` and shown in the trace view, but are not error occurrences (error list, error groups, the trace's "has errors" marker). An array of classes (matched with `instanceof`), exact class names or `RegExp`s on the class name marks those expected as well; a synchronous function decides per exception (`true`, `false`, or `undefined` for the default; a throw counts as `undefined`); `false` makes nothing expected. Route error rates and SLOs follow the response status and do not change. See [Errors](/guide/errors). |
 
 ## Environment variables
 

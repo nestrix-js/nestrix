@@ -2,6 +2,7 @@ import {
   type SecretDigests,
   secretDigests,
 } from "./dashboard/startup-token.js";
+import type { ExpectedRule } from "./errors/exception.js";
 import { isDisabledByEnv } from "./kill-switch.js";
 import {
   DEFAULT_METHODS,
@@ -97,6 +98,8 @@ export interface ResolvedOptions {
   readonly metrics: ResolvedMetrics | false;
   /** Level 3 integrations (P3-01): `pg` on, `mysql2` and `ioredis` off by default (D-49). */
   readonly integrations: ResolvedIntegrations;
+  /** `errors` (D-94): `expected` is `undefined` for the default rule. */
+  readonly errors: { readonly expected: ExpectedRule };
 }
 
 /** `export.profiler: true`, resolved (P10-01, D-76). */
@@ -798,6 +801,7 @@ export function resolveOptions(
     methods: resolveMethods(o.methods),
     metrics: resolveMetrics(o, env),
     integrations: resolveIntegrations(o.integrations),
+    errors: resolveErrors(o.errors),
   };
   return Object.freeze(resolved);
 }
@@ -845,6 +849,60 @@ export function resolveHttp(http: unknown): ResolvedOptions["http"] {
       h.redactPathParams,
     ),
     redactOutgoingPath,
+  });
+}
+
+function isClass(fn: unknown): boolean {
+  try {
+    return /^class[\s{]/.test(Function.prototype.toString.call(fn));
+  } catch {
+    return false;
+  }
+}
+
+/** `errors` (D-94) with defaults applied. Throws on an invalid value. */
+export function resolveErrors(errors: unknown): {
+  readonly expected: ExpectedRule;
+} {
+  if (errors === undefined) return Object.freeze({ expected: undefined });
+  if (errors === null || typeof errors !== "object") {
+    invalid("errors must be an object");
+  }
+  const expected: unknown = (errors as { expected?: unknown }).expected;
+  if (expected === undefined || expected === false) {
+    return Object.freeze({ expected });
+  }
+  if (typeof expected === "function") {
+    // A bare class is a mistake for `[SomeClass]`: called as a predicate it would throw every time.
+    if (isClass(expected)) {
+      invalid(
+        "errors.expected must be an array to match classes: write [SomeError], not SomeError",
+      );
+    }
+    return Object.freeze({
+      expected: expected as (exception: unknown) => boolean | undefined,
+    });
+  }
+  if (!Array.isArray(expected)) {
+    invalid(
+      "errors.expected must be false, a function or an array of classes, class names or RegExps",
+    );
+  }
+  for (const m of expected as unknown[]) {
+    // A class has an object `prototype`; an arrow function (a predicate put in the array) has
+    // none, and `instanceof` would throw on every exception.
+    const isConstructor =
+      typeof m === "function" &&
+      typeof (m as { prototype?: unknown }).prototype === "object" &&
+      (m as { prototype?: unknown }).prototype !== null;
+    if (typeof m !== "string" && !isConstructor && !(m instanceof RegExp)) {
+      invalid(
+        "errors.expected entries must be a class, a class name or a RegExp (pass a predicate on its own, not in the array)",
+      );
+    }
+  }
+  return Object.freeze({
+    expected: Object.freeze([...(expected as ClassMatcher[])]),
   });
 }
 

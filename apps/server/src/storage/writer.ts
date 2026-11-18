@@ -654,13 +654,13 @@ export class PostgresIngestSink implements IngestSink {
          trace_id, span_id, parent_span_id, resource_id, service_name, name, kind, start_time,
          start_ns, end_ns, duration_ns, status_code, status_message, scope, attributes, events,
          links, http_route, http_method, http_status, is_root, is_error, trace_type, user_id,
-         class_name, method_name)
+         class_name, method_name, is_occurrence, error_key)
        SELECT * FROM unnest(
          $1::text[], $2::text[], $3::text[], $4::bigint[], $5::text[], $6::text[], $7::text[],
          $8::timestamptz[], $9::bigint[], $10::bigint[], $11::bigint[], $12::text[], $13::text[],
          $14::text[], $15::jsonb[], $16::jsonb[], $17::jsonb[], $18::text[], $19::text[],
          $20::int[], $21::boolean[], $22::boolean[], $23::text[], $24::text[], $25::text[],
-         $26::text[])
+         $26::text[], $27::boolean[], $28::text[])
        ON CONFLICT DO NOTHING
        RETURNING trace_id, span_id, start_ns::text AS start_ns`,
       [
@@ -690,6 +690,8 @@ export class PostgresIngestSink implements IngestSink {
         col((r) => r.userId),
         col((r) => r.className),
         col((r) => r.methodName),
+        col((r) => r.isOccurrence),
+        col((r) => r.errorKey),
       ],
     );
     if (result.rows.length === rows.length) return rows;

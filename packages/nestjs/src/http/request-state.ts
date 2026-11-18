@@ -160,7 +160,8 @@ export type FaultSite =
   | "stats-record"
   | "dashboard-close"
   | "user"
-  | "url-path";
+  | "url-path"
+  | "record-error";
 
 export const faultInjection: { site: FaultSite | undefined } = {
   site: undefined,

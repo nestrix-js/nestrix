@@ -55,6 +55,7 @@ import type {
 import type pg from "pg";
 import type { ServerConfig } from "../config.js";
 import { SERVER_CONFIG } from "../config.module.js";
+import { primaryException } from "../storage/error-facts.js";
 import {
   addHistograms,
   emptyHistogram,
@@ -71,6 +72,7 @@ import {
   INSIGHTS_MS,
   type ReleaseCount,
 } from "./error-insights.js";
+import { occurrenceSql, TRACE_HAS_ERRORS_SQL } from "./error-sql.js";
 import { QUERY_OPTIONS, type ResolvedQueryOptions } from "./options.js";
 import { routeStatsSpec, type Values } from "./params.js";
 import {
@@ -237,6 +239,7 @@ interface SummaryRow {
   span_count: number;
   trace_type: TraceType;
   has_job: boolean;
+  has_errors: boolean;
   release: string | null;
   user_id: string | null;
 }
@@ -252,6 +255,7 @@ function summaryOf(r: SummaryRow): TraceSummary {
     spanCount: r.span_count,
     type: r.trace_type,
     hasJob: r.has_job,
+    hasErrors: r.has_errors,
     cursor: traceCursor(r.seq),
   };
   if (r.http_method !== null) item.method = r.http_method;
@@ -432,6 +436,9 @@ export class QueryService {
     if (v.release !== undefined)
       where.push(`release = ${params.add(v.release)}`);
     if (v.user !== undefined) where.push(`user_id = ${params.add(v.user)}`);
+    // D-94: any span failed (`traces.has_errors`), the root included.
+    if (v.hasErrors === "true") where.push(TRACE_HAS_ERRORS_SQL);
+    else if (v.hasErrors === "false") where.push(`NOT ${TRACE_HAS_ERRORS_SQL}`);
     if (v.service !== undefined)
       where.push(`service_name = ${params.add(v.service)}`);
     if (v.method !== undefined) {
@@ -499,7 +506,8 @@ export class QueryService {
     const conditions = cursorCondition ? [...where, cursorCondition] : where;
     const text = `SELECT trace_id, seq::text AS seq, root_span_id, name, http_method, http_route, http_status,
                          is_error, start_ns::text AS start_ns, duration_ns::text AS duration_ns,
-                         span_count, trace_type, has_job, release, user_id
+                         span_count, trace_type, has_job, ${TRACE_HAS_ERRORS_SQL} AS has_errors,
+                         release, user_id
                     FROM traces
                    ${conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""}
                    ORDER BY seq DESC
@@ -591,7 +599,8 @@ export class QueryService {
   async listErrors(v: Values): Promise<ErrorListResponse> {
     const limit = v.limit as number;
     const params = new Params();
-    const where: string[] = ["s.is_error"];
+    // Error occurrences only: propagated and expected exceptions are not counted (D-93, D-94).
+    const where: string[] = [occurrenceSql("s")];
     if (v.service !== undefined) {
       where.push(`s.service_name = ${params.add(v.service)}`);
     }
@@ -628,7 +637,7 @@ export class QueryService {
       ),
       this.rows<{ trace_id: string; span_id: string; ts: string }>(
         `SELECT s.trace_id, s.span_id, ${TS_SQL.replace("%s", "s.start_time")} AS ts
-           FROM spans s WHERE s.is_error ${order} LIMIT 1`,
+           FROM spans s WHERE ${occurrenceSql("s")} ${order} LIMIT 1`,
       ),
     ]);
     if (
@@ -719,7 +728,11 @@ export class QueryService {
     limit: number,
   ): Promise<ErrorOccurrence[]> {
     const params = new Params();
-    const where = ["s.is_error", `s.start_time >= ${params.add(from)}`];
+    const fromParam = params.add(from);
+    const where = [
+      occurrenceSql("s", fromParam),
+      `s.start_time >= ${fromParam}`,
+    ];
     if (before !== undefined) {
       where.push(`s.start_time < ${params.add(before)}`);
     }
@@ -788,7 +801,7 @@ export class QueryService {
     const to = new Date(now);
     const grid = new Params();
     const gridWhere = [
-      "s.is_error",
+      occurrenceSql("s", grid.add(from)),
       `s.start_time >= ${grid.add(from)}`,
       `s.start_time <= ${grid.add(to)}`,
     ];
@@ -813,7 +826,7 @@ export class QueryService {
 
     const perRelease = new Params();
     const evWhere = [
-      "s.is_error",
+      occurrenceSql("s", perRelease.add(from)),
       "t.release IS NOT NULL",
       `s.start_time >= ${perRelease.add(from)}`,
       `s.start_time <= ${perRelease.add(to)}`,
@@ -1939,7 +1952,8 @@ function errorItemOf(
       }
     | undefined,
 ): ErrorItem {
-  const exception = r.events.find((e) => e.name === "exception");
+  // The first exception neither propagated nor expected (D-93, D-94).
+  const exception = primaryException(r.events);
   const item: ErrorItem = {
     traceId: r.trace_id,
     spanId: r.span_id,

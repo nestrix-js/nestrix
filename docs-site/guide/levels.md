@@ -10,7 +10,7 @@ Nestrix adds detail in levels. Each one needs a little more setup than the last.
 
 ## Level 1: HTTP
 
-One server span per request, named `METHOD /route/template` (or just `METHOD` when no route matched, as for a 404). It carries the OpenTelemetry HTTP attributes, `code.function.name` (`Controller.handler`), the status, and the first exception a handler or pipe threw as an exception event. An incoming `traceparent` is continued.
+One server span per request, named `METHOD /route/template` (or just `METHOD` when no route matched, as for a 404). It carries the OpenTelemetry HTTP attributes, `code.function.name` (`Controller.handler`), the status, and the first exception a handler or pipe threw as an exception event. An incoming `traceparent` is continued. A guard's or middleware's exception is not seen there; report it from your exception filter with [`recordError`](/guide/errors#reporting-handled-errors-recorderror). An error thrown once counts once, however many spans record it on its way up, and a thrown 4xx is recorded but not counted as an error ([Errors](/guide/errors)).
 
 `node:http` and `fetch` (undici) calls made inside a request get a client span and a `traceparent` header. A request made with no active parent span (a health poller, an error reporter's transport outside a request) gets neither.
 

@@ -138,6 +138,12 @@ export interface TraceSummary {
    * `hasJob: true`.
    */
   hasJob: boolean;
+  /**
+   * True when any stored span of the trace failed (status `error`, unless every exception on it is
+   * expected), the root included: a failed job, or an error recorded on a child span, in a trace
+   * whose root succeeded. `error` stays the root's own outcome. Absent from older backends (D-94).
+   */
+  hasErrors?: boolean;
   /** The release: `service.version` of the trace's resource, when set. */
   release?: string;
   /** `user.id` of the root span, when the app's `user` option recorded one. */
@@ -189,7 +195,11 @@ export interface ErrorItem {
   route?: string;
   method?: string;
   statusCode?: number;
-  /** `exception.type` of the first exception event, or the span's status message. */
+  /**
+   * `exception.type` of the span's first exception event that is neither propagated nor expected
+   * (`nestrix.exception.propagated` / `nestrix.exception.expected`, D-93, D-94), or the span's
+   * status message.
+   */
   errorType?: string;
   message?: string;
   timeUnixMs: number;

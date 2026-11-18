@@ -20,6 +20,7 @@ Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app pro
 - [Releases and users](#releases-and-users)
 - [Metrics](#metrics)
 - [Custom spans](#custom-spans)
+- [Errors: occurrences, expected exceptions, `recordError`](#errors-occurrences-expected-exceptions-recorderror)
 - [Mail and other outgoing channels](#mail-and-other-outgoing-channels)
 - [Testing your app](#testing-your-app)
 - [Logs](#logs)
@@ -274,7 +275,7 @@ Per-route statistics (the Routes view) count **every request**, whatever the sam
 
 The request list and the error list come from stored spans, so they **are sampled**. The dashboard says so when `sampleRate` is below 1, and says they may be when your SDK owns the sampler. At `sampleRate: 0.1`, the Routes view shows every request and the list shows about one in ten.
 
-**What is an error.** A span is an error when its status code is `error`. For a server span that means a 5xx response, or a handler exception that maps to 5xx. A thrown `NotFoundException` (404) keeps its exception event in the trace detail but counts as no error in route statistics, the error list or the error filter. The error list holds every stored span with error status, client spans and your own spans included.
+**What is an error.** A span is an error when its status code is `error`. For a server span that means a 5xx response, or a handler exception that maps to 5xx. A thrown `NotFoundException` (404) or any other expected exception keeps its exception event in the trace detail, marked expected, but counts as no error in route statistics, the error list, the error groups or the error filter. The error list holds error occurrences: stored spans with error status, client spans and your own spans included, with one thrown error counted once per trace, on the deepest span that recorded it. See [Errors](#errors-occurrences-expected-exceptions-recorderror).
 
 ### The views
 
@@ -283,9 +284,9 @@ The navigation lists these tabs. Each says whether its numbers are counted befor
 | Tab | What it shows | Numbers |
 |---|---|---|
 | Overview (home) | A health score (0 to 100) with a one-sentence verdict; **Needs attention** and **Getting better**: routes, errors, dependencies (and SLOs on the standalone server) that changed against the previous 15 or 60 minutes, ranked by impact; KPI tiles with their change (throughput, error rate, p95, Apdex, slowest dependency); latency percentiles with release markers; donuts for responses by status and where request time goes; throughput with errors; the Apdex split; the routes that changed most. The thresholds are listed in `docs/backlog/phase-11.md`. | Totals, latency, Apdex and route changes counted before sampling; status mix, time by kind, error and dependency changes sampled; each card says which |
-| Requests | Recent traces, newest first, with filters (status, error, route, release, user, type: HTTP, job, scheduled, text) that can be saved by name in the browser. A request timeline chart sits above the list (drag to narrow the range), and each row has a duration bar. | Stored, sampled |
+| Requests | Recent traces, newest first, with filters (status, error, route, release, user, type: HTTP, job, scheduled, errors: any span failed, text) that can be saved by name in the browser; a trace whose request succeeded while a span inside failed (a job, a handled error) is marked "errors inside". A request timeline chart sits above the list (drag to narrow the range), and each row has a duration bar. | Stored, sampled |
 | Trace (click a row) | The span waterfall, a summary of time by span kind and by class, a critical-path toggle (highlights the spans on the critical path), exception events and the [log lines](#logs-next-to-the-trace) written during the request. | Stored, sampled |
-| Errors | **Grouped** (the default): errors grouped by type, message and route, with counts, first and last seen and a sparkline; **All**: the flat list of every stored span with error status. | Stored, sampled |
+| Errors | **Grouped** (the default): errors grouped by type, message and route, with counts, first and last seen and a sparkline; **All**: the flat list of error occurrences (one per thrown error per trace; expected exceptions left out). | Stored, sampled |
 | Routes | Per-route requests, error rate and p50/p95/p99 over 15 or 60 minutes; selecting a route shows its latency histogram, and clicking a bar opens the request list for that latency range. **Compare** sets the last window against the one before it, or two releases, sorted by change. | Counted before sampling, except the release comparison and the histogram links into the list (stored traces) |
 | Route detail (from a route, an Overview item or a trace) | Why one route changed, window against window or release against release: a "What changed" summary with ranked findings (new or N+1 statements, slower statements, dependencies or methods, new errors, and what got faster), time per request by kind, statements, methods, dependencies, errors, slowest traces. Each finding links to the filtered Queries, Dependencies, Classes or Errors page. | KPI tiles and histogram counted before sampling; everything else from sampled traces (up to 2,000 per side) |
 | [Classes](#classes-view-and-app-map) | Calls, errors, total and own time per class and method. | Calls, errors, total time counted before sampling; own time sampled |
@@ -461,6 +462,8 @@ That sample sets most options to their defaults, except where a default is "unse
 | `logs` | `{ export: false }` | Log export over OTLP. See [Logs](#logs). |
 | `logs.export` | `false` | Send `NestrixLogger` and `emitLog()` records over OTLP to `/v1/logs`, under the same rule as metrics (see [One rule for every signal](#a-host-that-already-runs-an-opentelemetry-sdk)). Needs `@opentelemetry/sdk-logs` and `@opentelemetry/exporter-logs-otlp-http`. See [Logs](#logs). |
 | `metrics` | on | Request-duration and runtime metrics. See [Metrics](#metrics) and [`metrics`](#metrics-option). |
+| `errors` | see below | Which recorded exceptions count as errors. See [Errors](#errors-occurrences-expected-exceptions-recorderror). |
+| `errors.expected` | mapped status below 500 | Which recorded exceptions are expected answers rather than errors: an array of classes (`instanceof`), class names or `RegExp`s (added to the default), a synchronous function (`true`, `false`, `undefined` for the default), or `false` for none. See [Errors](#errors-occurrences-expected-exceptions-recorderror). |
 
 ### `methods`
 
@@ -624,7 +627,7 @@ When your app owns the SDK, the export variables are your SDK's business, not Ne
 
 - **Incoming HTTP.** One server span per request, named `METHOD /route/template` (or `METHOD` when no route matched, as for a 404), with the OpenTelemetry HTTP attributes, `code.function.name` (`Controller.handler`), the status, and the first exception a handler or pipe threw as an exception event. An incoming `traceparent` is continued. If the client goes away before the response finishes, the span carries `nestrix.http.aborted = true`.
 - **Outgoing HTTP.** `node:http` and `fetch` (undici) calls get a client span named `METHOD`, and a `traceparent` header unless the request already has one. A request made with no active parent span gets no span and no header, so background traffic (a health poller, an error reporter's transport outside a request) is not traced. If the response body is never read, the span ends at the response head and carries `nestrix.http.body = "not consumed"`: for `node:http`, on the next turn of the event loop if nothing is reading; for `fetch` and undici, after 30 seconds. The 30 seconds restart with each body chunk. A `node:http` caller that starts reading on a later tick also gets a head-only span. A body the caller cancels after the response head is marked `"cancelled"` and is not an error. A request whose method is not in the HTTP conventions' list gets the span name `HTTP` and `http.request.method = "_OTHER"`; this applies to server spans too.
-- **Exceptions.** A handler's or pipe's exception is recorded on the server span. An exception thrown by a guard is not: guards run before Nestrix's interceptor, so a guard rejection keeps its route name and records no exception event.
+- **Exceptions.** A handler's or pipe's exception is recorded on the server span. An exception thrown by a guard is not: guards run before Nestrix's interceptor, so a guard rejection keeps its route name and records no exception event; report it from your own exception filter with [`recordError`](#errors-occurrences-expected-exceptions-recorderror). An exception recorded again on its way up (method spans, the server span) is marked `nestrix.exception.propagated` and counted once; one that maps to a status below 500 is marked `nestrix.exception.expected` and not counted as an error.
 - **Process errors.** An uncaught exception becomes an exception event on the active request span, or a short span of its own. An unhandled rejection is seen only under Node's default `--unhandled-rejections=throw`. Best effort: the process usually exits before that span is exported. Nestrix adds an `uncaughtExceptionMonitor` listener only and never changes whether the process crashes.
 - **Your own classes' methods.** With one line in `main.ts`; see [Method spans](#method-spans-level-2).
 - **Database and cache calls.** `pg` by default, `mysql2` and `ioredis` on request; see [Database and cache spans](#database-and-cache-spans-level-3).
@@ -1027,6 +1030,76 @@ import { NestrixModule } from "@nestrix-js/nestjs";
 })
 export class AppModule {}
 ```
+
+## Errors: occurrences, expected exceptions, `recordError`
+
+**One thrown error is one occurrence.** With method spans on, an error thrown in a service is recorded on the service's span, then on the controller's and on the server span as it travels up. The first record counts; the later ones on its way up carry `nestrix.exception.propagated = true` and stay in the trace view as context. One shared error object thrown from two sibling spans counts twice; an exception that was expected where it was first recorded does not hide the failure it causes; each BullMQ job attempt is matched on its own. The error list, the error groups, the dashboard and the MCP tools count the error once, embedded and on the standalone server. Two different errors in one trace stay two. A span holds at most one occurrence (its first exception that is neither propagated nor expected). Spans from SDKs that do not set the mark are handled too: a span is not counted when its direct child has an error with the same type, message and stack trace.
+
+**Expected exceptions.** An exception that maps to a status below 500 (`NotFoundException`, `BadRequestException`, `ForbiddenException`...) is recorded and shown in the trace view, marked `nestrix.exception.expected = true`, but creates no error group and is not in the error list. Route error rates and SLOs are unchanged: they follow the response status. Change the rule with `errors.expected`:
+
+<!-- sample: errors-expected -->
+
+```ts
+import { Module } from "@nestjs/common";
+import { NestrixModule } from "@nestrix-js/nestjs";
+
+class OutOfStockError extends Error {}
+
+@Module({
+  imports: [
+    NestrixModule.forRoot({
+      errors: {
+        // Also expected: your own errors (subclasses too), by class, name or RegExp.
+        expected: [OutOfStockError, "PaymentDeclinedError", /^Validation/],
+        // or a function: (e) => (e instanceof ConflictException ? false : undefined)
+        // or false: count every recorded exception, 4xx included
+      },
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+A failed job attempt, a job's or scheduled tick's own method and an uncaught exception are never expected. A bare class (`expected: NotFoundException`, not in an array) is rejected at startup. An exception counts only on a span with error status: with method spans on, `expected: false` brings a thrown 404 back as an occurrence on its method span; at level 1 the 404's server span has no error status.
+
+**Has errors.** A trace's `error` is the root's outcome. `hasErrors` is wider: any span failed, for example a failed job or an error recorded on a child span of a request that answered 200. The request list marks such traces "errors inside" and filters on them (Errors: Has errors); the query API takes `traces?hasErrors=true`, and the MCP `find_traces` tool `hasErrors: true`.
+
+**Reporting handled errors: `recordError(error, attributes?, options?)`.** Records `error` on the local root span of the current trace (the request's server span, the job's or scheduled tick's root, the RPC handler's span; the active span when that has ended; a short span named `recordError` outside any span), with `exception.escaped = false` and your attributes. It sets error status on that span unless the exception is expected (`{ fail: false }` keeps the status, `{ fail: true }` fails it anyway); on a request's span that counts as a failed request in route statistics. An error object is counted once per trace, so reporting one the interceptor or a method span already recorded adds no occurrence. It never throws and does nothing while Nestrix is disabled.
+
+Guards and middleware throw before Nestrix's interceptor, and Nestrix registers no exception filter (D-14). Report what only your filter sees from the filter:
+
+<!-- sample: errors-filter -->
+
+```ts
+import {
+  type ArgumentsHost,
+  Catch,
+  type ExceptionFilter,
+  HttpException,
+  Inject,
+} from "@nestjs/common";
+import { HttpAdapterHost } from "@nestjs/core";
+import { recordError } from "@nestrix-js/nestjs";
+
+@Catch()
+export class AllExceptionsFilter implements ExceptionFilter {
+  constructor(
+    @Inject(HttpAdapterHost) private readonly host: HttpAdapterHost,
+  ) {}
+
+  catch(exception: unknown, args: ArgumentsHost): void {
+    const status =
+      exception instanceof HttpException ? exception.getStatus() : 500;
+    // Guards and middleware throw before Nestrix's interceptor: report 5xx here.
+    if (status >= 500)
+      recordError(exception, { "app.error_code": "E_INTERNAL" });
+    const response = args.switchToHttp().getResponse();
+    this.host.httpAdapter.reply(response, { statusCode: status }, status);
+  }
+}
+```
+
+A job that catches and retries calls `recordError(error, { "job.id": String(job.id) })` in its `catch`; the error appears in the error groups under the job's trace.
 
 ## Custom spans
 

@@ -48,7 +48,38 @@ describe("resolveOptions defaults", () => {
         mysql2: false,
         ioredis: false,
       },
+      errors: { expected: undefined },
     });
+  });
+
+  it("errors.expected: false, a function or class matchers; anything else throws (D-94)", () => {
+    const fn = () => undefined;
+    class Custom extends Error {}
+    expect(resolveOptions({ errors: { expected: false } }, {}).errors).toEqual({
+      expected: false,
+    });
+    expect(
+      resolveOptions({ errors: { expected: fn } }, {}).errors.expected,
+    ).toBe(fn);
+    expect(
+      resolveOptions({ errors: { expected: [Custom, "Named", /^Http/] } }, {})
+        .errors.expected,
+    ).toEqual([Custom, "Named", /^Http/]);
+    expect(() =>
+      resolveOptions({ errors: { expected: true as never } }, {}),
+    ).toThrow(/errors.expected must be/);
+    expect(() =>
+      resolveOptions({ errors: { expected: [42 as never] } }, {}),
+    ).toThrow(/errors.expected entries/);
+    expect(() =>
+      resolveOptions({ errors: { expected: Custom as never } }, {}),
+    ).toThrow(/must be an array to match classes/);
+    expect(() =>
+      resolveOptions({ errors: { expected: [(() => true) as never] } }, {}),
+    ).toThrow(/errors.expected entries/);
+    expect(() => resolveOptions({ errors: "x" as never }, {})).toThrow(
+      /errors must be an object/,
+    );
   });
 
   it("is deeply frozen", () => {

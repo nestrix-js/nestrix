@@ -326,6 +326,26 @@ ALTER INDEX spans_parent_idx ATTACH PARTITION spans_pYYYYMMDD_parent_idx;
 
 Partitions created after that inherit the index.
 
+### Upgrading to the `hasErrors` filter: the `traces` index
+
+Two migrations, each in its own transaction:
+
+- `0012_traces_has_errors.sql` adds three nullable columns with no default: `traces.has_errors`, `spans.is_occurrence` and `spans.error_key`. Each `ADD COLUMN` takes an `ACCESS EXCLUSIVE` lock on its table and partitions, but rewrites nothing, so the transaction is a catalog change and commits at once; it waits for queries already running on `traces` and `spans` to finish, and new ones wait behind it for that moment.
+- `0013_traces_has_errors_index.sql` builds the partial index for `traces?hasErrors=true`. A partitioned table's index cannot be built `CONCURRENTLY`, so it takes a `SHARE` lock on `traces` and each partition while it builds: reads go on, ingest's trace writes wait. `spans` is not locked. On a small install this takes seconds. On a large one, build the index first without blocking writes, then upgrade; the migration then finds it and does nothing:
+
+```sql
+-- the column first (a catalog change; 0012's ADD COLUMN IF NOT EXISTS then skips it):
+ALTER TABLE traces ADD COLUMN IF NOT EXISTS has_errors boolean;
+-- for each partition traces_pYYYYMMDD (list them with \d+ traces), outside a transaction:
+CREATE INDEX CONCURRENTLY traces_pYYYYMMDD_has_errors_idx ON traces_pYYYYMMDD (seq DESC)
+  WHERE (coalesce(has_errors, error_count > 0) OR is_error);
+-- once, on the parent without touching the partitions:
+CREATE INDEX traces_has_errors_seq_idx ON ONLY traces (seq DESC)
+  WHERE (coalesce(has_errors, error_count > 0) OR is_error);
+-- for each partition:
+ALTER INDEX traces_has_errors_seq_idx ATTACH PARTITION traces_pYYYYMMDD_has_errors_idx;
+```
+
 ## Security notes
 
 - **The ingest port is the admin port.** Ingest, the login form, the dashboard and the API all share one port, so exposing it to your services exposes `/login` to them too. Login is rate limited and the password needs 12 characters, but put the server behind a TLS-terminating proxy and, where you can, restrict who can reach it.

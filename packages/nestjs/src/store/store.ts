@@ -41,6 +41,12 @@ import { SUPPRESS_TRACING_KEY } from "../outbound/rules.js";
 import { buildRedactedQueryKeys, scrubSpanAttributes } from "../privacy.js";
 import { type CursorKind, decodeCursor, encodeCursor } from "./cursor.js";
 import { droppedSpansOf } from "./dropped-spans.js";
+import {
+  isErrorOccurrence,
+  isFailedSpan,
+  primaryException,
+  sameException,
+} from "./error-facts.js";
 import { type ErrorOccurrence, groupErrors } from "./error-groups.js";
 import {
   addToHeatmap,
@@ -109,6 +115,8 @@ export interface TraceListQuery {
   readonly release?: string | undefined;
   /** Exact `user.id` of the root span. */
   readonly user?: string | undefined;
+  /** `TraceSummary.hasErrors`: any span failed, the root included (D-94). */
+  readonly hasErrors?: boolean | undefined;
   /** The root started at or after / at or before this Unix time in milliseconds. */
   readonly fromUnixMs?: number | undefined;
   readonly toUnixMs?: number | undefined;
@@ -245,6 +253,8 @@ interface TraceEntry {
   candidates: SpanRecord[];
   /** Any span stored so far is a consumer span or has `nestrix.entry = 'job'`. */
   hasJob: boolean;
+  /** Any span stored so far failed (`isFailedSpan`, D-94). */
+  hasErrors: boolean;
   /** Position in the trace list; 0 until listed. */
   seq: number;
   dead: boolean;
@@ -402,6 +412,13 @@ function chooseRoot(entry: TraceEntry): SpanRecord {
   return (best ?? bestAny) as SpanRecord;
 }
 
+/** `TraceSummary.hasErrors`: a failed span, or an error root (D-94). */
+function hasErrorsOf(entry: TraceEntry): boolean {
+  return (
+    entry.hasErrors || (entry.root !== undefined && isErrorSpan(entry.root))
+  );
+}
+
 function hasSpan(entry: TraceEntry, spanId: string): boolean {
   if (entry.spanIds !== undefined) return entry.spanIds.has(spanId);
   for (const span of entry.spans) if (span.spanId === spanId) return true;
@@ -421,7 +438,8 @@ export function statusCodeOf(record: SpanRecord): number | undefined {
 
 /**
  * The error definition (backlog "Public API"): the span's status code is `error`. An
- * exception event alone (a thrown 4xx) is not an error.
+ * exception event alone (a thrown 4xx) is not an error. Which error spans are listed as error
+ * occurrences is `isErrorOccurrence` (D-93, D-94).
  */
 export function isErrorSpan(record: SpanRecord): boolean {
   return record.status.code === "error";
@@ -790,6 +808,9 @@ class Store implements TraceStore {
     ) {
       entry.hasJob = true;
     }
+    if (!entry.hasErrors && isFailedSpan(record.status.code, record.events)) {
+      entry.hasErrors = true;
+    }
     if (entry.spanIds !== undefined) {
       entry.spanIds.add(identity.spanId);
     } else if (entry.spans.length > SMALL_TRACE_SPANS) {
@@ -806,19 +827,54 @@ class Store implements TraceStore {
         this.listed.push(entry);
       }
     }
-    if (isErrorSpan(record)) {
-      const item: ErrorEntry = {
-        seq: ++this.errorSeq,
-        trace: entry,
-        span: record,
-        dead: false,
-      };
-      entry.errors.push(item);
-      this.errors.push(item);
-      entry.bytes += ERROR_ITEM_BYTES;
-      this.bytes += ERROR_ITEM_BYTES;
+    if (isErrorOccurrence(record.status.code, record.events)) {
+      this.addErrorItem(entry, record);
     }
     this.enforceLimits();
+  }
+
+  /**
+   * Adds `record` as an error occurrence of `entry`, applying the legacy parent rule (D-93): a span
+   * whose direct child already holds the same primary exception is not added, and a parent added
+   * earlier with the same exception as `record` is withdrawn (spans can end in any order).
+   */
+  private addErrorItem(entry: TraceEntry, record: SpanRecord): void {
+    const primary = primaryException(record.events);
+    if (primary !== undefined) {
+      const same = (other: ErrorEntry): boolean => {
+        if (other.dead) return false;
+        const theirs = primaryException(other.span.events);
+        return theirs !== undefined && sameException(primary, theirs);
+      };
+      for (const other of entry.errors) {
+        if (other.span.parentSpanId === record.spanId && same(other)) return;
+      }
+      for (let i = entry.errors.length - 1; i >= 0; i--) {
+        const other = entry.errors[i] as ErrorEntry;
+        if (
+          record.parentSpanId !== undefined &&
+          other.span.spanId === record.parentSpanId &&
+          same(other)
+        ) {
+          other.dead = true;
+          other.span = RELEASED;
+          this.deadErrors++;
+          entry.errors.splice(i, 1);
+          entry.bytes -= ERROR_ITEM_BYTES;
+          this.bytes -= ERROR_ITEM_BYTES;
+        }
+      }
+    }
+    const item: ErrorEntry = {
+      seq: ++this.errorSeq,
+      trace: entry,
+      span: record,
+      dead: false,
+    };
+    entry.errors.push(item);
+    this.errors.push(item);
+    entry.bytes += ERROR_ITEM_BYTES;
+    this.bytes += ERROR_ITEM_BYTES;
   }
 
   /** A new, empty entry, last in eviction order. */
@@ -832,6 +888,7 @@ class Store implements TraceStore {
       root: undefined,
       candidates: [],
       hasJob: false,
+      hasErrors: false,
       seq: 0,
       dead: false,
       errors: [],
@@ -996,6 +1053,7 @@ class Store implements TraceStore {
       spanCount: entry.spans.length,
       type: traceTypeOf(root),
       hasJob: entry.hasJob,
+      hasErrors: hasErrorsOf(entry),
       cursor: this.cursor("t", entry.seq),
     };
     const method = stringAttr(root, ATTR_METHOD);
@@ -1043,6 +1101,12 @@ class Store implements TraceStore {
       if (
         query.user !== undefined &&
         stringAttr(root, ATTR_USER_ID) !== query.user
+      ) {
+        return false;
+      }
+      if (
+        query.hasErrors !== undefined &&
+        hasErrorsOf(entry) !== query.hasErrors
       ) {
         return false;
       }
@@ -1187,7 +1251,8 @@ class Store implements TraceStore {
 
   private errorItem(entry: ErrorEntry): ErrorItem {
     const span = entry.span;
-    const exception = span.events.find((e) => e.name === "exception");
+    // The first exception that is neither propagated nor expected (D-93, D-94).
+    const exception = primaryException(span.events);
     const endMs = span.startTimeUnixMs + span.durationMs;
     const item: ErrorItem = {
       traceId: entry.trace.traceId,

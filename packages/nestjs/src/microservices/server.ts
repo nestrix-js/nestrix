@@ -35,6 +35,7 @@ import {
 } from "@opentelemetry/semantic-conventions";
 import { Observable, tap } from "rxjs";
 import { diagnostics } from "../diagnostics.js";
+import { recordExceptionEvent, withLocalRoot } from "../errors/exception.js";
 import { endNestrixSpan, startNestrixSpan } from "../trace-limit.js";
 import {
   ATTR_MESSAGING_DESTINATION_NAME,
@@ -156,7 +157,11 @@ function start(execution: ExecutionContext): Started | undefined {
     { kind: isEvent ? SpanKind.CONSUMER : SpanKind.SERVER, attributes },
     parent,
   );
-  return { span, ctx: trace.setSpan(parent, span) };
+  // An RPC handler span is where `recordError` writes inside the handler (D-93).
+  return {
+    span,
+    ctx: withLocalRoot(parent, span, trace.setSpan(parent, span)),
+  };
 }
 
 function exceptionType(error: unknown): string {
@@ -172,29 +177,20 @@ function exceptionType(error: unknown): string {
   return "_OTHER";
 }
 
-function safeString(value: unknown): string {
-  try {
-    return String(value);
-  } catch {
-    return "(unprintable)";
-  }
-}
-
-/** Records `error` on `span` and sets error status. Never throws. */
-export function recordError(span: Span, error: unknown): void {
+/**
+ * Records `error` on `span` and sets error status. Never throws. `root`: `span` is an RPC handler's
+ * server or consumer span, the outermost Nestrix span of the handler's work whatever its parent, so
+ * an error recorded below it travelled up to it (D-93).
+ */
+export function recordError(span: Span, error: unknown, root = false): void {
   try {
     fault("record-error");
-    if (error instanceof Error) {
-      span.recordException(error);
-    } else {
-      const message =
-        error !== null &&
-        typeof error === "object" &&
-        typeof (error as { message?: unknown }).message === "string"
-          ? (error as { message: string }).message
-          : safeString(error);
-      span.recordException({ name: exceptionType(error), message });
-    }
+    // Marked propagated when a method span below already recorded the same error (D-93).
+    recordExceptionEvent(span, error, root ? { root: true } : undefined);
+  } catch (failure) {
+    diagnostics.countFailure("microservices.record-error", failure);
+  }
+  try {
     span.setAttribute(ATTR_ERROR_TYPE, exceptionType(error));
     span.setStatus({ code: SpanStatusCode.ERROR });
   } catch (failure) {
@@ -239,7 +235,7 @@ export function traceRpc(
   } catch (error) {
     if (called) {
       // The handler pipeline itself threw: record it and let it reach Nest unchanged.
-      recordError(span, error);
+      recordError(span, error, true);
       endSpan(span);
       throw error;
     }
@@ -259,7 +255,7 @@ export function traceRpc(
     const observed = stream.pipe(
       tap({
         error: (error: unknown) => {
-          recordError(span, error);
+          recordError(span, error, true);
           end();
         },
         complete: end,

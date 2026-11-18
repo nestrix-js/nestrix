@@ -15,6 +15,7 @@ import type {
   DashboardUnavailable,
 } from "./dashboard/mount.js";
 import { diagnostics, logErrorOnce } from "./diagnostics.js";
+import { installErrorTracking } from "./errors/exception.js";
 import { NestrixInterceptor } from "./http/interceptor.js";
 import type { LogExportHandle } from "./logs/export.js";
 import { configureMethods, markNestrixInternal } from "./methods/registry.js";
@@ -124,6 +125,8 @@ export class NestrixCore
             metrics?.http,
           ),
           rt.installProcessErrorMonitor(),
+          // D-93/D-94: `recordError` works while an enabled app runs; `errors.expected` applies.
+          installErrorTracking(options.errors.expected),
         );
       }
     } catch (error) {
