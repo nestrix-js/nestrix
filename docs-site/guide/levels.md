@@ -78,7 +78,7 @@ A database span is a child of the method or request that ran the query. Spans us
 
 | Library | Default | How |
 |---|---|---|
-| `pg` | on, when `pg` is installed | Wraps `Client.prototype.query` and `Pool.prototype.query`. Covers raw `pg`, `pg-cursor`, `pg-query-stream` and ORMs built on `pg` (TypeORM, Drizzle, Prisma on `@prisma/adapter-pg`, MikroORM). |
+| `pg` | on, when `pg` is installed | Wraps `Client.prototype.query`, `Pool.prototype.query` and `Pool.prototype.connect` (pool wait). Covers raw `pg`, `pg-cursor`, `pg-query-stream` and ORMs built on `pg` (TypeORM, Drizzle, Prisma on `@prisma/adapter-pg`, MikroORM). |
 | `mysql2` | off | Subscribes to mysql2's tracing channels (mysql2 3.20 or later). |
 | `ioredis` | off | Subscribes to ioredis's channels (ioredis 5.11 or later). |
 
@@ -95,6 +95,8 @@ NestrixModule.forRoot({
 **Why `mysql2` and `ioredis` are opt-in.** Both libraries change behaviour once anything subscribes to their tracing channels. With `mysql2`, an event-emitter query that fails with no `'error'` listener normally raises `uncaughtException`; once Nestrix subscribes, it is silently swallowed. With `ioredis`, a failing command nobody awaits normally raises `unhandledRejection`; once Nestrix subscribes, it does not. That turns a crash into silence, so you opt in knowingly (decision D-49).
 
 **What a span records.** The statement with literals replaced by `?` (strings, numbers, hex and boolean literals; `IN (...)` lists collapsed; comments dropped; cut to 2,048 characters). If Nestrix cannot parse a statement safely it records a fixed placeholder, never the raw text. **Bind parameters are never recorded**, and there is no option to. For Redis the span records the command and its first argument (`GET user:1`), never values. A database span covers the query only, so a saturated connection pool shows as a gap before the span.
+
+**`pg` pool wait.** For `pg`, that gap is measured: `db.client.connection.wait_time` (seconds, per `db.client.connection.pool.name`, every successful acquisition), `db.client.connection.count` (`idle` and `used`) and `db.client.connection.pending_requests`, through `@opentelemetry/api` (nothing with `metrics: false`). Inside a trace, an acquisition that found no free client and waited at least `integrations.pg.poolWaitThresholdMillis` (default `5`) also gets a short `pg.pool.connect` span between the caller and its first query; a free client adds nothing. `{ pg: { poolWaitThresholdMillis: false } }` keeps the metrics and drops the span. The pool name is `host:port/database`, never the user or password. A failed acquisition records no wait; a failed `pool.query()` keeps its error span.
 
 **`pg` and nested copies.** An ORM may bring its own copy of `pg`. Nestrix wraps copies loaded when it starts and again at `onApplicationBootstrap`. A copy first loaded during a request is not traced.
 
