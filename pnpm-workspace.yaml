@@ -27,3 +27,12 @@ packageExtensions:
   "@fastify/compress":
     peerDependencies:
       fastify: "^5.0.0"
+# Dependabot: patched versions of dev/test-only transitive dependencies that the pinned
+# older Nest versions (platform-express 12.0.0 and 12.3.0, spikes, docs-site) still resolve to.
+overrides:
+  "multer@<2.5.0": "^2.5.0"
+  "qs@<6.16.1": "^6.16.1"
+  "glob@>=9.0.0 <14.0.2": "^14.0.2"
+  "minimatch@>=7.0.0 <11.0.1": "^11.0.1"
+  "esbuild@<0.25.0": "^0.25.0"
+  "vite@<6.4.4": "^6.4.4"
