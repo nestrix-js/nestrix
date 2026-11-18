@@ -10,6 +10,8 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import type { ApiError, QuerySort } from "@nestrix-js/protocol";
+import type { ServerConfig } from "../config.js";
+import { SERVER_CONFIG } from "../config.module.js";
 import type { TriageFilter } from "../errors/triage.js";
 import { QUERY_HEADERS, QueryExceptionFilter } from "./exception.filter.js";
 import { ExplainService } from "./explain.service.js";
@@ -41,6 +43,7 @@ import {
 import { NotFoundError, QueryService } from "./query.service.js";
 import { scopeOf } from "./scope.js";
 import { TraceLogsService } from "./trace-logs.service.js";
+import { type ResolvedWindow, resolveWindow } from "./window.js";
 
 interface RequestLike {
   originalUrl?: string;
@@ -69,6 +72,18 @@ function parse(
   return parsed.values;
 }
 
+/** `windowMinutes` or `fromUnixMs` + `toUnixMs` of a request, as a window length and its end (400 when invalid). A function, not a method: the controller's methods are its routes. */
+function requestWindow(
+  config: ServerConfig,
+  v: Values,
+  defaultWindowMinutes = 15,
+): ResolvedWindow {
+  return resolveWindow(v, {
+    retentionDays: config.retentionDays,
+    defaultWindowMinutes,
+  });
+}
+
 /**
  * `/api/v1/*`: the routes of the embedded dashboard's API with the same shapes and parameter
  * checks, plus `service` and `environment` (D-101: `scope.ts`). Every route runs the `QUERY_GUARD` provider first (`guard.ts`).
@@ -89,6 +104,9 @@ export class QueryController {
   @Inject(TraceLogsService)
   private readonly traceLogsService!: TraceLogsService;
 
+  @Inject(SERVER_CONFIG)
+  private readonly config!: ServerConfig;
+
   @Get("meta")
   @Headers()
   meta(@Req() req: RequestLike) {
@@ -105,7 +123,8 @@ export class QueryController {
   @Get("traces/timeline")
   @Headers()
   timeline(@Req() req: RequestLike) {
-    return this.query.timeline(parse(req, traceTimelineSpec));
+    const v = parse(req, traceTimelineSpec);
+    return this.query.timeline(v, requestWindow(this.config, v));
   }
 
   @Get("trace")
@@ -165,10 +184,11 @@ export class QueryController {
   @Headers()
   errorGroups(@Req() req: RequestLike) {
     const v = parse(req, errorGroupSpec);
+    const w = requestWindow(this.config, v);
     return this.query.errorGroups(
-      v.windowMinutes as number,
+      w.windowMinutes,
       scopeOf(v),
-      undefined,
+      w.now,
       v.triage as TriageFilter,
     );
   }
@@ -184,7 +204,8 @@ export class QueryController {
   @Headers()
   routes(@Req() req: RequestLike) {
     const v = parse(req, routeStatsSpec);
-    return this.query.routes(v.windowMinutes as number, scopeOf(v));
+    const w = requestWindow(this.config, v);
+    return this.query.routes(w.windowMinutes, scopeOf(v), w.now);
   }
 
   @Get("routes/histogram")
@@ -200,11 +221,13 @@ export class QueryController {
       };
       throw new HttpException(body, 400);
     }
+    const w = requestWindow(this.config, v);
     return this.query.routeHistogram(
       v.route,
       typeof v.method === "string" ? v.method.toUpperCase() : undefined,
-      v.windowMinutes as number,
+      w.windowMinutes,
       scopeOf(v),
+      w.now,
     );
   }
 
@@ -228,7 +251,8 @@ export class QueryController {
     if (typeof a === "string" && typeof b === "string") {
       return this.query.releaseCompare(a, b, scope);
     }
-    return this.query.windowCompare(v.windowMinutes as number, scope);
+    const w = requestWindow(this.config, v);
+    return this.query.windowCompare(w.windowMinutes, scope, w.now);
   }
 
   @Get("routes/explain")
@@ -245,24 +269,30 @@ export class QueryController {
     if ((v.releaseA === undefined) !== (v.releaseB === undefined)) {
       bad('Query parameters "releaseA" and "releaseB" must be given together.');
     }
-    return this.explainService.explain({
-      method: v.method as string | undefined,
-      route: v.route as string,
-      windowMinutes: v.windowMinutes as number,
-      releaseA: v.releaseA as string | undefined,
-      releaseB: v.releaseB as string | undefined,
-      scope: scopeOf(v),
-    });
+    const w = requestWindow(this.config, v, 60);
+    return this.explainService.explain(
+      {
+        method: v.method as string | undefined,
+        route: v.route as string,
+        windowMinutes: w.windowMinutes,
+        releaseA: v.releaseA as string | undefined,
+        releaseB: v.releaseB as string | undefined,
+        scope: scopeOf(v),
+      },
+      w.now,
+    );
   }
 
   @Get("overview")
   @Headers()
   overview(@Req() req: RequestLike) {
     const v = parse(req, overviewSpec);
+    const w = requestWindow(this.config, v);
     return this.overviewService.overview(
-      v.windowMinutes as number,
+      w.windowMinutes,
       v.apdexMs as number,
       scopeOf(v),
+      w.now,
     );
   }
 
@@ -270,21 +300,21 @@ export class QueryController {
   @Headers()
   classes(@Req() req: RequestLike) {
     const v = parse(req, classStatsSpec);
-    return this.query.classesWithPrevious(
-      v.windowMinutes as number,
-      scopeOf(v),
-    );
+    const w = requestWindow(this.config, v);
+    return this.query.classesWithPrevious(w.windowMinutes, scopeOf(v), w.now);
   }
 
   @Get("queries")
   @Headers()
   queries(@Req() req: RequestLike) {
     const v = parse(req, queryStatsSpec);
+    const w = requestWindow(this.config, v);
     return this.query.queries(
-      v.windowMinutes as number,
+      w.windowMinutes,
       scopeOf(v),
       (v.sort as QuerySort | undefined) ?? "total",
       v.limit as number,
+      w.now,
     );
   }
 
@@ -292,16 +322,19 @@ export class QueryController {
   @Headers()
   map(@Req() req: RequestLike) {
     const v = parse(req, appMapSpec);
-    return this.query.mapWithPrevious(v.windowMinutes as number, scopeOf(v));
+    const w = requestWindow(this.config, v);
+    return this.query.mapWithPrevious(w.windowMinutes, scopeOf(v), w.now);
   }
 
   @Get("dependencies")
   @Headers()
   dependencies(@Req() req: RequestLike) {
     const v = parse(req, dependencySpec);
+    const w = requestWindow(this.config, v);
     return this.query.dependenciesWithPrevious(
-      v.windowMinutes as number,
+      w.windowMinutes,
       scopeOf(v),
+      w.now,
     );
   }
 }

@@ -34,7 +34,10 @@ export interface QueryStatsResponse {
   toUnixMs: number;
   /** Always `true`: the numbers reflect sampling. */
   sampled: true;
-  /** True when the embedded scan stopped early (statement cap) so some statements are missing. */
+  /**
+   * True when the scan stopped early so some statements are missing: the embedded statement cap,
+   * or the standalone server reading only the newest sampled spans of a long range.
+   */
   truncated: boolean;
   queries: QueryStatement[];
 }

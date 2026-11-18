@@ -134,8 +134,13 @@ export interface ErrorGroup {
 
 export interface ErrorGroupsResponse {
   windowMinutes: number;
-  /** 60,000 for the 15-minute window, 300,000 for the 60-minute one. */
+  /**
+   * Width of one `series` bucket: 60,000 for the 15-minute window, 300,000 up to 6 hours, one hour
+   * up to 7 days and one day above (the standalone server's longer windows).
+   */
   bucketMs: number;
+  /** Standalone server: true when the range holds more error occurrences than the server reads; the newest were grouped. */
+  truncated?: boolean;
   fromUnixMs: number;
   toUnixMs: number;
   /** Most occurrences first, at most 100. */

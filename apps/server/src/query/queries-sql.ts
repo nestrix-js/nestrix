@@ -11,6 +11,8 @@ import { adder, type Scope, scopeSql } from "./scope.js";
 export const REPEAT_THRESHOLD = 3;
 /** Example trace ids per statement. */
 export const MAX_EXAMPLES = 3;
+/** Client spans one query reads: the newest this many of the range (a longer range is `truncated`). */
+export const MAX_QUERY_SPANS = 200_000;
 
 const ORDER: Record<QuerySort, string> = {
   total: "total_ns",
@@ -43,12 +45,17 @@ export function queriesSql(opts: {
   where.push(...scopeSql(opts.scope, adder(values), "s"));
   values.push(opts.limit);
   const limit = `$${values.length}`;
-  const text = `WITH q AS (
-  SELECT s.trace_id, s.attributes->>'db.query.text' AS stmt,
+  const text = `WITH q_all AS MATERIALIZED (
+  SELECT s.start_time, s.trace_id, s.attributes->>'db.query.text' AS stmt,
          COALESCE(s.attributes->>'db.system.name', s.attributes->>'db.system') AS sys,
          s.duration_ns, s.status_code
     FROM spans s
    WHERE ${where.join(" AND ")}
+   ORDER BY s.start_time DESC
+   LIMIT ${MAX_QUERY_SPANS + 1}
+),
+q AS (
+  SELECT * FROM q_all ORDER BY start_time DESC LIMIT ${MAX_QUERY_SPANS}
 ),
 agg AS (
   SELECT stmt, sys, count(*)::int AS n, sum(duration_ns)::float8 AS total_ns,
@@ -68,7 +75,8 @@ tr AS (
     FROM per_trace GROUP BY stmt, sys
 )
 SELECT agg.stmt, agg.sys, agg.n, agg.total_ns, agg.max_ns, agg.p95_ns, agg.errors,
-       tr.traces, tr.repeated, tr.examples
+       tr.traces, tr.repeated, tr.examples,
+       (SELECT count(*) FROM q_all) > ${MAX_QUERY_SPANS} AS truncated
   FROM agg JOIN tr ON tr.stmt = agg.stmt AND tr.sys = agg.sys
  ORDER BY agg.${ORDER[opts.sort]} DESC, agg.stmt, agg.sys
  LIMIT ${limit}`;

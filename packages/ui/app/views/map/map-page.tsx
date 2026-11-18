@@ -41,6 +41,7 @@ import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
+import { windowChoices, windowLabel } from "@/lib/windows";
 import { edgeP95Change, mapChanges } from "@/views/map/map-changes";
 import {
   type ErrorLevel,
@@ -60,10 +61,6 @@ import {
   truncate,
 } from "@/views/map/map-layout";
 
-const WINDOWS = [
-  { value: 15, label: "15 min" },
-  { value: 60, label: "60 min" },
-] as const;
 const DEFAULT_WINDOW = 15;
 const parsers = { windowMinutes: routeWindowParser };
 const SOURCE = "from sampled traces";
@@ -331,7 +328,9 @@ export function MapPage() {
           <>
             <SegmentedControl
               label="Time window"
-              options={WINDOWS}
+              options={windowChoices(
+                meta.data?.statistics.windowMinutesOptions,
+              )}
               value={windowMinutes}
               onChange={(minutes) =>
                 void setQuery({
@@ -405,7 +404,7 @@ export function MapPage() {
                 testId="kpi-calls"
                 label="Calls"
                 value={thousands(totals.calls)}
-                unit={`in ${shownWindow} min`}
+                unit={`in ${windowLabel(shownWindow)}`}
                 delta={changes.calls.text}
                 deltaTone={changes.calls.tone}
                 deltaTitle={changes.calls.title}

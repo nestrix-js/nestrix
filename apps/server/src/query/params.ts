@@ -22,10 +22,27 @@ import type {
   RouteExplainParamsSpec,
   RouteHistogramParamsSpec,
   RouteStatsParamsSpec,
+  StandaloneParamsSpec,
   TraceListParamsSpec,
   TraceParamsSpec,
   TraceTimelineParamsSpec,
 } from "@nestrix-js/protocol";
+
+/**
+ * The window of every aggregate route: `windowMinutes` (no default here, `resolveWindow` in
+ * `window.ts` applies the route's own) or the range `fromUnixMs` + `toUnixMs`. Typed by
+ * `StandaloneParamsSpec`, so a bound that drifts from protocol fails `tsc` (D-107).
+ */
+const rangeParams = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 43_200,
+    oneOf: [15, 60, 360, 1440, 10_080, 43_200],
+  },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+} as const;
 
 export const traceListSpec: TraceListParamsSpec = {
   limit: { kind: "int", min: 1, max: 200, default: 50 },
@@ -63,37 +80,26 @@ export const logSearchSpec: LogSearchParamsSpec = {
   toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
 };
 
-export const dependencySpec: DependencyParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
+export const dependencySpec: StandaloneParamsSpec<DependencyParamsSpec> = {
+  ...rangeParams,
   service: { kind: "string", maxLength: 256 },
   environment: { kind: "string", maxLength: 256 },
 };
 
-export const traceTimelineSpec: TraceTimelineParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
-  route: { kind: "string", maxLength: 512 },
-  method: { kind: "string", maxLength: 16 },
-  status: { kind: "enum", values: ["ok", "error", "4xx", "5xx"] },
-  search: { kind: "string", maxLength: 200 },
-  type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
-  release: { kind: "string", maxLength: 255 },
-  user: { kind: "string", maxLength: 256 },
-  hasErrors: { kind: "enum", values: ["true", "false"] },
-  service: { kind: "string", maxLength: 256 },
-  environment: { kind: "string", maxLength: 256 },
-};
+export const traceTimelineSpec: StandaloneParamsSpec<TraceTimelineParamsSpec> =
+  {
+    ...rangeParams,
+    route: { kind: "string", maxLength: 512 },
+    method: { kind: "string", maxLength: 16 },
+    status: { kind: "enum", values: ["ok", "error", "4xx", "5xx"] },
+    search: { kind: "string", maxLength: 200 },
+    type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
+    release: { kind: "string", maxLength: 255 },
+    user: { kind: "string", maxLength: 256 },
+    hasErrors: { kind: "enum", values: ["true", "false"] },
+    service: { kind: "string", maxLength: 256 },
+    environment: { kind: "string", maxLength: 256 },
+  };
 
 export const errorListSpec: ErrorListParamsSpec = {
   limit: { kind: "int", min: 1, max: 200, default: 50 },
@@ -104,14 +110,8 @@ export const errorListSpec: ErrorListParamsSpec = {
   environment: { kind: "string", maxLength: 256 },
 };
 
-export const errorGroupSpec: ErrorGroupParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
+export const errorGroupSpec: StandaloneParamsSpec<ErrorGroupParamsSpec> = {
+  ...rangeParams,
   service: { kind: "string", maxLength: 256 },
   triage: {
     kind: "enum",
@@ -126,53 +126,30 @@ export const errorInsightsSpec: ErrorInsightsParamsSpec = {
   environment: { kind: "string", maxLength: 256 },
 };
 
-export const overviewSpec: OverviewParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
+export const overviewSpec: StandaloneParamsSpec<OverviewParamsSpec> = {
+  ...rangeParams,
   apdexMs: { kind: "int", min: 10, max: 10000, default: 300 },
   service: { kind: "string", maxLength: 256 },
   environment: { kind: "string", maxLength: 256 },
 };
 
-export const routeStatsSpec: RouteStatsParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
+export const routeStatsSpec: StandaloneParamsSpec<RouteStatsParamsSpec> = {
+  ...rangeParams,
   service: { kind: "string", maxLength: 256 },
   environment: { kind: "string", maxLength: 256 },
 };
 
-export const routeHistogramSpec: RouteHistogramParamsSpec = {
-  method: { kind: "string", maxLength: 16 },
-  route: { kind: "string", maxLength: 512 },
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
-  service: { kind: "string", maxLength: 256 },
-  environment: { kind: "string", maxLength: 256 },
-};
+export const routeHistogramSpec: StandaloneParamsSpec<RouteHistogramParamsSpec> =
+  {
+    method: { kind: "string", maxLength: 16 },
+    route: { kind: "string", maxLength: 512 },
+    ...rangeParams,
+    service: { kind: "string", maxLength: 256 },
+    environment: { kind: "string", maxLength: 256 },
+  };
 
-export const routeCompareSpec: RouteCompareParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
+export const routeCompareSpec: StandaloneParamsSpec<RouteCompareParamsSpec> = {
+  ...rangeParams,
   previous: { kind: "int", min: 1, max: 1, default: 1 },
   releaseA: { kind: "string", maxLength: 255 },
   releaseB: { kind: "string", maxLength: 255 },
@@ -180,54 +157,30 @@ export const routeCompareSpec: RouteCompareParamsSpec = {
   environment: { kind: "string", maxLength: 256 },
 };
 
-export const routeExplainSpec: RouteExplainParamsSpec = {
+export const routeExplainSpec: StandaloneParamsSpec<RouteExplainParamsSpec> = {
   method: { kind: "string", maxLength: 16 },
   route: { kind: "string", maxLength: 512 },
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 60,
-  },
+  ...rangeParams,
   releaseA: { kind: "string", maxLength: 255 },
   releaseB: { kind: "string", maxLength: 255 },
   service: { kind: "string", maxLength: 256 },
   environment: { kind: "string", maxLength: 256 },
 };
 
-export const classStatsSpec: ClassStatsParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
+export const classStatsSpec: StandaloneParamsSpec<ClassStatsParamsSpec> = {
+  ...rangeParams,
   service: { kind: "string", maxLength: 256 },
   environment: { kind: "string", maxLength: 256 },
 };
 
-export const appMapSpec: AppMapParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
+export const appMapSpec: StandaloneParamsSpec<AppMapParamsSpec> = {
+  ...rangeParams,
   service: { kind: "string", maxLength: 256 },
   environment: { kind: "string", maxLength: 256 },
 };
 
-export const queryStatsSpec: QueryStatsParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
+export const queryStatsSpec: StandaloneParamsSpec<QueryStatsParamsSpec> = {
+  ...rangeParams,
   service: { kind: "string", maxLength: 256 },
   environment: { kind: "string", maxLength: 256 },
   sort: { kind: "enum", values: ["total", "count", "p95", "max"] },

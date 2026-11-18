@@ -14,8 +14,10 @@ import {
   type KindRow,
   type MinuteRow,
   type SloBurnInput,
+  seriesStepMinutes,
 } from "./overview-compute.js";
 import { QueryService } from "./query.service.js";
+import { routeRollups } from "./rollup-sql.js";
 import { type Scope, scopeSql, scopeWhere } from "./scope.js";
 
 const MINUTE_MS = 60_000;
@@ -82,7 +84,13 @@ export class OverviewService {
       previousDependencies,
       slos,
     ] = await Promise.all([
-      this.routeMinutes(prevFromMs, last * MINUTE_MS, scope),
+      this.routeMinutes(
+        prevFromMs,
+        curFromMs,
+        last * MINUTE_MS,
+        seriesStepMinutes(windowMinutes),
+        scope,
+      ),
       this.statisticsSince(scope),
       this.statusMix(curFromMs, now, scope),
       this.kindRows(curFromMs, now, scope),
@@ -121,37 +129,37 @@ export class OverviewService {
     });
   }
 
+  /**
+   * The route rollups of the previous and the current window, summed in SQL into the series
+   * buckets (`stepMinutes` wide, counted from each window's first minute), as the rows
+   * `computeOverview` takes: `minute` is the first minute of the bucket.
+   */
   private async routeMinutes(
-    fromMs: number,
-    toMs: number,
+    prevFromMs: number,
+    curFromMs: number,
+    lastMs: number,
+    stepMinutes: number,
     scope: Scope,
   ): Promise<MinuteRow[]> {
-    const p = new Params();
-    const where = [
-      `minute >= ${p.add(new Date(fromMs))}`,
-      `minute <= ${p.add(new Date(toMs))}`,
-    ];
-    where.push(...scopeSql(scope, p.add));
-    const rows = await this.rows<{
-      minute_ms: string;
-      method: string;
-      route: string;
-      count: number;
-      errors: number;
-      max_ms: number;
-      hist: number[];
-    }>(
-      `SELECT (extract(epoch FROM minute) * 1000)::bigint AS minute_ms, method, route, count, errors, max_ms, hist
-         FROM route_minutes WHERE ${where.join(" AND ")}`,
-      p.values,
-    );
-    return rows.map((r) => ({
-      minute: Math.floor(Number(r.minute_ms) / MINUTE_MS),
+    const read = (fromMs: number, toMs: number) =>
+      routeRollups(this.pool, {
+        fromMs,
+        toMs,
+        bucketMs: stepMinutes * MINUTE_MS,
+        originMs: fromMs,
+        scope,
+      });
+    const [previous, current] = await Promise.all([
+      read(prevFromMs, curFromMs - MINUTE_MS),
+      read(curFromMs, lastMs),
+    ]);
+    return [...previous, ...current].map((r) => ({
+      minute: Math.round(r.bucketMs / MINUTE_MS),
       method: r.method,
       route: r.route,
-      count: Number(r.count),
-      errors: Number(r.errors),
-      max: Number(r.max_ms),
+      count: r.count,
+      errors: r.errors,
+      max: r.maxMs,
       hist: r.hist,
     }));
   }

@@ -11,6 +11,7 @@ import type {
   ErrorGroupState,
   ErrorGroupsResponse,
 } from "@nestrix-js/protocol";
+import { bucketMsFor } from "./window.js";
 
 /** One error occurrence, whichever backend it came from. */
 export interface ErrorOccurrence {
@@ -77,9 +78,12 @@ export function groupKeyOf(
   return JSON.stringify([errorType ?? null, pattern, route ?? null]);
 }
 
-/** Bucket size and count of a window: one minute for 15 minutes, five minutes for 60. */
+/**
+ * Bucket size and count of a window: one minute for 15 minutes, five minutes up to 6 hours, an
+ * hour up to 7 days, a day above (`window.ts`; the embedded copy only has the first two).
+ */
 function bucketsOf(windowMinutes: number): { bucketMs: number; count: number } {
-  const bucketMs = windowMinutes <= 15 ? 60_000 : 300_000;
+  const bucketMs = bucketMsFor(windowMinutes);
   return { bucketMs, count: Math.ceil((windowMinutes * 60_000) / bucketMs) };
 }
 

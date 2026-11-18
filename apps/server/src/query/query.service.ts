@@ -87,7 +87,7 @@ import {
 } from "./error-insights.js";
 import { occurrenceSql, TRACE_HAS_ERRORS_SQL } from "./error-sql.js";
 import { QUERY_OPTIONS, type ResolvedQueryOptions } from "./options.js";
-import { routeStatsSpec, type Values } from "./params.js";
+import type { Values } from "./params.js";
 import {
   uncovered,
   withPreviousClasses,
@@ -95,6 +95,7 @@ import {
   withPreviousMap,
 } from "./previous-window.js";
 import { queriesSql } from "./queries-sql.js";
+import { classRollups, routeRollups } from "./rollup-sql.js";
 import {
   bucketsOf,
   compareRows,
@@ -112,6 +113,13 @@ import {
   UNSET_ENVIRONMENT,
 } from "./scope.js";
 import { TARGET_KEYS, targetOf } from "./targets.js";
+import {
+  bucketMsFor,
+  DAY_MS,
+  MINUTE_MS,
+  windowOf,
+  windowOptionsFor,
+} from "./window.js";
 
 export const PROTOCOL_VERSION: MetaResponse["protocolVersion"] = 1;
 
@@ -120,13 +128,14 @@ const CACHE_SYSTEMS = new Set(["redis", "valkey", "memcached"]);
 /** Nodes in one map response; targets past it fold into one `other` node (as the embedded map). */
 export const MAX_MAP_NODES = 200;
 const OVERFLOW_ID = "other:overflow";
-const MINUTE_MS = 60_000;
 /** Targets in one dependencies response; those with the least total time are left out. */
 export const MAX_DEPENDENCIES = 200;
 
-/** Bucket width of a window: 1 minute for 15 minutes, 5 minutes for 60. */
-const bucketMsFor = (windowMinutes: number): number =>
-  (windowMinutes <= 15 ? 1 : 5) * MINUTE_MS;
+/**
+ * Spans a long range reads at most for the views built from stored spans (dependencies, map,
+ * queries, own time of classes): the newest this many. A range with more answers `truncated`.
+ */
+export const MAX_SPANS_READ = 200_000;
 /** Clock skew allowed between a calling span and its remote child when joining them. */
 const SKEW_MS = MINUTE_MS;
 const CLASS_KINDS: ReadonlySet<string> = new Set<ClassKind>([
@@ -154,8 +163,10 @@ function round(ms: number): number {
 }
 
 /** Bound parameters of one statement; `add` returns the placeholder to put in the text. */
-/** Rows read for the error groups: the window, and the 7 days before it (P15-02). */
+/** Rows read for the error groups: the window, and the history before it (P15-02). */
 const WINDOW_ROW_CAP = 5000;
+/** The same for a window longer than 60 minutes (D-107). */
+const LONG_WINDOW_ROW_CAP = 20_000;
 const HISTORY_ROW_CAP = 20_000;
 
 class Params {
@@ -189,20 +200,6 @@ function histogramOf(row: Record<string, unknown>): number[] {
   const hist = emptyHistogram();
   for (let i = 0; i < HISTOGRAM_BUCKETS; i++) hist[i] = Number(row[`h${i}`]);
   return hist;
-}
-
-interface Window {
-  /** Minute index (Unix ms / 60 000) of the first and last minute of the window. */
-  first: number;
-  last: number;
-  fromMs: number;
-  toMs: number;
-}
-
-function windowOf(windowMinutes: number, now: number): Window {
-  const last = Math.floor(now / MINUTE_MS);
-  const first = last - windowMinutes + 1;
-  return { first, last, fromMs: first * MINUTE_MS, toMs: now };
 }
 
 const T_CURSOR = /^t([0-9a-z]{1,13})$/;
@@ -458,7 +455,7 @@ export class QueryService {
       store,
       statistics: {
         sinceUnixMs: sinceMs == null ? now : Number(sinceMs),
-        windowMinutesOptions: [...routeStatsSpec.windowMinutes.oneOf],
+        windowMinutesOptions: windowOptionsFor(this.config.retentionDays),
       },
       warnings: [],
       mode: "standalone",
@@ -730,7 +727,7 @@ export class QueryService {
 
   /**
    * Error spans of the window grouped by (type, normalised message, route); the newest 5,000 are
-   * read. The 7 days before the window (newest 20,000) give the groups their history: first seen
+   * read (20,000 for a window over 60 minutes, `truncated` when that cap is reached). The 7 days before the window (newest 20,000) give the groups their history: first seen
    * ever, state, releases (P15-02); when that cap is hit, the history starts at the oldest row read.
    */
   async errorGroups(
@@ -740,15 +737,18 @@ export class QueryService {
     triage: TriageFilter = undefined,
   ): Promise<ErrorGroupsResponse> {
     const empty = groupErrors([], windowMinutes, now);
+    const windowCap = windowMinutes > 60 ? LONG_WINDOW_ROW_CAP : WINDOW_ROW_CAP;
+    // At least a day of history before the window, and the 7 days up to now for the short ones.
+    const historyStart = Math.min(now - INSIGHTS_MS, empty.fromUnixMs - DAY_MS);
     const [inWindow, earlier, stored] = await Promise.all([
       this.errorOccurrences(
         new Date(empty.fromUnixMs),
         undefined,
         scope,
-        WINDOW_ROW_CAP,
+        windowCap,
       ),
       this.errorOccurrences(
-        new Date(now - INSIGHTS_MS),
+        new Date(historyStart),
         new Date(empty.fromUnixMs),
         scope,
         HISTORY_ROW_CAP,
@@ -760,7 +760,7 @@ export class QueryService {
     const historyFrom =
       earlier.length >= HISTORY_ROW_CAP && oldestRead !== undefined
         ? oldestRead
-        : now - INSIGHTS_MS;
+        : historyStart;
     // The stored triage state (issue #26, D-103): ignored groups are dropped before the list is
     // cut to 100, the rest carry their stored state beside the computed one.
     // A group's stored copies are per service and environment (D-101): its state combines the
@@ -794,6 +794,7 @@ export class QueryService {
     );
     for (const group of response.groups) view.annotate(group);
     response.ignoredCount = view.ignoredCount;
+    if (inWindow.length >= windowCap) response.truncated = true;
     return response;
   }
 
@@ -986,26 +987,13 @@ export class QueryService {
     scope: Scope,
     now: number = Date.now(),
   ): Promise<RouteStatsResponse> {
-    const w = windowOf(windowMinutes, now);
-    const params = new Params();
-    const where = [
-      `minute >= ${params.add(new Date(w.first * MINUTE_MS))}`,
-      `minute <= ${params.add(new Date(w.last * MINUTE_MS))}`,
-      ...scopeSql(scope, params.add),
-    ];
-    const rows = await this.rows<{
-      minute_ms: string;
-      method: string;
-      route: string;
-      count: number;
-      errors: number;
-      max_ms: number;
-      hist: number[];
-    }>(
-      `SELECT (extract(epoch FROM minute) * 1000)::bigint AS minute_ms, method, route, count, errors, max_ms, hist
-         FROM route_minutes WHERE ${where.join(" AND ")}`,
-      params.values,
-    );
+    const w = windowOf(windowMinutes, now, bucketMsFor(windowMinutes, true));
+    const rows = await routeRollups(this.pool, {
+      fromMs: w.fromMs,
+      toMs: w.last * MINUTE_MS,
+      bucketMs: w.bucketMs,
+      scope,
+    });
     interface Cell {
       count: number;
       errors: number;
@@ -1015,7 +1003,7 @@ export class QueryService {
     interface Series extends Cell {
       method: string;
       route: string;
-      byMinute: Map<number, Cell>;
+      byBucket: Map<number, Cell>;
     }
     const byRoute = new Map<string, Series>();
     const add = (
@@ -1041,27 +1029,27 @@ export class QueryService {
           errors: 0,
           max: 0,
           hist: emptyHistogram(),
-          byMinute: new Map(),
+          byBucket: new Map(),
         };
         byRoute.set(key, s);
       }
-      add(s, r.count, r.errors, r.max_ms, r.hist);
-      const minute = Math.floor(Number(r.minute_ms) / MINUTE_MS);
-      let cell = s.byMinute.get(minute);
-      if (cell === undefined) {
-        cell = { count: 0, errors: 0, max: 0, hist: emptyHistogram() };
-        s.byMinute.set(minute, cell);
-      }
-      add(cell, r.count, r.errors, r.max_ms, r.hist);
+      add(s, r.count, r.errors, r.maxMs, r.hist);
+      s.byBucket.set(r.bucketMs, {
+        count: r.count,
+        errors: r.errors,
+        max: r.maxMs,
+        hist: r.hist,
+      });
     }
     const routes: RouteStats[] = [];
     for (const s of byRoute.values()) {
       if (s.count === 0) continue;
       const series: RouteSeriesPoint[] = [];
-      for (let m = w.first; m <= w.last; m++) {
-        const cell = s.byMinute.get(m);
+      for (let i = 0; i < w.buckets; i++) {
+        const start = w.fromMs + i * w.bucketMs;
+        const cell = s.byBucket.get(start);
         const point: RouteSeriesPoint = {
-          timeUnixMs: m * MINUTE_MS,
+          timeUnixMs: start,
           count: cell?.count ?? 0,
           errors: cell?.errors ?? 0,
         };
@@ -1091,7 +1079,7 @@ export class QueryService {
     );
     return {
       windowMinutes,
-      bucketMs: MINUTE_MS,
+      bucketMs: w.bucketMs,
       fromUnixMs: w.fromMs,
       toUnixMs: now,
       routes,
@@ -1108,28 +1096,20 @@ export class QueryService {
     now: number = Date.now(),
   ): Promise<RouteHistogramResponse> {
     const w = windowOf(windowMinutes, now);
-    const params = new Params();
-    const where = [
-      `minute >= ${params.add(new Date(w.first * MINUTE_MS))}`,
-      `minute <= ${params.add(new Date(w.last * MINUTE_MS))}`,
-      `route = ${params.add(route)}`,
-    ];
-    if (method !== undefined) where.push(`method = ${params.add(method)}`);
-    where.push(...scopeSql(scope, params.add));
-    const rows = await this.rows<{
-      count: number;
-      max_ms: number;
-      hist: number[];
-    }>(
-      `SELECT count, max_ms, hist FROM route_minutes WHERE ${where.join(" AND ")}`,
-      params.values,
-    );
+    const rows = await routeRollups(this.pool, {
+      fromMs: w.fromMs,
+      toMs: w.last * MINUTE_MS,
+      bucketMs: 0,
+      scope,
+      method,
+      route,
+    });
     const hist = emptyHistogram();
     let count = 0;
     let max = 0;
     for (const r of rows) {
-      count += Number(r.count);
-      if (Number(r.max_ms) > max) max = Number(r.max_ms);
+      count += r.count;
+      if (r.maxMs > max) max = r.maxMs;
       addHistograms(hist, r.hist);
     }
     return {
@@ -1152,70 +1132,34 @@ export class QueryService {
     scope: Scope,
     now: number = Date.now(),
   ): Promise<RouteWindowCompareResponse> {
-    const last = Math.floor(now / MINUTE_MS);
-    const curFirst = last - windowMinutes + 1;
-    const prevLast = curFirst - 1;
-    const prevFirst = prevLast - windowMinutes + 1;
-    const params = new Params();
-    const where = [
-      `minute >= ${params.add(new Date(prevFirst * MINUTE_MS))}`,
-      `minute <= ${params.add(new Date(last * MINUTE_MS))}`,
-      ...scopeSql(scope, params.add),
-    ];
-    const rows = await this.rows<{
-      minute_ms: string;
-      method: string;
-      route: string;
-      count: number;
-      errors: number;
-      max_ms: number;
-      hist: number[];
-    }>(
-      `SELECT (extract(epoch FROM minute) * 1000)::bigint AS minute_ms, method, route, count, errors, max_ms, hist
-         FROM route_minutes WHERE ${where.join(" AND ")}`,
-      params.values,
-    );
-    interface Acc {
-      method: string;
-      route: string;
-      count: number;
-      errors: number;
-      max: number;
-      hist: number[];
-    }
-    const before = new Map<string, Acc>();
-    const after = new Map<string, Acc>();
-    for (const r of rows) {
-      const minute = Math.floor(Number(r.minute_ms) / MINUTE_MS);
-      const into = minute >= curFirst ? after : before;
-      const key = `${r.method}\u0000${r.route}`;
-      let a = into.get(key);
-      if (a === undefined) {
-        a = {
-          method: r.method,
-          route: r.route,
-          count: 0,
-          errors: 0,
-          max: 0,
-          hist: emptyHistogram(),
-        };
-        into.set(key, a);
-      }
-      a.count += Number(r.count);
-      a.errors += Number(r.errors);
-      if (Number(r.max_ms) > a.max) a.max = Number(r.max_ms);
-      addHistograms(a.hist, r.hist);
-    }
-    const sides = (m: Map<string, Acc>): SideRow[] =>
-      [...m.values()]
+    // The previous window is the same length just before the current one: the minutes of the
+    // `windowMinutes` before the current window's first minute.
+    const cur = windowOf(windowMinutes, now);
+    const prevFirst = cur.first - windowMinutes;
+    const [beforeRows, afterRows] = await Promise.all([
+      routeRollups(this.pool, {
+        fromMs: prevFirst * MINUTE_MS,
+        toMs: (cur.first - 1) * MINUTE_MS,
+        bucketMs: 0,
+        scope,
+      }),
+      routeRollups(this.pool, {
+        fromMs: cur.fromMs,
+        toMs: cur.last * MINUTE_MS,
+        bucketMs: 0,
+        scope,
+      }),
+    ]);
+    const sides = (rows: typeof beforeRows): SideRow[] =>
+      rows
         .filter((a) => a.count > 0)
         .map((a) => ({
           method: a.method,
           route: a.route,
           count: a.count,
           errors: a.errors,
-          p50Ms: estimateQuantile(a.hist, a.count, 0.5, a.max),
-          p95Ms: estimateQuantile(a.hist, a.count, 0.95, a.max),
+          p50Ms: estimateQuantile(a.hist, a.count, 0.5, a.maxMs),
+          p95Ms: estimateQuantile(a.hist, a.count, 0.95, a.maxMs),
         }));
     const sinceParams = new Params();
     const sinceWhere = scopeWhere(scope, sinceParams.add);
@@ -1233,15 +1177,15 @@ export class QueryService {
       windowMinutes,
       previous: {
         fromUnixMs: prevFirst * MINUTE_MS,
-        toUnixMs: curFirst * MINUTE_MS,
+        toUnixMs: cur.first * MINUTE_MS,
       },
-      current: { fromUnixMs: curFirst * MINUTE_MS, toUnixMs: now },
+      current: { fromUnixMs: cur.first * MINUTE_MS, toUnixMs: now },
       previousCovered: covered,
       note: covered
         ? null
         : "Statistics start less than two windows ago, so the previous window is only partly counted or empty.",
       releases,
-      routes: compareRows(sides(before), sides(after)),
+      routes: compareRows(sides(beforeRows), sides(afterRows)),
     };
   }
 
@@ -1359,28 +1303,15 @@ export class QueryService {
     ownUntilMs?: number,
   ): Promise<ClassStatsResponse> {
     const w = windowOf(windowMinutes, now);
-    const params = new Params();
-    const where = [
-      `minute >= ${params.add(new Date(w.first * MINUTE_MS))}`,
-      `minute <= ${params.add(new Date(w.last * MINUTE_MS))}`,
-      ...scopeSql(scope, params.add),
-    ];
-    const rows = await this.rows<{
-      class_name: string;
-      method_name: string;
-      class_kind: string;
-      count: number;
-      errors: number;
-      total_ms: number;
-      max_ms: number;
-    }>(
-      `SELECT class_name, method_name, class_kind, count, errors, total_ms, max_ms
-         FROM class_minutes WHERE ${where.join(" AND ")}`,
-      params.values,
-    );
+    const rows = await classRollups(this.pool, {
+      fromMs: w.fromMs,
+      toMs: w.last * MINUTE_MS,
+      scope,
+    });
 
     // Own time per call, from the stored method spans started in the window.
     const own = new Map<string, Map<string, number>>();
+    let ownTimeTruncated = false;
     if (rows.length > 0) {
       const p = new Params();
       const spanWhere = [
@@ -1396,14 +1327,22 @@ export class QueryService {
         class_name: string;
         method_name: string;
         own_avg_ms: number;
+        truncated: boolean;
       }>(
         // One pass (the window's method spans once, their children summed once per parent). A
         // child may start before its parent (another host's clock): children are bounded by the
         // window start less a minute of skew, which still lets Postgres skip older partitions.
-        `WITH win AS (
-           SELECT s.trace_id, s.span_id, s.class_name, s.method_name, s.duration_ns
+        // At most the newest MAX_SPANS_READ method spans (one more, to tell a full range from a
+        // truncated one); a long range reads the newest of its spans only (D-107).
+        `WITH capped AS MATERIALIZED (
+           SELECT s.trace_id, s.span_id, s.class_name, s.method_name, s.duration_ns, s.start_time
              FROM spans s
             WHERE ${spanWhere.join(" AND ")}
+            ORDER BY s.start_time DESC
+            LIMIT ${MAX_SPANS_READ + 1}
+         ), win AS (
+           SELECT trace_id, span_id, class_name, method_name, duration_ns
+             FROM (SELECT * FROM capped ORDER BY start_time DESC LIMIT ${MAX_SPANS_READ}) k
          ), kids AS (
            SELECT c.trace_id, c.parent_span_id, sum(c.duration_ns) AS child_ns
              FROM spans c
@@ -1413,13 +1352,15 @@ export class QueryService {
             GROUP BY c.trace_id, c.parent_span_id
          )
          SELECT s.class_name, s.method_name,
-                avg(greatest(0, s.duration_ns - coalesce(ch.child_ns, 0)))::float8 / 1e6 AS own_avg_ms
+                avg(greatest(0, s.duration_ns - coalesce(ch.child_ns, 0)))::float8 / 1e6 AS own_avg_ms,
+                (SELECT count(*) FROM capped) > ${MAX_SPANS_READ} AS truncated
            FROM win s
            LEFT JOIN kids ch ON ch.trace_id = s.trace_id AND ch.parent_span_id = s.span_id
           GROUP BY s.class_name, s.method_name`,
         p.values,
       );
       for (const r of ownRows) {
+        if (r.truncated) ownTimeTruncated = true;
         let byMethod = own.get(r.class_name);
         if (byMethod === undefined) {
           byMethod = new Map();
@@ -1441,21 +1382,21 @@ export class QueryService {
     }
     const byClass = new Map<string, ClassAcc>();
     for (const r of rows) {
-      let c = byClass.get(r.class_name);
+      let c = byClass.get(r.className);
       if (c === undefined) {
         c = { kinds: new Map(), methods: new Map() };
-        byClass.set(r.class_name, c);
+        byClass.set(r.className, c);
       }
-      c.kinds.set(r.class_kind, (c.kinds.get(r.class_kind) ?? 0) + r.count);
-      let m = c.methods.get(r.method_name);
+      c.kinds.set(r.classKind, (c.kinds.get(r.classKind) ?? 0) + r.count);
+      let m = c.methods.get(r.methodName);
       if (m === undefined) {
         m = { calls: 0, errors: 0, totalMs: 0, maxMs: 0 };
-        c.methods.set(r.method_name, m);
+        c.methods.set(r.methodName, m);
       }
       m.calls += r.count;
       m.errors += r.errors;
-      m.totalMs += r.total_ms;
-      if (r.max_ms > m.maxMs) m.maxMs = r.max_ms;
+      m.totalMs += r.totalMs;
+      if (r.maxMs > m.maxMs) m.maxMs = r.maxMs;
     }
     const classes: ClassStats[] = [];
     for (const [className, c] of byClass) {
@@ -1527,6 +1468,7 @@ export class QueryService {
       windowMinutes,
       fromUnixMs: w.fromMs,
       toUnixMs: now,
+      ...(ownTimeTruncated ? { ownTimeTruncated } : {}),
       methodsEnabled: methodsState !== "off",
       methodsState,
       classes,
@@ -1536,14 +1478,23 @@ export class QueryService {
   // ---- timeline and dependencies (P9-05) ------------------------------------------------------
 
   /** Sampled traces per bucket by outcome of their root; the trace list's filters apply. */
-  async timeline(v: Values): Promise<TraceTimelineResponse> {
-    const windowMinutes = v.windowMinutes as number;
+  async timeline(
+    v: Values,
+    resolved: { windowMinutes: number; now: number } = {
+      windowMinutes: v.windowMinutes as number,
+      now: Date.now(),
+    },
+  ): Promise<TraceTimelineResponse> {
+    const { windowMinutes, now } = resolved;
     const bucketMs = bucketMsFor(windowMinutes);
-    const count = (windowMinutes * MINUTE_MS) / bucketMs;
-    const now = Date.now();
+    const count = Math.ceil((windowMinutes * MINUTE_MS) / bucketMs);
     const first = Math.floor(now / bucketMs) - count + 1;
     const params = new Params();
-    const where = this.traceWhere(v, params);
+    // The range of the request is the window above, not a filter on the traces.
+    const where = this.traceWhere(
+      { ...v, fromUnixMs: undefined, toUnixMs: undefined },
+      params,
+    );
     where.push(`start_time >= ${params.add(new Date(first * bucketMs))}`);
     where.push(`start_time <= ${params.add(new Date(now))}`);
     const rows = await this.rows<{
@@ -1593,7 +1544,7 @@ export class QueryService {
     now: number = Date.now(),
   ): Promise<DependenciesResponse> {
     const bucketMs = bucketMsFor(windowMinutes);
-    const count = (windowMinutes * MINUTE_MS) / bucketMs;
+    const count = Math.ceil((windowMinutes * MINUTE_MS) / bucketMs);
     const first = Math.floor(now / bucketMs) - count + 1;
     const from = new Date(first * bucketMs);
     const to = new Date(now);
@@ -1617,19 +1568,27 @@ export class QueryService {
         : `'${key}', s.attributes->'${key}'`,
     ).join(", ");
     const rows = await this.rows<Record<string, unknown>>(
-      `SELECT floor(extract(epoch FROM s.start_time) * 1000 / ${bucketMs})::bigint AS b,
+      `WITH capped AS MATERIALIZED (
+         SELECT s.start_time, s.trace_id, s.status_code, s.duration_ns, s.attributes
+           FROM spans s
+          WHERE ${where.join(" AND ")}
+          ORDER BY s.start_time DESC
+          LIMIT ${MAX_SPANS_READ + 1}
+       )
+       SELECT floor(extract(epoch FROM s.start_time) * 1000 / ${bucketMs})::bigint AS b,
               jsonb_strip_nulls(jsonb_build_object(${attributes})) AS a,
               count(*)::int AS calls,
               count(*) FILTER (WHERE s.status_code = 'error')::int AS errors,
               sum(s.duration_ns)::text AS sum_ns,
               max(s.duration_ns)::text AS max_ns,
               (array_agg(s.trace_id ORDER BY s.duration_ns DESC))[1] AS example,
-              ${histogramColumns("s.duration_ns")}
-         FROM spans s
-        WHERE ${where.join(" AND ")}
+              ${histogramColumns("s.duration_ns")},
+              (SELECT count(*) FROM capped) > ${MAX_SPANS_READ} AS truncated
+         FROM (SELECT * FROM capped ORDER BY start_time DESC LIMIT ${MAX_SPANS_READ}) s
         GROUP BY b, a`,
       t.values,
     );
+    const truncated = rows.some((r) => r.truncated === true);
 
     interface Part {
       calls: number;
@@ -1714,6 +1673,7 @@ export class QueryService {
       fromUnixMs: first * bucketMs,
       toUnixMs: now,
       bucketMs,
+      ...(truncated ? { truncated } : {}),
       dependencies,
     };
   }
@@ -1747,13 +1707,14 @@ export class QueryService {
       traces: number;
       repeated: number;
       examples: string[];
+      truncated: boolean;
     }>(text, values);
     return {
       windowMinutes,
       fromUnixMs: w.fromMs,
       toUnixMs: now,
       sampled: true,
-      truncated: false,
+      truncated: rows.some((r) => r.truncated),
       queries: rows.map((r) => ({
         statement: r.stmt,
         system: r.sys,
@@ -1801,13 +1762,20 @@ export class QueryService {
         : `'${key}', s.attributes->'${key}'`,
     ).join(", ");
     const targetRows = await this.rows<Record<string, unknown>>(
-      `SELECT s.service_name, jsonb_strip_nulls(jsonb_build_object(${attributes})) AS a,
+      `WITH capped AS MATERIALIZED (
+         SELECT s.start_time, s.service_name, s.status_code, s.duration_ns, s.attributes
+           FROM spans s
+          WHERE ${targetWhere.join(" AND ")}
+          ORDER BY s.start_time DESC
+          LIMIT ${MAX_SPANS_READ + 1}
+       )
+       SELECT s.service_name, jsonb_strip_nulls(jsonb_build_object(${attributes})) AS a,
               count(*)::int AS calls,
               count(*) FILTER (WHERE s.status_code = 'error')::int AS errors,
               max(s.duration_ns)::text AS max_ns,
-              ${histogramColumns("s.duration_ns")}
-         FROM spans s
-        WHERE ${targetWhere.join(" AND ")}
+              ${histogramColumns("s.duration_ns")},
+              (SELECT count(*) FROM capped) > ${MAX_SPANS_READ} AS truncated
+         FROM (SELECT * FROM capped ORDER BY start_time DESC LIMIT ${MAX_SPANS_READ}) s
         GROUP BY s.service_name, a`,
       t.values,
     );
@@ -1835,17 +1803,28 @@ export class QueryService {
       );
     }
     const edgeRows = await this.rows<Record<string, unknown>>(
-      `SELECT p.service_name AS from_service, c.service_name AS to_service,
+      `WITH capped AS MATERIALIZED (
+         SELECT p.start_time, p.service_name AS from_service, c.service_name AS to_service,
+                p.status_code, p.duration_ns
+           FROM spans p
+           JOIN spans c ON c.trace_id = p.trace_id AND c.parent_span_id = p.span_id
+          WHERE ${edgeWhere.join(" AND ")}
+          ORDER BY p.start_time DESC
+          LIMIT ${MAX_SPANS_READ + 1}
+       )
+       SELECT p.from_service, p.to_service,
               count(*)::int AS calls,
               count(*) FILTER (WHERE p.status_code = 'error')::int AS errors,
               max(p.duration_ns)::text AS max_ns,
-              ${histogramColumns("p.duration_ns")}
-         FROM spans p
-         JOIN spans c ON c.trace_id = p.trace_id AND c.parent_span_id = p.span_id
-        WHERE ${edgeWhere.join(" AND ")}
-        GROUP BY p.service_name, c.service_name`,
+              ${histogramColumns("p.duration_ns")},
+              (SELECT count(*) FROM capped) > ${MAX_SPANS_READ} AS truncated
+         FROM (SELECT * FROM capped ORDER BY start_time DESC LIMIT ${MAX_SPANS_READ}) p
+        GROUP BY p.from_service, p.to_service`,
       e.values,
     );
+    const truncated =
+      targetRows.some((r) => r.truncated === true) ||
+      edgeRows.some((r) => r.truncated === true);
 
     // Service nodes: services seen in the window, plus both ends of every edge.
     // From `service_environments` (D-101): the same rows as `services`, kept per environment.
@@ -1991,6 +1970,7 @@ export class QueryService {
       windowMinutes,
       fromUnixMs: w.fromMs,
       toUnixMs: now,
+      ...(truncated ? { truncated } : {}),
       nodes: [...serviceNodes, ...targetNodes],
       edges,
     };

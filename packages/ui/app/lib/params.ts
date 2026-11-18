@@ -1,6 +1,6 @@
 import {
   errorListParams,
-  routeStatsParams,
+  standaloneRangeParams,
   traceListParams,
 } from "@nestrix-js/protocol";
 import { createParser, type inferParserType, parseAsStringLiteral } from "nuqs";
@@ -98,8 +98,8 @@ export const viewParser = parseAsStringLiteral([
 /** The service the standalone server's views are narrowed to; absent means all services. */
 export const serviceParser = stringParser({ maxLength: 256 });
 
-/** For P2-10: the routes view's window. */
+/** The routes view's window: any the standalone server offers (the page lists those `meta` names; D-107). */
 export const routeWindowParser = numberParser({
-  ...routeStatsParams.windowMinutes,
+  ...standaloneRangeParams.windowMinutes,
   integer: true,
 });

@@ -29,6 +29,19 @@ import type {
 export const MINUTE_MS = 60_000;
 /** The most points a series has. */
 export const MAX_SERIES_POINTS = 30;
+/** Minutes per bucket of the series of a window: at most {@link MAX_SERIES_POINTS} buckets. */
+export function seriesStepMinutes(windowMinutes: number): number {
+  return Math.ceil(windowMinutes / MAX_SERIES_POINTS);
+}
+
+/** "15 minutes", "6 hours", "7 days": a window length as words. */
+export function formatWindow(minutes: number): string {
+  const unit = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+  if (minutes % 1440 === 0) return unit(minutes / 1440, "day");
+  if (minutes >= 120 && minutes % 60 === 0) return unit(minutes / 60, "hour");
+  return unit(minutes, "minute");
+}
+
 /** The most insights in each list. */
 export const MAX_INSIGHTS = 6;
 
@@ -89,7 +102,7 @@ export interface SloBurnInput {
 
 export interface OverviewInput {
   nowUnixMs: number;
-  /** 15 or 60. */
+  /** The window's length in minutes: 15 or 60 embedded; the standalone server also takes 360, 1440, 10080, 43200 and ranges. */
   windowMinutes: number;
   apdexMs: number;
   /** Whether statistics are kept for the whole previous window, and why not. */
@@ -790,7 +803,7 @@ export function healthOf(
       .join(", and ");
     summary = `${n} ${plural(n, "thing needs", "things need")} attention: ${named}.`;
   } else if (totals.count === 0) {
-    summary = `No requests in the last ${windowMinutes} minutes.`;
+    summary = `No requests in the last ${formatWindow(windowMinutes)}.`;
   } else {
     summary = "No problems found.";
     if (better.length > 0) {
@@ -807,7 +820,7 @@ export function computeOverview(input: OverviewInput): OverviewResponse {
   const last = Math.floor(input.nowUnixMs / MINUTE_MS);
   const curFirst = last - windowMinutes + 1;
   const prevFirst = curFirst - windowMinutes;
-  const stepMinutes = Math.ceil(windowMinutes / MAX_SERIES_POINTS);
+  const stepMinutes = seriesStepMinutes(windowMinutes);
   const buckets = Math.ceil(windowMinutes / stepMinutes);
   const w: Window = { curFirst, last, prevFirst, stepMinutes, buckets };
 

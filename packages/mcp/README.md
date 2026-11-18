@@ -13,7 +13,7 @@ An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant (Clau
 | `get_trace` | One trace written for a model: repeated statements (a likely N+1) first, then errors with the first three stack frames, slow spans, and an indented span tree with self times. Capped at about 400 spans. |
 | `search_logs` | Search the standalone server's stored log lines (needs `NESTRIX_LOGS=all` for lines without a trace): service, minimum level, text, trace, time range, newest first, paged with a cursor. The result says what was dropped. |
 | `list_errors` | Recent errors grouped by type and message, with trace ids. |
-| `route_stats` | Request count, error rate and p50/p95/p99 per route over 15 or 60 minutes. |
+| `route_stats` | Request count, error rate and p50/p95/p99 per route over 15 or 60 minutes (a standalone server also takes 6 hours, 24 hours, 7 days and 30 days within its retention). |
 | `class_stats` | Per-class calls, errors and own time (needs `NestrixInstrument` in the app). |
 | `app_map` | What the app talks to: databases, caches, queues, outbound HTTP. |
 | `explain_slowness` | For one route: its percentiles, then where the time goes in its 5 slowest stored traces, by span name and class, with repeated statements. |

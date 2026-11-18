@@ -29,6 +29,7 @@ import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser, stringParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
+import { windowChoices, windowLabel } from "@/lib/windows";
 import {
   callsPerTrace,
   DEFAULT_SORT,
@@ -44,10 +45,6 @@ import {
   topBy,
 } from "@/views/queries/queries";
 
-const WINDOWS = [
-  { value: 15, label: "15 min" },
-  { value: 60, label: "60 min" },
-] as const;
 const DEFAULT_WINDOW = 15;
 const SOURCE = "from sampled traces";
 // The queries API compares with no previous window, so the tiles show an honest dash.
@@ -146,7 +143,9 @@ export function QueriesPage() {
             </Button>
             <SegmentedControl
               label="Time window"
-              options={WINDOWS}
+              options={windowChoices(
+                meta.data?.statistics.windowMinutesOptions,
+              )}
               value={windowMinutes}
               onChange={(minutes) =>
                 void setQuery({
@@ -232,7 +231,7 @@ export function QueriesPage() {
                   testId="kpi-statements"
                   label="Statements"
                   value={summary.statements.toLocaleString("en")}
-                  unit={`in ${shownWindow} min`}
+                  unit={`in ${windowLabel(shownWindow)}`}
                   delta="—"
                   deltaTitle={NO_PREVIOUS}
                   source={SOURCE}

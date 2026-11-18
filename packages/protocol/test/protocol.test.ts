@@ -36,6 +36,8 @@ describe("package entry", () => {
         "routeHistogramParams",
         "routeStatsParams",
         "STANDALONE_STATISTICS_NOTE",
+        "STANDALONE_WINDOW_MINUTES",
+        "standaloneRangeParams",
         "STATISTICS_COUNTING",
         "statisticsCounting",
         "statisticsNote",

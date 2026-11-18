@@ -69,6 +69,43 @@ export type ParamSpec =
   | EnumParam
   | CursorParam;
 
+/**
+ * Windows the standalone server accepts on every aggregate route (`windowMinutes`): 15 min, 1 h,
+ * 6 h, 24 h, 7 d and 30 d, capped at the server's retention (`MetaResponse.statistics.windowMinutesOptions`
+ * lists those within it). The embedded dashboard keeps `[15, 60]` (the specs above).
+ */
+export const STANDALONE_WINDOW_MINUTES = [
+  15, 60, 360, 1440, 10_080, 43_200,
+] as const;
+
+/**
+ * What the standalone server's aggregate routes take in place of the embedded spec's
+ * `windowMinutes`: any of {@link STANDALONE_WINDOW_MINUTES} (no spec default: the server applies the
+ * route's own default, 15 minutes, or 60 for `routes/explain`), or a range with `fromUnixMs` and
+ * `toUnixMs`, both together, never with `windowMinutes`: `to` after `from`, at most the retention
+ * long and at most 5 minutes in the future. A range is widened to whole buckets (the response's
+ * `fromUnixMs` and `windowMinutes` say what was read). The bucket width grows with the span:
+ * 1 minute up to 60 minutes (5 on the charts of the span-based views), 5 minutes up to 6 hours,
+ * 1 hour up to 7 days, 1 day above (`bucketMs` in the response).
+ */
+export const standaloneRangeParams = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 43_200,
+    oneOf: STANDALONE_WINDOW_MINUTES,
+  },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+} as const;
+
+/** An embedded spec with its `windowMinutes` replaced by {@link standaloneRangeParams}. */
+export type StandaloneParamsSpec<T extends { windowMinutes: unknown }> = Omit<
+  T,
+  "windowMinutes"
+> &
+  typeof standaloneRangeParams;
+
 /** `GET <path>/api/v1/traces` */
 export const traceListParams = {
   limit: { kind: "int", min: 1, max: 200, default: 50 },
