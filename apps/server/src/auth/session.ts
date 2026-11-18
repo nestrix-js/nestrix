@@ -116,16 +116,18 @@ export function verifySession(
 
 // ---- OIDC user sessions (issue #34, D-104) --------------------------------------------------
 //
-// Token: `v2.<expiresAtSeconds>.<nonce>.<userId>.<mac>`, MAC over everything before it, with a key
+// Token: `v2.<issuedAtSeconds>.<expiresAtSeconds>.<nonce>.<userId>.<mac>`, MAC over everything before it, with a key
 // derived from the session secret, the OIDC issuer and the client id (`oidcSessionKey`), never the
 // admin password: changing the password ends break-glass sessions only, changing the issuer or
 // client ends user sessions. The role is not in the token: it is read from `dashboard_users` on
 // every request, so a role change or a refused re-authentication applies to every open session.
+// The issue time is signed so that a user the identity provider refused (`sessions_valid_after`,
+// users.ts) does not get the cookies from before the refusal back when re-added.
 // The nonce has the v1 format, so `/logout` revokes either kind in `admin_session_revocations`.
 
 const OIDC_KEY_LABEL = "nestrix.server.session.oidc.v1";
 const USER_TOKEN =
-  /^v2\.(\d{1,12})\.([A-Za-z0-9_-]{22})\.([1-9]\d{0,14})\.([A-Za-z0-9_-]{43})$/;
+  /^v2\.(\d{1,12})\.(\d{1,12})\.([A-Za-z0-9_-]{22})\.([1-9]\d{0,14})\.([A-Za-z0-9_-]{43})$/;
 
 /** The HMAC key of user sessions for this secret, issuer and client. */
 export function oidcSessionKey(
@@ -143,14 +145,16 @@ export function signUserSession(
   key: Buffer,
   expiresAtSeconds: number,
   userId: number,
+  issuedAtSeconds: number,
   nonce: Buffer = randomBytes(16),
 ): string {
-  const payload = `v2.${expiresAtSeconds}.${nonce.toString("base64url")}.${userId}`;
+  const payload = `v2.${issuedAtSeconds}.${expiresAtSeconds}.${nonce.toString("base64url")}.${userId}`;
   return `${payload}.${mac(key, payload).toString("base64url")}`;
 }
 
 export interface VerifiedUserSession extends VerifiedSession {
   readonly userId: number;
+  readonly issuedAtSeconds: number;
 }
 
 /**
@@ -168,24 +172,27 @@ export function verifyUserSession(
     if (typeof token !== "string") return undefined;
     const match = USER_TOKEN.exec(token);
     if (!match) return undefined;
-    const [, expText, nonce, userText, macText] = match as unknown as [
+    const [, iatText, expText, nonce, userText, macText] = match as unknown as [
+      string,
       string,
       string,
       string,
       string,
       string,
     ];
-    const expected = mac(key, `v2.${expText}.${nonce}.${userText}`);
+    const expected = mac(key, `v2.${iatText}.${expText}.${nonce}.${userText}`);
     const given = Buffer.from(macText, "base64url");
     if (given.length !== expected.length) return undefined;
     if (given.toString("base64url") !== macText) return undefined;
     if (!timingSafeEqual(given, expected)) return undefined;
     const expiresAtSeconds = Number(expText);
     const userId = Number(userText);
+    const issuedAtSeconds = Number(iatText);
     if (!Number.isSafeInteger(userId)) return undefined;
+    if (issuedAtSeconds > nowSeconds + 60) return undefined;
     if (expiresAtSeconds <= nowSeconds) return undefined;
     if (expiresAtSeconds > nowSeconds + lifetimeSeconds + 60) return undefined;
-    return { nonce, expiresAtSeconds, userId };
+    return { nonce, expiresAtSeconds, userId, issuedAtSeconds };
   } catch {
     return undefined;
   }

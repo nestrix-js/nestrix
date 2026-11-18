@@ -18,6 +18,11 @@ export interface DashboardUser {
   readonly name: string | undefined;
   /** `undefined`: refused at the last sign-in; such a user has no access. */
   readonly role: Role | undefined;
+  /**
+   * Sessions issued at or before this time (epoch seconds) are refused: set when the user is
+   * refused, so a re-added user does not get the cookies from before the removal back.
+   */
+  readonly sessionsValidAfterSeconds: number | undefined;
 }
 
 export interface SignInRecord {
@@ -41,6 +46,7 @@ interface Row {
   email: string | null;
   name: string | null;
   role: string | null;
+  valid_after: string | null;
 }
 
 function fromRow(row: Row): DashboardUser {
@@ -50,6 +56,10 @@ function fromRow(row: Row): DashboardUser {
     email: row.email ?? undefined,
     name: row.name ?? undefined,
     role: row.role === "admin" || row.role === "viewer" ? row.role : undefined,
+    sessionsValidAfterSeconds:
+      row.valid_after === null
+        ? undefined
+        : Math.floor(Number(row.valid_after)),
   });
 }
 
@@ -63,7 +73,8 @@ export class PostgresUserStore implements UserStore {
        ON CONFLICT (issuer, subject) DO UPDATE
          SET email = EXCLUDED.email, name = EXCLUDED.name, role = EXCLUDED.role,
              last_login_at = EXCLUDED.last_login_at
-       RETURNING id, subject, email, name, role`,
+       RETURNING id, subject, email, name, role,
+                 extract(epoch FROM sessions_valid_after)::text AS valid_after`,
       [
         record.issuer,
         record.subject,
@@ -79,7 +90,7 @@ export class PostgresUserStore implements UserStore {
 
   async refuse(record: SignInRecord): Promise<number | undefined> {
     const { rows } = await this.pool.query<{ id: string }>(
-      `UPDATE dashboard_users SET role = NULL
+      `UPDATE dashboard_users SET role = NULL, sessions_valid_after = now()
         WHERE issuer = $1 AND subject = $2
         RETURNING id`,
       [record.issuer, record.subject],
@@ -89,7 +100,7 @@ export class PostgresUserStore implements UserStore {
 
   async get(id: number): Promise<DashboardUser | undefined> {
     const { rows } = await this.pool.query<Row>(
-      "SELECT id, subject, email, name, role FROM dashboard_users WHERE id = $1",
+      "SELECT id, subject, email, name, role, extract(epoch FROM sessions_valid_after)::text AS valid_after FROM dashboard_users WHERE id = $1",
       [id],
     );
     return rows[0] === undefined ? undefined : fromRow(rows[0]);
@@ -114,6 +125,7 @@ export class MemoryUserStore implements UserStore {
       email: record.email,
       name: record.name,
       role,
+      sessionsValidAfterSeconds: this.users.get(key)?.sessionsValidAfterSeconds,
     });
     this.users.set(key, user);
     return user;
@@ -123,7 +135,11 @@ export class MemoryUserStore implements UserStore {
     const key = `${record.issuer}\0${record.subject}`;
     const user = this.users.get(key);
     if (user === undefined) return undefined;
-    this.users.set(key, { ...user, role: undefined });
+    this.users.set(key, {
+      ...user,
+      role: undefined,
+      sessionsValidAfterSeconds: Math.floor(Date.now() / 1000),
+    });
     return user.id;
   }
 

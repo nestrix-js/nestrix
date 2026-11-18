@@ -474,6 +474,12 @@ export class AdminAuth implements OnModuleInit {
           return SESSION_UNAVAILABLE;
         }
         if (user?.role === undefined) continue;
+        // Issued before the user was last refused: those cookies stay dead after a re-add.
+        if (
+          candidate.session.issuedAtSeconds <=
+          (user.sessionsValidAfterSeconds ?? -1)
+        )
+          continue;
         return {
           status: "valid",
           session: candidate.session,
@@ -1055,9 +1061,9 @@ export class AdminAuth implements OnModuleInit {
   }
 
   /**
-   * `GET /login/oidc/callback`. Order: OIDC configured (404) → the login limiter, as `POST /login`
-   * (429; 503 when it cannot answer) → a pending cookie whose `state` equals the query's (constant
-   * time) → no `error` from the provider and a `code` → the code exchange with the PKCE verifier
+   * `GET /login/oidc/callback`. Order: OIDC configured (404) → a pending cookie whose `state` equals
+   * the query's (constant time; 401 otherwise, at no cost to the login budget) → the login limiter,
+   * as `POST /login` (429; 503 when it cannot answer) → no `error` from the provider and a `code` → the code exchange with the PKCE verifier
    * and the ID token's checks (oidc.ts) → the role claim mapped (admin, viewer, or refused: the
    * user's row then loses its role, ending its open sessions) → the user upserted → a `v2` session
    * cookie for `NESTRIX_OIDC_SESSION_SECONDS` and a small page that continues to `/` (a redirect
@@ -1076,20 +1082,6 @@ export class AdminAuth implements OnModuleInit {
           csp: LOGIN_CSP,
           contentType: TEXT_TYPE,
           body: "Single sign-on is not configured.",
-        });
-        return;
-      }
-      let rate: LoginTake;
-      try {
-        rate = await this.limiter.take(this.clientOf(req));
-      } catch {
-        this.loginUnavailable(res, { "set-cookie": clearPending });
-        return;
-      }
-      if (!rate.ok) {
-        this.loginForm(res, 429, "rate-limited", {
-          "retry-after": String(rate.retryAfterSeconds),
-          "set-cookie": clearPending,
         });
         return;
       }
@@ -1143,6 +1135,23 @@ export class AdminAuth implements OnModuleInit {
         );
       if (pending === undefined) {
         await fail(state.length === 1 ? "state_mismatch" : "state_missing");
+        return;
+      }
+      // Only a request that carries the pending cookie and its matching state is charged to the
+      // shared failed-login budget, so blind requests to the callback cannot lock out the password
+      // form.
+      let rate: LoginTake;
+      try {
+        rate = await this.limiter.take(this.clientOf(req));
+      } catch {
+        this.loginUnavailable(res, { "set-cookie": clearPending });
+        return;
+      }
+      if (!rate.ok) {
+        this.loginForm(res, 429, "rate-limited", {
+          "retry-after": String(rate.retryAfterSeconds),
+          "set-cookie": clearPending,
+        });
         return;
       }
       if (query.has("error")) {
@@ -1215,7 +1224,7 @@ export class AdminAuth implements OnModuleInit {
         clientAddress: this.addressOf(req),
       });
       const lifetime = config.sessionSeconds;
-      const token = signUserSession(userKey, now + lifetime, user.id);
+      const token = signUserSession(userKey, now + lifetime, user.id, now);
       this.page(res, 200, signedInPage(), {
         "set-cookie": [this.cookie(req, token, lifetime), clearPending],
       });

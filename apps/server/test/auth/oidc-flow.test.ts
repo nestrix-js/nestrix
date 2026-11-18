@@ -135,7 +135,7 @@ describe.skipIf(noDatabase)(`OIDC sign-in and roles ${skipReason}`, () => {
       expect(r.callback.status).toBe(200);
       const lines = r.callback.headers.getSetCookie();
       const session = lines.find((c) => c.startsWith("nestrix_admin_")) ?? "";
-      expect(session).toMatch(/=v2\.\d+\.[\w-]{22}\.\d+\.[\w-]{43};/);
+      expect(session).toMatch(/=v2\.\d+\.\d+\.[\w-]{22}\.\d+\.[\w-]{43};/);
       expect(session).toContain("; Max-Age=3600");
       expect(session).toContain("; HttpOnly");
       expect(session).toContain("; SameSite=Strict");
@@ -294,6 +294,23 @@ describe.skipIf(noDatabase)(`OIDC sign-in and roles ${skipReason}`, () => {
       const second = await signIn(server.baseUrl);
       expect(second.callback.status).toBe(429);
       expect(second.callback.headers.get("retry-after")).toMatch(/^\d+$/);
+    });
+
+    it("charges the login budget only after the state matched", async () => {
+      auth.limiter = new LoginRateLimiter(3);
+      for (let i = 0; i < 12; i++) {
+        const bad = await rawRequest(
+          server.baseUrl,
+          "GET",
+          "/login/oidc/callback?code=x&state=y",
+        );
+        expect(bad.status).toBe(401);
+      }
+      expect((await postLogin(server.baseUrl, "wrong-guess-123")).status).toBe(
+        401,
+      );
+      // A matching state does spend it.
+      expect((await signIn(server.baseUrl)).callback.status).toBe(200);
     });
 
     it("answers 503 at the start when the provider's metadata cannot be read", async () => {
@@ -484,6 +501,20 @@ describe.skipIf(noDatabase)(`OIDC sign-in and roles ${skipReason}`, () => {
         "DELETE FROM dashboard_users WHERE subject = 'deleted'",
       );
       expect((await meta(b.session)).status).toBe(401);
+    });
+
+    it("keeps sessions from before a removal dead when the user is added back", async () => {
+      const claims = { sub: "returner", email: "returner@example.com" };
+      const old = await signInAs(claims);
+      expect((await meta(old.session)).status).toBe(200);
+      idp.claims = { ...claims, groups: ["sales"] };
+      expect((await signIn(server.baseUrl)).callback.status).toBe(403);
+      expect((await meta(old.session)).status).toBe(401);
+      // Session issue times have a resolution of one second.
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      const fresh = await signInAs(claims);
+      expect((await meta(fresh.session)).status).toBe(200);
+      expect((await meta(old.session)).status).toBe(401);
     });
 
     it("signs a user out: the session is revoked and the sign-out audited", async () => {

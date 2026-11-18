@@ -291,8 +291,8 @@ function pickKey(
   kid: string | undefined,
   alg: string,
 ): Jwk | undefined {
-  const spec = ALGS[alg];
-  if (spec === undefined) return undefined;
+  if (!Object.hasOwn(ALGS, alg)) return undefined;
+  const spec = ALGS[alg] as (typeof ALGS)[string];
   const fits = keys.filter(
     (k) =>
       k.kty === spec.kty &&
@@ -322,7 +322,7 @@ export async function verifyIdToken(
   const header = decodeJson(headerText);
   if (!isObject(header)) throw new OidcError("id_token_malformed");
   const { alg, kid, crit } = header;
-  if (typeof alg !== "string" || ALGS[alg] === undefined)
+  if (typeof alg !== "string" || !Object.hasOwn(ALGS, alg))
     throw new OidcError("id_token_alg");
   // No extension this verifier understands may be marked critical (RFC 7515 §4.1.11).
   if (crit !== undefined) throw new OidcError("id_token_malformed");

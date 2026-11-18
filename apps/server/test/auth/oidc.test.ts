@@ -4,7 +4,7 @@
  * session and pending sign-in tokens; the configuration. The whole flow against a provider is in
  * oidc-flow.test.ts.
  */
-import { generateKeyPairSync, type KeyObject } from "node:crypto";
+import { generateKeyPairSync, type KeyObject, sign } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { startupMessages } from "../../src/auth/admin-auth.js";
 import {
@@ -129,6 +129,59 @@ describe("verifyIdToken", () => {
     ).toBe("id_token_alg");
     expect(h).toBeDefined();
   });
+
+  it("refuses a DER-encoded ES256 signature, and an ES256 header with a P-384 key", async () => {
+    const input = signJwt({ alg: "ES256", kid: "ec" }, payload(), ec.privateKey)
+      .split(".")
+      .slice(0, 2)
+      .join(".");
+    const der = sign("sha256", Buffer.from(input), ec.privateKey);
+    expect(
+      await reason(
+        verifyIdToken(`${input}.${der.toString("base64url")}`, options()),
+      ),
+    ).toBe("id_token_signature");
+    const p384 = generateKeyPairSync("ec", { namedCurve: "P-384" });
+    const p384Keys = parseJwks({
+      keys: [jwk(p384.publicKey, { kid: "p384" })],
+    });
+    const wrongCurve = signJwt(
+      { alg: "ES256", kid: "p384" },
+      payload(),
+      p384.privateKey,
+    );
+    expect(
+      await reason(
+        verifyIdToken(
+          wrongCurve,
+          options({
+            keys: async () => p384Keys,
+            refreshKeys: async () => p384Keys,
+          }),
+        ),
+      ),
+    ).toBe("id_token_key");
+  });
+
+  it.each(["__proto__", "constructor", "toString"])(
+    "refuses the algorithm %s at the alg check, without fetching keys again",
+    async (alg) => {
+      const [, p, sig] = token().split(".");
+      const header = Buffer.from(JSON.stringify({ alg, kid: "rsa" })).toString(
+        "base64url",
+      );
+      const refresh = vi.fn(async () => keys);
+      expect(
+        await reason(
+          verifyIdToken(
+            `${header}.${p}.${sig}`,
+            options({ refreshKeys: refresh }),
+          ),
+        ),
+      ).toBe("id_token_alg");
+      expect(refresh).not.toHaveBeenCalled();
+    },
+  );
 
   it("refuses a token signed by another key, and a changed payload", async () => {
     expect(
@@ -456,9 +509,10 @@ describe("user session and pending sign-in tokens", () => {
   const key = oidcSessionKey(secret, ISSUER, CLIENT);
 
   it("round-trips a user session and refuses a changed user id, another key or a too-long expiry", () => {
-    const value = signUserSession(key, NOW + 600, 7);
+    const value = signUserSession(key, NOW + 600, 7, NOW);
     expect(verifyUserSession(key, value, NOW, 3600)).toMatchObject({
       userId: 7,
+      issuedAtSeconds: NOW,
       expiresAtSeconds: NOW + 600,
     });
     expect(verifyUserSession(key, value.replace(".7.", ".8."), NOW, 3600)).toBe(
@@ -481,7 +535,7 @@ describe("user session and pending sign-in tokens", () => {
       ),
     ).toBe(undefined);
     expect(verifyUserSession(key, value, NOW + 600, 3600)).toBe(undefined);
-    const far = signUserSession(key, NOW + 7200, 7);
+    const far = signUserSession(key, NOW + 7200, 7, NOW);
     expect(verifyUserSession(key, far, NOW, 3600)).toBe(undefined);
     expect(verifyUserSession(key, `${value}x`, NOW, 3600)).toBe(undefined);
   });
