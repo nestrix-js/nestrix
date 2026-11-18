@@ -442,24 +442,54 @@ export function splitUrl(
 /** The subset of `RedactableSpan` (options.ts) that `scrubSpanAttributes` reads and writes. */
 interface ScrubbableSpan {
   attributes: Record<string, unknown>;
+  readonly events?: ReadonlyArray<{ attributes: Record<string, unknown> }>;
 }
 
-const USERINFO = /^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/?#]*@/;
+// What a WHATWG URL parser reads as userinfo: leading C0/space junk is stripped; after a special
+// scheme any mix of `/` and `\` (including none) precedes the authority, which ends at the first
+// `/`, `\`, `?` or `#`; any other scheme needs `//` and ends the authority at `/`, `?` or `#`.
+const USERINFO =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: that is the point
+  /^[\u0000-\u0020]*(?:((?:https?|wss?|ftp|file):[/\\]*)[^/\\?#]*|((?!(?:https?|wss?|ftp|file):)[a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/?#]*)@/i;
 
 /**
- * Nestrix's own redaction step for every span the Nestrix-owned pipeline exports, including
- * spans from other instrumentations (architecture §4.8, D-37). Rewrites in place:
+ * Nestrix's own redaction step for every span the Nestrix-owned pipeline exports and the
+ * dashboard store keeps, including spans from other instrumentations (architecture §4.8, D-37).
+ * Applies one rule to the span's attributes and to each event's attributes (D-112: an event
+ * can carry a header or a URL too, from `recordError(error, attributes)`, `span.addEvent` or
+ * another instrumentation). Rewrites in place:
  * - `url.query`: values of listed keys become `REDACTED`;
  * - `url.full`: the same for its query, the fragment dropped, userinfo replaced by
  *   `REDACTED:REDACTED` as the semantic conventions ask;
  * - `http.request.header.*` / `http.response.header.*` for the always-redacted headers: `["REDACTED"]`.
- * Never throws; an attribute it cannot read safely is deleted.
+ *
+ * Fails closed: an attribute it cannot read safely is deleted; an event whose attribute map
+ * cannot be walked gets an empty map. It throws only when even that is impossible (or the span's
+ * own map cannot be walked); both callers (`otel/redaction.ts`) then drop the whole span.
  */
 export function scrubSpanAttributes(
   span: ScrubbableSpan,
   keys: ReadonlySet<string>,
 ): void {
-  const attributes = span.attributes;
+  scrubAttributeMap(span.attributes, keys);
+  const events = span.events;
+  if (events === undefined) return;
+  for (const event of events) {
+    try {
+      scrubAttributeMap(event.attributes, keys);
+    } catch {
+      // Neutralise rather than let an unscrubbed map through. If this assignment throws as
+      // well, the error reaches `redactSpan`, which fails (drops) the span.
+      event.attributes = {};
+    }
+  }
+}
+
+/** The rule of {@link scrubSpanAttributes} on one attribute map. Throws only if the map cannot be walked. */
+function scrubAttributeMap(
+  attributes: Record<string, unknown>,
+  keys: ReadonlySet<string>,
+): void {
   for (const name of Object.keys(attributes)) {
     try {
       const value = attributes[name];
@@ -474,7 +504,11 @@ export function scrubSpanAttributes(
         let url = value;
         const hash = url.indexOf("#");
         if (hash !== -1) url = url.slice(0, hash);
-        url = url.replace(USERINFO, `$1${REDACTED}:${REDACTED}@`);
+        url = url.replace(
+          USERINFO,
+          (_m, special?: string, other?: string) =>
+            `${special ?? other}${REDACTED}:${REDACTED}@`,
+        );
         const q = url.indexOf("?");
         if (q !== -1) {
           const query = redactQuery(url.slice(q + 1), keys);
@@ -496,11 +530,9 @@ export function scrubSpanAttributes(
         }
       }
     } catch {
-      try {
-        delete attributes[name];
-      } catch {
-        // Nothing more can be done; the exporter wrapper drops spans whose scrub throws.
-      }
+      // Throws when the attribute cannot be deleted either: the raw value must not stay, so
+      // the caller neutralises the map (an event) or drops the span (`redactSpan`).
+      delete attributes[name];
     }
   }
 }

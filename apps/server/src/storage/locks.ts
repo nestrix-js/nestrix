@@ -16,3 +16,5 @@ export const ALERTS_LOCK = 4;
  * hashtext(trace_id))`, so the per-trace cap holds across concurrent writers. "NSTL" in ASCII.
  */
 export const LOGS_LOCK_CLASS = 0x4e53544c;
+/** Session lock around one run of the error-group sync (`errors/sync.ts`, issue #26). */
+export const ERROR_GROUPS_LOCK = 26;

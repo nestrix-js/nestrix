@@ -21,15 +21,32 @@ import {
 } from "@/views/overview/overview-format";
 import { formatDeltaMs } from "@/views/routes/route-insights";
 
-/** The route detail page for one route (`method` absent: every method of it). */
+/** The investigation scope a route detail link carries over from the page it starts on. */
+export interface RouteDetailScope {
+  service?: string | undefined;
+  environment?: string | undefined;
+  windowMinutes?: number | undefined;
+}
+
+/**
+ * The route detail page for one route (`method` absent: every method of it), in the same
+ * service, environment and time window as the page the link is on. The detail page reads
+ * `service` and `environment` like every page (the app shell and `useService`) and `windowMinutes`
+ * itself; without them it would show every service and environment over its default range.
+ */
 export function routeDetailHref(
   method: string | null | undefined,
   route: string,
+  scope: RouteDetailScope = {},
 ): string {
   const params = new URLSearchParams();
   if (method !== null && method !== undefined && method !== "*")
     params.set("method", method);
   params.set("route", route);
+  if (scope.service) params.set("service", scope.service);
+  if (scope.environment) params.set("environment", scope.environment);
+  if (scope.windowMinutes !== undefined)
+    params.set("windowMinutes", String(scope.windowMinutes));
   return `/route?${params.toString()}`;
 }
 

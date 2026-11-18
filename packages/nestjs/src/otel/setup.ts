@@ -12,12 +12,18 @@ import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-ho
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import {
   ParentBasedSampler,
+  type SpanProcessor,
   TraceIdRatioBasedSampler,
   TracerProvider,
 } from "@opentelemetry/sdk-trace";
-import { activateExport, deactivateExport } from "../export-status.js";
+import {
+  activateExport,
+  deactivateExport,
+  recordExportDropped,
+} from "../export-status.js";
 import { createStoreProcessor } from "../store/processor.js";
 import { getOrCreateStore, type TraceStore } from "../store/store.js";
+import { installTailRegistry, TailRegistry } from "../tail-sampling.js";
 import {
   DEFAULT_MAX_SPANS_PER_TRACE,
   installTraceSpanCounter,
@@ -40,6 +46,12 @@ import {
   createLimitingSampler,
   createSpanLimitProcessor,
 } from "./span-limit.js";
+import {
+  createSamplingProcessor,
+  createTailSampler,
+  type TailRules,
+  tailActive,
+} from "./tail-sampling.js";
 import type {
   TelemetryConfig,
   TelemetryDiagnostics,
@@ -65,6 +77,8 @@ interface Owned {
   refs: number;
   /** Removes the `maxSpansPerTrace` counter (D-78); a no-op when the limit is off. */
   releaseSpanLimit: () => void;
+  /** Removes the tail-sampling registry (D-100); a no-op when the tail decision is off. */
+  releaseTail: () => void;
 }
 
 let owned: Owned | undefined;
@@ -81,6 +95,7 @@ let lostTo: unknown;
 function newCounters(): PipelineCounters {
   return {
     droppedSpans: 0,
+    tailDroppedSpans: 0,
     exportedSpans: 0,
     exportFailedSpans: 0,
     redactDroppedSpans: 0,
@@ -248,19 +263,41 @@ function setup(
   const parentBased = new ParentBasedSampler({
     root: new TraceIdRatioBasedSampler(config.sampleRate),
   });
+  // D-100: below rate 1, unsampled new roots are recorded and decided when their root ends
+  // (tail-sampling.ts); the sampling processor writes the keep probability on every local root.
+  const rules = tailRulesOf(config);
+  const registry = tailActive(config.sampleRate, rules)
+    ? new TailRegistry<unknown>({
+        onDropped: (count) => {
+          counters.tailDroppedSpans += count;
+          recordExportDropped("traces", count);
+        },
+      })
+    : undefined;
+  const headSampler = registry
+    ? createTailSampler(parentBased, registry, diagnostics)
+    : parentBased;
   // D-78: past `maxSpansPerTrace` spans of one trace the sampler answers NOT_RECORD, and the
   // limit processor writes the dropped counts on the local root (span-limit.ts).
   const limit = spanLimitOf(config);
   const counter = limit === false ? undefined : new TraceSpanCounter(limit);
-  const processors = spanProcessors(pipeline, storeProcessor);
+  const processors: SpanProcessor[] = [
+    createSamplingProcessor({
+      sampleRate: config.sampleRate,
+      rules,
+      registry,
+      inner: spanProcessors(pipeline, storeProcessor),
+      diagnostics,
+    }),
+  ];
   if (counter) {
     processors.unshift(createSpanLimitProcessor(counter, diagnostics));
   }
   const provider = new TracerProvider({
     resource,
     sampler: counter
-      ? createLimitingSampler(parentBased, counter, diagnostics)
-      : parentBased,
+      ? createLimitingSampler(headSampler, counter, diagnostics)
+      : headSampler,
     spanProcessors: processors,
   });
 
@@ -328,6 +365,7 @@ function setup(
     releaseSpanLimit: counter
       ? installTraceSpanCounter(counter, "provider")
       : () => {},
+    releaseTail: registry ? installTailRegistry(registry) : () => {},
   };
   return ownedHandle(owned, true, attachStore(config, store, diagnostics));
 }
@@ -384,6 +422,14 @@ function hostHandle(
     attachStore(config, store, diagnostics),
     releaseSpanLimit,
   );
+}
+
+/** `sampling`, defaulted (validated in resolve-options.ts): errors kept, no slow threshold. */
+function tailRulesOf(config: TelemetryConfig): TailRules {
+  return {
+    keepErrors: config.sampling?.keepErrors ?? true,
+    keepSlowerThanMs: config.sampling?.keepSlowerThanMs ?? false,
+  };
 }
 
 /** `maxSpansPerTrace`, defaulted (the option itself is validated in resolve-options.ts). */
@@ -447,6 +493,11 @@ async function teardown(state: Owned): Promise<void> {
   if (owned === state) owned = undefined;
   try {
     state.releaseSpanLimit();
+  } catch (error) {
+    diagnostics.countFailure("otel.shutdown", error);
+  }
+  try {
+    state.releaseTail();
   } catch (error) {
     diagnostics.countFailure("otel.shutdown", error);
   }

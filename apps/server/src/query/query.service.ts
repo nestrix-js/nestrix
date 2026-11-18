@@ -27,6 +27,7 @@ import type {
   ClassStatsResponse,
   DependenciesResponse,
   DependencyStats,
+  EnvironmentInfo,
   ErrorGroupsResponse,
   ErrorInsightsResponse,
   ErrorItem,
@@ -55,6 +56,13 @@ import type {
 import type pg from "pg";
 import type { ServerConfig } from "../config.js";
 import { SERVER_CONFIG } from "../config.module.js";
+import {
+  type GroupPlace,
+  loadTriaged,
+  storedEnvironment,
+  type TriageFilter,
+  triageView,
+} from "../errors/triage.js";
 import { primaryException } from "../storage/error-facts.js";
 import {
   addHistograms,
@@ -65,7 +73,12 @@ import {
 } from "../storage/histogram.js";
 import { STORAGE_POOL } from "../storage/storage.module.js";
 import { droppedSpansOf } from "./dropped-spans.js";
-import { type ErrorOccurrence, groupErrors } from "./error-groups.js";
+import {
+  type ErrorOccurrence,
+  groupErrors,
+  groupKeyOf,
+  normaliseMessage,
+} from "./error-groups.js";
 import {
   assembleInsights,
   emptyHeatmap,
@@ -74,7 +87,7 @@ import {
 } from "./error-insights.js";
 import { occurrenceSql, TRACE_HAS_ERRORS_SQL } from "./error-sql.js";
 import { QUERY_OPTIONS, type ResolvedQueryOptions } from "./options.js";
-import { routeStatsSpec, type Values } from "./params.js";
+import { attributeFiltersOf, type Values } from "./params.js";
 import {
   uncovered,
   withPreviousClasses,
@@ -82,6 +95,7 @@ import {
   withPreviousMap,
 } from "./previous-window.js";
 import { queriesSql } from "./queries-sql.js";
+import { classRollups, routeRollups } from "./rollup-sql.js";
 import {
   bucketsOf,
   compareRows,
@@ -91,7 +105,21 @@ import {
   releasesSql,
   type SideRow,
 } from "./route-insights.js";
+import {
+  type Scope,
+  scopeOf,
+  scopeSql,
+  scopeWhere,
+  UNSET_ENVIRONMENT,
+} from "./scope.js";
 import { TARGET_KEYS, targetOf } from "./targets.js";
+import {
+  bucketMsFor,
+  DAY_MS,
+  MINUTE_MS,
+  windowOf,
+  windowOptionsFor,
+} from "./window.js";
 
 export const PROTOCOL_VERSION: MetaResponse["protocolVersion"] = 1;
 
@@ -100,13 +128,14 @@ const CACHE_SYSTEMS = new Set(["redis", "valkey", "memcached"]);
 /** Nodes in one map response; targets past it fold into one `other` node (as the embedded map). */
 export const MAX_MAP_NODES = 200;
 const OVERFLOW_ID = "other:overflow";
-const MINUTE_MS = 60_000;
 /** Targets in one dependencies response; those with the least total time are left out. */
 export const MAX_DEPENDENCIES = 200;
 
-/** Bucket width of a window: 1 minute for 15 minutes, 5 minutes for 60. */
-const bucketMsFor = (windowMinutes: number): number =>
-  (windowMinutes <= 15 ? 1 : 5) * MINUTE_MS;
+/**
+ * Spans a long range reads at most for the views built from stored spans (dependencies, map,
+ * queries, own time of classes): the newest this many. A range with more answers `truncated`.
+ */
+export const MAX_SPANS_READ = 200_000;
 /** Clock skew allowed between a calling span and its remote child when joining them. */
 const SKEW_MS = MINUTE_MS;
 const CLASS_KINDS: ReadonlySet<string> = new Set<ClassKind>([
@@ -125,6 +154,18 @@ const CLASS_KINDS: ReadonlySet<string> = new Set<ClassKind>([
 export class NotFoundError extends Error {}
 
 /** Unix nanoseconds (a `bigint` column, a string from `pg`) as fractional ms, to microseconds. */
+/**
+ * The `attr.<key>=<value>` filters of parsed values (D-102) as the JSON object `indexed_attributes`
+ * must contain, or `undefined` for none. Sent as a bind parameter, never spliced into the SQL.
+ */
+function attributesJson(v: Values): string | undefined {
+  const filters = attributeFiltersOf(v);
+  if (filters.length === 0) return undefined;
+  const object: Record<string, string> = {};
+  for (const [key, value] of filters) object[key] = value;
+  return JSON.stringify(object);
+}
+
 function msOf(ns: string | bigint | number): number {
   return Number(BigInt(ns) / 1000n) / 1000;
 }
@@ -134,16 +175,19 @@ function round(ms: number): number {
 }
 
 /** Bound parameters of one statement; `add` returns the placeholder to put in the text. */
-/** Rows read for the error groups: the window, and the 7 days before it (P15-02). */
+/** Rows read for the error groups: the window, and the history before it (P15-02). */
 const WINDOW_ROW_CAP = 5000;
+/** The same for a window longer than 60 minutes (D-107). */
+const LONG_WINDOW_ROW_CAP = 20_000;
 const HISTORY_ROW_CAP = 20_000;
 
 class Params {
   readonly values: unknown[] = [];
-  add(value: unknown): string {
+  /** An arrow function, so `params.add` can be passed on (`scopeSql`). */
+  readonly add = (value: unknown): string => {
     this.values.push(value);
     return `$${this.values.length}`;
-  }
+  };
 }
 
 /** `count(*) FILTER` columns h0..h29: the latency histogram of `column` (nanoseconds). */
@@ -168,20 +212,6 @@ function histogramOf(row: Record<string, unknown>): number[] {
   const hist = emptyHistogram();
   for (let i = 0; i < HISTOGRAM_BUCKETS; i++) hist[i] = Number(row[`h${i}`]);
   return hist;
-}
-
-interface Window {
-  /** Minute index (Unix ms / 60 000) of the first and last minute of the window. */
-  first: number;
-  last: number;
-  fromMs: number;
-  toMs: number;
-}
-
-function windowOf(windowMinutes: number, now: number): Window {
-  const last = Math.floor(now / MINUTE_MS);
-  const first = last - windowMinutes + 1;
-  return { first, last, fromMs: first * MINUTE_MS, toMs: now };
 }
 
 const T_CURSOR = /^t([0-9a-z]{1,13})$/;
@@ -391,10 +421,38 @@ export class QueryService {
     return rows.map((r) => r.name);
   }
 
+  /**
+   * Environments with data within the retention window, most recently seen first (D-101), from
+   * `service_environments`; the unset one is named `unset`.
+   */
+  async environments(now: number): Promise<EnvironmentInfo[]> {
+    const since = new Date(now - this.config.retentionDays * 86_400_000);
+    const rows = await this.rows<{
+      environment: string | null;
+      services: string[];
+      last_seen_ms: string;
+    }>(
+      `SELECT environment, array_agg(service_name ORDER BY service_name) AS services,
+              (extract(epoch FROM max(last_seen)) * 1000)::bigint::text AS last_seen_ms
+         FROM service_environments
+        WHERE last_seen >= $1
+        GROUP BY environment
+        ORDER BY max(last_seen) DESC, environment NULLS LAST`,
+      [since],
+    );
+    return rows.map((r) => ({
+      name: r.environment ?? UNSET_ENVIRONMENT,
+      unset: r.environment === null,
+      services: r.services,
+      lastSeenUnixMs: Number(r.last_seen_ms),
+    }));
+  }
+
   async meta(now: number = Date.now()): Promise<MetaResponse> {
-    const [store, services, since] = await Promise.all([
+    const [store, services, environments, since] = await Promise.all([
       this.storeStats(now),
       this.serviceNames(now),
+      this.environments(now),
       this.rows<{ since: string | null }>(
         "SELECT (extract(epoch FROM min(minute)) * 1000)::bigint AS since FROM route_minutes",
       ),
@@ -409,16 +467,21 @@ export class QueryService {
       store,
       statistics: {
         sinceUnixMs: sinceMs == null ? now : Number(sinceMs),
-        windowMinutesOptions: [...routeStatsSpec.windowMinutes.oneOf],
+        windowMinutesOptions: windowOptionsFor(this.config.retentionDays),
       },
       warnings: [],
       mode: "standalone",
       services,
+      environments,
       // The embedded profiler profiles the process it runs in, so it is not offered here; instances
       // that opted in are profiled remotely (P10-02, D-76: `instances`, `remote-profiles`).
       profiler: { available: false, running: false, remote: true },
       // Process runtime samples exist only in the embedded dashboard.
       runtime: { available: false },
+      // Issue #18 (D-105): historical runtime metrics, only with NESTRIX_METRICS=on.
+      metrics: { available: this.config.metrics.enabled },
+      // D-102: the keys stored at ingest, and so accepted as `attr.<key>=` filters.
+      attributeFilters: [...this.config.indexedAttributes].sort(),
     };
   }
 
@@ -436,11 +499,15 @@ export class QueryService {
     if (v.release !== undefined)
       where.push(`release = ${params.add(v.release)}`);
     if (v.user !== undefined) where.push(`user_id = ${params.add(v.user)}`);
+    // D-102: `attr.<key>=<value>`, keys checked against NESTRIX_INDEXED_ATTRIBUTES by the parser.
+    const attributes = attributesJson(v);
+    if (attributes !== undefined) {
+      where.push(`indexed_attributes @> ${params.add(attributes)}::jsonb`);
+    }
     // D-94: any span failed (`traces.has_errors`), the root included.
     if (v.hasErrors === "true") where.push(TRACE_HAS_ERRORS_SQL);
     else if (v.hasErrors === "false") where.push(`NOT ${TRACE_HAS_ERRORS_SQL}`);
-    if (v.service !== undefined)
-      where.push(`service_name = ${params.add(v.service)}`);
+    where.push(...scopeSql(scopeOf(v), params.add));
     if (v.method !== undefined) {
       where.push(
         `upper(http_method) = ${params.add(String(v.method).toUpperCase())}`,
@@ -474,9 +541,12 @@ export class QueryService {
     }
     if (v.search !== undefined) {
       const needle = params.add(String(v.search).toLowerCase());
+      // D-102: or exactly a recorded request id (`x-request-id`), as the customer quotes it.
+      const exact = params.add([String(v.search)]);
       where.push(
         `(position(${needle} in lower(coalesce(http_route, ''))) > 0
-          OR EXISTS (SELECT 1 FROM unnest(span_names) AS n WHERE position(${needle} in lower(n)) > 0))`,
+          OR EXISTS (SELECT 1 FROM unnest(span_names) AS n WHERE position(${needle} in lower(n)) > 0)
+          OR request_ids @> ${exact}::text[])`,
       );
     }
     if (v.fromUnixMs !== undefined) {
@@ -504,20 +574,28 @@ export class QueryService {
       else cursorCondition = `seq > ${params.add(seq)}`;
     }
     const conditions = cursorCondition ? [...where, cursorCondition] : where;
-    const text = `SELECT trace_id, seq::text AS seq, root_span_id, name, http_method, http_route, http_status,
-                         is_error, start_ns::text AS start_ns, duration_ns::text AS duration_ns,
-                         span_count, trace_type, has_job, ${TRACE_HAS_ERRORS_SQL} AS has_errors,
-                         release, user_id
-                    FROM traces
-                   ${conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""}
-                   ORDER BY seq DESC
-                   LIMIT ${params.add(limit + 1)}`;
-    const [rows, head] = await Promise.all([
-      this.rows<SummaryRow>(text, params.values),
-      this.rows<{ seq: string | null }>(
-        "SELECT max(seq)::text AS seq FROM traces",
-      ),
-    ]);
+    // The page and the head in one statement, so one snapshot (audit): a trace committed while
+    // the list is read is either on the page or after the head, never covered by the head alone.
+    // `seq` is taken under `TRACES_LOCK` and committed in order, so a snapshot has no gap below
+    // its newest `seq`. The one-row `head` side keeps the head when the page is empty.
+    const text = `WITH head AS (SELECT max(seq) AS head_seq FROM traces),
+                  page AS (
+                    SELECT trace_id, seq AS order_seq, seq::text AS seq, root_span_id, name, http_method,
+                           http_route, http_status, is_error, start_ns::text AS start_ns,
+                           duration_ns::text AS duration_ns, span_count, trace_type, has_job,
+                           ${TRACE_HAS_ERRORS_SQL} AS has_errors, release, user_id
+                      FROM traces
+                     ${conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""}
+                     ORDER BY seq DESC
+                     LIMIT ${params.add(limit + 1)})
+                  SELECT h.head_seq::text AS head_seq, p.*
+                    FROM head h LEFT JOIN page p ON true
+                   ORDER BY p.order_seq DESC`;
+    const joined = await this.rows<
+      SummaryRow & { head_seq: string | null; trace_id: string | null }
+    >(text, params.values);
+    const rows = joined.filter((r) => r.trace_id !== null) as SummaryRow[];
+    const head = [{ seq: joined[0]?.head_seq ?? null }];
     // More newer items than one page: the poller cannot catch up without a gap.
     if (
       v.after !== undefined &&
@@ -601,12 +679,17 @@ export class QueryService {
     const params = new Params();
     // Error occurrences only: propagated and expected exceptions are not counted (D-93, D-94).
     const where: string[] = [occurrenceSql("s")];
-    if (v.service !== undefined) {
-      where.push(`s.service_name = ${params.add(v.service)}`);
-    }
+    where.push(...scopeSql(scopeOf(v), params.add, "s"));
     if (v.route !== undefined) {
       where.push(
         `EXISTS (SELECT 1 FROM traces t WHERE t.trace_id = s.trace_id AND t.http_route = ${params.add(v.route)})`,
+      );
+    }
+    // D-102: the error's trace has these indexed attribute values.
+    const attributes = attributesJson(v);
+    if (attributes !== undefined) {
+      where.push(
+        `EXISTS (SELECT 1 FROM traces t WHERE t.trace_id = s.trace_id AND t.indexed_attributes @> ${params.add(attributes)}::jsonb)`,
       );
     }
     const position = (cursor: ErrorPosition, operator: "<" | ">"): string =>
@@ -627,19 +710,48 @@ export class QueryService {
     const select = `SELECT s.trace_id, s.span_id, s.name, s.kind, s.status_message, s.events,
                            s.start_ns::text AS start_ns, s.end_ns::text AS end_ns,
                            s.http_route, s.http_method, s.http_status,
-                           ${TS_SQL.replace("%s", "s.start_time")} AS ts
+                           ${TS_SQL.replace("%s", "s.start_time")} AS ts, s.start_time AS order_time
                       FROM spans s`;
     const order = "ORDER BY s.start_time DESC, s.trace_id DESC, s.span_id DESC";
-    const [rows, head] = await Promise.all([
-      this.rows<ErrorRow>(
-        `${select} WHERE ${conditions.join(" AND ")} ${order} LIMIT ${params.add(limit + 1)}`,
-        params.values,
-      ),
-      this.rows<{ trace_id: string; span_id: string; ts: string }>(
-        `SELECT s.trace_id, s.span_id, ${TS_SQL.replace("%s", "s.start_time")} AS ts
-           FROM spans s WHERE ${occurrenceSql("s")} ${order} LIMIT 1`,
-      ),
-    ]);
+    // The page and the head in one statement, so one snapshot (audit): an error committed while
+    // the list is read is on the page or after the head. Known limit (D-107): the cursor is the
+    // span's start, so an error stored after a newer one (a long span, a late export) sorts below
+    // the head and a live poll does not show it; a reload does.
+    const joined = await this.rows<
+      ErrorRow & {
+        head_trace_id: string | null;
+        head_span_id: string | null;
+        head_ts: string | null;
+        trace_id: string | null;
+      }
+    >(
+      `WITH head AS (
+         SELECT s.trace_id, s.span_id, ${TS_SQL.replace("%s", "s.start_time")} AS ts
+           FROM spans s WHERE ${occurrenceSql("s")} ${order} LIMIT 1),
+       page AS (
+         ${select}
+          WHERE ${conditions.join(" AND ")} ${order} LIMIT ${params.add(limit + 1)})
+       SELECT h.trace_id AS head_trace_id, h.span_id AS head_span_id, h.ts AS head_ts, p.*
+         FROM (SELECT 1) one
+         LEFT JOIN head h ON true
+         LEFT JOIN page p ON true
+        ORDER BY p.order_time DESC, p.trace_id DESC, p.span_id DESC`,
+      params.values,
+    );
+    const rows = joined.filter((r) => r.trace_id !== null) as ErrorRow[];
+    const first = joined[0];
+    const head =
+      first?.head_trace_id != null &&
+      first.head_span_id != null &&
+      first.head_ts != null
+        ? [
+            {
+              trace_id: first.head_trace_id,
+              span_id: first.head_span_id,
+              ts: first.head_ts,
+            },
+          ]
+        : [];
     if (
       v.after !== undefined &&
       cursorCondition !== undefined &&
@@ -683,49 +795,104 @@ export class QueryService {
 
   /**
    * Error spans of the window grouped by (type, normalised message, route); the newest 5,000 are
-   * read. The 7 days before the window (newest 20,000) give the groups their history: first seen
+   * read (20,000 for a window over 60 minutes, `truncated` when that cap is reached). The 7 days before the window (newest 20,000) give the groups their history: first seen
    * ever, state, releases (P15-02); when that cap is hit, the history starts at the oldest row read.
    */
   async errorGroups(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
+    triage: TriageFilter = undefined,
+    filters?: Values,
   ): Promise<ErrorGroupsResponse> {
     const empty = groupErrors([], windowMinutes, now);
-    const [inWindow, earlier] = await Promise.all([
+    const windowCap = windowMinutes > 60 ? LONG_WINDOW_ROW_CAP : WINDOW_ROW_CAP;
+    // At least a day of history before the window, and the 7 days up to now for the short ones.
+    const historyStart = Math.min(now - INSIGHTS_MS, empty.fromUnixMs - DAY_MS);
+    // D-102: the groups (and their history) of the traces with these attribute values only.
+    const attributes =
+      filters === undefined ? undefined : attributesJson(filters);
+    const [inWindow, earlier, stored] = await Promise.all([
+      // Both ends of the window in SQL, before the newest-first cap: newer errors cannot crowd out
+      // a historical window's occurrences (audit, D-107).
       this.errorOccurrences(
         new Date(empty.fromUnixMs),
         undefined,
-        service,
-        WINDOW_ROW_CAP,
+        scope,
+        windowCap,
+        { until: new Date(now + 1), attributes },
       ),
       this.errorOccurrences(
-        new Date(now - INSIGHTS_MS),
+        new Date(historyStart),
         new Date(empty.fromUnixMs),
-        service,
+        scope,
         HISTORY_ROW_CAP,
+        { attributes },
       ),
+      loadTriaged(this.pool, scope),
     ]);
-    // Newest first: a full page means older rows were left out.
-    const oldestRead = earlier[earlier.length - 1]?.timeUnixMs;
+    // Newest first (by start): a full page means older rows were left out.
+    const oldestRow = earlier[earlier.length - 1];
+    const oldestRead = oldestRow?.startUnixMs ?? oldestRow?.timeUnixMs;
     const historyFrom =
       earlier.length >= HISTORY_ROW_CAP && oldestRead !== undefined
         ? oldestRead
-        : now - INSIGHTS_MS;
-    return groupErrors(
+        : historyStart;
+    // The stored triage state (issue #26, D-103): ignored groups are dropped before the list is
+    // cut to 100, the rest carry their stored state beside the computed one.
+    // A group's stored copies are per service and environment (D-101): its state combines the
+    // copies of the places it was seen in the window.
+    const places = new Map<string, Map<string, GroupPlace>>();
+    for (const o of inWindow) {
+      if (o.service === undefined) continue;
+      const pattern =
+        o.message === undefined ? "" : normaliseMessage(o.message);
+      const key = groupKeyOf(o.errorType, pattern, o.route);
+      const environment = storedEnvironment(o.environment);
+      let seen = places.get(key);
+      if (seen === undefined) {
+        seen = new Map();
+        places.set(key, seen);
+      }
+      seen.set(`${o.service}\u0000${environment}`, {
+        service: o.service,
+        environment,
+      });
+    }
+    const view = triageView(stored, triage, (group) => [
+      ...(places.get(group.key)?.values() ?? []),
+    ]);
+    const response = groupErrors(
       [...inWindow, ...earlier],
       windowMinutes,
       now,
       historyFrom,
+      (group) => view.include(group),
     );
+    for (const group of response.groups) view.annotate(group);
+    response.ignoredCount = view.ignoredCount;
+    if (inWindow.length >= windowCap) response.truncated = true;
+    return response;
   }
 
-  /** Error spans from `from` (and before `before`), newest first, as occurrences with their release. */
-  private async errorOccurrences(
+  /**
+   * Error spans from `from` (and before `before` and before `until`, both exclusive), as
+   * occurrences with their release: newest first, or oldest first with `ascending`. `after` (with
+   * `ascending`) continues a read past the last row of a full page, on the total order
+   * `(start_time, trace_id, span_id)`: its fields are an occurrence's `startTime`, `traceId` and
+   * `spanId`. The error-group sync reads the same occurrences the lists do through this method.
+   */
+  async errorOccurrences(
     from: Date,
     before: Date | undefined,
-    service: string | undefined,
+    scope: Scope,
     limit: number,
+    options: {
+      until?: Date;
+      ascending?: boolean;
+      attributes?: string | undefined;
+      after?: { startTime: string; traceId: string; spanId: string };
+    } = {},
   ): Promise<ErrorOccurrence[]> {
     const params = new Params();
     const fromParam = params.add(from);
@@ -736,26 +903,42 @@ export class QueryService {
     if (before !== undefined) {
       where.push(`s.start_time < ${params.add(before)}`);
     }
-    if (service !== undefined) {
-      where.push(`s.service_name = ${params.add(service)}`);
+    if (options.until !== undefined) {
+      where.push(`s.start_time < ${params.add(options.until)}`);
     }
+    if (options.after !== undefined) {
+      const a = options.after;
+      where.push(
+        `(s.start_time, s.trace_id, s.span_id) > (${params.add(a.startTime)}::timestamptz, ${params.add(a.traceId)}, ${params.add(a.spanId)})`,
+      );
+    }
+    where.push(...scopeSql(scope, params.add, "s"));
+    // D-102: the error's trace has these indexed attribute values (a JSON object, a bind parameter).
+    if (options.attributes !== undefined) {
+      where.push(
+        `t.indexed_attributes @> ${params.add(options.attributes)}::jsonb`,
+      );
+    }
+    const dir = options.ascending === true ? "ASC" : "DESC";
     const rows = await this.rows<
       ErrorRow & {
         service_name: string | null;
+        environment: string | null;
         root_route: string | null;
         root_method: string | null;
         root_status: number | null;
         root_release: string | null;
+        start_text: string;
       }
     >(
       `SELECT s.trace_id, s.span_id, s.name, s.kind, s.status_message, s.events,
-              s.start_ns::text AS start_ns, s.end_ns::text AS end_ns,
-              s.http_route, s.http_method, s.http_status, s.service_name,
+              s.start_ns::text AS start_ns, s.end_ns::text AS end_ns, s.start_time::text AS start_text,
+              s.http_route, s.http_method, s.http_status, s.service_name, s.environment,
               t.http_route AS root_route, t.http_method AS root_method, t.http_status AS root_status,
               t.release AS root_release
          FROM spans s LEFT JOIN traces t ON t.trace_id = s.trace_id
         WHERE ${where.join(" AND ")}
-        ORDER BY s.start_time DESC, s.trace_id DESC, s.span_id DESC
+        ORDER BY s.start_time ${dir}, s.trace_id ${dir}, s.span_id ${dir}
         LIMIT ${limit}`,
       params.values,
     );
@@ -783,6 +966,10 @@ export class QueryService {
         route: item.route,
         service: r.service_name ?? undefined,
         release: r.root_release ?? undefined,
+        environment: r.environment ?? undefined,
+        // The instant `s.start_time` holds (microseconds), which the bounds above compare.
+        startUnixMs: msOf(r.start_ns),
+        startTime: r.start_text,
       };
     });
   }
@@ -794,7 +981,7 @@ export class QueryService {
    */
   async errorInsights(
     route: string | undefined,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<ErrorInsightsResponse> {
     const from = new Date(now - INSIGHTS_MS);
@@ -805,8 +992,7 @@ export class QueryService {
       `s.start_time >= ${grid.add(from)}`,
       `s.start_time <= ${grid.add(to)}`,
     ];
-    if (service !== undefined)
-      gridWhere.push(`s.service_name = ${grid.add(service)}`);
+    gridWhere.push(...scopeSql(scope, grid.add, "s"));
     if (route !== undefined)
       gridWhere.push(`t.http_route = ${grid.add(route)}`);
     const cells = await this.rows<{ dow: number; hour: number; n: number }>(
@@ -831,8 +1017,7 @@ export class QueryService {
       `s.start_time >= ${perRelease.add(from)}`,
       `s.start_time <= ${perRelease.add(to)}`,
     ];
-    if (service !== undefined)
-      evWhere.push(`s.service_name = ${perRelease.add(service)}`);
+    evWhere.push(...scopeSql(scope, perRelease.add, "s"));
     if (route !== undefined)
       evWhere.push(`t.http_route = ${perRelease.add(route)}`);
     const events = await this.rows<{ release: string; n: number }>(
@@ -848,8 +1033,7 @@ export class QueryService {
       `t.start_time >= ${req.add(from)}`,
       `t.start_time <= ${req.add(to)}`,
     ];
-    if (service !== undefined)
-      reqWhere.push(`t.service_name = ${req.add(service)}`);
+    reqWhere.push(...scopeSql(scope, req.add, "t"));
     const routeFilter =
       route === undefined ? "" : ` AND t.http_route = ${req.add(route)}`;
     const requests = await this.rows<{
@@ -900,31 +1084,16 @@ export class QueryService {
 
   async routes(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<RouteStatsResponse> {
-    const w = windowOf(windowMinutes, now);
-    const params = new Params();
-    const where = [
-      `minute >= ${params.add(new Date(w.first * MINUTE_MS))}`,
-      `minute <= ${params.add(new Date(w.last * MINUTE_MS))}`,
-    ];
-    if (service !== undefined) {
-      where.push(`service_name = ${params.add(service)}`);
-    }
-    const rows = await this.rows<{
-      minute_ms: string;
-      method: string;
-      route: string;
-      count: number;
-      errors: number;
-      max_ms: number;
-      hist: number[];
-    }>(
-      `SELECT (extract(epoch FROM minute) * 1000)::bigint AS minute_ms, method, route, count, errors, max_ms, hist
-         FROM route_minutes WHERE ${where.join(" AND ")}`,
-      params.values,
-    );
+    const w = windowOf(windowMinutes, now, bucketMsFor(windowMinutes, true));
+    const rows = await routeRollups(this.pool, {
+      fromMs: w.fromMs,
+      toMs: w.last * MINUTE_MS,
+      bucketMs: w.bucketMs,
+      scope,
+    });
     interface Cell {
       count: number;
       errors: number;
@@ -934,7 +1103,7 @@ export class QueryService {
     interface Series extends Cell {
       method: string;
       route: string;
-      byMinute: Map<number, Cell>;
+      byBucket: Map<number, Cell>;
     }
     const byRoute = new Map<string, Series>();
     const add = (
@@ -960,27 +1129,27 @@ export class QueryService {
           errors: 0,
           max: 0,
           hist: emptyHistogram(),
-          byMinute: new Map(),
+          byBucket: new Map(),
         };
         byRoute.set(key, s);
       }
-      add(s, r.count, r.errors, r.max_ms, r.hist);
-      const minute = Math.floor(Number(r.minute_ms) / MINUTE_MS);
-      let cell = s.byMinute.get(minute);
-      if (cell === undefined) {
-        cell = { count: 0, errors: 0, max: 0, hist: emptyHistogram() };
-        s.byMinute.set(minute, cell);
-      }
-      add(cell, r.count, r.errors, r.max_ms, r.hist);
+      add(s, r.count, r.errors, r.maxMs, r.hist);
+      s.byBucket.set(r.bucketMs, {
+        count: r.count,
+        errors: r.errors,
+        max: r.maxMs,
+        hist: r.hist,
+      });
     }
     const routes: RouteStats[] = [];
     for (const s of byRoute.values()) {
       if (s.count === 0) continue;
       const series: RouteSeriesPoint[] = [];
-      for (let m = w.first; m <= w.last; m++) {
-        const cell = s.byMinute.get(m);
+      for (let i = 0; i < w.buckets; i++) {
+        const start = w.fromMs + i * w.bucketMs;
+        const cell = s.byBucket.get(start);
         const point: RouteSeriesPoint = {
-          timeUnixMs: m * MINUTE_MS,
+          timeUnixMs: start,
           count: cell?.count ?? 0,
           errors: cell?.errors ?? 0,
         };
@@ -1010,7 +1179,7 @@ export class QueryService {
     );
     return {
       windowMinutes,
-      bucketMs: MINUTE_MS,
+      bucketMs: w.bucketMs,
       fromUnixMs: w.fromMs,
       toUnixMs: now,
       routes,
@@ -1023,34 +1192,24 @@ export class QueryService {
     route: string,
     method: string | undefined,
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<RouteHistogramResponse> {
     const w = windowOf(windowMinutes, now);
-    const params = new Params();
-    const where = [
-      `minute >= ${params.add(new Date(w.first * MINUTE_MS))}`,
-      `minute <= ${params.add(new Date(w.last * MINUTE_MS))}`,
-      `route = ${params.add(route)}`,
-    ];
-    if (method !== undefined) where.push(`method = ${params.add(method)}`);
-    if (service !== undefined) {
-      where.push(`service_name = ${params.add(service)}`);
-    }
-    const rows = await this.rows<{
-      count: number;
-      max_ms: number;
-      hist: number[];
-    }>(
-      `SELECT count, max_ms, hist FROM route_minutes WHERE ${where.join(" AND ")}`,
-      params.values,
-    );
+    const rows = await routeRollups(this.pool, {
+      fromMs: w.fromMs,
+      toMs: w.last * MINUTE_MS,
+      bucketMs: 0,
+      scope,
+      method,
+      route,
+    });
     const hist = emptyHistogram();
     let count = 0;
     let max = 0;
     for (const r of rows) {
-      count += Number(r.count);
-      if (Number(r.max_ms) > max) max = Number(r.max_ms);
+      count += r.count;
+      if (r.maxMs > max) max = r.maxMs;
       addHistograms(hist, r.hist);
     }
     return {
@@ -1070,87 +1229,46 @@ export class QueryService {
 
   async windowCompare(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<RouteWindowCompareResponse> {
-    const last = Math.floor(now / MINUTE_MS);
-    const curFirst = last - windowMinutes + 1;
-    const prevLast = curFirst - 1;
-    const prevFirst = prevLast - windowMinutes + 1;
-    const params = new Params();
-    const where = [
-      `minute >= ${params.add(new Date(prevFirst * MINUTE_MS))}`,
-      `minute <= ${params.add(new Date(last * MINUTE_MS))}`,
-    ];
-    if (service !== undefined) {
-      where.push(`service_name = ${params.add(service)}`);
-    }
-    const rows = await this.rows<{
-      minute_ms: string;
-      method: string;
-      route: string;
-      count: number;
-      errors: number;
-      max_ms: number;
-      hist: number[];
-    }>(
-      `SELECT (extract(epoch FROM minute) * 1000)::bigint AS minute_ms, method, route, count, errors, max_ms, hist
-         FROM route_minutes WHERE ${where.join(" AND ")}`,
-      params.values,
-    );
-    interface Acc {
-      method: string;
-      route: string;
-      count: number;
-      errors: number;
-      max: number;
-      hist: number[];
-    }
-    const before = new Map<string, Acc>();
-    const after = new Map<string, Acc>();
-    for (const r of rows) {
-      const minute = Math.floor(Number(r.minute_ms) / MINUTE_MS);
-      const into = minute >= curFirst ? after : before;
-      const key = `${r.method}\u0000${r.route}`;
-      let a = into.get(key);
-      if (a === undefined) {
-        a = {
-          method: r.method,
-          route: r.route,
-          count: 0,
-          errors: 0,
-          max: 0,
-          hist: emptyHistogram(),
-        };
-        into.set(key, a);
-      }
-      a.count += Number(r.count);
-      a.errors += Number(r.errors);
-      if (Number(r.max_ms) > a.max) a.max = Number(r.max_ms);
-      addHistograms(a.hist, r.hist);
-    }
-    const sides = (m: Map<string, Acc>): SideRow[] =>
-      [...m.values()]
+    // The previous window is the same length just before the current one: the minutes of the
+    // `windowMinutes` before the current window's first minute.
+    const cur = windowOf(windowMinutes, now);
+    const prevFirst = cur.first - windowMinutes;
+    const [beforeRows, afterRows] = await Promise.all([
+      routeRollups(this.pool, {
+        fromMs: prevFirst * MINUTE_MS,
+        toMs: (cur.first - 1) * MINUTE_MS,
+        bucketMs: 0,
+        scope,
+      }),
+      routeRollups(this.pool, {
+        fromMs: cur.fromMs,
+        toMs: cur.last * MINUTE_MS,
+        bucketMs: 0,
+        scope,
+      }),
+    ]);
+    const sides = (rows: typeof beforeRows): SideRow[] =>
+      rows
         .filter((a) => a.count > 0)
         .map((a) => ({
           method: a.method,
           route: a.route,
           count: a.count,
           errors: a.errors,
-          p50Ms: estimateQuantile(a.hist, a.count, 0.5, a.max),
-          p95Ms: estimateQuantile(a.hist, a.count, 0.95, a.max),
+          p50Ms: estimateQuantile(a.hist, a.count, 0.5, a.maxMs),
+          p95Ms: estimateQuantile(a.hist, a.count, 0.95, a.maxMs),
         }));
     const sinceParams = new Params();
-    const sinceWhere =
-      service === undefined
-        ? ""
-        : `WHERE service_name = ${sinceParams.add(service)}`;
+    const sinceWhere = scopeWhere(scope, sinceParams.add);
     const [since, releases] = await Promise.all([
       this.rows<{ since: string | null }>(
         `SELECT (extract(epoch FROM min(minute)) * 1000)::bigint AS since FROM route_minutes ${sinceWhere}`,
         sinceParams.values,
       ),
-      this.releases(service),
+      this.releases(scope),
     ]);
     const sinceMs = since[0]?.since;
     const covered = sinceMs != null && Number(sinceMs) <= prevFirst * MINUTE_MS;
@@ -1159,27 +1277,27 @@ export class QueryService {
       windowMinutes,
       previous: {
         fromUnixMs: prevFirst * MINUTE_MS,
-        toUnixMs: curFirst * MINUTE_MS,
+        toUnixMs: cur.first * MINUTE_MS,
       },
-      current: { fromUnixMs: curFirst * MINUTE_MS, toUnixMs: now },
+      current: { fromUnixMs: cur.first * MINUTE_MS, toUnixMs: now },
       previousCovered: covered,
       note: covered
         ? null
         : "Statistics start less than two windows ago, so the previous window is only partly counted or empty.",
       releases,
-      routes: compareRows(sides(before), sides(after)),
+      routes: compareRows(sides(beforeRows), sides(afterRows)),
     };
   }
 
   async releaseCompare(
     releaseA: string,
     releaseB: string,
-    service: string | undefined,
+    scope: Scope,
   ): Promise<RouteReleaseCompareResponse> {
-    const q = releaseCompareSql(releaseA, releaseB, service);
+    const q = releaseCompareSql(releaseA, releaseB, scope);
     const [rows, releases] = await Promise.all([
       this.rows<ReleaseRow>(q.text, q.values),
-      this.releases(service),
+      this.releases(scope),
     ]);
     const sides = releaseSides(rows, releaseA, releaseB);
     return {
@@ -1191,8 +1309,8 @@ export class QueryService {
     };
   }
 
-  private async releases(service: string | undefined): Promise<string[]> {
-    const q = releasesSql(service);
+  private async releases(scope: Scope): Promise<string[]> {
+    const q = releasesSql(scope);
     const rows = await this.rows<{ release: string }>(q.text, q.values);
     return rows.map((r) => r.release);
   }
@@ -1200,12 +1318,9 @@ export class QueryService {
   // ---- previous windows (P15-01) ---------------------------------------------------------------
 
   /** When the first route statistics of the service were kept; `undefined` without any. */
-  private async statisticsSince(
-    service: string | undefined,
-  ): Promise<number | undefined> {
+  private async statisticsSince(scope: Scope): Promise<number | undefined> {
     const p = new Params();
-    const where =
-      service === undefined ? "" : `WHERE service_name = ${p.add(service)}`;
+    const where = scopeWhere(scope, p.add);
     const [row] = await this.rows<{ since: string | null }>(
       `SELECT (extract(epoch FROM min(minute)) * 1000)::bigint AS since FROM route_minutes ${where}`,
       p.values,
@@ -1217,64 +1332,63 @@ export class QueryService {
   private async coversPrevious(
     windowMinutes: number,
     fromMs: number,
-    service: string | undefined,
+    scope: Scope,
   ): Promise<boolean> {
-    const since = await this.statisticsSince(service);
+    const since = await this.statisticsSince(scope);
     return since !== undefined && since <= fromMs - windowMinutes * MINUTE_MS;
   }
 
   /** `classes` with the previous window (the same query for the window before), or why not. */
   async classesWithPrevious(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<ClassStatsResponse> {
-    const current = await this.classes(windowMinutes, service, now);
+    const current = await this.classes(windowMinutes, scope, now);
     if (
-      !(await this.coversPrevious(windowMinutes, current.fromUnixMs, service))
+      !(await this.coversPrevious(windowMinutes, current.fromUnixMs, scope))
     ) {
       return uncovered(current);
     }
-    const before = current.fromUnixMs - 1;
     return withPreviousClasses(
       current,
-      await this.classes(windowMinutes, service, before, before),
+      await this.classes(windowMinutes, scope, current.fromUnixMs - 1),
     );
   }
 
   /** `dependencies` with the previous window, or why not. */
   async dependenciesWithPrevious(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<DependenciesResponse> {
-    const current = await this.dependencies(windowMinutes, service, now);
+    const current = await this.dependencies(windowMinutes, scope, now);
     if (
-      !(await this.coversPrevious(windowMinutes, current.fromUnixMs, service))
+      !(await this.coversPrevious(windowMinutes, current.fromUnixMs, scope))
     ) {
       return uncovered(current);
     }
     return withPreviousDependencies(
       current,
-      await this.dependencies(windowMinutes, service, current.fromUnixMs - 1),
+      await this.dependencies(windowMinutes, scope, current.fromUnixMs - 1),
     );
   }
 
   /** `map` with the previous window, or why not. */
   async mapWithPrevious(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<AppMapResponse> {
-    const current = await this.map(windowMinutes, service, now);
+    const current = await this.map(windowMinutes, scope, now);
     if (
-      !(await this.coversPrevious(windowMinutes, current.fromUnixMs, service))
+      !(await this.coversPrevious(windowMinutes, current.fromUnixMs, scope))
     ) {
       return uncovered(current);
     }
     return withPreviousMap(
       current,
-      await this.map(windowMinutes, service, current.fromUnixMs - 1),
+      await this.map(windowMinutes, scope, current.fromUnixMs - 1),
     );
   }
 
@@ -1282,61 +1396,49 @@ export class QueryService {
 
   async classes(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
-    /** Count own time only from spans that started by then (the previous window's end). */
-    ownUntilMs?: number,
   ): Promise<ClassStatsResponse> {
     const w = windowOf(windowMinutes, now);
-    const params = new Params();
-    const where = [
-      `minute >= ${params.add(new Date(w.first * MINUTE_MS))}`,
-      `minute <= ${params.add(new Date(w.last * MINUTE_MS))}`,
-    ];
-    if (service !== undefined) {
-      where.push(`service_name = ${params.add(service)}`);
-    }
-    const rows = await this.rows<{
-      class_name: string;
-      method_name: string;
-      class_kind: string;
-      count: number;
-      errors: number;
-      total_ms: number;
-      max_ms: number;
-    }>(
-      `SELECT class_name, method_name, class_kind, count, errors, total_ms, max_ms
-         FROM class_minutes WHERE ${where.join(" AND ")}`,
-      params.values,
-    );
+    const rows = await classRollups(this.pool, {
+      fromMs: w.fromMs,
+      toMs: w.last * MINUTE_MS,
+      scope,
+    });
 
-    // Own time per call, from the stored method spans started in the window.
+    // Own time per call, from the stored method spans started in the window: both ends, on the
+    // current side as on the previous one, so a later call cannot move an earlier window (audit).
     const own = new Map<string, Map<string, number>>();
+    let ownTimeTruncated = false;
     if (rows.length > 0) {
       const p = new Params();
       const spanWhere = [
         "s.class_name IS NOT NULL",
         `s.start_time >= ${p.add(new Date(w.fromMs))}`,
+        `s.start_time < ${p.add(new Date(now + 1))}`,
       ];
-      if (ownUntilMs !== undefined) {
-        spanWhere.push(`s.start_time <= ${p.add(new Date(ownUntilMs))}`);
-      }
-      if (service !== undefined) {
-        spanWhere.push(`s.service_name = ${p.add(service)}`);
-      }
+      spanWhere.push(...scopeSql(scope, p.add, "s"));
       const skewFrom = p.add(new Date(w.fromMs - SKEW_MS));
       const ownRows = await this.rows<{
         class_name: string;
         method_name: string;
         own_avg_ms: number;
+        truncated: boolean;
       }>(
         // One pass (the window's method spans once, their children summed once per parent). A
         // child may start before its parent (another host's clock): children are bounded by the
         // window start less a minute of skew, which still lets Postgres skip older partitions.
-        `WITH win AS (
-           SELECT s.trace_id, s.span_id, s.class_name, s.method_name, s.duration_ns
+        // At most the newest MAX_SPANS_READ method spans (one more, to tell a full range from a
+        // truncated one); a long range reads the newest of its spans only (D-107).
+        `WITH capped AS MATERIALIZED (
+           SELECT s.trace_id, s.span_id, s.class_name, s.method_name, s.duration_ns, s.start_time
              FROM spans s
             WHERE ${spanWhere.join(" AND ")}
+            ORDER BY s.start_time DESC
+            LIMIT ${MAX_SPANS_READ + 1}
+         ), win AS (
+           SELECT trace_id, span_id, class_name, method_name, duration_ns
+             FROM (SELECT * FROM capped ORDER BY start_time DESC LIMIT ${MAX_SPANS_READ}) k
          ), kids AS (
            SELECT c.trace_id, c.parent_span_id, sum(c.duration_ns) AS child_ns
              FROM spans c
@@ -1346,13 +1448,15 @@ export class QueryService {
             GROUP BY c.trace_id, c.parent_span_id
          )
          SELECT s.class_name, s.method_name,
-                avg(greatest(0, s.duration_ns - coalesce(ch.child_ns, 0)))::float8 / 1e6 AS own_avg_ms
+                avg(greatest(0, s.duration_ns - coalesce(ch.child_ns, 0)))::float8 / 1e6 AS own_avg_ms,
+                (SELECT count(*) FROM capped) > ${MAX_SPANS_READ} AS truncated
            FROM win s
            LEFT JOIN kids ch ON ch.trace_id = s.trace_id AND ch.parent_span_id = s.span_id
           GROUP BY s.class_name, s.method_name`,
         p.values,
       );
       for (const r of ownRows) {
+        if (r.truncated) ownTimeTruncated = true;
         let byMethod = own.get(r.class_name);
         if (byMethod === undefined) {
           byMethod = new Map();
@@ -1374,21 +1478,21 @@ export class QueryService {
     }
     const byClass = new Map<string, ClassAcc>();
     for (const r of rows) {
-      let c = byClass.get(r.class_name);
+      let c = byClass.get(r.className);
       if (c === undefined) {
         c = { kinds: new Map(), methods: new Map() };
-        byClass.set(r.class_name, c);
+        byClass.set(r.className, c);
       }
-      c.kinds.set(r.class_kind, (c.kinds.get(r.class_kind) ?? 0) + r.count);
-      let m = c.methods.get(r.method_name);
+      c.kinds.set(r.classKind, (c.kinds.get(r.classKind) ?? 0) + r.count);
+      let m = c.methods.get(r.methodName);
       if (m === undefined) {
         m = { calls: 0, errors: 0, totalMs: 0, maxMs: 0 };
-        c.methods.set(r.method_name, m);
+        c.methods.set(r.methodName, m);
       }
       m.calls += r.count;
       m.errors += r.errors;
-      m.totalMs += r.total_ms;
-      if (r.max_ms > m.maxMs) m.maxMs = r.max_ms;
+      m.totalMs += r.totalMs;
+      if (r.maxMs > m.maxMs) m.maxMs = r.maxMs;
     }
     const classes: ClassStats[] = [];
     for (const [className, c] of byClass) {
@@ -1451,9 +1555,7 @@ export class QueryService {
     if (rows.length === 0) {
       const p = new Params();
       const any = await this.rows<{ found: boolean }>(
-        `SELECT EXISTS (SELECT 1 FROM class_minutes${
-          service === undefined ? "" : ` WHERE service_name = ${p.add(service)}`
-        }) AS found`,
+        `SELECT EXISTS (SELECT 1 FROM class_minutes ${scopeWhere(scope, p.add)}) AS found`,
         p.values,
       );
       methodsState = any[0]?.found === true ? "no-data-in-range" : "off";
@@ -1462,6 +1564,7 @@ export class QueryService {
       windowMinutes,
       fromUnixMs: w.fromMs,
       toUnixMs: now,
+      ...(ownTimeTruncated ? { ownTimeTruncated } : {}),
       methodsEnabled: methodsState !== "off",
       methodsState,
       classes,
@@ -1471,14 +1574,23 @@ export class QueryService {
   // ---- timeline and dependencies (P9-05) ------------------------------------------------------
 
   /** Sampled traces per bucket by outcome of their root; the trace list's filters apply. */
-  async timeline(v: Values): Promise<TraceTimelineResponse> {
-    const windowMinutes = v.windowMinutes as number;
+  async timeline(
+    v: Values,
+    resolved: { windowMinutes: number; now: number } = {
+      windowMinutes: v.windowMinutes as number,
+      now: Date.now(),
+    },
+  ): Promise<TraceTimelineResponse> {
+    const { windowMinutes, now } = resolved;
     const bucketMs = bucketMsFor(windowMinutes);
-    const count = (windowMinutes * MINUTE_MS) / bucketMs;
-    const now = Date.now();
+    const count = Math.ceil((windowMinutes * MINUTE_MS) / bucketMs);
     const first = Math.floor(now / bucketMs) - count + 1;
     const params = new Params();
-    const where = this.traceWhere(v, params);
+    // The range of the request is the window above, not a filter on the traces.
+    const where = this.traceWhere(
+      { ...v, fromUnixMs: undefined, toUnixMs: undefined },
+      params,
+    );
     where.push(`start_time >= ${params.add(new Date(first * bucketMs))}`);
     where.push(`start_time <= ${params.add(new Date(now))}`);
     const rows = await this.rows<{
@@ -1524,11 +1636,11 @@ export class QueryService {
    */
   async dependencies(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<DependenciesResponse> {
     const bucketMs = bucketMsFor(windowMinutes);
-    const count = (windowMinutes * MINUTE_MS) / bucketMs;
+    const count = Math.ceil((windowMinutes * MINUTE_MS) / bucketMs);
     const first = Math.floor(now / bucketMs) - count + 1;
     const from = new Date(first * bucketMs);
     const to = new Date(now);
@@ -1545,26 +1657,34 @@ export class QueryService {
                      AND c.start_time >= ${fromParam}::timestamptz - interval '${SKEW_MS / 1000} seconds'
                      AND c.start_time <= ${toParam}::timestamptz + interval '${SKEW_MS / 1000} seconds')`,
     ];
-    if (service !== undefined) where.push(`s.service_name = ${t.add(service)}`);
+    where.push(...scopeSql(scope, t.add, "s"));
     const attributes = TARGET_KEYS.map((key) =>
       key === "url.full"
         ? `'url.full', to_jsonb(substring(s.attributes->>'url.full' from '^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*'))`
         : `'${key}', s.attributes->'${key}'`,
     ).join(", ");
     const rows = await this.rows<Record<string, unknown>>(
-      `SELECT floor(extract(epoch FROM s.start_time) * 1000 / ${bucketMs})::bigint AS b,
+      `WITH capped AS MATERIALIZED (
+         SELECT s.start_time, s.trace_id, s.status_code, s.duration_ns, s.attributes
+           FROM spans s
+          WHERE ${where.join(" AND ")}
+          ORDER BY s.start_time DESC
+          LIMIT ${MAX_SPANS_READ + 1}
+       )
+       SELECT floor(extract(epoch FROM s.start_time) * 1000 / ${bucketMs})::bigint AS b,
               jsonb_strip_nulls(jsonb_build_object(${attributes})) AS a,
               count(*)::int AS calls,
               count(*) FILTER (WHERE s.status_code = 'error')::int AS errors,
               sum(s.duration_ns)::text AS sum_ns,
               max(s.duration_ns)::text AS max_ns,
               (array_agg(s.trace_id ORDER BY s.duration_ns DESC))[1] AS example,
-              ${histogramColumns("s.duration_ns")}
-         FROM spans s
-        WHERE ${where.join(" AND ")}
+              ${histogramColumns("s.duration_ns")},
+              (SELECT count(*) FROM capped) > ${MAX_SPANS_READ} AS truncated
+         FROM (SELECT * FROM capped ORDER BY start_time DESC LIMIT ${MAX_SPANS_READ}) s
         GROUP BY b, a`,
       t.values,
     );
+    const truncated = rows.some((r) => r.truncated === true);
 
     interface Part {
       calls: number;
@@ -1649,6 +1769,7 @@ export class QueryService {
       fromUnixMs: first * bucketMs,
       toUnixMs: now,
       bucketMs,
+      ...(truncated ? { truncated } : {}),
       dependencies,
     };
   }
@@ -1658,7 +1779,7 @@ export class QueryService {
   /** Statements across the stored, sampled traces of the window (P9-03). */
   async queries(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     sort: QuerySort,
     limit: number,
     now: number = Date.now(),
@@ -1667,7 +1788,7 @@ export class QueryService {
     const { text, values } = queriesSql({
       from: new Date(w.fromMs),
       to: new Date(now),
-      service,
+      scope,
       sort,
       limit,
     });
@@ -1682,13 +1803,14 @@ export class QueryService {
       traces: number;
       repeated: number;
       examples: string[];
+      truncated: boolean;
     }>(text, values);
     return {
       windowMinutes,
       fromUnixMs: w.fromMs,
       toUnixMs: now,
       sampled: true,
-      truncated: false,
+      truncated: rows.some((r) => r.truncated),
       queries: rows.map((r) => ({
         statement: r.stmt,
         system: r.sys,
@@ -1708,7 +1830,7 @@ export class QueryService {
 
   async map(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<AppMapResponse> {
     const w = windowOf(windowMinutes, now);
@@ -1729,22 +1851,27 @@ export class QueryService {
                      AND c.start_time >= ${fromParam}::timestamptz - interval '${SKEW_MS / 1000} seconds'
                      AND c.start_time <= ${toParam}::timestamptz + interval '${SKEW_MS / 1000} seconds')`,
     ];
-    if (service !== undefined) {
-      targetWhere.push(`s.service_name = ${t.add(service)}`);
-    }
+    targetWhere.push(...scopeSql(scope, t.add, "s"));
     const attributes = TARGET_KEYS.map((key) =>
       key === "url.full"
         ? `'url.full', to_jsonb(substring(s.attributes->>'url.full' from '^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*'))`
         : `'${key}', s.attributes->'${key}'`,
     ).join(", ");
     const targetRows = await this.rows<Record<string, unknown>>(
-      `SELECT s.service_name, jsonb_strip_nulls(jsonb_build_object(${attributes})) AS a,
+      `WITH capped AS MATERIALIZED (
+         SELECT s.start_time, s.service_name, s.status_code, s.duration_ns, s.attributes
+           FROM spans s
+          WHERE ${targetWhere.join(" AND ")}
+          ORDER BY s.start_time DESC
+          LIMIT ${MAX_SPANS_READ + 1}
+       )
+       SELECT s.service_name, jsonb_strip_nulls(jsonb_build_object(${attributes})) AS a,
               count(*)::int AS calls,
               count(*) FILTER (WHERE s.status_code = 'error')::int AS errors,
               max(s.duration_ns)::text AS max_ns,
-              ${histogramColumns("s.duration_ns")}
-         FROM spans s
-        WHERE ${targetWhere.join(" AND ")}
+              ${histogramColumns("s.duration_ns")},
+              (SELECT count(*) FROM capped) > ${MAX_SPANS_READ} AS truncated
+         FROM (SELECT * FROM capped ORDER BY start_time DESC LIMIT ${MAX_SPANS_READ}) s
         GROUP BY s.service_name, a`,
       t.values,
     );
@@ -1763,29 +1890,47 @@ export class QueryService {
       `c.start_time >= ${eFrom}::timestamptz - interval '${SKEW_MS / 1000} seconds'`,
       `c.start_time <= ${eTo}::timestamptz + interval '${SKEW_MS / 1000} seconds'`,
     ];
-    if (service !== undefined) {
-      const name = e.add(service);
-      edgeWhere.push(`(p.service_name = ${name} OR c.service_name = ${name})`);
+    // An edge belongs to the scope when either end does.
+    const callerIn = scopeSql(scope, e.add, "p");
+    if (callerIn.length > 0) {
+      const calleeIn = scopeSql(scope, e.add, "c");
+      edgeWhere.push(
+        `((${callerIn.join(" AND ")}) OR (${calleeIn.join(" AND ")}))`,
+      );
     }
     const edgeRows = await this.rows<Record<string, unknown>>(
-      `SELECT p.service_name AS from_service, c.service_name AS to_service,
+      `WITH capped AS MATERIALIZED (
+         SELECT p.start_time, p.service_name AS from_service, c.service_name AS to_service,
+                p.status_code, p.duration_ns
+           FROM spans p
+           JOIN spans c ON c.trace_id = p.trace_id AND c.parent_span_id = p.span_id
+          WHERE ${edgeWhere.join(" AND ")}
+          ORDER BY p.start_time DESC
+          LIMIT ${MAX_SPANS_READ + 1}
+       )
+       SELECT p.from_service, p.to_service,
               count(*)::int AS calls,
               count(*) FILTER (WHERE p.status_code = 'error')::int AS errors,
               max(p.duration_ns)::text AS max_ns,
-              ${histogramColumns("p.duration_ns")}
-         FROM spans p
-         JOIN spans c ON c.trace_id = p.trace_id AND c.parent_span_id = p.span_id
-        WHERE ${edgeWhere.join(" AND ")}
-        GROUP BY p.service_name, c.service_name`,
+              ${histogramColumns("p.duration_ns")},
+              (SELECT count(*) FROM capped) > ${MAX_SPANS_READ} AS truncated
+         FROM (SELECT * FROM capped ORDER BY start_time DESC LIMIT ${MAX_SPANS_READ}) p
+        GROUP BY p.from_service, p.to_service`,
       e.values,
     );
+    const truncated =
+      targetRows.some((r) => r.truncated === true) ||
+      edgeRows.some((r) => r.truncated === true);
 
     // Service nodes: services seen in the window, plus both ends of every edge.
+    // From `service_environments` (D-101): the same rows as `services`, kept per environment.
     const s = new Params();
-    const seenWhere = [`last_seen >= ${s.add(new Date(w.fromMs - SKEW_MS))}`];
-    if (service !== undefined) seenWhere.push(`name = ${s.add(service)}`);
+    const seenWhere = [
+      `last_seen >= ${s.add(new Date(w.fromMs - SKEW_MS))}`,
+      ...scopeSql(scope, s.add),
+    ];
     const seen = await this.rows<{ name: string }>(
-      `SELECT name FROM services WHERE ${seenWhere.join(" AND ")}`,
+      `SELECT DISTINCT service_name AS name FROM service_environments WHERE ${seenWhere.join(" AND ")}`,
       s.values,
     );
     const serviceNames = new Set(seen.map((r) => r.name));
@@ -1921,6 +2066,7 @@ export class QueryService {
       windowMinutes,
       fromUnixMs: w.fromMs,
       toUnixMs: now,
+      ...(truncated ? { truncated } : {}),
       nodes: [...serviceNodes, ...targetNodes],
       edges,
     };

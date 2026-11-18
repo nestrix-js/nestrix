@@ -3,7 +3,14 @@ import type {
   TraceResponse,
   TraceSummary,
 } from "@nestrix-js/protocol";
-import { clean, fmtMs, fmtPct, plural, truncate } from "./format.js";
+import {
+  clean,
+  fmtMs,
+  fmtPct,
+  plural,
+  truncate,
+  windowWords,
+} from "./format.js";
 import {
   type StatisticsMode,
   statisticsCounting,
@@ -50,7 +57,7 @@ export function renderExplanation(input: ExplainInput): string {
   const lines: string[] = [];
   if (input.stats.length === 0) {
     lines.push(
-      `No statistics for ${label} in the last ${input.windowMinutes} minutes (no requests, or the route template differs).`,
+      `No statistics for ${label} in the last ${windowWords(input.windowMinutes)} (no requests, or the route template differs).`,
     );
     if (input.knownRoutes.length > 0) {
       lines.push(
@@ -64,7 +71,7 @@ export function renderExplanation(input: ExplainInput): string {
     }
   } else {
     lines.push(
-      `Why is ${label} slow? Last ${input.windowMinutes} minutes. ${statisticsCounting(input.mode)}`,
+      `Why is ${label} slow? Last ${windowWords(input.windowMinutes)}. ${statisticsCounting(input.mode)}`,
     );
     for (const s of [...input.stats].sort((a, b) =>
       a.method < b.method ? -1 : 1,

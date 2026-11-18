@@ -1,6 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { apiUrl, baseUrl, shouldLogin } from "@/lib/api";
+import {
+  apiUrl,
+  baseUrl,
+  getInstances,
+  getLogs,
+  getRemoteProfiles,
+  setActiveEnvironment,
+  shouldLogin,
+  triageErrorGroup,
+} from "@/lib/api";
 import { POLL_INTERVAL_MS, pollInterval } from "@/lib/live";
 
 describe("apiUrl", () => {
@@ -58,5 +67,69 @@ describe("pollInterval", () => {
     expect(POLL_INTERVAL_MS).toBe(2000);
     expect(pollInterval(false)).toBe(2000);
     expect(pollInterval(true)).toBe(false);
+  });
+});
+
+describe("the selected environment (D-101)", () => {
+  afterEach(() => {
+    setActiveEnvironment(undefined);
+    vi.unstubAllGlobals();
+  });
+
+  function recordFetch() {
+    const calls: { url: URL; body: unknown }[] = [];
+    vi.stubGlobal("document", {
+      baseURI: "http://h/",
+      getElementById: () => null,
+    });
+    vi.stubGlobal("fetch", async (url: URL, init: RequestInit) => {
+      calls.push({
+        url,
+        body:
+          init.body === undefined ? undefined : JSON.parse(String(init.body)),
+      });
+      return new Response("{}", { status: 200 });
+    });
+    return calls;
+  }
+
+  it("narrows the log search and is sent with a triage action", async () => {
+    const calls = recordFetch();
+    setActiveEnvironment("staging");
+    await getLogs({ text: "boom" });
+    await triageErrorGroup("resolve", { key: "k", service: "shop" });
+    await triageErrorGroup("ignore", { key: "k", environment: "unset" });
+    expect(calls[0]?.url.pathname).toBe("/api/v1/logs");
+    expect(calls[0]?.url.searchParams.get("environment")).toBe("staging");
+    expect(calls[1]?.body).toEqual({
+      key: "k",
+      service: "shop",
+      environment: "staging",
+    });
+    // A call that names one keeps it.
+    expect(calls[2]?.body).toEqual({ key: "k", environment: "unset" });
+  });
+
+  it("sends the environment with the profiler's instance and capture lists", async () => {
+    const calls = recordFetch();
+    setActiveEnvironment("staging");
+    await getInstances("shop");
+    await getRemoteProfiles("shop");
+    expect(calls.map((c) => c.url.pathname)).toEqual([
+      "/api/v1/instances",
+      "/api/v1/remote-profiles",
+    ]);
+    for (const c of calls) {
+      expect(c.url.searchParams.get("environment")).toBe("staging");
+      expect(c.url.searchParams.get("service")).toBe("shop");
+    }
+  });
+
+  it("sends nothing when every environment is selected", async () => {
+    const calls = recordFetch();
+    await getLogs({ text: "boom" });
+    await triageErrorGroup("reopen", { key: "k" });
+    expect(calls[0]?.url.searchParams.has("environment")).toBe(false);
+    expect(calls[1]?.body).toEqual({ key: "k" });
   });
 });

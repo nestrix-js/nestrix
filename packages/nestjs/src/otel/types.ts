@@ -43,6 +43,16 @@ export interface TelemetryConfig {
   /** Root sampling ratio in [0, 1]; validated by the caller. */
   readonly sampleRate: number;
   /**
+   * D-100: what the local tail decision keeps besides the ratio's sample, when `sampleRate` is
+   * below 1. `undefined` means the defaults (failed traces kept, no slow threshold).
+   */
+  readonly sampling?:
+    | {
+        readonly keepErrors: boolean;
+        readonly keepSlowerThanMs: number | false;
+      }
+    | undefined;
+  /**
    * D-78: spans recorded per trace in this process; `false` turns the limit off. Validated by the
    * caller; `undefined` means the default (10,000). A Nestrix-owned provider applies it to every
    * span; with a host-owned SDK it applies to Nestrix's own spans only.
@@ -86,6 +96,11 @@ export interface TelemetryDiagnostics {
 export interface TelemetryCounters {
   /** Spans the batch processor dropped because its queue was full. */
   readonly droppedSpans: number;
+  /**
+   * Spans the tail decision dropped because its buffer reached its bound (D-100): spans of an
+   * undecided trace, not the spans the decision itself left out.
+   */
+  readonly tailDroppedSpans: number;
   /** Spans handed to the exporter whose export succeeded. */
   readonly exportedSpans: number;
   /**

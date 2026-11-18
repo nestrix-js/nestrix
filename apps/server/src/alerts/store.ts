@@ -4,12 +4,15 @@
  */
 import { randomBytes } from "node:crypto";
 import type {
+  AlertErrorGroup,
   AlertEvent,
   AlertMetric,
   AlertRule,
   AlertRuleCreate,
   AlertWebhookPayload,
 } from "@nestrix-js/protocol";
+import type { Pool } from "pg";
+import { UNSET_ENVIRONMENT } from "../storage/derive.js";
 import { webhookUrlProblem } from "./webhook.js";
 
 export type EventKind = "firing" | "resolved" | "test";
@@ -18,7 +21,10 @@ export type EventKind = "firing" | "resolved" | "test";
 export interface AlertRuleRow {
   id: string;
   name: string;
-  service_name: string;
+  /** NULL only for `new_error_group`: every service. */
+  service_name: string | null;
+  /** `null` every environment, `unset` the rows without one (D-101). */
+  environment: string | null;
   route: string | null;
   metric: AlertMetric;
   slo_id: string | null;
@@ -70,6 +76,7 @@ export function toApiRule(
     id: String(rule.id),
     name: rule.name,
     service: rule.service_name,
+    environment: rule.environment,
     route: rule.route,
     metric: rule.metric,
     sloId: rule.slo_id === null ? null : String(rule.slo_id),
@@ -107,6 +114,33 @@ export function toApiEvent(row: AlertEventRow): AlertEvent {
   };
 }
 
+/**
+ * A `slo_burn_rate` rule is evaluated against its SLO, which can be edited after the rule was
+ * saved, so its payload names the SLO's service, environment and route, not the copy stored on
+ * the rule (D-101). Other rules, and a rule whose SLO is gone, come back unchanged.
+ */
+export async function withSloScope<T extends AlertRuleRow>(
+  db: { query: Pool["query"] },
+  rule: T,
+): Promise<T> {
+  if (rule.slo_id === null || rule.slo_id === undefined) return rule;
+  const { rows } = await db.query<{
+    service_name: string;
+    environment: string | null;
+    route: string | null;
+  }>("SELECT service_name, environment, route FROM slos WHERE id = $1", [
+    rule.slo_id,
+  ]);
+  const slo = rows[0];
+  if (slo === undefined) return rule;
+  return {
+    ...rule,
+    service_name: slo.service_name,
+    environment: slo.environment,
+    route: slo.route,
+  };
+}
+
 export function buildPayload(
   rule: Pick<
     AlertRuleRow,
@@ -117,6 +151,7 @@ export function buildPayload(
     | "threshold"
     | "window_minutes"
     | "service_name"
+    | "environment"
     | "route"
   >,
   eventId: number,
@@ -125,6 +160,7 @@ export function buildPayload(
   startedAtMs: number,
   nowMs: number,
   publicUrl: string | undefined,
+  errorGroup?: AlertErrorGroup,
 ): AlertWebhookPayload {
   return {
     eventId: String(eventId),
@@ -138,8 +174,13 @@ export function buildPayload(
     value,
     threshold: rule.threshold,
     window: { minutes: rule.window_minutes },
-    service: rule.service_name,
-    route: rule.route,
+    service: errorGroup?.service ?? rule.service_name,
+    environment:
+      errorGroup === undefined
+        ? rule.environment
+        : (errorGroup.environment ?? UNSET_ENVIRONMENT),
+    route: errorGroup === undefined ? rule.route : errorGroup.route,
+    ...(errorGroup === undefined ? {} : { errorGroup }),
     startedAt: new Date(startedAtMs).toISOString(),
     sentAt: new Date(nowMs).toISOString(),
     url: publicUrl === undefined ? null : `${publicUrl}/`,
@@ -149,7 +190,8 @@ export function buildPayload(
 /** Validated rule fields, in column names. */
 export interface RuleFields {
   name?: string;
-  service_name?: string;
+  service_name?: string | null;
+  environment?: string | null;
   route?: string | null;
   metric?: AlertMetric;
   slo_id?: number | null;
@@ -168,6 +210,7 @@ export type Validation =
 const KEYS = new Set<keyof AlertRuleCreate>([
   "name",
   "service",
+  "environment",
   "route",
   "metric",
   "sloId",
@@ -186,6 +229,21 @@ const REQUIRED: (keyof AlertRuleCreate)[] = [
   "windowMinutes",
   "webhookUrl",
 ];
+/** A `new_error_group` rule has no threshold or window: they are stored as these. */
+const NEW_GROUP_STORED = {
+  threshold: 0,
+  window_minutes: 5,
+  for_minutes: 0,
+  min_requests: 1,
+} as const;
+const NEW_GROUP_REFUSED = [
+  "threshold",
+  "windowMinutes",
+  "forMinutes",
+  "minRequests",
+  "sloId",
+  "comparator",
+] as const;
 
 /** True for text without control characters (C0, DEL, C1) and lone surrogates. */
 function cleanText(s: string): boolean {
@@ -235,6 +293,7 @@ export function validateRuleInput(
   allowedHosts: readonly string[],
   existing?: Pick<AlertRuleRow, "metric" | "threshold"> & {
     slo_id?: string | null;
+    service_name?: string | null;
   },
 ): Validation {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
@@ -248,6 +307,12 @@ export function validateRuleInput(
   }
   if (!partial) {
     for (const key of REQUIRED) {
+      if (
+        input.metric === "new_error_group" &&
+        (key === "threshold" || key === "windowMinutes")
+      ) {
+        continue;
+      }
       if (input[key] === undefined) {
         return { ok: false, message: `${key} is required.` };
       }
@@ -264,10 +329,22 @@ export function validateRuleInput(
     if (typeof v !== "string") return fail(v.error);
     fields.name = v;
   }
-  if (has("service")) {
+  if (Object.hasOwn(input, "service") && input.service === null) {
+    // Only a `new_error_group` rule may have no service; checked below.
+    fields.service_name = null;
+  } else if (has("service")) {
     const v = text(input.service, "service", 256);
     if (typeof v !== "string") return fail(v.error);
     fields.service_name = v;
+  }
+  if (Object.hasOwn(input, "environment")) {
+    if (input.environment === null || input.environment === undefined) {
+      fields.environment = null;
+    } else {
+      const v = text(input.environment, "environment", 256);
+      if (typeof v !== "string") return fail(v.error);
+      fields.environment = v;
+    }
   }
   if (has("route") || Object.hasOwn(input, "route")) {
     if (input.route === null || input.route === undefined) {
@@ -282,9 +359,12 @@ export function validateRuleInput(
     if (
       input.metric !== "error_rate" &&
       input.metric !== "p95_ms" &&
-      input.metric !== "slo_burn_rate"
+      input.metric !== "slo_burn_rate" &&
+      input.metric !== "new_error_group"
     ) {
-      return fail('metric must be "error_rate", "p95_ms" or "slo_burn_rate".');
+      return fail(
+        'metric must be "error_rate", "p95_ms", "slo_burn_rate" or "new_error_group".',
+      );
     }
     fields.metric = input.metric;
   }
@@ -343,13 +423,40 @@ export function validateRuleInput(
 
   const metric = fields.metric ?? existing?.metric;
   const threshold = fields.threshold ?? existing?.threshold;
+  if (metric === "new_error_group") {
+    for (const key of NEW_GROUP_REFUSED) {
+      if (has(key)) {
+        return fail(`${key} does not apply to a new_error_group rule.`);
+      }
+    }
+    Object.assign(fields, NEW_GROUP_STORED);
+    if (partial && existing?.slo_id != null) fields.slo_id = null;
+    return { ok: true, fields };
+  }
+  if (fields.service_name === null) {
+    return fail("service can be null only for a new_error_group rule.");
+  }
+  if (
+    partial &&
+    existing?.metric === "new_error_group" &&
+    fields.metric !== undefined &&
+    fields.service_name === undefined &&
+    metric !== "slo_burn_rate" &&
+    existing.service_name == null
+  ) {
+    return fail("service is required for this metric.");
+  }
   if (metric === "slo_burn_rate") {
     if (fields.slo_id === undefined && existing?.slo_id == null) {
       return fail("sloId is required for slo_burn_rate.");
     }
-    if (fields.service_name !== undefined || fields.route !== undefined) {
+    if (
+      fields.service_name !== undefined ||
+      fields.environment !== undefined ||
+      fields.route !== undefined
+    ) {
       return fail(
-        "service and route of a slo_burn_rate rule come from its SLO.",
+        "service, environment and route of a slo_burn_rate rule come from its SLO.",
       );
     }
   } else {

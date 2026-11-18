@@ -151,3 +151,41 @@ describe("groupErrors", () => {
     expect(groupErrors([], 15, NOW).groups).toEqual([]);
   });
 });
+
+describe("groupErrors with the server's start times (audit, D-107)", () => {
+  const END = Date.UTC(2026, 0, 1, 12, 0, 0);
+  const at = (
+    startUnixMs: number,
+    timeUnixMs = startUnixMs + 5,
+  ): ErrorOccurrence => ({
+    traceId: `t${startUnixMs}`,
+    spanId: "s",
+    timeUnixMs,
+    startUnixMs,
+    errorType: "E",
+    message: "boom",
+  });
+
+  it("ends the window exactly at its end, not a bucket after it", () => {
+    const r = groupErrors(
+      [at(END - 30_000), at(END), at(END + 30_000), at(END + 1)],
+      15,
+      END,
+    );
+    expect(r.groups[0]?.count).toBe(2);
+    expect(r.groups[0]?.series.reduce((a, b) => a + b, 0)).toBe(2);
+  });
+
+  it("places an occurrence by its start, though its exception comes later", () => {
+    const from = groupErrors([], 15, END).fromUnixMs;
+    // Started a millisecond before the window, failed inside it: history, not the window.
+    const r = groupErrors(
+      [at(from - 1, from + 10_000), at(from + 60_000)],
+      15,
+      END,
+    );
+    expect(r.groups[0]?.count).toBe(1);
+    expect(r.groups[0]?.series[1]).toBe(1);
+    expect(r.groups[0]?.state).not.toBe("new");
+  });
+});

@@ -1,4 +1,11 @@
 import type {
+  AlertEventListResponse,
+  AlertRule,
+  AlertRuleCreate,
+  AlertRuleCreateResponse,
+  AlertRuleListResponse,
+  AlertRuleUpdate,
+  AlertTestResponse,
   ApiError,
   ApiTokenCreate,
   ApiTokenCreateResponse,
@@ -7,9 +14,12 @@ import type {
   ClassStatsResponse,
   DependenciesResponse,
   ErrorGroupsResponse,
+  ErrorGroupTriageRequest,
+  ErrorGroupTriageResponse,
   ErrorInsightsResponse,
   ErrorListResponse,
   InstanceListResponse,
+  LogSearchResponse,
   MetaResponse,
   OverviewResponse,
   ProfileDetail,
@@ -92,8 +102,45 @@ export const shouldLogin = (
   mode: MetaResponse["mode"] | undefined,
 ) => status === 401 && mode !== "embedded";
 
+/**
+ * The environment every read is narrowed to (issue #28, D-101), set by the app shell from the
+ * URL. Sent as `environment` on the endpoints that take it, unless the call names one itself.
+ */
+let activeEnvironment: string | undefined;
+export function setActiveEnvironment(environment: string | undefined): void {
+  activeEnvironment = environment;
+}
+export const getActiveEnvironment = (): string | undefined => activeEnvironment;
+
+/** The read endpoints that accept `environment` beside `service`. */
+const ENVIRONMENT_ENDPOINTS = new Set([
+  "traces",
+  "traces/timeline",
+  "errors",
+  "errors/groups",
+  "errors/insights",
+  "routes",
+  "routes/histogram",
+  "routes/compare",
+  "routes/explain",
+  "classes",
+  "map",
+  "queries",
+  "dependencies",
+  "overview",
+  "instances",
+  "remote-profiles",
+  "logs",
+]);
+
 async function getJson<T>(endpoint: string, params?: QueryParams): Promise<T> {
-  return requestJson<T>("GET", endpoint, params);
+  const scoped =
+    activeEnvironment !== undefined &&
+    ENVIRONMENT_ENDPOINTS.has(endpoint) &&
+    params?.environment === undefined
+      ? { ...params, environment: activeEnvironment }
+      : params;
+  return requestJson<T>("GET", endpoint, scoped);
 }
 
 /**
@@ -166,6 +213,24 @@ export const getErrors = (params: QueryParams) =>
   getJson<ErrorListResponse>("errors", params);
 export const getErrorGroups = (params: QueryParams = {}) =>
   getJson<ErrorGroupsResponse>("errors/groups", params);
+/**
+ * Stored triage of an error group (standalone server, admin session): resolve it, ignore it, or
+ * reopen it (which also un-ignores). Groups are triaged per environment (D-101): the selected one
+ * is sent unless the call names one, so acting in the staging view leaves production's copy as
+ * it was.
+ */
+export const triageErrorGroup = (
+  action: "resolve" | "ignore" | "reopen",
+  body: ErrorGroupTriageRequest,
+) =>
+  requestJson<ErrorGroupTriageResponse>(
+    "POST",
+    `errors/groups/${action}`,
+    undefined,
+    activeEnvironment !== undefined && body.environment === undefined
+      ? { ...body, environment: activeEnvironment }
+      : body,
+  );
 export const getErrorInsights = (params: QueryParams = {}) =>
   getJson<ErrorInsightsResponse>("errors/insights", params);
 export const getRoutes = (params: QueryParams = {}) =>
@@ -181,6 +246,9 @@ export const getTrace = (id: string) => getJson<TraceResponse>("trace", { id });
 /** P9-07: the log lines kept next to a trace (both backends). */
 export const getTraceLogs = (id: string) =>
   getJson<TraceLogsResponse>("trace/logs", { id });
+/** Issue #17: search over the standalone server's stored log lines. */
+export const getLogs = (params: QueryParams) =>
+  getJson<LogSearchResponse>("logs", params);
 export const getClasses = (params: QueryParams = {}) =>
   getJson<ClassStatsResponse>("classes", params);
 export const getMap = (params: QueryParams = {}) =>
@@ -241,3 +309,25 @@ export const createToken = (name: string) =>
   } satisfies ApiTokenCreate);
 export const revokeToken = (id: string) =>
   requestJson<undefined>("DELETE", `tokens/${encodeURIComponent(id)}`);
+
+// Alert rules: the standalone server only (`/api/v1/alerts`, admin session, same-origin writes).
+export const getAlerts = () => getJson<AlertRuleListResponse>("alerts");
+export const createAlert = (body: AlertRuleCreate) =>
+  requestJson<AlertRuleCreateResponse>("POST", "alerts", undefined, body);
+export const updateAlert = (id: string, body: AlertRuleUpdate) =>
+  requestJson<AlertRule>(
+    "PATCH",
+    `alerts/${encodeURIComponent(id)}`,
+    undefined,
+    body,
+  );
+export const deleteAlert = (id: string) =>
+  requestJson<undefined>("DELETE", `alerts/${encodeURIComponent(id)}`);
+/** Sends one clearly marked `test` notification through the real delivery path. */
+export const testAlert = (id: string) =>
+  requestJson<AlertTestResponse>(
+    "POST",
+    `alerts/${encodeURIComponent(id)}/test`,
+  );
+export const getAlertEvents = (rule: string, limit = 20) =>
+  getJson<AlertEventListResponse>("alerts/events", { rule, limit });

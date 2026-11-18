@@ -1,6 +1,9 @@
 import {
+  ATTRIBUTE_FILTER_KEY_PATTERN,
+  ATTRIBUTE_FILTER_PREFIX,
   errorListParams,
-  routeStatsParams,
+  MAX_ATTRIBUTE_FILTER_VALUE_LENGTH,
+  standaloneRangeParams,
   traceListParams,
 } from "@nestrix-js/protocol";
 import { createParser, type inferParserType, parseAsStringLiteral } from "nuqs";
@@ -43,6 +46,28 @@ export function stringParser(spec: { maxLength: number; pattern?: string }) {
   });
 }
 
+/**
+ * One attribute filter (issue #27, D-102) in the URL: `attrKey` and `attrValue`, sent as
+ * `attr.<attrKey>=<attrValue>`. The API takes up to four; the pages offer one.
+ */
+export const attributeFilterParsers = {
+  attrKey: stringParser({
+    maxLength: 128,
+    pattern: ATTRIBUTE_FILTER_KEY_PATTERN,
+  }),
+  attrValue: stringParser({ maxLength: MAX_ATTRIBUTE_FILTER_VALUE_LENGTH }),
+};
+
+/** `{ "attr.<key>": value }` when both are set, else nothing. */
+export function attributeParams(
+  key: string | null,
+  value: string | null,
+): Record<string, string> {
+  return key !== null && value !== null
+    ? { [`${ATTRIBUTE_FILTER_PREFIX}${key}`]: value }
+    : {};
+}
+
 /** Filters of the request list; limits and cursors are the data layer's business, not the URL's. */
 export const requestFilterParsers = {
   route: stringParser(traceListParams.route),
@@ -59,6 +84,7 @@ export const requestFilterParsers = {
   // The time range the request timeline sets.
   fromUnixMs: numberParser({ ...traceListParams.fromUnixMs, integer: true }),
   toUnixMs: numberParser({ ...traceListParams.toUnixMs, integer: true }),
+  ...attributeFilterParsers,
 };
 export type RequestFilters = inferParserType<typeof requestFilterParsers>;
 
@@ -79,6 +105,7 @@ export const errorFilterParsers = {
   // P12-02: the exception type. The list API has no such parameter, so the page filters the
   // errors it has loaded.
   type: stringParser({ maxLength: 256 }),
+  ...attributeFilterParsers,
 };
 
 /** Errors of one exception type; all of them for none. */
@@ -98,8 +125,8 @@ export const viewParser = parseAsStringLiteral([
 /** The service the standalone server's views are narrowed to; absent means all services. */
 export const serviceParser = stringParser({ maxLength: 256 });
 
-/** For P2-10: the routes view's window. */
+/** The routes view's window: any the standalone server offers (the page lists those `meta` names; D-107). */
 export const routeWindowParser = numberParser({
-  ...routeStatsParams.windowMinutes,
+  ...standaloneRangeParams.windowMinutes,
   integer: true,
 });

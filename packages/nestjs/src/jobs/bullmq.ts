@@ -43,6 +43,8 @@
  *   response body, it is not recorded (AGENTS.md rule 7).
  * - `contextManager.root()` is implemented (BullMQ 6.7 uses it to run the stalled-jobs checker
  *   outside the context that started the worker).
+ * - With `contextPropagation.keys` (D-102), the job metadata's `baggage` carries those keys of the
+ *   queuing work's trace attributes, and the worker sets them on the job's consumer span.
  * - An internal span with no parent (the stalled-jobs check every 30 s per worker, `close` at
  *   shutdown) is not recorded unless `rootSpans` is true, like root Redis commands (D-60).
  */
@@ -64,6 +66,11 @@ import {
   type TracerProvider,
   trace,
 } from "@opentelemetry/api";
+import {
+  addBaggageToCarrier,
+  applyInboundBaggage,
+  withInboundBaggage,
+} from "../context/trace-attributes.js";
 import { diagnostics } from "../diagnostics.js";
 import {
   forgetAttempt,
@@ -195,6 +202,8 @@ class JobSpan implements BullmqSpan {
       }
     }
     this.#attempt = attempt;
+    // D-102: allow-listed keys the job brought in its metadata's baggage go on its root span.
+    if (kind === SpanKind.CONSUMER) applyInboundBaggage(parent, span);
   }
 
   setSpanOnContext(ctx: Context): Context {
@@ -384,6 +393,8 @@ const contextManager: BullmqTelemetry["contextManager"] = Object.freeze({
     try {
       const carrier: Record<string, string> = {};
       propagation.inject(ctx, carrier);
+      // D-102: only with `contextPropagation.keys`; otherwise the carrier is left as it is.
+      addBaggageToCarrier(ctx, carrier);
       return JSON.stringify(carrier);
     } catch (error) {
       fail("context", error);
@@ -400,7 +411,10 @@ const contextManager: BullmqTelemetry["contextManager"] = Object.freeze({
       ) {
         return activeContext;
       }
-      return propagation.extract(activeContext, carrier);
+      return withInboundBaggage(
+        propagation.extract(activeContext, carrier),
+        carrier,
+      );
     } catch (error) {
       fail("context", error);
       return activeContext;

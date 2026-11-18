@@ -17,7 +17,7 @@ async function main(): Promise<void> {
   }
   if (config.url.startsWith("http://") && !isLoopbackUrl(config.url)) {
     process.stderr.write(
-      "nestrix-mcp: warning: NESTRIX_URL is plain http to a non-local host, so NESTRIX_TOKEN travels unencrypted.\n",
+      "nestrix-mcp: warning: NESTRIX_ALLOW_INSECURE_HTTP is set, so NESTRIX_TOKEN travels unencrypted to a non-local host.\n",
     );
   }
   await createMcpServer(config).connect(new StdioServerTransport());

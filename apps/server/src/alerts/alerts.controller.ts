@@ -25,6 +25,7 @@ import type {
   ApiErrorCode,
 } from "@nestrix-js/protocol";
 import { SessionQueryGuard } from "../auth/query-guard.js";
+import { AdminOnly, Audited, isAdminRequest } from "../auth/roles.js";
 import {
   QUERY_HEADERS,
   QueryExceptionFilter,
@@ -66,11 +67,30 @@ interface RequestLike {
 }
 
 /**
+ * A rule as a reader may see it. A webhook URL often is the credential to post to a chat
+ * channel (Slack, Teams), so a viewer (issue #34) sees only its scheme and host:
+ * `https://hooks.example.com/…`. Unparseable: `…`. Admins see the full URL.
+ */
+export function ruleForReader(rule: AlertRule, req: unknown): AlertRule {
+  if (isAdminRequest(req)) return rule;
+  let shown = "…";
+  try {
+    const url = new URL(rule.webhookUrl);
+    shown = `${url.protocol}//${url.host}/…`;
+  } catch {
+    // Keep the placeholder.
+  }
+  return { ...rule, webhookUrl: shown };
+}
+
+/**
  * `/api/v1/alerts`: alert rules and their history (docs/backlog/phase-7.md, P7-03).
  *
  * Access: the admin login's middleware and global guard cover this controller like every other
  * (a session is required; a state-changing method also needs a same-origin `Origin`), and
- * `SessionQueryGuard` checks the session stamp again here. No CORS headers are ever sent.
+ * `SessionQueryGuard` checks the session stamp again here. Reads are open to every signed-in role
+ * (a viewer sees webhook URLs cut to their host, `ruleForReader`); every write is `@AdminOnly()`
+ * and recorded in the audit log (issue #34). No CORS headers are ever sent.
  */
 @Controller("api/v1/alerts")
 @UseGuards(SessionQueryGuard)
@@ -83,11 +103,14 @@ export class AlertsController {
 
   @Get()
   @Headers()
-  async list(): Promise<AlertRuleListResponse> {
-    return { rules: await this.alerts.list() };
+  async list(@Req() req: RequestLike): Promise<AlertRuleListResponse> {
+    const rules = await this.alerts.list();
+    return { rules: rules.map((rule) => ruleForReader(rule, req)) };
   }
 
   @Post()
+  @AdminOnly()
+  @Audited("alert.create")
   @HttpCode(201)
   @Headers()
   async create(@Body() body: unknown): Promise<AlertRuleCreateResponse> {
@@ -139,11 +162,17 @@ export class AlertsController {
 
   @Get(":id")
   @Headers()
-  async get(@Param("id") id: string): Promise<AlertRule> {
-    return (await this.alerts.get(parseId(id))) ?? notFound();
+  async get(
+    @Param("id") id: string,
+    @Req() req: RequestLike,
+  ): Promise<AlertRule> {
+    const rule = (await this.alerts.get(parseId(id))) ?? notFound();
+    return ruleForReader(rule, req);
   }
 
   @Patch(":id")
+  @AdminOnly()
+  @Audited("alert.update")
   @Headers()
   async update(
     @Param("id") id: string,
@@ -176,6 +205,8 @@ export class AlertsController {
   }
 
   @Delete(":id")
+  @AdminOnly()
+  @Audited("alert.delete")
   @HttpCode(204)
   @Headers()
   async remove(@Param("id") id: string): Promise<void> {
@@ -183,6 +214,8 @@ export class AlertsController {
   }
 
   @Post(":id/test")
+  @AdminOnly()
+  @Audited("alert.test")
   @HttpCode(200)
   @Headers()
   async test(@Param("id") id: string): Promise<AlertTestResponse> {

@@ -12,6 +12,7 @@ import {
   getFailureCounts,
   resetDiagnosticsForTests,
 } from "../../src/diagnostics.js";
+import { emitLog } from "../../src/index.js";
 import { type LogExportLoader, setupLogExport } from "../../src/logs/export.js";
 import { NestrixLogger } from "../../src/logs/logger.js";
 import { getLogSink } from "../../src/logs/sink.js";
@@ -241,5 +242,86 @@ describe("failures are counted, never thrown", () => {
     expect(diag.failures.map((f) => f.where)).toEqual(["logs.setup"]);
     expect(getLogSink()).toBeUndefined();
     expect(getFailureCounts().size).toBe(0);
+  });
+});
+
+// D-112: emitLog's attributes get the built-in scrub rule before export; the message does not.
+describe("emitLog attributes are scrubbed before export", () => {
+  const SECRET = "s3cr3t-value";
+
+  it("masks always-redacted headers, listed query keys and url.full credentials; keeps the rest and the caller's object", async () => {
+    const handle = setupLogExport(options(), recordingDiagnostics());
+    await ready();
+    const attributes = {
+      "http.request.header.authorization": [`Bearer ${SECRET}`],
+      "http.request.header.cookie": [`sid=${SECRET}`],
+      "http.response.header.set-cookie": [`a=${SECRET}`],
+      "url.full": `https://u:${SECRET}@api.example.com/cb?token=${SECRET}&page=2#f`,
+      "url.query": `api_key=${SECRET}&page=2`,
+      "http.request.header.content-type": ["text/plain"],
+      "tenant.id": "t1",
+    };
+    emitLog({ level: "warn", message: `body keeps ${SECRET}`, attributes });
+    await handle?.shutdown();
+    expect(receiver.logs).toHaveLength(1);
+    // The log receiver keeps OTLP arrays in their wire shape.
+    const arr = (...v: string[]) => ({
+      values: v.map((stringValue) => ({ stringValue })),
+    });
+    expect(receiver.logs[0]?.attributes).toEqual({
+      "http.request.header.authorization": arr("REDACTED"),
+      "http.request.header.cookie": arr("REDACTED"),
+      "http.response.header.set-cookie": arr("REDACTED"),
+      "url.full":
+        "https://REDACTED:REDACTED@api.example.com/cb?token=REDACTED&page=2",
+      "url.query": "api_key=REDACTED&page=2",
+      "http.request.header.content-type": arr("text/plain"),
+      "tenant.id": "t1",
+    });
+    expect(JSON.stringify(receiver.logs[0]?.attributes)).not.toContain(SECRET);
+    // The message is free text: not scrubbed (documented).
+    expect(receiver.logs[0]?.body).toBe(`body keeps ${SECRET}`);
+    // The caller's object is untouched.
+    expect(attributes["http.request.header.authorization"]).toEqual([
+      `Bearer ${SECRET}`,
+    ]);
+  });
+
+  it("fails closed: an unreadable attribute is left out; an unwalkable map drops the record, counted; nothing throws", async () => {
+    const diag = recordingDiagnostics();
+    const handle = setupLogExport(options(), diag);
+    await ready();
+    const unreadable: Record<string, unknown> = { "tenant.id": "t1" };
+    Object.defineProperty(unreadable, "url.full", {
+      enumerable: true,
+      get() {
+        throw new Error("getter");
+      },
+    });
+    const unwalkable = new Proxy(
+      { "http.request.header.cookie": [`sid=${SECRET}`] },
+      {
+        ownKeys() {
+          throw new Error("ownKeys");
+        },
+      },
+    );
+    expect(() => {
+      emitLog({
+        level: "log",
+        message: "partly readable",
+        attributes: unreadable as never,
+      });
+      emitLog({ level: "log", message: "unwalkable", attributes: unwalkable });
+      emitLog({ level: "log", message: "after" });
+    }).not.toThrow();
+    await handle?.shutdown();
+    expect(receiver.logs.map((l) => l.body)).toEqual([
+      "partly readable",
+      "after",
+    ]);
+    expect(receiver.logs[0]?.attributes).toEqual({ "tenant.id": "t1" });
+    expect(JSON.stringify(receiver.logs)).not.toContain(SECRET);
+    expect(diag.failures.map((f) => f.where)).toEqual(["logs.redact"]);
   });
 });

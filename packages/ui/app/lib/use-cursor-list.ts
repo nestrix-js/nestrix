@@ -15,8 +15,10 @@ import {
   type CursorItem,
   type CursorPage,
   type CursorState,
+  cursorListKey,
   emptyCursorState,
 } from "@/lib/cursor-list";
+import { useEnvironment } from "@/lib/environment";
 import { pollInterval, usePaused } from "@/lib/live";
 
 interface Snapshot<T extends CursorItem> {
@@ -31,6 +33,7 @@ interface Snapshot<T extends CursorItem> {
  */
 class CursorStore<T extends CursorItem> {
   alive = true;
+  constructor(readonly environment: string | undefined) {}
   private listeners = new Set<() => void>();
   snapshot: Snapshot<T> = {
     list: emptyCursorState<T>(),
@@ -56,6 +59,12 @@ class CursorStore<T extends CursorItem> {
   };
   getSnapshot = (): Snapshot<T> => this.snapshot;
 }
+
+/** The filters with the store's own environment, so an answer in flight keeps its scope. */
+const scoped = (params: QueryParams, store: { environment?: string }) =>
+  store.environment === undefined
+    ? params
+    : { ...params, environment: store.environment };
 
 export interface UseCursorListOptions<T extends CursorItem> {
   /** Query-cache namespace, e.g. "traces". */
@@ -90,9 +99,11 @@ export function useCursorList<T extends CursorItem>(
   const { name, params, fetchPage } = options;
   // One store per filter set: a filter change starts from nothing, and the old store (no
   // longer alive) drops any answer still in flight for the old filters.
-  const filterKey = JSON.stringify([name, params]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: filterKey stands for name and params
-  const store = useMemo(() => new CursorStore<T>(), [filterKey]);
+  // The selected environment is part of the identity and of every request the store makes.
+  const [environment] = useEnvironment();
+  const filterKey = cursorListKey(name, params, environment);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: filterKey stands for name, params and environment
+  const store = useMemo(() => new CursorStore<T>(environment), [filterKey]);
   const latest = useRef({ params, fetchPage });
   latest.current = { params, fetchPage };
 
@@ -112,9 +123,10 @@ export function useCursorList<T extends CursorItem>(
   const [paused] = usePaused();
 
   const query = useQuery({
-    queryKey: [name, params],
+    queryKey: [name, environment ?? null, params],
     queryFn: async () => {
-      const { params: p, fetchPage: fetcher } = latest.current;
+      const { params: p0, fetchPage: fetcher } = latest.current;
+      const p = scoped(p0, store);
       const head = store.list.loaded ? store.list.head : null;
       if (head !== null) {
         const page = await fetcher({ ...p, after: head });
@@ -134,8 +146,8 @@ export function useCursorList<T extends CursorItem>(
     if (older === null || store.snapshot.loadingOlder) return;
     store.patch({ loadingOlder: true, olderError: null });
     try {
-      const { params: p, fetchPage: fetcher } = latest.current;
-      const page = await fetcher({ ...p, before: older });
+      const { params: p0, fetchPage: fetcher } = latest.current;
+      const page = await fetcher({ ...scoped(p0, store), before: older });
       store.patch({ list: applyOlder(store.list, page), loadingOlder: false });
     } catch (error) {
       store.patch({

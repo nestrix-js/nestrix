@@ -27,12 +27,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getMeta, getRouteCompare, getRoutes } from "@/lib/api";
+import { useEnvironment } from "@/lib/environment";
 import { formatDuration } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser, stringParser } from "@/lib/params";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
-import { routeDetailHref } from "@/views/route/route-detail";
+import { windowChoices, windowLabel } from "@/lib/windows";
+import {
+  type RouteDetailScope,
+  routeDetailHref,
+} from "@/views/route/route-detail";
 import { ComparePanel } from "@/views/routes/compare-panel";
 import { RouteHistogram } from "@/views/routes/route-histogram";
 import {
@@ -53,10 +58,6 @@ import {
   statisticsNote,
 } from "@/views/routes/route-stats";
 
-const WINDOWS = [
-  { value: 15, label: "15 min" },
-  { value: 60, label: "60 min" },
-] as const;
 const DEFAULT_WINDOW = 15;
 const VIEWS = [
   ["routes", "Routes"],
@@ -88,11 +89,14 @@ function RouteCharts({
 }) {
   const data = useMemo(() => chartData(stats), [stats]);
   const { label, note } = describeRoute(stats);
+  const [first, second] = stats.series;
+  const bucketMinutes =
+    first && second ? (second.timeUnixMs - first.timeUnixMs) / 60_000 : 1;
   return (
     <Section
       testId="route-detail"
       title={`${describeMethod(stats.method)} ${label}`}
-      description={`${note ? `${note}; ` : ""}last ${windowMinutes} minutes, one point per minute; slowest request ${formatDuration(stats.maxMs)}`}
+      description={`${note ? `${note}; ` : ""}last ${windowLabel(windowMinutes)}, one point per ${windowLabel(bucketMinutes)}; slowest request ${formatDuration(stats.maxMs)}`}
       source="counted before sampling"
       className="space-y-4"
     >
@@ -136,9 +140,11 @@ function RouteRow({
   maxCount,
   maxP95,
   compareRow,
+  scope,
   onSelect,
 }: {
   r: RouteStats;
+  scope: RouteDetailScope;
   active: boolean;
   maxCount: number;
   maxP95: number;
@@ -219,7 +225,7 @@ function RouteRow({
       </TableCell>
       <TableCell className="text-right">
         <Link
-          to={routeDetailHref(r.method, r.route) as "/"}
+          to={routeDetailHref(r.method, r.route, scope) as "/"}
           data-testid="route-details-link"
           aria-label={`Details of ${routeKey(r)}`}
           className="text-sm underline underline-offset-4"
@@ -238,6 +244,7 @@ export function RoutesPage() {
   const [paused] = usePaused();
 
   const [service] = useService();
+  const [environment] = useEnvironment();
   const stats = useQuery({
     queryKey: ["routes", "stats", windowMinutes, service],
     queryFn: () => getRoutes({ windowMinutes, service }),
@@ -304,7 +311,9 @@ export function RoutesPage() {
           <>
             <SegmentedControl
               label="Time window"
-              options={WINDOWS}
+              options={windowChoices(
+                meta.data?.statistics.windowMinutesOptions,
+              )}
               value={windowMinutes}
               onChange={(minutes) =>
                 void setQuery({
@@ -517,6 +526,14 @@ export function RoutesPage() {
                         maxCount={maxCount}
                         maxP95={maxP95}
                         compareRow={compareRows.get(routeKey(r))}
+                        scope={{
+                          service,
+                          environment,
+                          windowMinutes:
+                            windowMinutes === DEFAULT_WINDOW
+                              ? undefined
+                              : windowMinutes,
+                        }}
                         onSelect={() => select(r, active)}
                       />
                     );

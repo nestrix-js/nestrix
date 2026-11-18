@@ -28,6 +28,7 @@ import {
 import { getErrors, getRoutes } from "@/lib/api";
 import { formatRelative } from "@/lib/format";
 import {
+  attributeParams,
   errorFilterParsers,
   filterErrorsByType,
   viewParser,
@@ -37,6 +38,7 @@ import { useCursorList } from "@/lib/use-cursor-list";
 import { useNow } from "@/lib/use-now";
 import { ErrorGroups } from "@/views/errors/error-groups";
 import { NO_TYPE, typeCounts } from "@/views/errors/errors-stats";
+import { AttributeFilter } from "@/views/requests/attribute-filter";
 import { OTHER_ROUTE, UNMATCHED_ROUTE } from "@/views/routes/route-stats";
 
 const COLUMNS = 5;
@@ -145,8 +147,12 @@ function AllErrors({ viewToggle }: { viewToggle: React.ReactNode }) {
   const [service] = useService();
   const now = useNow();
   const params = useMemo(
-    () => ({ route: filters.route ?? undefined, service }),
-    [filters.route, service],
+    () => ({
+      route: filters.route ?? undefined,
+      service,
+      ...attributeParams(filters.attrKey, filters.attrValue),
+    }),
+    [filters.route, filters.attrKey, filters.attrValue, service],
   );
   const list = useCursorList({ name: "errors", params, fetchPage: getErrors });
 
@@ -167,7 +173,10 @@ function AllErrors({ viewToggle }: { viewToggle: React.ReactNode }) {
     return [...names].sort();
   }, [routeStats.data, filters.route]);
 
-  const filtered = filters.route !== null || filters.type !== null;
+  const filtered =
+    filters.route !== null ||
+    filters.type !== null ||
+    filters.attrValue !== null;
   const shown = useMemo(
     () => filterErrorsByType(list.items, filters.type),
     [list.items, filters.type],
@@ -194,6 +203,11 @@ function AllErrors({ viewToggle }: { viewToggle: React.ReactNode }) {
           ))}
         </select>
       </label>
+      <AttributeFilter
+        attrKey={filters.attrKey}
+        attrValue={filters.attrValue}
+        onChange={(next) => void setFilters(next)}
+      />
       {filters.type !== null && (
         <span
           data-testid="type-filter"

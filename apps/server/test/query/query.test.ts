@@ -294,7 +294,7 @@ describe.skipIf(noDatabase)(`query API ${skipReason}`, () => {
         mode: "standalone",
         services: ["payments", "shop", "worker"],
         sampling: { owner: "host", rate: null },
-        statistics: { windowMinutesOptions: [15, 60] },
+        statistics: { windowMinutesOptions: [15, 60, 360, 1440, 10_080] },
         warnings: [],
         profiler: { available: false, running: false, remote: true },
         runtime: { available: false },

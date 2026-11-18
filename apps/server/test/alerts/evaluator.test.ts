@@ -184,6 +184,7 @@ describe.skipIf(noDatabase)(`alert evaluator ${skipReason}`, () => {
       threshold: 0.1,
       window: { minutes: 5 },
       service,
+      environment: null,
       route: null,
       startedAt: new Date(base).toISOString(),
       sentAt: new Date(base + 2 * MIN).toISOString(),
@@ -228,6 +229,50 @@ describe.skipIf(noDatabase)(`alert evaluator ${skipReason}`, () => {
       }),
       expect.objectContaining({ kind: "resolved", delivery: "sent" }),
     ]);
+  });
+
+  it("an slo_burn_rate payload names the SLO's environment, even when the rule's copy is stale", async () => {
+    const service = "slo-env";
+    const slo = Number(
+      (
+        await db.pool.query<{ id: string }>(
+          `INSERT INTO slos (name, service_name, environment, kind, objective, window_days)
+           VALUES ('avail', $1, 'staging', 'availability', 0.9, 7) RETURNING id`,
+          [service],
+        )
+      ).rows[0]?.id,
+    );
+    // The rule was saved before the SLO moved to staging: its own environment is still null.
+    const { rows } = await db.pool.query<{ id: string }>(
+      `INSERT INTO alert_rules (name, service_name, environment, metric, slo_id, threshold,
+         window_minutes, for_minutes, min_requests, webhook_url, secret)
+       VALUES ('burn', $1, NULL, 'slo_burn_rate', $2, 1, 5, 0, 10, $3, $4) RETURNING id`,
+      [service, slo, receiver.url, KEY],
+    );
+    await seedMinute(db.pool, {
+      minuteMs: base,
+      service,
+      environment: "staging",
+      count: 100,
+      errors: 50,
+    });
+    await seedMinute(db.pool, {
+      minuteMs: base,
+      service,
+      environment: "production",
+      count: 100,
+      errors: 0,
+    });
+    const e = evaluator({ now: base });
+    expect((await run(e)).deliveries).toHaveLength(1);
+    const body = JSON.parse(receiver.requests[0]?.body ?? "");
+    expect(body).toMatchObject({
+      rule: { id: String(rows[0]?.id), metric: "slo_burn_rate" },
+      state: "firing",
+      service,
+      environment: "staging",
+    });
+    await db.pool.query("DELETE FROM slos WHERE id = $1", [slo]);
   });
 
   it("respects forMinutes: a breach that ends sooner sends nothing", async () => {

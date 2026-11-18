@@ -17,9 +17,11 @@ Use it when you want history beyond one process's memory, several services in on
 Without cloning the repository:
 
 ```bash
-docker pull ghcr.io/nestrix-js/nestrix-server:latest
-docker run -p 4318:4318 -e DATABASE_URL=postgres://… -e NESTRIX_INGEST_KEYS=… -e NESTRIX_ADMIN_PASSWORD=… ghcr.io/nestrix-js/nestrix-server:latest
+docker pull ghcr.io/nestrix-js/nestrix-server:0.6.0@sha256:c9fb43475334430c5bdd30e9302a9009abe12951932380c3951a6483d96822f6
+docker run -p 4318:4318 -e DATABASE_URL=postgres://… -e NESTRIX_INGEST_KEYS=… -e NESTRIX_ADMIN_PASSWORD=… ghcr.io/nestrix-js/nestrix-server:0.6.0@sha256:c9fb43475334430c5bdd30e9302a9009abe12951932380c3951a6483d96822f6
 ```
+
+The image is pinned by version and digest so a re-pushed tag cannot change what runs; `:latest` also exists but moves. How to read the digest of a release, sizing, storage growth, backup and restore, upgrades and TLS are in [docs-site/guide/production.md](../../docs-site/guide/production.md); a Docker Swarm stack is in [`deploy/swarm/`](../../deploy/swarm/README.md) and a Helm chart in [`deploy/helm/nestrix-server/`](../../deploy/helm/nestrix-server/README.md).
 
 `examples/standalone/` has a compose file with PostgreSQL, this image and two services (one with two replicas), and a snippet for adding the server to an existing compose project.
 
@@ -66,7 +68,7 @@ Docker Compose (the image already has this check; the form is for another image 
 ```yaml
 services:
   nestrix:
-    image: ghcr.io/nestrix-js/nestrix-server:latest
+    image: ghcr.io/nestrix-js/nestrix-server:0.6.0@sha256:c9fb43475334430c5bdd30e9302a9009abe12951932380c3951a6483d96822f6
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4318/readyz').then(r=>process.exit(r.status===200?0:1),()=>process.exit(1))"]
       interval: 5s
@@ -106,7 +108,7 @@ Docker Swarm secrets and Kubernetes secret volumes arrive as files. For `DATABAS
 ```yaml
 services:
   nestrix:
-    image: ghcr.io/nestrix-js/nestrix-server:latest
+    image: ghcr.io/nestrix-js/nestrix-server:0.6.0@sha256:c9fb43475334430c5bdd30e9302a9009abe12951932380c3951a6483d96822f6
     environment:
       DATABASE_URL: postgres://nestrix@postgres:5432/nestrix
       DATABASE_PASSWORD_FILE: /run/secrets/db_password
@@ -127,11 +129,11 @@ OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer <one of NESTRIX_INGEST_KEYS>
 
 The key may instead be sent as `x-nestrix-key: <key>`. Keys are compared in constant time. With neither `NESTRIX_INGEST_KEYS` nor `NESTRIX_INGEST_AUTH=none`, ingest answers 401 to everything and a start-up log line says how to configure it.
 
-**`/v1/traces` and `/v1/logs` are accepted.** Logs are kept only as context for a trace: a log record that carries a trace id is stored next to its trace (at most 200 per trace) and shown in the trace view; a record without one is accepted and discarded. The server is not a log backend (no log search) and has no metrics receiver: send metrics, and logs you want to keep or search, to an OpenTelemetry Collector (see "Traces and trace logs only" below).
+**`/v1/traces` and `/v1/logs` are accepted.** Logs are kept only as context for a trace: a log record that carries a trace id is stored next to its trace (at most 200 per trace) and shown in the trace view; a record without one is accepted and discarded. Set `NESTRIX_LOGS=all` to keep every record and search them (see "Log search" below); by default the server is not a log backend. It has no general metrics receiver: `/v1/metrics` is off unless `NESTRIX_METRICS=on` (see "Historical metrics (optional)" below); send other metrics to an OpenTelemetry Collector.
 
 ## Configuration
 
-Read once from the environment at start and validated. A bad value exits with one message listing every problem; secret values are never echoed. The four secrets (`DATABASE_URL`, `NESTRIX_INGEST_KEYS`, `NESTRIX_ADMIN_PASSWORD`, `NESTRIX_SESSION_SECRET`) also accept a `_FILE` form.
+Read once from the environment at start and validated. A bad value exits with one message listing every problem; secret values are never echoed. The secrets (`DATABASE_URL`, `NESTRIX_INGEST_KEYS`, `NESTRIX_ADMIN_PASSWORD`, `NESTRIX_SESSION_SECRET`, `NESTRIX_OIDC_CLIENT_SECRET`) also accept a `_FILE` form.
 
 | Variable | Default | Validation and meaning |
 |---|---|---|
@@ -140,18 +142,55 @@ Read once from the environment at start and validated. A bad value exits with on
 | `NESTRIX_LOG_FORMAT` | `json` when `NODE_ENV=production` (the image sets it), else `text` | `json`: one JSON object per line (`level`, `timestamp`, `pid`, `context`, `message`), no colours. `text`: Nest's text lines. |
 | `NESTRIX_LOG_LEVEL` | `info` | `verbose`, `debug`, `info`, `warn`, `error` or `fatal` (`log` is accepted for `info`). At `info` and above the lines that list every mapped route are not written; `debug` and `verbose` show them. |
 | `PORT` | `4318` | Whole number, 1 to 65535. |
-| `NESTRIX_INGEST_KEYS` | none | Comma-separated keys, each at least 32 characters. Or `NESTRIX_INGEST_KEYS_FILE`. |
+| `NESTRIX_INGEST_KEYS` | none | Comma-separated keys, each at least 32 characters, optionally bound to an environment as `<environment>:<key>` (see "Environments"). Or `NESTRIX_INGEST_KEYS_FILE`. |
 | `NESTRIX_INGEST_AUTH` | unset | Only `none` is accepted: an explicit opt-out of ingest authentication, logged as a warning on every start. Setting it together with `NESTRIX_INGEST_KEYS` is an error. |
-| `NESTRIX_ADMIN_PASSWORD` | none | At least 12 characters. Or `NESTRIX_ADMIN_PASSWORD_FILE`. Without it the UI, `/login` and the query API answer 503 and a log line says why; ingest still works. |
+| `NESTRIX_ADMIN_PASSWORD` | none | At least 12 characters. Or `NESTRIX_ADMIN_PASSWORD_FILE`. Without it (and without single sign-on) the UI, `/login` and the query API answer 503 and a log line says why; ingest still works. With single sign-on it is the break-glass admin login. |
+| `NESTRIX_ADMIN_PASSWORD_LOGIN` | `true` | `true` or `false`. `false` turns the admin password off as a way to sign in (existing password sessions are refused too); accepted only with `NESTRIX_OIDC_ISSUER`. |
 | `NESTRIX_SESSION_SECRET` | random per start | At least 32 characters. Or `NESTRIX_SESSION_SECRET_FILE`. With the admin password, the session signing key. Set it (the same value on every instance) so sessions survive restarts and work on every instance; unset, sessions end at restart and work only on the instance that issued them. See "Admin login". |
 | `NESTRIX_TRUSTED_PROXIES` | unset | Comma-separated IPv4 and IPv6 CIDRs or single addresses (`10.0.0.0/8, 2001:db8::/32, 192.168.1.7`) of your reverse proxies or load balancers. Only a connection from one of them may name the client in `X-Forwarded-For`, which the login limit then keys on. An invalid entry is a configuration error. See "Admin login". |
-| `NESTRIX_RETENTION_DAYS` | `7` | Whole number, 1 to 3650. |
+| `NESTRIX_OIDC_ISSUER` | unset | Turns on single sign-on (see "Users, roles and single sign-on"). The identity provider's issuer URL exactly as it appears in its ID tokens' `iss`: `https://`, or `http://` to `localhost`/`127.x`/`[::1]` only, without credentials, query or fragment. Every other `NESTRIX_OIDC_*` variable is an error without it. |
+| `NESTRIX_OIDC_CLIENT_ID` | required with the issuer | The client (application) id registered at the provider; at most 512 characters. |
+| `NESTRIX_OIDC_CLIENT_SECRET` | required with the issuer | The client secret. Or `NESTRIX_OIDC_CLIENT_SECRET_FILE`. Sent to the token endpoint only (HTTP Basic, or in the form when the provider lists only `client_secret_post`); never logged. |
+| `NESTRIX_OIDC_REDIRECT_URL` | `NESTRIX_PUBLIC_URL` + `/login/oidc/callback` | The callback URL registered at the provider. One of the two is required with the issuer; never taken from the request's `Host`. |
+| `NESTRIX_OIDC_SCOPES` | `openid email profile` | Space- or comma-separated; must include `openid`. Add the scope your provider needs for the role claim (for example `groups`). |
+| `NESTRIX_OIDC_ROLE_CLAIM` | `groups` | The top-level ID-token claim whose values (a string or an array of strings) decide the role. Matched exactly. |
+| `NESTRIX_OIDC_ADMIN_GROUPS` | empty | Comma-separated claim values that make a user an admin. `*` is refused. |
+| `NESTRIX_OIDC_ALLOWED_GROUPS` | empty | Comma-separated claim values that let a user in as a viewer; `*` lets in every user the provider signs in for this client. At least one of the two lists is required. |
+| `NESTRIX_OIDC_SESSION_SECONDS` | `3600` | Whole number, 300 to 28 800. How long a single sign-on session lasts (absolute); after it the user signs in again, and the role is mapped again. |
+| `NESTRIX_RETENTION_DAYS` | `7` | Whole number, 1 to 3650. Also how long the audit log is kept. |
+| `NESTRIX_LOGS` | `trace` | `trace` keeps only log records that carry a trace id (200 per trace); `all` keeps every record and enables log search over them (D-106). |
+| `NESTRIX_LOG_RETENTION_DAYS` | `NESTRIX_RETENTION_DAYS` | Days of log lines kept; 1 to `NESTRIX_RETENTION_DAYS`. |
+| `NESTRIX_LOGS_MAX_PER_TRACE` | `1000` | `all` only: lines kept per trace, 200 to 100000. |
+| `NESTRIX_LOGS_MAX_PER_MINUTE` | `30000` | `all` only: lines this process stores per minute; more are dropped and counted. |
+| `NESTRIX_LOG_SEARCH_CONCURRENCY` | `2` | Whole number, 1 to 16. Log searches this process runs at once; more answer `503` with `Retry-After: 1`. |
+| `NESTRIX_METRICS` | `off` | `on` or `off`. `on` accepts Nestrix's runtime metrics on `POST /v1/metrics` and serves them from `GET /api/v1/metrics/*`; see "Historical metrics (optional)". |
+| `NESTRIX_METRICS_MAX_SERIES_PER_SERVICE` | `2000` | Whole number, 10 to 1 000 000. Active metric series per service, per server process. |
+| `NESTRIX_METRICS_MAX_SERIES` | `20000` | Whole number, 10 to 10 000 000. Active metric series in all, per server process. |
+| `NESTRIX_INDEXED_ATTRIBUTES` | unset (nothing indexed) | Comma-separated span attribute keys (`tenant.id,app.client_id`), at most 16, each a letter then letters, digits, `_`, `.` or `-`. Their values are stored per trace at ingest and can then filter the trace list, the timeline, the errors and the error groups with `attr.<key>=<value>` (dashboard, query API, MCP tools). A key not listed is a `400`. Only spans ingested while a key is listed are indexed: adding a key later does not backfill. An invalid entry is a configuration error. See "Attribute filters". |
 | `NESTRIX_MAX_SPANS_PER_TRACE` | `50000` | Whole number, 1 000 to 10 000 000. Spans stored per trace; see "Span limit per trace". |
 | `NESTRIX_MAX_CONNECTIONS` | `1024` | Whole number, 1 to 1 000 000. Node's `server.maxConnections`. |
 | `NESTRIX_WEBHOOK_ALLOWED_HOSTS` | empty | Comma-separated host names or IP addresses (no scheme, port or path) that alert webhooks may reach although they resolve to private addresses. |
 | `NESTRIX_PUBLIC_URL` | unset | `http://` or `https://` address of the dashboard, without credentials, query or fragment. Put in alert notifications as a link. |
 
 Not configurable by environment: the ingest limits and rate limit below, and the HTTP timeouts (`requestTimeout` 60 s, `headersTimeout` 20 s).
+
+## Environments
+
+Send staging and production (and several products) to one server and look at each separately. The environment of a record is the resource's `deployment.environment.name` (else the deprecated `deployment.environment`); the dashboard shows an Environment selector when the server holds more than one, every query takes `environment` beside `service`, and the MCP tools take it too. Without it every environment is shown together. The value `unset` selects the data without an environment, which includes everything stored before the upgrade. Alert rules and SLOs have an `environment` field (`null` watches every environment, as before).
+
+An app's resource attribute is only a claim. To make "a staging key cannot write production data" true, bind each key to an environment:
+
+```
+NESTRIX_INGEST_KEYS=production:<key-1>,staging:<key-2>,<key-3-unbound>
+```
+
+Anything sent with a bound key is stored under that environment, whatever its resource says, and so is that app's remote-profiling check-in. An entry with a `:` is always read as `<environment>:<key>` (1 to 64 letters, digits, `.`, `_` or `-`; `unset` is refused), so a key that contains a `:` cannot be used. Not available yet: keys managed in the dashboard, and retention per environment.
+
+## Attribute filters
+
+Apps set attributes such as a tenant id with the `context` option or `setTraceAttributes()` of `@nestrix-js/nestjs` (its README, "Tenants, request ids and other attributes"). The server stores nothing extra for them unless `NESTRIX_INDEXED_ATTRIBUTES` lists the key: then each trace's value (its root span's, else the first span's that has the key, as text) goes into `traces.indexed_attributes`, and `attr.<key>=<value>` matches it exactly. `meta.attributeFilters` lists the indexed keys, and the dashboard offers them as a filter. Up to 4 filters per request; values up to 256 characters.
+
+Request ids: the recorded `x-request-id` request and response header values of a trace's spans (the app's default header allowlist records them) are kept in `traces.request_ids`, at most 16 per trace, so the trace list's `search` finds a trace by the exact id a customer quotes. This is a copy of a value already stored on the span, not a new one.
 
 ## Admin login
 
@@ -165,6 +204,20 @@ Not configurable by environment: the ingest limits and rate limit below, and the
 - Every request except the ingest routes (`/v1/traces`, `/v1/logs`, `/v1/nestrix/check-in`, `/v1/nestrix/profiles/…`), `/login` and `/logout` needs a session, including paths added later; the query API's read routes also accept an API token (below). A state-changing request needs a same-origin `Origin` header. The API never emits CORS headers, so a browser page on another origin cannot read it.
 - **Behind a reverse proxy:** pass the `Host` header through (`proxy_set_header Host $host;` in nginx), or the `Origin` check fails and login answers 403. Serve it over HTTPS: on a non-loopback host the cookie is `Secure`, so a browser will not send it over plain HTTP. Set `NESTRIX_TRUSTED_PROXIES` to the proxy's address so each visitor gets its own login limit (above).
 
+## Users, roles and single sign-on
+
+With `NESTRIX_OIDC_ISSUER` set, each person signs in with your identity provider (OpenID Connect: authorization code flow with PKCE). The admin password stays as a break-glass admin login unless `NESTRIX_ADMIN_PASSWORD_LOGIN=false`.
+
+- **Register the server at your provider** as a confidential web client with the redirect URL `https://<your dashboard>/login/oidc/callback` (or `NESTRIX_OIDC_REDIRECT_URL`), and have the provider put the user's groups (or roles) in the ID token under the claim named by `NESTRIX_OIDC_ROLE_CLAIM`.
+- **Two roles.** `admin`: everything, as the password login always could. `viewer`: every page and every read of the query API; no change to alert rules or SLOs, no test webhook, no API tokens (not even the list), no remote CPU capture, no audit log. A viewer sees alert rules with the webhook URL cut to its scheme and host (`https://hooks.slack.com/…`), because such a URL is often the credential to post to the channel. A member of a group in `NESTRIX_OIDC_ADMIN_GROUPS` is an admin; otherwise a member of a group in `NESTRIX_OIDC_ALLOWED_GROUPS` (or anyone, with `*`) is a viewer; anyone else is refused (403, "not in a group that may open this dashboard").
+- **What a viewer is refused:** any request with a method other than `GET`/`HEAD` answers 403 (`{"error":{"code":"forbidden"}}`) before it reaches a route, and the admin-only reads (`/api/v1/tokens`, `/api/v1/audit`) answer 403 too. The dashboard learns the role from `GET /api/v1/meta` (`access.role`), so it can hide what a viewer cannot do; the server decides either way.
+- **Users** are created at their first sign-in (table `dashboard_users`: issuer, subject, email and name as the provider sent them, role, last sign-in). There is nothing to create beforehand. Email and name are shown, never used to decide access: the user is the (issuer, subject) pair.
+- **Ending access.** The role is read from the table on every request, so a change applies to open sessions at their next request. A single sign-on session lasts `NESTRIX_OIDC_SESSION_SECONDS` (default 1 hour); then the browser goes through the provider again. A person removed at the provider cannot sign in again, and a person moved out of every allowed group is refused at that sign-in, which also ends their other open sessions at once. So access ends at most one session length after the change at the provider. To end it at once, delete the user's row: `DELETE FROM dashboard_users WHERE email = '...';`, which refuses every open session of theirs at the next request (a later sign-in creates the row again if the provider still allows it). A user the mapping refused stays cut off from the sessions they had before: if they are added back to a group, they sign in again and only the new session works.
+- **`NESTRIX_OIDC_ALLOWED_GROUPS="*"` admits everyone the provider signs in.** With a public provider (for example `accounts.google.com` with an external consent screen) that is every account of the provider, as a viewer: they can read every trace, error and log line. Restrict by a claim instead. For Google Workspace, `NESTRIX_OIDC_ROLE_CLAIM=hd` and `NESTRIX_OIDC_ALLOWED_GROUPS=example.com` admit only accounts whose ID token carries `hd: "example.com"` (a string claim is read as one value, matched exactly; accounts without the claim, such as personal ones, are refused). Use `*` only with a provider that signs in your own people.
+- **Sign-in checks.** The provider's metadata comes from `<issuer>/.well-known/openid-configuration` and must name the same issuer; its endpoints must be `https://`. The `state` (in a signed, `HttpOnly`, `SameSite=Lax` cookie on `/login/oidc`, 10 minutes), the PKCE verifier and the `nonce` are 32 random bytes each, per sign-in. The ID token must be signed (RS256/384/512, PS256/384/512 or ES256/384/512, by a key from the provider's JWKS; `none` and HMAC are refused, RSA keys under 2048 bits are ignored) and carry the configured issuer, the client id in `aud` (and in `azp` when there are several audiences), an unexpired `exp`, a recent `iat` and the `nonce` sent, with 60 seconds of clock skew. Any failure refuses the sign-in (401) with a reason code in the audit log and in one throttled log line; nothing the provider sent is echoed. Metadata and keys are cached for an hour; an unknown key id refetches the keys at most once a minute. The callback counts against the login rate limit like `POST /login`, but only once its `state` matched the pending cookie: requests with a missing or wrong state answer 401 at no cost to the shared failed-login budget. The per-client sign-in window is 5 a minute: behind a reverse proxy without `NESTRIX_TRUSTED_PROXIES`, every user shares one client key, so five sign-ins a minute for everyone together. Set `NESTRIX_TRUSTED_PROXIES` to your proxy's address.
+- **Sessions** use the same cookie as the password login (`nestrix_admin_<port>`, `HttpOnly`, `SameSite=Strict`), signed with a key derived from `NESTRIX_SESSION_SECRET`, the issuer and the client id. Set `NESTRIX_SESSION_SECRET` when you run several instances: the sign-in may start on one and come back to another. `POST /logout` ends a single sign-on session the same way as a password session (it does not sign the user out of the provider).
+- **Audit log.** Sign-ins (and failed ones, with the reason), sign-outs, every change to alert rules, SLOs and API tokens, test webhooks and remote CPU captures are recorded with who, when and the client address (table `audit_log`, kept for `NESTRIX_RETENTION_DAYS`). Admins read it at `GET /api/v1/audit?limit=<1..200>&before=<id>` (newest first). Passwords, guesses, tokens and request bodies are never recorded. If an entry cannot be written the action still completes, and a warning is logged.
+
 ## API tokens
 
 Read-only, revocable tokens let tools such as the Nestrix MCP server (`@nestrix-js/mcp`) read the query API without a browser session.
@@ -175,7 +228,7 @@ Read-only, revocable tokens let tools such as the Nestrix MCP server (`@nestrix-
 - **What a token reads:** `GET` and `HEAD` on every read route of the query API: `/api/v1/meta`, `/api/v1/traces` (and `/traces/timeline`), `/api/v1/trace` (and `/trace/logs`), `/api/v1/errors` (and `/errors/groups`), `/api/v1/routes` (and `/routes/histogram`, `/routes/compare`), `/api/v1/classes`, `/api/v1/queries`, `/api/v1/map`, `/api/v1/dependencies`, and the remote-profiling reads `/api/v1/instances`, `/api/v1/remote-profiles` (and `/:id`, `/:id/download`). Nothing else: a request with a token on the dashboard, `/login`, `/logout`, the token routes, alerts or SLOs (reads included: alert rules hold webhook URLs) or any write, starting a remote capture included, answers 401, even if it also carries a session cookie. The ingest routes (`/v1/traces`, `/v1/logs`, `/v1/nestrix/…`) take only ingest keys; an API token is not an ingest key and an ingest key is not an API token.
 - **Revocation is immediate:** every request looks the token up in the database, so the next request after a revoke is refused.
 - **Failures share the login's budget, within a per-client allowance:** a refused token counts toward the global budget of 60 failed logins a minute, but each client (by client address, as for the login limit) may count only 5 refused tokens a minute (kept in PostgreSQL like the login limit, so shared by every instance); beyond that its bad tokens answer 429 with `Retry-After` and are not counted. While the global budget is spent, further bad tokens answer 429 too, as `POST /login` does. A valid token is checked first and is never refused by either limit, so one client guessing tokens cannot lock out the others' tokens.
-- Tokens work only while `NESTRIX_ADMIN_PASSWORD` is set (otherwise the API answers 503). `last_used_at` is updated at most once a minute. Tokens are never logged.
+- Tokens work only while some sign-in is configured (`NESTRIX_ADMIN_PASSWORD` or single sign-on; otherwise the API answers 503). A token is always a viewer: it never reaches an admin route, and `GET /api/v1/meta` reports it as `access: { role: "viewer", kind: "token" }`. `last_used_at` is updated at most once a minute. Tokens are never logged.
 - Only send tokens over HTTPS: on plain HTTP they cross the network in clear text.
 
 ```bash
@@ -201,13 +254,39 @@ What the answers mean:
 |---|---|---|
 | 400 | Malformed body, bad gzip, or invalid UTF-8 | Not retry. |
 | 401 | Missing or wrong key, or auth not configured | Fix the key. |
-| 404 | A `/v1/…` path that is not an ingest route, such as `/v1/metrics` (no key needed) | Do not send that signal here. |
+| 404 | A `/v1/…` path that is not an ingest route, such as `/v1/metrics` while `NESTRIX_METRICS` is not `on` (no key needed) | Do not send that signal here. |
 | 413 | Body or inflated body over 20 MiB, or over a count cap, or a request too large for the memory budget | Send smaller batches; do not retry as is. |
 | 415 | Unsupported `Content-Type` or `Content-Encoding` | Send protobuf or JSON, gzip or none. |
 | 429 | Over the rate limit; has `Retry-After` | Retry after that many seconds. |
 | 503 | Memory budget full (`Retry-After: 1`), the write queue is full, or the database is unavailable (`Retry-After: 5`) | Retry; OTLP exporters do. |
 
 The 20 MiB limit matches the OpenTelemetry Collector's OTLP receiver. A batch of 2 048 spans, as the SDK's batch processor sends them, is far below every cap.
+
+### Log search
+
+`GET /api/v1/logs` (also readable with an API token and through the MCP tool `search_logs`) and the dashboard's Logs page exist in every mode. With the default `NESTRIX_LOGS=trace` they search the lines the server stores under the behaviour below (only those with a trace id, 200 per trace); with `NESTRIX_LOGS=all` the server stores every log record it receives, with or without a trace id, up to `NESTRIX_LOGS_MAX_PER_TRACE` per trace. At most `NESTRIX_LOG_SEARCH_CONCURRENCY` searches run at once per process; more answer 503 with `Retry-After: 1`. Filters: service, [environment](#environments), minimum severity, text, trace id and a time range (default last 24 hours); results are newest first and paged with a cursor. `text` matches whole words by default (PostgreSQL full text search; quotes, `or` and `-word` work); `match=substring` is a case-insensitive scan of the time range, so narrow the range first (a scan over 15 seconds answers 503). Lines are cut to 8,192 characters and marked truncated; lines not stored because of the per-trace cap, the per-minute cap or the retention window are counted and shown next to the results. A line with a trace id links to the trace when that trace is stored. Storage is bounded by `NESTRIX_LOG_RETENTION_DAYS` and the two caps.
+
+Upgrade note: migration `0021_logs_search.sql` adds `logs.truncated` and the `log_drops` table. The `ADD COLUMN` takes an `ACCESS EXCLUSIVE` lock on `logs` and its partitions, but rewrites nothing and commits at once (it waits for queries already running on `logs`, and new ones queue behind it for that moment). Migration `0022_logs_search_indexes.sql`, a separate transaction, builds four indexes on `logs`. A partitioned table's indexes cannot be built `CONCURRENTLY`, so it takes a `SHARE` lock on `logs` and each partition while they build: reads (search, trace view) and span ingest go on, log writes wait (a log export waits or answers 503 and is retried). On a large install pre-build the indexes first, without blocking writes; the migration then finds them and does nothing. The names must be exactly these, per partition `logs_pYYYYMMDD` (list them with `\d+ logs`), outside a transaction:
+
+```sql
+-- for each partition, the four indexes (outside a transaction):
+CREATE INDEX CONCURRENTLY logs_pYYYYMMDD_time_idx ON logs_pYYYYMMDD (time_ns DESC, trace_id DESC, record_hash DESC);
+CREATE INDEX CONCURRENTLY logs_pYYYYMMDD_service_time_idx ON logs_pYYYYMMDD (service_name, time_ns DESC, trace_id DESC, record_hash DESC);
+CREATE INDEX CONCURRENTLY logs_pYYYYMMDD_errors_time_idx ON logs_pYYYYMMDD (time_ns DESC, trace_id DESC, record_hash DESC) WHERE severity_number >= 17;
+CREATE INDEX CONCURRENTLY logs_pYYYYMMDD_body_fts_idx ON logs_pYYYYMMDD USING gin (to_tsvector('simple', body));
+-- once each, on the parent without touching the partitions:
+CREATE INDEX logs_time_idx ON ONLY logs (time_ns DESC, trace_id DESC, record_hash DESC);
+CREATE INDEX logs_service_time_idx ON ONLY logs (service_name, time_ns DESC, trace_id DESC, record_hash DESC);
+CREATE INDEX logs_errors_time_idx ON ONLY logs (time_ns DESC, trace_id DESC, record_hash DESC) WHERE severity_number >= 17;
+CREATE INDEX logs_body_fts_idx ON ONLY logs USING gin (to_tsvector('simple', body));
+-- for each partition and index:
+ALTER INDEX logs_time_idx ATTACH PARTITION logs_pYYYYMMDD_time_idx;
+ALTER INDEX logs_service_time_idx ATTACH PARTITION logs_pYYYYMMDD_service_time_idx;
+ALTER INDEX logs_errors_time_idx ATTACH PARTITION logs_pYYYYMMDD_errors_time_idx;
+ALTER INDEX logs_body_fts_idx ATTACH PARTITION logs_pYYYYMMDD_body_fts_idx;
+```
+
+Partitions created afterwards inherit the indexes.
 
 ### Traces and trace logs only
 
@@ -217,7 +296,20 @@ Log records sent to `/v1/logs` are kept only when they carry a trace id, in the 
 NestrixModule.forRoot({ logs: { export: true } }) // OTEL_EXPORTER_OTLP_ENDPOINT=http://nestrix.internal:4318
 ```
 
-There is no `/v1/metrics`. It, and any other `/v1/…` path that is not an ingest route, answers `404` with a `google.rpc.Status` body (protobuf or JSON, as the request's `Content-Type`), before the admin login and without a key (`src/ingest/unknown-path.ts`; paths with `.`/`..` segments or percent-escapes are left to the admin login). OTLP exporters do not retry a 404. A Nestrix app that exports metrics to the same base endpoint logs one line saying metrics are not accepted there and stops exporting them; traces and logs continue. Point metrics at a collector (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`) or turn their export off (`metrics: { export: false }`).
+Unless `NESTRIX_METRICS=on`, there is no `/v1/metrics`. It, and any other `/v1/…` path that is not an ingest route, answers `404` with a `google.rpc.Status` body (protobuf or JSON, as the request's `Content-Type`), before the admin login and without a key (`src/ingest/unknown-path.ts`; paths with `.`/`..` segments or percent-escapes are left to the admin login). OTLP exporters do not retry a 404. A Nestrix app that exports metrics to the same base endpoint logs one line saying metrics are not accepted there and stops exporting them; traces and logs continue. Point metrics at a collector (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`) or turn their export off (`metrics: { export: false }`).
+
+### Historical metrics (optional)
+
+`NESTRIX_METRICS=on` (issue #18, D-105) stores the runtime metrics Nestrix itself records and serves them as charts data, so a latency or error spike can be read next to CPU, RSS, heap and event-loop delay without a Collector. It is off by default: tracing-only installs see no change, and `/v1/metrics` answers `404` as above.
+
+- **Accepted** (`POST /v1/metrics`, OTLP/HTTP, protobuf or JSON, the ingest key, the same size and rate limits): Gauge, Sum (monotonic cumulative or delta; non-monotonic cumulative, kept as a level) and Histogram with explicit buckets, for `process.cpu.time`, `process.memory.usage`, `v8js.memory.heap.used`, `v8js.memory.heap.space.size`, `nodejs.eventloop.delay.p50`, `.p99`, `.max` and `http.server.request.duration`, with the unit Nestrix sends (`s`, `By`). Anything else (other names, another type or unit, ExponentialHistogram, Summary) is counted and discarded: the export answers `200` with a `partialSuccess.errorMessage` and no rejected points, so exporters do not retry, and `GET /api/v1/metrics/catalog` shows the counts under `ingest.dropped`. Invalid points (no time, NaN or infinite, a value or histogram sum beyond 1e100 in magnitude, malformed or unsorted buckets) are rejected one by one as OTLP partial success. Only the `cpu.mode` attribute is kept.
+- **Storage and retention:** one row per series and minute in `metric_minutes`, partitioned by day and removed with the spans (`NESTRIX_RETENTION_DAYS`). Point out the service and instance with `service.name` (cut to 256 characters) and `service.instance.id` on the resource; the environment is `deployment.environment.name`, or the bound key's environment (see "Environments"). Without `service.instance.id`, the instance is a short stable hash of the resource's attributes (`attrs-<12 hex>`), so replicas that differ in any resource attribute (host, pid) stay separate series; replicas with identical resources cannot be told apart, so set `service.instance.id`. A point older than two hours is dropped and counted (`ingest.outOfRange`), so the table holds at most about the series cap times the retention in minutes rows. Packed number runs in a protobuf body are charged against the memory budget by their decoded size (a varint run 32 bytes per wire byte), so a small compressed body that would inflate into a very large array is refused with `413`.
+- **Cardinality:** `NESTRIX_METRICS_MAX_SERIES_PER_SERVICE` and `NESTRIX_METRICS_MAX_SERIES` cap the series active in the last hour (a series is instance x metric x attribute set). Further points are dropped and counted (`ingest.overSeriesCap`). The cap is per server process; several server instances behind one address each count their own.
+- **Backpressure:** at most 50 000 points are written at once; beyond that the export gets `503` with `Retry-After: 5`, as for spans.
+- **Query** (`/api/v1/metrics/catalog`, `/api/v1/metrics/series`, behind the same admin login or API token as the rest of the query API; types in `@nestrix-js/protocol`'s `metrics.ts`): `series` takes `metric`, `service`, `environment`, `instance`, `fromUnixMs`, `toUnixMs`, `stepMs` (whole minutes, at most 1 440 buckets), `aggregation` (`sum`, `avg`, `max`, `min`) and `by=instance`. A counter (`process.cpu.time`) is a rate per second, CPU seconds per second (1 is one core), summed over cpu modes and instances; a gauge is the mean per instance and bucket, averaged across instances by default; a histogram gives p50, p95 and p99. A bucket without data is `null` and a gap longer than 10 minutes is never filled in. The time range is Unix ms, the same as `GET /api/v1/traces?fromUnixMs=&toUnixMs=`, so a chart and a trace list can share a window.
+- **Not included:** charts in the dashboard and links from a metric spike to traces, alerts on metrics, other metrics or attributes.
+
+To send them, point the app's export endpoint at the server as for traces; Nestrix's metrics exporter then reaches `/v1/metrics` of the same endpoint with the same key.
 
 ## Remote CPU profiling
 
@@ -252,17 +344,32 @@ Preliminary, from one run (`benchmarks/results/server-ingest.md`): on a laptop (
 
 One job that fans out can put millions of spans in a single trace. The server stores at most `NESTRIX_MAX_SPANS_PER_TRACE` spans per trace (default 50 000, from 1 000 to 10 000 000). Spans past the limit are not stored; the earliest-starting spans of a batch are the ones kept. Two kinds of span are never dropped and do not count against the others (they do count in the trace's span total): spans with no parent, and spans that carry the app's own drop counts (`nestrix.trace.spans_dropped*`). A trace's local root ends last, so it is exported after the trace is at the limit, and it is the span that carries those counts. The server counts them per trace (`traces.dropped_spans`) and answers the export with OTLP partial success: `rejected_spans` includes them, and the message says they were not stored because of the per-trace limit. The `trace` query reports them as `droppedSpans.byServer`, added to what the apps themselves counted but did not record (their `maxSpansPerTrace`, read from the spans' `nestrix.trace.spans_dropped*` attributes). A retried export of spans that were already stored counts again as dropped once the trace is at the limit. Existing traces start at 0 dropped (migration `0010_traces_dropped_spans.sql`).
 
+## Sampled apps
+
+Route counts, error rates, SLOs and alert rules come from per-minute rollups written at ingest from the stored server spans. An app where Nestrix owns the sampler writes `nestrix.sampling.probability` on every local root it exports (the sample rate, or `1` for a request it kept because it failed or was slow), and the server counts such a request as `1 / probability` requests, rounded per span to a whole number without bias. So at `sampleRate: 0.1`, 1,000 requests count about 1,000 (the standard deviation of the estimate is about `sqrt(n * (1 - p) / p)` requests: about 95 for 1,000 requests at 0.1), failed requests count exactly, and an alert's `minRequests` sees the real traffic. A span without the attribute (your own SDK's sampler, another SDK, or a request whose sampling an upstream service decided) counts once, and the dashboard's note that statistics reflect the services' sampling still applies. Class statistics are not weighted.
+
 ## Retention and partitions
 
 `spans`, `traces`, the per-minute rollups and the trace logs (`logs`) are partitioned by UTC day. At start and then every hour the server creates partitions for today and the next two days and drops partitions older than `NESTRIX_RETENTION_DAYS`. With 7 and today 2026-11-11, 2026-11-04 is the oldest day kept: at least 7 days of data, up to nearly 8. Retention is by dropping partitions, so it is instant and leaves no dead rows. Per-route and per-class statistics are rolled up per minute at ingest; a retried export is not counted twice. Class counts are post-sampling, because the server sees only what services chose to export.
 
+## Error triage
+
+The server stores a triage state per error group (`open`, `resolved`, `regressed`, `ignored`), kept apart from the computed new, ongoing and quiet states and independent of span retention. A background sync (every 30 s, one instance at a time) records each group from the stored error spans, with its first and last seen and its counts per release.
+
+- `POST /api/v1/errors/groups/resolve`, `/ignore` and `/reopen` with `{"key": "<ErrorGroup.key>", "service": "<optional>", "environment": "<optional>"}` (admin session and a same-origin `Origin`, like the alert routes; an API token never reaches them). Without `service` the action applies to the group in every service, without `environment` in every environment (`unset`: the copy without one).
+- Groups are kept per service and [environment](#environments): resolving a group in staging leaves production's copy open, and a regression in one environment changes only that one. The dashboard acts in the selected environment. A list over several environments shows the most urgent state of the copies it covers.
+- Resolving remembers the release of the group's latest occurrence. If the group is seen again in another release (or in any release when one is unknown), it becomes `regressed` and stays so until you resolve, ignore or reopen it. The same release after the resolution does not regress it.
+- Ignored groups are left out of `GET /api/v1/errors/groups` (`ignoredCount` says how many), of counts and of alerts until reopened. `?triage=all|open|resolved|regressed|ignored` lists other views.
+- The `new_error_group` alert rule (above) notifies about new and regressed groups.
+
 ## Alerting
 
-Alert rules are managed through the API (`/api/v1/alerts`, admin session required); the dashboard has no alerts page yet. A rule watches one service, optionally one route, over a window of 5 to 60 minutes:
+Alert rules are managed on the dashboard's **Alerts** page or through the API (`/api/v1/alerts`, admin session required). The page lists each rule with its service and route, metric, threshold, window, pending duration, minimum requests and state (firing, pending, resolved, no data, disabled); creates, edits and deletes rules (a burn-rate rule picks its SLO from a list); sends a test notification; and shows each rule's delivery history (status, HTTP status, error category, time, never a secret). The signing secret of a new rule is shown once, when it is created; the list shows only the origin of a webhook URL, because the path of such a URL is often a secret. A rule watches one service, optionally one route, over a window of 5 to 60 minutes:
 
 - `metric`: `error_rate` (a fraction; 0.05 is 5%), `p95_ms`, or `slo_burn_rate` (give `sloId`; the rule takes its service and route from that [SLO](#slos) and fires when the SLO's burn rate over the rule's window is above `threshold`), compared with `>` to a `threshold`.
+- `new_error_group` (issue #26): no `threshold`, `windowMinutes`, `forMinutes` or `minRequests` (they are refused); `service`, `environment` and `route` are optional filters. One webhook is sent for each error group seen for the first time after the rule was created, and one for each regression of a resolved group (`errorGroup.reason` is `new` or `regressed` in the payload). Each is sent once, across instances and restarts. Ignored groups never alert.
 - `forMinutes` (0 to 60, default 2): how long the condition must hold before the alert fires.
-- `minRequests` (default 10): fewer requests in the window is "no data", which changes nothing, so a dead service does not resolve a firing alert.
+- `minRequests` (default 10): fewer requests in the window is "no data", which changes nothing, so a dead service does not resolve a firing alert. Requests from a sampled Nestrix app are weighted ([Sampled apps](#sampled-apps)).
 - States: `ok`, `pending`, `firing`. A notification is sent when a rule starts firing and when it resolves. Rules are evaluated every 60 seconds by one instance at a time.
 
 Create a rule (sign in first, send `Origin` for a state-changing call):
@@ -274,7 +381,9 @@ curl -X POST https://nestrix.example.com/api/v1/alerts \
   -d '{"name":"checkout errors","service":"checkout","metric":"error_rate","threshold":0.05,"windowMinutes":5,"webhookUrl":"https://hooks.example.com/nestrix"}'
 ```
 
-The response includes the signing `secret` (`whsec_…`) **once**; store it. `POST /api/v1/alerts/:id/test` sends a test notification, and `GET /api/v1/alerts/events` lists deliveries.
+The response includes the signing `secret` (`whsec_…`) **once**; store it. `POST /api/v1/alerts/:id/test` sends a test notification (state `test`, one attempt, same signature and destination checks, recorded in the history), and `GET /api/v1/alerts/events` lists deliveries.
+
+**No data and sampling.** A rule's value comes from the per-minute route rollups, counted from the stored spans, so it reflects the sampling of the services that send them. A window with fewer than `minRequests` requests is no data: the state does not change, and the page says so beside the rules.
 
 **Webhooks.** The server sends a `POST` with a JSON body (state `firing`, `resolved` or `test`, the rule, value, threshold, service, route, times and a dashboard `url` when `NESTRIX_PUBLIC_URL` is set) and two headers: `x-nestrix-timestamp` (Unix seconds) and `x-nestrix-signature: sha256=<hex>`, the HMAC-SHA256 of `<timestamp>.<raw body>` with the rule's secret. Each attempt has a 5 s limit; up to 3 attempts, retried on network errors, timeouts, 408, 429 and 5xx; redirects are never followed. Delivery is at most once across a server crash. Every notification has an `eventId` (also the `x-nestrix-delivery` header), the same on every retry of that notification. A receiver should:
 
@@ -308,12 +417,18 @@ Service level objectives are managed on the dashboard's **SLOs** page or through
 
 - `kind`: `availability` (the share of requests that are not errors) or `latency` (the share faster than `latencyThresholdMs`, up to one hour).
 - `objective`: the target share of good requests, strictly between 0 and 1 (`0.999`); `windowDays`: 7 or 30.
-- Its status, computed from the per-minute rollups (so counted at the server, after the services' own sampling): attainment, the error budget (allowed, remaining requests, remaining fraction), burn rates over the last 1 and 6 hours, and whether it is breached. A 30-day SLO reads up to 43,200 minute rows per query.
+- Its status, computed from the per-minute rollups (counted at the server from the stored spans; a request from an app where Nestrix samples counts as `1 / nestrix.sampling.probability` requests, others once, so a host-owned sampler of unknown rate still undercounts): attainment, the error budget (allowed, remaining requests, remaining fraction), burn rates over the last 1 and 6 hours, and whether it is breached. A 30-day SLO reads up to 43,200 minute rows per query.
 - An alert rule with `metric: "slo_burn_rate"` takes its service and route from an SLO and fires on its burn rate (see Alerting).
 
 ## Upgrading
 
-Pull or rebuild the image and restart. Migrations are applied at start, in order, under a PostgreSQL advisory lock, so several instances starting together are safe; each runs in a transaction, and a migration file changed after it was applied stops the start. There is no downgrade: back up the database before upgrading. With `NESTRIX_SESSION_SECRET` set, admins stay signed in across the restart (see "Admin login").
+Migrations follow expand/contract: they only add or relax, so the previous release keeps working while replicas are replaced one at a time. A migration that cannot (it removes, renames, retypes or re-keys something the previous release uses) is listed in `migrations/coordinated-stop.json` and its release says to stop every replica first; `scripts/check-old-writer.mjs` (`pnpm check:old-writer`, run in CI) checks the previous release's inserts and upserts against the current schema and fails on an unlisted break. Currently listed: `0016_environments.sql`, see "Upgrading to environments" below.
+
+Pull or rebuild the image and restart (see also [Upgrades in the production guide](../../docs-site/guide/production.md#upgrades) for the rolling-upgrade policy). Migrations are applied at start, in order, under a PostgreSQL advisory lock, so several instances starting together are safe; each runs in a transaction, and a migration file changed after it was applied stops the start. There is no downgrade: back up the database before upgrading. With `NESTRIX_SESSION_SECRET` set, admins stay signed in across the restart (see "Admin login").
+
+### Upgrading to users and roles (issue #34)
+
+Migration `0019_dashboard_users.sql` adds the `dashboard_users` and `audit_log` tables. Nothing changes until you set `NESTRIX_OIDC_ISSUER`: the admin password signs in as before, as an admin, and existing sessions stay valid.
 
 ### Upgrading to shared sessions (issue #31)
 
@@ -327,7 +442,7 @@ Several server instances can share one PostgreSQL database behind a load balance
 # docker-compose.yml (excerpt): two replicas behind one proxy, one database
 services:
   nestrix-a: &nestrix
-    image: ghcr.io/nestrix-js/nestrix-server:latest
+    image: ghcr.io/nestrix-js/nestrix-server:0.6.0@sha256:c9fb43475334430c5bdd30e9302a9009abe12951932380c3951a6483d96822f6
     environment:
       DATABASE_URL: postgres://nestrix:${PGPASSWORD}@postgres:5432/nestrix
       NESTRIX_INGEST_KEYS: ${NESTRIX_INGEST_KEYS}
@@ -375,6 +490,51 @@ ALTER INDEX spans_parent_idx ATTACH PARTITION spans_pYYYYMMDD_parent_idx;
 
 Partitions created after that inherit the index.
 
+### Upgrading to environments (issue #28)
+
+**This release cannot be upgraded with a rolling update: stop every server replica first.** `0016` replaces the primary keys of `route_minutes` and `class_minutes` with unique keys that include `environment`. The 0.6.0 server upserts those tables with `ON CONFLICT (minute, service_name, method, route)` (and `(minute, service_name, class_name, method_name)`); once `0016` has run PostgreSQL rejects both (`there is no unique or exclusion constraint matching the ON CONFLICT specification`), so a 0.6.0 replica that is still taking traffic fails its ingest transactions and loses those batches. No key serves both writers (a unique index on the old columns would forbid the same route in two environments). `test/storage/old-writer-compat.test.ts` pins this, and `migrations/coordinated-stop.json` lists `0016` so that the CI check of the previous release's writes allows it. Every other statement of the 0.6.0 server still works on the new schema.
+
+Steps:
+
+1. Back up: `pg_dump --format=custom` as in the production guide, "Backup and restore". This is your way back.
+2. Stop all replicas. Plain Docker or compose: `docker compose stop nestrix`. Swarm: `docker service scale nestrix_server=0`. Helm: `kubectl -n nestrix scale deploy/nestrix-server --replicas=0`. Wait until no old container or pod is running.
+3. Start the new version. The chart's default `RollingUpdate` strategy is harmless once nothing runs, but start one replica first so the migration runs on its own: Swarm, change the tag and digest in `stack.yml`, `docker stack deploy` and then `docker service scale nestrix_server=1`; Helm, `helm upgrade --set replicaCount=1 ...` with the new `image.tag` and `image.digest`. Wait for `/readyz` (503 until every migration is applied).
+4. Scale back up: Swarm `docker service scale nestrix_server=2`; Helm `helm upgrade` again without the `replicaCount` override. Rolling updates are safe again for the next release unless its notes say otherwise.
+
+Ingest is down for the duration; SDKs buffer and retry within their own limits. To roll back, stop the new replicas, restore the backup into the database and start the previous version: it cannot run on the migrated schema, so deploying the previous tag over it is not a rollback.
+
+`0016_environments.sql` adds a nullable `environment` column to `spans`, `traces`, `route_minutes`, `class_minutes`, `logs`, `instances`, `alert_rules` and `slos` (catalog changes, no rewrite; each takes a brief `ACCESS EXCLUSIVE` lock), then builds a new unique key on `route_minutes` and `class_minutes` and drops their old primary keys. Those two tables hold one row per minute, service and route (or class method), far fewer than `spans`, so the build is normally seconds. It needs PostgreSQL 15 or later (`NULLS NOT DISTINCT`). A partitioned table's index cannot be built `CONCURRENTLY`, so the migration's build takes a `SHARE` lock on both tables and their partitions (reads go on, ingest's rollup writes wait). On a large install build the keys first without blocking writes, then upgrade; the migration finds the indexes by name (`CREATE UNIQUE INDEX IF NOT EXISTS`) and only drops the old primary keys. The pattern is the one of the `spans` and `traces` indexes above: one index per partition, `CONCURRENTLY`, then the parent's index `ON ONLY`, then attach each partition's:
+
+```sql
+-- the columns first (catalog changes; 0016's ADD COLUMN IF NOT EXISTS then skips them):
+ALTER TABLE route_minutes ADD COLUMN IF NOT EXISTS environment text;
+ALTER TABLE class_minutes ADD COLUMN IF NOT EXISTS environment text;
+-- for each partition route_minutes_pYYYYMMDD and class_minutes_pYYYYMMDD (list them with
+-- \d+ route_minutes), outside a transaction:
+CREATE UNIQUE INDEX CONCURRENTLY route_minutes_pYYYYMMDD_env_key
+  ON route_minutes_pYYYYMMDD (minute, service_name, environment, method, route) NULLS NOT DISTINCT;
+CREATE UNIQUE INDEX CONCURRENTLY class_minutes_pYYYYMMDD_env_key
+  ON class_minutes_pYYYYMMDD (minute, service_name, environment, class_name, method_name) NULLS NOT DISTINCT;
+-- once each, on the parents without touching the partitions:
+CREATE UNIQUE INDEX route_minutes_env_key
+  ON ONLY route_minutes (minute, service_name, environment, method, route) NULLS NOT DISTINCT;
+CREATE UNIQUE INDEX class_minutes_env_key
+  ON ONLY class_minutes (minute, service_name, environment, class_name, method_name) NULLS NOT DISTINCT;
+-- for each partition:
+ALTER INDEX route_minutes_env_key ATTACH PARTITION route_minutes_pYYYYMMDD_env_key;
+ALTER INDEX class_minutes_env_key ATTACH PARTITION class_minutes_pYYYYMMDD_env_key;
+```
+
+Attach every existing partition: the parent's index stays invalid until the last one is attached, and ingest's `ON CONFLICT` needs it valid. Partitions created afterwards inherit the index. The first batches written after the upgrade by an older server replica would fail on the new key, so upgrade every replica together.
+
+### Environments and ingest keys (issue #28)
+
+A record's environment is its resource's `deployment.environment.name`, which is only a claim: any key can send any environment. To make an environment mean something, bind each key to one: `NESTRIX_INGEST_KEYS=production:<key>,staging:<key>`. Records sent with a bound key are stored under its environment, whatever the resource says.
+
+- **An unbound key can write into any environment**, including one that has bound keys. So can `NESTRIX_INGEST_AUTH=none`. The server logs one warning at start when `NESTRIX_INGEST_KEYS` mixes bound and unbound keys. Bind every key if the environments must be kept apart.
+- A span from another environment never replaces the root of a trace that is already stored (so a staging key cannot move a production trace by sending an earlier, parentless span with a known trace id); its spans are still stored and counted under that trace.
+- Trace ids are not scoped to an environment. A trace that spans two environments is one trace, shown under the environment of its root.
+
 ### Upgrading to the `hasErrors` filter: the `traces` index
 
 Two migrations, each in its own transaction:
@@ -395,10 +555,15 @@ CREATE INDEX traces_has_errors_seq_idx ON ONLY traces (seq DESC)
 ALTER INDEX traces_has_errors_seq_idx ATTACH PARTITION traces_pYYYYMMDD_has_errors_idx;
 ```
 
+### Upgrading to attribute filters (issue #27)
+
+`0017_traces_attributes.sql` adds two nullable columns with no default, `traces.indexed_attributes` and `traces.request_ids`, and a partial GIN index on each, in one transaction. The `ACCESS EXCLUSIVE` lock of the `ADD COLUMN`s is held while the indexes build, so the trace list and ingest's trace writes wait until they are built. Every existing row is `NULL` in both columns and the indexes are partial, so the build is one scan of `traces` (a row per trace, not per span) that adds no entries: seconds on a small install. On a large one, create the columns and indexes first as for `0013` above (the columns, then per partition `CREATE INDEX CONCURRENTLY ... USING gin (indexed_attributes jsonb_path_ops) WHERE indexed_attributes IS NOT NULL` and the same `USING gin (request_ids) WHERE request_ids IS NOT NULL`, then `traces_indexed_attributes_idx` and `traces_request_ids_idx` `ON ONLY traces` and `ATTACH PARTITION`); every statement in the migration is `IF NOT EXISTS`. Traces stored before the upgrade have no indexed attributes and no request ids, so the filters and the request-id search do not find them.
+
 ## Security notes
 
 - **The ingest port is the admin port.** Ingest, the login form, the dashboard and the API all share one port, so exposing it to your services exposes `/login` to them too. Login is rate limited and the password needs 12 characters, but put the server behind a TLS-terminating proxy and, where you can, restrict who can reach it.
-- Without TLS, ingest keys, API tokens and the admin password cross the network in clear text.
+- Without TLS, ingest keys, API tokens, session cookies and the admin password cross the network in clear text.
+- With single sign-on, keep the break-glass password long and stored offline, or turn it off with `NESTRIX_ADMIN_PASSWORD_LOGIN=false` once single sign-on works; every use of it is in the audit log.
 - `NESTRIX_INGEST_AUTH=none` is for local demos. Anyone who can reach the port can write spans.
 - The server stores the span attributes services send it; it does not scrub them. Redaction happens in each service's `@nestrix-js/nestjs` configuration before export.
 - The alert signing secret is stored in clear in the database, because the server signs with it. Protect the database.

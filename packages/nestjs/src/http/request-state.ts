@@ -43,6 +43,12 @@ export interface RequestState {
   scheme?: "http" | "https";
   /** The raw request path (no query), for `url.path` at `close` (D-97). */
   path?: string;
+  /**
+   * With the `context` option (D-102): reads it once for this request and sets its values on the
+   * span; later calls do nothing. Called at `close`, or earlier when the request queues a job
+   * whose metadata carries propagated keys. Never throws.
+   */
+  readContext?: (final: boolean) => void;
 }
 
 /**
@@ -160,6 +166,7 @@ export type FaultSite =
   | "stats-record"
   | "dashboard-close"
   | "user"
+  | "context"
   | "url-path"
   | "record-error";
 

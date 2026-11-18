@@ -1,5 +1,7 @@
 /** Response types of the Nestrix query API, version 1. Types only; no runtime code lives here except the version constant (see index.ts). */
 
+import type { MetaAccess } from "./access.js";
+import type { MetaMetrics } from "./metrics.js";
 import type { MetaProfiler } from "./profiles.js";
 import type { MetaRuntime } from "./runtime.js";
 
@@ -83,7 +85,11 @@ export interface MetaResponse {
   statistics: {
     /** Unix ms from which route statistics have been counted (process start). */
     sinceUnixMs: number;
-    /** Windows the routes endpoint accepts. */
+    /**
+     * Windows the aggregate endpoints accept: 15 and 60 when embedded; the standalone server adds
+     * 360, 1440, 10080 and 43200 as far as its retention reaches (and also takes `fromUnixMs` /
+     * `toUnixMs`).
+     */
     windowMinutesOptions: number[];
   };
   warnings: ApiWarning[];
@@ -97,10 +103,43 @@ export interface MetaResponse {
    * serves one application (`service.name` names it). Filter lists and statistics with `service`.
    */
   services?: string[];
+  /**
+   * Environments (`deployment.environment.name`) with data in the store, most recently seen first
+   * (issue #28, D-101). Absent when the API serves one application (`service.environment` names
+   * its environment). Filter lists and statistics with `environment`; omitting it means every
+   * environment.
+   */
+  environments?: EnvironmentInfo[];
   /** The on-demand CPU profiler (P7-02): `available: false` in the standalone server. */
   profiler: MetaProfiler;
   /** The process runtime view (P9-06): `available: false` in the standalone server. Absent from older servers. */
   runtime?: MetaRuntime;
+  /** Historical metrics (issue #18): the standalone server with `NESTRIX_METRICS=on`. Absent from embedded dashboards and older servers. */
+  metrics?: MetaMetrics;
+  /**
+   * Who the request is and what it may do (standalone server, issue #34). Absent from the
+   * embedded dashboard and older servers: treat as `admin` (the server decides anyway).
+   */
+  access?: MetaAccess;
+  /**
+   * Attribute keys the trace and error lists can be filtered by with `attr.<key>=` (D-102),
+   * sorted: the standalone server's `NESTRIX_INDEXED_ATTRIBUTES`; on an embedded dashboard, the
+   * keys the app's `context` option and `setTraceAttributes()` have set and `contextPropagation`
+   * lists. Empty or absent: none (absent from older backends).
+   */
+  attributeFilters?: string[];
+}
+
+/** One environment the standalone server holds data for (`MetaResponse.environments`). */
+export interface EnvironmentInfo {
+  /** The value to pass as `environment`: the environment's name, or `unset` for data without one. */
+  name: string;
+  /** True for the data without an environment (`name` is `unset`). */
+  unset: boolean;
+  /** Services seen in this environment, sorted. */
+  services: string[];
+  /** The last time data arrived for this environment (refreshed about once a minute). */
+  lastSeenUnixMs: number;
 }
 
 /** Fields shared by every cursor-paged list response. */
@@ -326,6 +365,11 @@ export interface ClassStatsResponse {
    * embedded dashboard reports `on` or `off`). `on` otherwise.
    */
   methodsState: "on" | "off" | "no-data-in-range";
+  /**
+   * Standalone server: true when the own-time estimate (`ownMs`, `ownAvgMs`) was read from the
+   * newest sampled method spans only, because the range holds more than the server reads.
+   */
+  ownTimeTruncated?: boolean;
   /** Kept for compatibility: true unless `methodsState` is `off`. `classes` is empty when false. */
   methodsEnabled: boolean;
   classes: ClassStats[];
@@ -394,6 +438,11 @@ export interface AppMapResponse {
   windowMinutes: number;
   fromUnixMs: number;
   toUnixMs: number;
+  /**
+   * Standalone server: true when the range holds more client and producer spans than the server
+   * reads, so the map is built from the newest ones (the same holds for `DependenciesResponse`).
+   */
+  truncated?: boolean;
   nodes: MapNode[];
   edges: MapEdge[];
   /**

@@ -89,6 +89,7 @@ function scriptedExporter(initial: Mode, delayMs = 20) {
 function counters(): PipelineCounters {
   return {
     droppedSpans: 0,
+    tailDroppedSpans: 0,
     exportedSpans: 0,
     exportFailedSpans: 0,
     redactDroppedSpans: 0,

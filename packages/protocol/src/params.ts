@@ -16,7 +16,11 @@
  *   ```
  *
  * Semantics the shapes cannot express: `before` and `after` are mutually exclusive
- * (both given is a `400`); `service` filters by `service.name` (the standalone server serves several services; an embedded dashboard answers empty unless it equals its own name); a parameter absent from the query string takes its
+ * (both given is a `400`); `service` filters by `service.name` (the standalone server serves several services; an embedded dashboard answers empty unless it equals its own name);
+ * `environment` (issue #28, D-101) filters by `deployment.environment.name`, beside `service` on
+ * every route that takes it: absent is every environment, `unset` the data without an environment
+ * (an embedded dashboard answers empty unless it equals its own environment, `unset` when it has
+ * none); a parameter absent from the query string takes its
  * `default` when it has one and is unset otherwise; unknown parameters are a `400`.
  */
 
@@ -65,6 +69,58 @@ export type ParamSpec =
   | EnumParam
   | CursorParam;
 
+/**
+ * Windows the standalone server accepts on every aggregate route (`windowMinutes`): 15 min, 1 h,
+ * 6 h, 24 h, 7 d and 30 d, capped at the server's retention (`MetaResponse.statistics.windowMinutesOptions`
+ * lists those within it). The embedded dashboard keeps `[15, 60]` (the specs above).
+ */
+export const STANDALONE_WINDOW_MINUTES = [
+  15, 60, 360, 1440, 10_080, 43_200,
+] as const;
+
+/**
+ * What the standalone server's aggregate routes take in place of the embedded spec's
+ * `windowMinutes`: any of {@link STANDALONE_WINDOW_MINUTES} (no spec default: the server applies the
+ * route's own default, 15 minutes, or 60 for `routes/explain`), or a range with `fromUnixMs` and
+ * `toUnixMs`, both together, never with `windowMinutes`: `to` after `from`, at most the retention
+ * long and at most 5 minutes in the future. A range is widened to whole buckets (the response's
+ * `fromUnixMs` and `windowMinutes` say what was read). The bucket width grows with the span:
+ * 1 minute up to 60 minutes (5 on the charts of the span-based views), 5 minutes up to 6 hours,
+ * 1 hour up to 7 days, 1 day above (`bucketMs` in the response).
+ */
+export const standaloneRangeParams = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 43_200,
+    oneOf: STANDALONE_WINDOW_MINUTES,
+  },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+} as const;
+
+/** An embedded spec with its `windowMinutes` replaced by {@link standaloneRangeParams}. */
+export type StandaloneParamsSpec<T extends { windowMinutes: unknown }> = Omit<
+  T,
+  "windowMinutes"
+> &
+  typeof standaloneRangeParams;
+
+/**
+ * Attribute filters (issue #27, D-102): `attr.<key>=<value>` on the trace list, the timeline, the
+ * error list and the error groups, for example `attr.tenant.id=acme`. The value is compared exactly
+ * with the attribute's text (a number or boolean as its decimal or `true`/`false` text) on the
+ * trace's root span, or, when the root has none, on the first span of the trace that has it. At
+ * most {@link MAX_ATTRIBUTE_FILTERS} per request, all of which must match. Which keys are accepted:
+ * `MetaResponse.attributeFilters`; the standalone server accepts only its
+ * `NESTRIX_INDEXED_ATTRIBUTES` (an unknown key is a `400`), an embedded dashboard any key that
+ * matches {@link ATTRIBUTE_FILTER_KEY_PATTERN}. Older backends answer `400` (unknown parameter).
+ */
+export const ATTRIBUTE_FILTER_PREFIX = "attr.";
+export const MAX_ATTRIBUTE_FILTERS = 4;
+export const MAX_ATTRIBUTE_FILTER_VALUE_LENGTH = 256;
+export const ATTRIBUTE_FILTER_KEY_PATTERN = "^[A-Za-z][A-Za-z0-9_.-]{0,127}$";
+
 /** `GET <path>/api/v1/traces` */
 export const traceListParams = {
   limit: { kind: "int", min: 1, max: 200, default: 50 },
@@ -75,6 +131,10 @@ export const traceListParams = {
   status: { kind: "enum", values: ["ok", "error", "4xx", "5xx"] },
   minDurationMs: { kind: "number", min: 0, max: 86_400_000 },
   maxDurationMs: { kind: "number", min: 0, max: 86_400_000 },
+  /**
+   * Case-insensitive text in a span name or the route; an exact request id (the root's recorded
+   * `x-request-id` request or response header) also matches (D-102).
+   */
   search: { kind: "string", maxLength: 200 },
   /**
    * `http`, `scheduled` and `other` match the trace's root (`TraceSummary.type`). `job` matches
@@ -91,11 +151,31 @@ export const traceListParams = {
    */
   hasErrors: { kind: "enum", values: ["true", "false"] },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
   /** Root started at or after / at or before this Unix time in milliseconds (the timeline's range). */
   fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
   toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
 } as const;
 export type TraceListParamsSpec = typeof traceListParams;
+
+/** `GET <path>/api/v1/logs`, standalone server only (issue #17). */
+export const logSearchParams = {
+  limit: { kind: "int", min: 1, max: 200, default: 100 },
+  before: { kind: "cursor", maxLength: 256 },
+  service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
+  /** Minimum level. */
+  severity: {
+    kind: "enum",
+    values: ["trace", "debug", "info", "warn", "error", "fatal"],
+  },
+  text: { kind: "string", maxLength: 200 },
+  match: { kind: "enum", values: ["words", "substring"] },
+  traceId: { kind: "string", maxLength: 32, pattern: "^[0-9a-f]{32}$" },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+} as const;
+export type LogSearchParamsSpec = typeof logSearchParams;
 
 /** `GET <path>/api/v1/dependencies` */
 export const dependencyParams = {
@@ -107,6 +187,7 @@ export const dependencyParams = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type DependencyParamsSpec = typeof dependencyParams;
 
@@ -128,6 +209,7 @@ export const traceTimelineParams = {
   user: { kind: "string", maxLength: 256 },
   hasErrors: { kind: "enum", values: ["true", "false"] },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type TraceTimelineParamsSpec = typeof traceTimelineParams;
 
@@ -138,6 +220,7 @@ export const errorListParams = {
   after: { kind: "cursor", maxLength: 256 },
   route: { kind: "string", maxLength: 512 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type ErrorListParamsSpec = typeof errorListParams;
 
@@ -151,6 +234,16 @@ export const errorGroupParams = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  /**
+   * Standalone server: which stored triage states to list. Unset: every group but the ignored
+   * ones. `open` includes groups the server has no stored state for. The embedded dashboard
+   * accepts and ignores it.
+   */
+  triage: {
+    kind: "enum",
+    values: ["all", "open", "resolved", "regressed", "ignored"],
+  },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type ErrorGroupParamsSpec = typeof errorGroupParams;
 
@@ -158,6 +251,7 @@ export type ErrorGroupParamsSpec = typeof errorGroupParams;
 export const errorInsightsParams = {
   route: { kind: "string", maxLength: 512 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type ErrorInsightsParamsSpec = typeof errorInsightsParams;
 
@@ -171,6 +265,7 @@ export const routeStatsParams = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type RouteStatsParamsSpec = typeof routeStatsParams;
 
@@ -184,6 +279,7 @@ export const classStatsParams = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type ClassStatsParamsSpec = typeof classStatsParams;
 
@@ -197,6 +293,7 @@ export const appMapParams = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type AppMapParamsSpec = typeof appMapParams;
 
@@ -210,6 +307,7 @@ export const queryStatsParams = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
   sort: { kind: "enum", values: ["total", "count", "p95", "max"] },
   limit: { kind: "int", min: 1, max: 200, default: 50 },
 } as const;
@@ -239,3 +337,33 @@ export const profileIdParams = {
   id: { kind: "string", maxLength: 16, pattern: "^[0-9a-f]{16}$" },
 } as const;
 export type ProfileIdParamsSpec = typeof profileIdParams;
+
+/**
+ * `GET <path>/api/v1/metrics/series` (issue #18, standalone server with `NESTRIX_METRICS=on`).
+ * `metric` is required (a catalog name; another is a `400`). `fromUnixMs`/`toUnixMs` default to the
+ * last hour; `toUnixMs` must be after `fromUnixMs`. `stepMs` defaults to the smallest whole minute
+ * that gives at most 360 buckets; at most 1,440 buckets. `by=instance` returns one series per
+ * instance (at most 20, most data first) instead of one across instances; not for histograms.
+ * `environment` as on the other routes (D-101).
+ */
+export const metricSeriesParams = {
+  metric: { kind: "string", maxLength: 128 },
+  service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
+  instance: { kind: "string", maxLength: 256 },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  stepMs: { kind: "int", min: 60_000, max: 86_400_000 },
+  aggregation: { kind: "enum", values: ["sum", "avg", "max", "min"] },
+  by: { kind: "enum", values: ["instance"] },
+} as const;
+export type MetricSeriesParamsSpec = typeof metricSeriesParams;
+
+/** `GET <path>/api/v1/metrics/catalog`: the range defaults to the last hour. */
+export const metricCatalogParams = {
+  service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+} as const;
+export type MetricCatalogParamsSpec = typeof metricCatalogParams;

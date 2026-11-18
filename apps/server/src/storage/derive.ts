@@ -15,10 +15,20 @@
  *   consumer span or `nestrix.entry = job`; `scheduled` for `nestrix.entry = scheduled`; else
  *   `other`.
  * - `user_id`: the string attribute `user.id`.
+ * - indexed attributes (issue #27, D-102): the span's values of the `NESTRIX_INDEXED_ATTRIBUTES`
+ *   keys, as text (a string cut to 256 characters, a finite number in decimal, `true`/`false`);
+ *   other values (arrays, empty strings) are not indexed. Request ids: the recorded
+ *   `http.request.header.x-request-id` / `http.response.header.x-request-id` values (the header
+ *   allowlist records them as string arrays), each cut to 256, at most 4 per span; `REDACTED` is
+ *   not a request id.
  * - route rollup (`route_minutes`): every server span with `http.request.method`, keyed by
  *   method, route (`(unmatched)` without `http.route`) and the minute of its end; an error there
  *   is a status error or a 5xx (the embedded route statistics' definition: 5xx or thrown handler).
+ *   A span carrying `nestrix.sampling.probability` p counts as `1 / p` requests (issue #30,
+ *   D-100), rounded to a whole number per span without bias (`writer.ts`); others count once.
  * - class rollup (`class_minutes`): every span with string `nestrix.class` and `nestrix.method`.
+ * - environment (D-101): `environmentOf` of the resource (the receiver has already replaced it with
+ *   the ingest key's environment when the key is bound to one); `null` is unset.
  *
  * Postgres cannot store U+0000 in `text` or `jsonb`, and rejects a lone UTF-16 surrogate escaped
  * in JSON; every string (names, attribute keys and values, messages) is made well-formed and its
@@ -106,7 +116,39 @@ export interface ResourceRow {
   hash: string;
   serviceName: string;
   serviceVersion: string | null;
+  /** `environmentOf(attributes)`: `null` is unset (D-101). */
+  environment: string | null;
   attributes: IngestAttributes;
+}
+
+/** The semantic-convention key of the environment, and the deprecated one read when it is absent. */
+export const ENVIRONMENT_KEY = "deployment.environment.name";
+export const LEGACY_ENVIRONMENT_KEY = "deployment.environment";
+/**
+ * The stored name of "no environment" in the API (`environment=unset`). A resource that claims it
+ * is stored as unset (`NULL`), so the name always means one thing (D-101).
+ */
+export const UNSET_ENVIRONMENT = "unset";
+/** Longest environment name stored; a longer one is cut (the query parameter's bound). */
+export const MAX_ENVIRONMENT_LENGTH = 256;
+
+/**
+ * The environment of a resource (D-101): the string `deployment.environment.name`, else the string
+ * `deployment.environment`; trimmed, cut to 256 characters, made safe for PostgreSQL. `null`
+ * (unset) when neither is a non-empty string, or the value is `unset`. Never throws.
+ */
+export function environmentOf(
+  attributes: IngestAttributes | undefined,
+): string | null {
+  if (attributes === null || typeof attributes !== "object") return null;
+  for (const key of [ENVIRONMENT_KEY, LEGACY_ENVIRONMENT_KEY]) {
+    const value = attributes[key];
+    if (typeof value !== "string") continue;
+    const name = cleanString(value).trim().slice(0, MAX_ENVIRONMENT_LENGTH);
+    if (name === "") continue;
+    return name === UNSET_ENVIRONMENT ? null : name;
+  }
+  return null;
 }
 
 export function deriveResource(
@@ -121,6 +163,7 @@ export function deriveResource(
       typeof name === "string" && name !== "" ? name : UNKNOWN_SERVICE,
     serviceVersion:
       typeof version === "string" && version !== "" ? version : null,
+    environment: environmentOf(attributes),
     attributes,
   };
 }
@@ -139,9 +182,92 @@ export function nsToIso(ns: bigint): string {
  */
 export const MAX_NS = 9_223_372_036_854_775_807n;
 
+/** Longest indexed attribute value or request id (D-102); the query side compares exactly. */
+export const MAX_INDEXED_VALUE_LENGTH = 256;
+const MAX_REQUEST_IDS_PER_SPAN = 4;
+const REQUEST_ID_ATTRIBUTES = [
+  "http.request.header.x-request-id",
+  "http.response.header.x-request-id",
+] as const;
+
+function cutIndexed(text: string): string {
+  if (text.length <= MAX_INDEXED_VALUE_LENGTH) return text;
+  const last = text.charCodeAt(MAX_INDEXED_VALUE_LENGTH - 1);
+  // Never inside a surrogate pair (cleanString made the input well-formed).
+  return text.slice(
+    0,
+    last >= 0xd800 && last <= 0xdbff
+      ? MAX_INDEXED_VALUE_LENGTH - 1
+      : MAX_INDEXED_VALUE_LENGTH,
+  );
+}
+
+/** An attribute value as the attribute filters compare it, or `null` when it is not indexed. */
+export function indexedTextOf(value: unknown): string | null {
+  if (typeof value === "string") return value === "" ? null : cutIndexed(value);
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value) : null;
+  }
+  if (typeof value === "boolean") return value ? "true" : "false";
+  return null;
+}
+
+function indexedAttributesOf(
+  a: IngestAttributes,
+  keys: ReadonlySet<string> | undefined,
+): Record<string, string> | null {
+  if (keys === undefined || keys.size === 0) return null;
+  let out: Record<string, string> | null = null;
+  for (const key of keys) {
+    if (!Object.hasOwn(a, key)) continue;
+    const text = indexedTextOf(a[key]);
+    if (text === null) continue;
+    out ??= {};
+    out[key] = text;
+  }
+  return out;
+}
+
+function requestIdsOf(a: IngestAttributes): string[] {
+  const out: string[] = [];
+  for (const key of REQUEST_ID_ATTRIBUTES) {
+    if (!Object.hasOwn(a, key)) continue;
+    const value = a[key];
+    const list = Array.isArray(value) ? value : [value];
+    for (const item of list) {
+      if (out.length >= MAX_REQUEST_IDS_PER_SPAN) return out;
+      if (typeof item !== "string" || item === "" || item === "REDACTED") {
+        continue;
+      }
+      const id = cutIndexed(item);
+      if (!out.includes(id)) out.push(id);
+    }
+  }
+  return out;
+}
+
 function stringAttr(a: IngestAttributes, key: string): string | null {
   const v = a[key];
   return typeof v === "string" && v !== "" ? v : null;
+}
+
+/** The keep probability Nestrix writes on each local root it exports (issue #30, D-100). */
+export const ATTR_SAMPLING_PROBABILITY = "nestrix.sampling.probability";
+/** Smallest probability honoured: a weight above 1,000 per span is not credible, and the int columns hold ~2.1 billion (D-100). */
+const MIN_SAMPLING_PROBABILITY = 1e-3;
+
+/**
+ * How many requests one stored server span stands for in the route rollup: `1 / p` for a span
+ * that carries a numeric `nestrix.sampling.probability` p in (0, 1] (clamped at 1e-3), else 1.
+ * A span from a host-owned sampler, from another SDK, or with a remote parent carries none: its
+ * rate is unknown here and it counts once, as before.
+ */
+export function samplingWeightOf(a: IngestAttributes): number {
+  const p = a[ATTR_SAMPLING_PROBABILITY];
+  if (typeof p !== "number" || !Number.isFinite(p) || p <= 0 || p > 1) {
+    return 1;
+  }
+  return 1 / Math.max(p, MIN_SAMPLING_PROBABILITY);
 }
 
 export function statusCodeOf(a: IngestAttributes): number | null {
@@ -172,6 +298,8 @@ export interface SpanRow {
   parentSpanId: string | null;
   resourceHash: string;
   serviceName: string;
+  /** The resource's environment (D-101); `null` is unset. */
+  environment: string | null;
   /** `service.version` of the span's resource (the trace's release when the span is its root). */
   release: string | null;
   name: string;
@@ -206,6 +334,10 @@ export interface SpanRow {
   /** A consumer span or `nestrix.entry = 'job'`: marks its trace `has_job`, whatever the root. */
   isJob: boolean;
   userId: string | null;
+  /** Values of the `NESTRIX_INDEXED_ATTRIBUTES` keys the span has, as text; `null`: none (D-102). */
+  indexedAttributes: Record<string, string> | null;
+  /** Recorded `x-request-id` request and response header values (D-102). */
+  requestIds: string[];
   className: string | null;
   methodName: string | null;
   classKind: string;
@@ -213,12 +345,18 @@ export interface SpanRow {
   isRouteSpan: boolean;
   /** Error for the route rollup: status error or 5xx. */
   isRouteError: boolean;
+  /** Requests this span stands for in the route rollup (`samplingWeightOf`; 1 when unknown). */
+  routeWeight: number;
 }
 
-/** A row, or `null` when the span's times cannot be stored (the receiver checks them first). */
+/**
+ * A row, or `null` when the span's times cannot be stored (the receiver checks them first).
+ * `indexedKeys`: `NESTRIX_INDEXED_ATTRIBUTES` (D-102); absent or empty, nothing is indexed.
+ */
 export function deriveSpan(
   span: IngestSpan,
   resource: ResourceRow,
+  indexedKeys?: ReadonlySet<string>,
 ): SpanRow | null {
   const startNs = span.startTimeUnixNano;
   const endNs = span.endTimeUnixNano;
@@ -263,6 +401,7 @@ export function deriveSpan(
     parentSpanId,
     resourceHash: resource.hash,
     serviceName: resource.serviceName,
+    environment: resource.environment,
     release: resource.serviceVersion,
     name: cleanString(String(span.name)),
     kind: span.kind,
@@ -296,12 +435,15 @@ export function deriveSpan(
     traceType: traceTypeOf(span.kind, attributes),
     isJob: span.kind === "consumer" || attributes["nestrix.entry"] === "job",
     userId: stringAttr(attributes, "user.id"),
+    indexedAttributes: indexedAttributesOf(attributes, indexedKeys),
+    requestIds: requestIdsOf(attributes),
     className,
     methodName,
     classKind:
       component !== null && CLASS_KINDS.has(component) ? component : "provider",
     isRouteSpan: span.kind === "server" && httpMethod !== null,
     isRouteError: isError || (httpStatus !== null && httpStatus >= 500),
+    routeWeight: samplingWeightOf(attributes),
   };
 }
 

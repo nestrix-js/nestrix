@@ -41,10 +41,10 @@ describe("loadConfig", () => {
   it("drops a query string and fragment from the URL", () => {
     expect(
       loadConfig({
-        NESTRIX_URL: "http://h:1/p?token=abc#x",
+        NESTRIX_URL: "https://h:1/p?token=abc#x",
         NESTRIX_TOKEN: TOKEN,
       }).url,
-    ).toBe("http://h:1/p");
+    ).toBe("https://h:1/p");
   });
 
   it.each([
@@ -68,7 +68,7 @@ describe("loadConfig", () => {
     ],
     [
       {
-        NESTRIX_URL: "http://h/",
+        NESTRIX_URL: "https://h/",
         NESTRIX_TOKEN: TOKEN,
         NESTRIX_TIMEOUT_MS: "5",
       },
@@ -77,6 +77,67 @@ describe("loadConfig", () => {
   ])("rejects %j", (env, message) => {
     expect(() => loadConfig(env)).toThrow(ConfigError);
     expect(() => loadConfig(env)).toThrow(message);
+  });
+});
+
+describe("loadConfig and plaintext http", () => {
+  it.each([
+    "http://remote.example.com:4318",
+    "http://10.0.0.5:4318/_nestrix",
+    "http://[2001:db8::1]:4318",
+  ])("refuses a token over %s", (url) => {
+    const env = { NESTRIX_URL: url, NESTRIX_TOKEN: TOKEN };
+    expect(() => loadConfig(env)).toThrow(ConfigError);
+    expect(() => loadConfig(env)).toThrow(
+      /unencrypted.*NESTRIX_ALLOW_INSECURE_HTTP/s,
+    );
+    expect(() => loadConfig(env)).not.toThrow(new RegExp(TOKEN));
+  });
+
+  it.each([
+    "http://localhost:3000/_nestrix",
+    "http://127.0.0.1:4318",
+    "http://127.1.2.3:4318",
+    "http://[::1]:4318",
+    "https://remote.example.com",
+  ])("accepts %s", (url) => {
+    expect(loadConfig({ NESTRIX_URL: url, NESTRIX_TOKEN: TOKEN }).token).toBe(
+      TOKEN,
+    );
+  });
+
+  it("accepts remote http only with NESTRIX_ALLOW_INSECURE_HTTP=1", () => {
+    const base = {
+      NESTRIX_URL: "http://nestrix.internal:4318",
+      NESTRIX_TOKEN: TOKEN,
+    };
+    expect(loadConfig({ ...base, NESTRIX_ALLOW_INSECURE_HTTP: "1" }).url).toBe(
+      "http://nestrix.internal:4318",
+    );
+    for (const value of ["0", "true", ""]) {
+      expect(() =>
+        loadConfig({ ...base, NESTRIX_ALLOW_INSECURE_HTTP: value }),
+      ).toThrow(ConfigError);
+    }
+  });
+
+  it("the program exits 1 with the message and does not start", () => {
+    const result = spawnSync(
+      process.execPath,
+      [fileURLToPath(new URL("../dist/cli.js", import.meta.url))],
+      {
+        env: {
+          PATH: process.env.PATH,
+          NESTRIX_URL: "http://remote.example.com",
+          NESTRIX_TOKEN: TOKEN,
+        },
+        encoding: "utf8",
+        timeout: 10_000,
+      },
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/unencrypted/);
+    expect(result.stderr).not.toContain(TOKEN);
   });
 });
 
@@ -186,7 +247,7 @@ describe("the nestrix-mcp program", () => {
         version: pkg.version,
       });
       const { tools } = await client.listTools();
-      expect(tools).toHaveLength(9);
+      expect(tools).toHaveLength(10);
       const result = await client.callTool({ name: "overview", arguments: {} });
       const text = (result.content as { text: string }[])[0]?.text ?? "";
       expect(text).toContain("Nestrix dashboard (embedded in one app)");

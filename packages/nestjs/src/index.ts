@@ -1,3 +1,4 @@
+export { setTraceAttributes } from "./context/trace-attributes.js";
 export {
   type RecordErrorOptions,
   recordError,
@@ -52,6 +53,7 @@ export type {
   NestrixModuleOptions,
   NestrixOtlpOptions,
   NestrixQueueOptions,
+  NestrixSamplingOptions,
   NestrixStoreOptions,
   NestrixUiCustomAuth,
   NestrixUiOptions,

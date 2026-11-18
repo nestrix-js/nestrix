@@ -5,7 +5,7 @@
  *   `GET remote-profiles/<id>`, `GET remote-profiles/<id>/download`: any reader (a session, or an
  *   API token: these paths are in `TOKEN_READ_ROUTE` and the global guard admits a token to this
  *   controller for `GET`/`HEAD` only).
- * - `POST remote-profiles`: the admin session only (D-74 keeps API tokens read-only). Three layers
+ * - `POST remote-profiles`: an admin session only (`@AdminOnly()`, audited; issue #34) (D-74 keeps API tokens read-only). Three layers
  *   refuse a token: the middleware (a token passes only on `GET`/`HEAD`), the global guard (same),
  *   and `SessionQueryGuard` on the route. Then the embedded `POST profiles` rules (architecture
  *   §4.7), in order: exactly one `Sec-Fetch-Site: same-origin` (403); exactly one `Origin`, equal
@@ -47,11 +47,13 @@ import type {
 } from "@nestrix-js/protocol";
 import { originMatchesHost } from "../auth/http.js";
 import { ReadQueryGuard, SessionQueryGuard } from "../auth/query-guard.js";
+import { AdminOnly, Audited } from "../auth/roles.js";
 import {
   QUERY_HEADERS,
   QueryExceptionFilter,
 } from "../query/exception.filter.js";
 import { parseQuery, type Values } from "../query/params.js";
+import { scopeOf } from "../query/scope.js";
 import { parseStart } from "./parse.js";
 import { RemoteProfileStore } from "./store.js";
 
@@ -61,10 +63,12 @@ const CAPTURE_ID = /^[0-9a-f]{16}$/;
 
 const instancesSpec: Readonly<Record<string, ParamSpec>> = {
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 const listSpec: Readonly<Record<string, ParamSpec>> = {
   service: { kind: "string", maxLength: 256 },
   instanceId: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 const NO_PARAMS: Readonly<Record<string, ParamSpec>> = {};
 
@@ -229,11 +233,13 @@ export class RemoteProfilesController {
   @Headers()
   async instances(@Req() req: RequestLike): Promise<InstanceListResponse> {
     const v = parse(req, instancesSpec);
-    return { instances: await this.store.instances(optional(v.service)) };
+    return { instances: await this.store.instances(scopeOf(v)) };
   }
 
   @Post("remote-profiles")
   @UseGuards(SessionQueryGuard)
+  @AdminOnly()
+  @Audited("remote_profile.start")
   @HttpCode(202)
   @Headers()
   async start(
@@ -288,10 +294,7 @@ export class RemoteProfilesController {
   async list(@Req() req: RequestLike): Promise<RemoteProfileListResponse> {
     const v = parse(req, listSpec);
     return {
-      profiles: await this.store.list(
-        optional(v.service),
-        optional(v.instanceId),
-      ),
+      profiles: await this.store.list(scopeOf(v), optional(v.instanceId)),
     };
   }
 

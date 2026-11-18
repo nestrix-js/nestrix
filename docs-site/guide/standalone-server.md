@@ -11,8 +11,10 @@ The server is built and tested in the repository. It is private (not on npm). Th
 Without cloning the repository:
 
 ```bash
-docker pull ghcr.io/nestrix-js/nestrix-server:latest
+docker pull ghcr.io/nestrix-js/nestrix-server:0.6.0@sha256:c9fb43475334430c5bdd30e9302a9009abe12951932380c3951a6483d96822f6
 ```
+
+The reference above is pinned to a version and digest; [Running in production](/guide/production) says how to read the digest of a release and gives sizing, storage growth, backup, upgrades and TLS. A [Docker Swarm stack](https://github.com/nestrix-js/nestrix/tree/main/deploy/swarm) and a [Helm chart](https://github.com/nestrix-js/nestrix/tree/main/deploy/helm/nestrix-server) are in the repository.
 
 `examples/standalone/` in the repository has a compose file with PostgreSQL, this image and two services (one running two replicas), and a snippet for adding the server to an existing compose project.
 
@@ -54,7 +56,7 @@ The server listens on one port (default `4318`):
 
 Point each service at it with `OTEL_EXPORTER_OTLP_ENDPOINT` set to the server's address (for example `http://nestrix:4318`). When ingest keys are set, services also send a key in the `Authorization` header: use `OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer <key>` or `export.otlp.headers` in the module options.
 
-Traces and logs are accepted: set `logs: { export: true }` in the module options and the same endpoint receives the app's `NestrixLogger` records. Only records that carry a trace id are kept ([as context for the trace](/guide/dashboard#logs-next-to-the-trace): at most 200 per trace, body cut to 8,192 characters, partitioned by day and dropped with the spans). There is no `/v1/metrics`: send metrics to an OpenTelemetry Collector or a metrics backend, and use a log backend for logs you want to search. `/v1/metrics`, like any other `/v1/…` path the server does not ingest, answers `404` with an OTLP `google.rpc.Status` body, without a key; a Nestrix app that exports metrics there logs one line saying metrics are not accepted and stops exporting them, while traces and logs continue ([export health](/guide/logs-and-metrics#export-health)).
+Traces and logs are accepted: set `logs: { export: true }` in the module options and the same endpoint receives the app's `NestrixLogger` records. Only records that carry a trace id are kept ([as context for the trace](/guide/dashboard#logs-next-to-the-trace): at most 200 per trace, body cut to 8,192 characters, partitioned by day and dropped with the spans). Unless you set `NESTRIX_METRICS=on` (see the [server README](https://github.com/nestrix-js/nestrix/blob/main/apps/server/README.md#historical-metrics-optional): Nestrix's own runtime metrics, stored per minute and served at `/api/v1/metrics`), there is no `/v1/metrics`: send metrics to an OpenTelemetry Collector or a metrics backend, and use a log backend for logs you want to search. `/v1/metrics`, like any other `/v1/…` path the server does not ingest, answers `404` with an OTLP `google.rpc.Status` body, without a key; a Nestrix app that exports metrics there logs one line saying metrics are not accepted and stops exporting them, while traces and logs continue ([export health](/guide/logs-and-metrics#export-health)).
 
 ## Configuration
 
@@ -72,6 +74,7 @@ The server reads its configuration from the environment at start and validates i
 | `NESTRIX_MAX_CONNECTIONS` | `1024` | Node's `server.maxConnections`. |
 | `NESTRIX_WEBHOOK_ALLOWED_HOSTS` | empty | Comma-separated hosts that alert webhooks may reach although they resolve to private addresses. |
 | `NESTRIX_PUBLIC_URL` | unset | The dashboard's `http(s)` address, used for links in alert notifications. |
+| `NESTRIX_INDEXED_ATTRIBUTES` | unset | Comma-separated span attribute keys (at most 16, for example `tenant.id`) stored per trace at ingest, so traces and errors can be filtered with `attr.<key>=<value>`. Nothing is indexed without it; a key listed later is not backfilled. |
 
 ## Ingest authentication
 
@@ -105,7 +108,7 @@ When more than one service name has been seen, the dashboard shows a service sel
 
 ## Alerting
 
-Alert rules (error rate, p95 or an SLO's burn rate over a window, for one service or route) are managed through `/api/v1/alerts` and notify a webhook when they fire and when they resolve. The dashboard has no alerts page yet. Webhooks are signed (`x-nestrix-signature`, HMAC-SHA256 of the timestamp and body) and refused when the host resolves to a private address, unless it is in `NESTRIX_WEBHOOK_ALLOWED_HOSTS`. The server's README has the rule fields and a verification example.
+Alert rules (error rate, p95 or an SLO's burn rate over a window, for one service or route) are managed on the dashboard's **Alerts** page (list, create, edit, delete, send a test notification, delivery history) or through `/api/v1/alerts`, and notify a webhook when they fire and when they resolve. Webhooks are signed (`x-nestrix-signature`, HMAC-SHA256 of the timestamp and body) and refused when the host resolves to a private address, unless it is in `NESTRIX_WEBHOOK_ALLOWED_HOSTS`. The server's README has the rule fields and a verification example.
 
 ## SLOs
 
@@ -151,4 +154,4 @@ One preliminary run on a laptop ingested about 20 000 spans per second with noth
 
 ## Upgrading
 
-Migrations run at start under an advisory lock. Back up the database before upgrading; there is no downgrade.
+Migrations run at start under an advisory lock. Back up the database before upgrading; there is no downgrade. The rolling-upgrade policy and the backup procedure are in [Running in production](/guide/production#upgrades).

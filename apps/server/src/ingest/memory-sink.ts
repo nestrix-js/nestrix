@@ -1,5 +1,10 @@
 import { Injectable, Logger } from "@nestjs/common";
-import type { IngestBatch, IngestLogBatch, IngestSink } from "./model.js";
+import type {
+  IngestBatch,
+  IngestLogBatch,
+  IngestMetricBatch,
+  IngestSink,
+} from "./model.js";
 
 /**
  * Sink for running without storage: counts what it receives and keeps nothing, so its memory
@@ -27,5 +32,13 @@ export class MemoryIngestSink implements IngestSink {
 
   async writeLogs(batch: IngestLogBatch): Promise<void> {
     for (const rl of batch.resourceLogs) this.logRecords += rl.records.length;
+  }
+
+  metricPoints = 0;
+
+  async writeMetrics(batch: IngestMetricBatch): Promise<undefined> {
+    for (const rm of batch.resourceMetrics)
+      this.metricPoints += rm.points.length;
+    return undefined;
   }
 }

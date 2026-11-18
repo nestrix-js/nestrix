@@ -1,7 +1,9 @@
+export type * from "./access.js";
 export type * from "./alerts.js";
 export type * from "./dependencies.js";
 export type * from "./error-groups.js";
 export type * from "./logs.js";
+export type * from "./metrics.js";
 export * from "./overview.js";
 export * from "./params.js";
 export type * from "./profiles.js";

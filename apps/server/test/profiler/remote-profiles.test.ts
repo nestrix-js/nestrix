@@ -449,6 +449,53 @@ describe.skipIf(noDatabase)(`remote profiling ${skipReason}`, () => {
       expect(list.instances[0]?.runtimeSample?.cpuPercent).toBe(5);
     });
 
+    it("D-101: filters instances and captures by environment, and returns each instance's environment", async () => {
+      const prod = newInstance("env-svc");
+      const stage = newInstance("env-svc");
+      const none = newInstance("env-svc");
+      await checkInOk(prod, { environment: "production" });
+      await checkInOk(stage, { environment: "staging" });
+      await checkInOk(none);
+      const prodCapture = await started(prod);
+      const stageCapture = await started(stage);
+
+      const instances = async (query: string) =>
+        (
+          (await (
+            await read(`/api/v1/instances?service=env-svc${query}`)
+          ).json()) as InstanceListResponse
+        ).instances;
+      expect((await instances("")).length).toBe(3);
+      const staging = await instances("&environment=staging");
+      expect(staging.map((i) => i.instanceId)).toEqual([stage.instanceId]);
+      expect(staging[0]?.environment).toBe("staging");
+      expect(
+        (await instances("&environment=production")).map((i) => i.instanceId),
+      ).toEqual([prod.instanceId]);
+      const unset = await instances("&environment=unset");
+      expect(unset.map((i) => i.instanceId)).toEqual([none.instanceId]);
+      expect(unset[0]?.environment).toBeUndefined();
+      expect(await instances("&environment=nowhere")).toEqual([]);
+
+      const captures = async (query: string) => {
+        const res = await read(
+          `/api/v1/remote-profiles?service=env-svc${query}`,
+        );
+        expect(res.status).toBe(200);
+        return ((await res.json()) as RemoteProfileListResponse).profiles.map(
+          (p) => p.id,
+        );
+      };
+      expect((await captures("")).sort()).toEqual(
+        [prodCapture.id, stageCapture.id].sort(),
+      );
+      expect(await captures("&environment=staging")).toEqual([stageCapture.id]);
+      expect(await captures("&environment=production")).toEqual([
+        prodCapture.id,
+      ]);
+      expect(await captures("&environment=unset")).toEqual([]);
+    });
+
     it("refuses unknown query parameters", async () => {
       expect((await read("/api/v1/instances?x=1")).status).toBe(400);
     });

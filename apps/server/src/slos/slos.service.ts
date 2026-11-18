@@ -9,6 +9,7 @@ import { type SloFields, toApiSlo } from "./store.js";
 const COLUMNS: (keyof SloFields)[] = [
   "name",
   "service_name",
+  "environment",
   "route",
   "kind",
   "latency_threshold_ms",
@@ -26,7 +27,14 @@ export class SlosService {
   /** The SLO's status as of `nowMs` (the SLO's window, 1 h and 6 h, each ending at `nowMs`). */
   async withStatus(row: SloRow, nowMs = Date.now()): Promise<Slo> {
     const range = (ms: number) =>
-      rangeTotals(this.pool, row.service_name, row.route, nowMs - ms, nowMs);
+      rangeTotals(
+        this.pool,
+        row.service_name,
+        row.environment,
+        row.route,
+        nowMs - ms,
+        nowMs,
+      );
     const [window, h1, h6] = await Promise.all([
       range(row.window_days * 86_400_000),
       range(HOUR_MS),

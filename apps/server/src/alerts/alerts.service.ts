@@ -16,6 +16,7 @@ import {
   type RuleFields,
   toApiEvent,
   toApiRule,
+  withSloScope,
 } from "./store.js";
 import { ALERTS_OPTIONS, type ResolvedAlertsOptions } from "./tokens.js";
 import { WebhookSender } from "./webhook.js";
@@ -23,6 +24,7 @@ import { WebhookSender } from "./webhook.js";
 const COLUMNS: (keyof RuleFields)[] = [
   "name",
   "service_name",
+  "environment",
   "route",
   "metric",
   "slo_id",
@@ -101,7 +103,7 @@ export class AlertsService {
   }
 
   /**
-   * A `slo_burn_rate` rule takes its service and route from its SLO. Returns the fields to store,
+   * A `slo_burn_rate` rule takes its service, environment and route from its SLO. Returns the fields to store,
    * or a message when the SLO does not exist.
    */
   async withSloTarget(
@@ -114,13 +116,21 @@ export class AlertsService {
     }
     const { rows } = await this.pool.query<{
       service_name: string;
+      environment: string | null;
       route: string | null;
-    }>("SELECT service_name, route FROM slos WHERE id = $1", [fields.slo_id]);
+    }>("SELECT service_name, environment, route FROM slos WHERE id = $1", [
+      fields.slo_id,
+    ]);
     const slo = rows[0];
     if (slo === undefined) return { ok: false, message: "No such SLO." };
     return {
       ok: true,
-      fields: { ...fields, service_name: slo.service_name, route: slo.route },
+      fields: {
+        ...fields,
+        service_name: slo.service_name,
+        environment: slo.environment,
+        route: slo.route,
+      },
     };
   }
 
@@ -160,6 +170,7 @@ export class AlertsService {
       if (
         fields.enabled === false ||
         fields.service_name !== undefined ||
+        fields.environment !== undefined ||
         fields.route !== undefined ||
         fields.slo_id !== undefined ||
         fields.metric !== undefined
@@ -218,7 +229,7 @@ export class AlertsService {
     const eventId = Number(rows[0]?.id);
     const body = JSON.stringify(
       buildPayload(
-        rule,
+        await withSloScope(this.pool, rule),
         eventId,
         "test",
         null,

@@ -11,7 +11,8 @@
  * - `POST /v1/nestrix/profiles/<id>/failed` with `CaptureFailedRequest` as JSON: `204`.
  *
  * Dashboard side, under the query API (`/api/v1`):
- * - `GET instances[?service=]`: `InstanceListResponse` (any reader: session or API token).
+ * - `GET instances[?service=&environment=]`: `InstanceListResponse` (any reader: session or API
+ *   token).
  * - `POST remote-profiles` with `RemoteProfileStartRequest`: `202` with `RemoteProfileSummary`
  *   (admin session only, `Sec-Fetch-Site: same-origin` and a matching `Origin`; API tokens stay
  *   read-only, D-74). `404` unknown or stale instance; `409` with `RemoteProfileConflictError`
@@ -33,6 +34,11 @@ export interface CheckInRequest {
   instanceId: string;
   /** `service.version`, when set. */
   version?: string;
+  /**
+   * `deployment.environment.name` (else `deployment.environment`) of the instance's resource, when
+   * set (issue #28, D-101). Older SDKs leave it out. A key bound to an environment overrides it.
+   */
+  environment?: string;
   /** `host.name`, when known. */
   host?: string;
   pid?: number;
@@ -106,6 +112,8 @@ export interface CaptureFailedRequest {
 /** An instance that checked in recently (opted in with `export.profiler: true`). */
 export interface InstanceSummary {
   service: string;
+  /** The instance's environment (D-101); absent when unset, and from older servers. */
+  environment?: string;
   instanceId: string;
   version: string | null;
   host: string | null;

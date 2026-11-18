@@ -39,6 +39,10 @@ import {
   ATTR_URL_SCHEME,
   ATTR_USER_AGENT_ORIGINAL,
 } from "@opentelemetry/semantic-conventions";
+import {
+  applyTraceAttributes,
+  readTraceAttributes,
+} from "../context/trace-attributes.js";
 import type { Diagnostics } from "../diagnostics.js";
 import type { HttpRequestMetrics } from "../metrics/http.js";
 import type { UrlMatcher } from "../options.js";
@@ -59,6 +63,7 @@ import {
   splitUrl,
 } from "../privacy.js";
 import type {
+  NestrixContextFunction,
   NestrixUserFunction,
   ResolvedOptions,
 } from "../resolve-options.js";
@@ -302,6 +307,7 @@ export class HttpServerInstrumentation {
   private readonly pathParams: ReadonlySet<string>;
   private readonly recordTemplate: boolean;
   private readonly user: NestrixUserFunction | undefined;
+  private readonly context: NestrixContextFunction | undefined;
 
   constructor(
     options: ResolvedOptions,
@@ -323,6 +329,7 @@ export class HttpServerInstrumentation {
     this.pathParams = buildRedactedPathParams(options.http.redactPathParams);
     this.recordTemplate = options.http.recordPath === "template";
     this.user = options.user;
+    this.context = options.context;
   }
 
   /**
@@ -460,6 +467,17 @@ export class HttpServerInstrumentation {
           : 0,
       path,
     };
+    if (this.context !== undefined) {
+      // D-102: read once, at `close` or when the handler queues a job (trace-attributes.ts).
+      // An early read (a job queued from a guard) that found no keys is tried again later, since
+      // a guard that has not run yet may set what `context` reads; the read at `close` is final.
+      let read = false;
+      state.readContext = (final) => {
+        if (read) return;
+        const settled = this.recordContext(span, req);
+        if (settled || final) read = true;
+      };
+    }
     setStateForRequest(rawReq, state);
     // The listener holds the state itself: on a client abort it runs outside the request's
     // async context (P0-S1), so it must not look anything up from the active context.
@@ -611,6 +629,36 @@ export class HttpServerInstrumentation {
   }
 
   /**
+   * The `context` option (D-102): called at most once per request (through `state.readContext`),
+   * only for a recording span, before it ends. A throw, a promise, a result that is not a plain
+   * object or an invalid entry records nothing for it and is counted (never with the value). Its
+   * own guard, so a failure here leaves the rest of `finish` untouched. Returns false when it ran
+   * cleanly but produced no keys (so an early read may be retried later), true otherwise.
+   */
+  private recordContext(span: Span, request: unknown): boolean {
+    const read = this.context;
+    if (read === undefined) return true;
+    try {
+      maybeFault("context");
+      if (!span.isRecording()) return false;
+      const result: unknown = read(request);
+      const values = readTraceAttributes(result, (why) =>
+        this.diagnostics.countFailure(
+          "http.context",
+          new TypeError(
+            `the context option returned ${why}; expected a plain object of strings, numbers or booleans`,
+          ),
+        ),
+      );
+      applyTraceAttributes(span, values);
+      return values.size > 0;
+    } catch (error) {
+      this.diagnostics.countFailure("http.context", error);
+      return true; // a failure is final: the function is not called again
+    }
+  }
+
+  /**
    * D-97: writes `url.path` at `close` (none is set at start).
    * - `'template'`: the route after the 404 rule, or nothing.
    * - `'raw'`, a route was reported (the last one the hook saw, even when the 404 rule drops it
@@ -751,6 +799,7 @@ export class HttpServerInstrumentation {
         span.setStatus({ code: SpanStatusCode.ERROR });
       }
       if (this.user !== undefined) this.recordUser(span, request);
+      state.readContext?.(true);
       endNestrixSpan(span);
     } catch (error) {
       this.diagnostics.countFailure("http.close-listener", error);

@@ -13,7 +13,10 @@ import type {
   ErrorGroupParamsSpec,
   ErrorInsightsParamsSpec,
   ErrorListParamsSpec,
+  LogSearchParamsSpec,
   MetaParamsSpec,
+  MetricCatalogParamsSpec,
+  MetricSeriesParamsSpec,
   OverviewParamsSpec,
   ParamSpec,
   QueryStatsParamsSpec,
@@ -21,10 +24,27 @@ import type {
   RouteExplainParamsSpec,
   RouteHistogramParamsSpec,
   RouteStatsParamsSpec,
+  StandaloneParamsSpec,
   TraceListParamsSpec,
   TraceParamsSpec,
   TraceTimelineParamsSpec,
 } from "@nestrix-js/protocol";
+
+/**
+ * The window of every aggregate route: `windowMinutes` (no default here, `resolveWindow` in
+ * `window.ts` applies the route's own) or the range `fromUnixMs` + `toUnixMs`. Typed by
+ * `StandaloneParamsSpec`, so a bound that drifts from protocol fails `tsc` (D-107).
+ */
+const rangeParams = {
+  windowMinutes: {
+    kind: "int",
+    min: 15,
+    max: 43_200,
+    oneOf: [15, 60, 360, 1440, 10_080, 43_200],
+  },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+} as const;
 
 export const traceListSpec: TraceListParamsSpec = {
   limit: { kind: "int", min: 1, max: 200, default: 50 },
@@ -41,39 +61,47 @@ export const traceListSpec: TraceListParamsSpec = {
   user: { kind: "string", maxLength: 256 },
   hasErrors: { kind: "enum", values: ["true", "false"] },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
   fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
   toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
 };
 
-export const dependencySpec: DependencyParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
+export const logSearchSpec: LogSearchParamsSpec = {
+  limit: { kind: "int", min: 1, max: 200, default: 100 },
+  before: { kind: "cursor", maxLength: 256 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
+  severity: {
+    kind: "enum",
+    values: ["trace", "debug", "info", "warn", "error", "fatal"],
+  },
+  text: { kind: "string", maxLength: 200 },
+  match: { kind: "enum", values: ["words", "substring"] },
+  traceId: { kind: "string", maxLength: 32, pattern: "^[0-9a-f]{32}$" },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
 };
 
-export const traceTimelineSpec: TraceTimelineParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
-  route: { kind: "string", maxLength: 512 },
-  method: { kind: "string", maxLength: 16 },
-  status: { kind: "enum", values: ["ok", "error", "4xx", "5xx"] },
-  search: { kind: "string", maxLength: 200 },
-  type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
-  release: { kind: "string", maxLength: 255 },
-  user: { kind: "string", maxLength: 256 },
-  hasErrors: { kind: "enum", values: ["true", "false"] },
+export const dependencySpec: StandaloneParamsSpec<DependencyParamsSpec> = {
+  ...rangeParams,
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
+
+export const traceTimelineSpec: StandaloneParamsSpec<TraceTimelineParamsSpec> =
+  {
+    ...rangeParams,
+    route: { kind: "string", maxLength: 512 },
+    method: { kind: "string", maxLength: 16 },
+    status: { kind: "enum", values: ["ok", "error", "4xx", "5xx"] },
+    search: { kind: "string", maxLength: 200 },
+    type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
+    release: { kind: "string", maxLength: 255 },
+    user: { kind: "string", maxLength: 256 },
+    hasErrors: { kind: "enum", values: ["true", "false"] },
+    service: { kind: "string", maxLength: 256 },
+    environment: { kind: "string", maxLength: 256 },
+  };
 
 export const errorListSpec: ErrorListParamsSpec = {
   limit: { kind: "int", min: 1, max: 200, default: 50 },
@@ -81,120 +109,82 @@ export const errorListSpec: ErrorListParamsSpec = {
   after: { kind: "cursor", maxLength: 256 },
   route: { kind: "string", maxLength: 512 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
-export const errorGroupSpec: ErrorGroupParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
+export const errorGroupSpec: StandaloneParamsSpec<ErrorGroupParamsSpec> = {
+  ...rangeParams,
   service: { kind: "string", maxLength: 256 },
+  triage: {
+    kind: "enum",
+    values: ["all", "open", "resolved", "regressed", "ignored"],
+  },
+  environment: { kind: "string", maxLength: 256 },
 };
 
 export const errorInsightsSpec: ErrorInsightsParamsSpec = {
   route: { kind: "string", maxLength: 512 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
-export const overviewSpec: OverviewParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
+export const overviewSpec: StandaloneParamsSpec<OverviewParamsSpec> = {
+  ...rangeParams,
   apdexMs: { kind: "int", min: 10, max: 10000, default: 300 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
-export const routeStatsSpec: RouteStatsParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
+export const routeStatsSpec: StandaloneParamsSpec<RouteStatsParamsSpec> = {
+  ...rangeParams,
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
-export const routeHistogramSpec: RouteHistogramParamsSpec = {
-  method: { kind: "string", maxLength: 16 },
-  route: { kind: "string", maxLength: 512 },
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
-  service: { kind: "string", maxLength: 256 },
-};
+export const routeHistogramSpec: StandaloneParamsSpec<RouteHistogramParamsSpec> =
+  {
+    method: { kind: "string", maxLength: 16 },
+    route: { kind: "string", maxLength: 512 },
+    ...rangeParams,
+    service: { kind: "string", maxLength: 256 },
+    environment: { kind: "string", maxLength: 256 },
+  };
 
-export const routeCompareSpec: RouteCompareParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
+export const routeCompareSpec: StandaloneParamsSpec<RouteCompareParamsSpec> = {
+  ...rangeParams,
   previous: { kind: "int", min: 1, max: 1, default: 1 },
   releaseA: { kind: "string", maxLength: 255 },
   releaseB: { kind: "string", maxLength: 255 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
-export const routeExplainSpec: RouteExplainParamsSpec = {
+export const routeExplainSpec: StandaloneParamsSpec<RouteExplainParamsSpec> = {
   method: { kind: "string", maxLength: 16 },
   route: { kind: "string", maxLength: 512 },
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 60,
-  },
+  ...rangeParams,
   releaseA: { kind: "string", maxLength: 255 },
   releaseB: { kind: "string", maxLength: 255 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
-export const classStatsSpec: ClassStatsParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
+export const classStatsSpec: StandaloneParamsSpec<ClassStatsParamsSpec> = {
+  ...rangeParams,
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
-export const appMapSpec: AppMapParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
+export const appMapSpec: StandaloneParamsSpec<AppMapParamsSpec> = {
+  ...rangeParams,
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 };
 
-export const queryStatsSpec: QueryStatsParamsSpec = {
-  windowMinutes: {
-    kind: "int",
-    min: 15,
-    max: 60,
-    oneOf: [15, 60],
-    default: 15,
-  },
+export const queryStatsSpec: StandaloneParamsSpec<QueryStatsParamsSpec> = {
+  ...rangeParams,
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
   sort: { kind: "enum", values: ["total", "count", "p95", "max"] },
   limit: { kind: "int", min: 1, max: 200, default: 50 },
 };
@@ -204,6 +194,26 @@ export const traceSpec: TraceParamsSpec = {
 };
 
 export const metaSpec: MetaParamsSpec = {};
+
+/** Issue #18 (D-105): `metric` is required, checked by the controller. */
+export const metricSeriesSpec: MetricSeriesParamsSpec = {
+  metric: { kind: "string", maxLength: 128 },
+  service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
+  instance: { kind: "string", maxLength: 256 },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  stepMs: { kind: "int", min: 60_000, max: 86_400_000 },
+  aggregation: { kind: "enum", values: ["sum", "avg", "max", "min"] },
+  by: { kind: "enum", values: ["instance"] },
+};
+
+export const metricCatalogSpec: MetricCatalogParamsSpec = {
+  service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
+  fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+  toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
+};
 
 /** More query parameters than this is a 400 before any is looked at. */
 export const MAX_QUERY_PARAMS = 32;
@@ -215,6 +225,26 @@ export type Parsed =
 
 function label(name: string): string {
   return JSON.stringify(name.length > 64 ? `${name.slice(0, 64)}…` : name);
+}
+
+/** `attr.<key>=<value>` query parameters (D-102; `@nestrix-js/protocol`'s attribute filter constants). */
+export const ATTRIBUTE_FILTER_PREFIX = "attr.";
+export const MAX_ATTRIBUTE_FILTERS = 4;
+export const MAX_ATTRIBUTE_FILTER_VALUE_LENGTH = 256;
+/** Why an attribute key cannot be filtered by (a phrase after the parameter's name), or `undefined`. */
+export type AttributeKeyCheck = (key: string) => string | undefined;
+
+/** The attribute filters of parsed values, as `[key, value]` pairs in query order. */
+export function attributeFiltersOf(
+  values: Values,
+): Array<readonly [string, string]> {
+  const out: Array<readonly [string, string]> = [];
+  for (const [name, value] of Object.entries(values)) {
+    if (name.startsWith(ATTRIBUTE_FILTER_PREFIX) && typeof value === "string") {
+      out.push([name.slice(ATTRIBUTE_FILTER_PREFIX.length), value]);
+    }
+  }
+  return out;
 }
 
 const INTEGER = /^-?\d{1,16}$/;
@@ -275,6 +305,7 @@ function parseOne(
 export function parseQuery(
   target: unknown,
   spec: Readonly<Record<string, ParamSpec>>,
+  attributes?: AttributeKeyCheck,
 ): Parsed {
   try {
     const url = typeof target === "string" ? target : "";
@@ -285,9 +316,46 @@ export function parseQuery(
     const values: Values = {};
     const seen = new Set<string>();
     let count = 0;
+    let attributeCount = 0;
     for (const [name, text] of params) {
       if (++count > MAX_QUERY_PARAMS) {
         return { ok: false, message: "Too many query parameters." };
+      }
+      if (
+        attributes !== undefined &&
+        name.startsWith(ATTRIBUTE_FILTER_PREFIX) &&
+        !Object.hasOwn(spec, name)
+      ) {
+        // D-102: `attr.<key>=<value>`, at most MAX_ATTRIBUTE_FILTERS, keys checked by the backend.
+        if (seen.has(name)) {
+          return {
+            ok: false,
+            message: `Query parameter ${label(name)} is given more than once.`,
+          };
+        }
+        seen.add(name);
+        if (++attributeCount > MAX_ATTRIBUTE_FILTERS) {
+          return {
+            ok: false,
+            message: `At most ${MAX_ATTRIBUTE_FILTERS} attribute filters (attr.<key>) can be given.`,
+          };
+        }
+        const problem = attributes(name.slice(ATTRIBUTE_FILTER_PREFIX.length));
+        if (problem !== undefined) {
+          return {
+            ok: false,
+            message: `Query parameter ${label(name)} ${problem}.`,
+          };
+        }
+        if (text.length > MAX_ATTRIBUTE_FILTER_VALUE_LENGTH) {
+          return {
+            ok: false,
+            message: `Query parameter ${label(name)} must be at most ${MAX_ATTRIBUTE_FILTER_VALUE_LENGTH} characters.`,
+          };
+        }
+        // An empty filter is no filter, as for every string parameter.
+        if (text !== "") values[name] = text;
+        continue;
       }
       if (!Object.hasOwn(spec, name)) {
         return {

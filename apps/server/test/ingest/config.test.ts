@@ -90,6 +90,41 @@ describe("loadConfig", () => {
     }
   });
 
+  it("reads NESTRIX_LOGS and the log bounds (D-106)", () => {
+    const store = (env: Record<string, string>) => {
+      const r = loadConfig({ DATABASE_URL: DB, ...env });
+      return r.ok ? r.config.logStore : undefined;
+    };
+    expect(store({})).toMatchObject({
+      mode: "trace",
+      retentionDays: 7,
+      maxPerTrace: 1_000,
+      maxPerMinute: 30_000,
+      searchConcurrency: 2,
+    });
+    expect(
+      store({ NESTRIX_LOG_SEARCH_CONCURRENCY: "16" })?.searchConcurrency,
+    ).toBe(16);
+    for (const bad of ["0", "17", "x"]) {
+      expect(
+        errors({ DATABASE_URL: DB, NESTRIX_LOG_SEARCH_CONCURRENCY: bad })[0],
+      ).toMatch(/^NESTRIX_LOG_SEARCH_CONCURRENCY must be a whole number/);
+    }
+    expect(store({ NESTRIX_RETENTION_DAYS: "14" })?.retentionDays).toBe(14);
+    expect(
+      store({ NESTRIX_LOGS: "ALL", NESTRIX_LOG_RETENTION_DAYS: "2" }),
+    ).toMatchObject({ mode: "all", retentionDays: 2 });
+    expect(errors({ DATABASE_URL: DB, NESTRIX_LOGS: "some" })[0]).toMatch(
+      /^NESTRIX_LOGS accepts "trace" or "all"/,
+    );
+    expect(
+      errors({ DATABASE_URL: DB, NESTRIX_LOG_RETENTION_DAYS: "8" })[0],
+    ).toMatch(/cannot exceed NESTRIX_RETENTION_DAYS \(7\)/);
+    expect(
+      errors({ DATABASE_URL: DB, NESTRIX_LOGS_MAX_PER_TRACE: "199" })[0],
+    ).toMatch(/^NESTRIX_LOGS_MAX_PER_TRACE must be a whole number/);
+  });
+
   it("accepts the explicit opt-out", () => {
     const result = loadConfig({
       DATABASE_URL: DB,

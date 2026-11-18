@@ -12,7 +12,11 @@ import {
   releaseBars,
   releaseText,
   routeBreakdown,
+  TRIAGE_LABEL,
+  TRIAGE_TITLE,
   totalEvents,
+  triageActions,
+  triageText,
   typeBreakdown,
   typeCounts,
 } from "./errors-stats";
@@ -211,5 +215,30 @@ describe("releaseBars", () => {
     expect(r.bars.map((b) => b.value)).toEqual([3, 5]);
     expect(r.bars[1]?.valueLabel).toBe("5 events");
     expect(releaseBars([])).toEqual({ metric: "events", bars: [] });
+  });
+});
+
+describe("stored triage (issue #26)", () => {
+  it("words the stored state beside the computed one", () => {
+    expect(triageText({ state: "open" })).toBe("Open");
+    expect(triageText({ state: "resolved", resolvedInRelease: "1.2.0" })).toBe(
+      "Resolved in 1.2.0",
+    );
+    expect(triageText({ state: "resolved" })).toBe("Resolved");
+    expect(
+      triageText({ state: "regressed", resolvedInRelease: "1.2.0" }, "1.3.0"),
+    ).toBe("Regressed: resolved in 1.2.0, back in 1.3.0");
+    expect(triageText({ state: "regressed" })).toBe("Regressed");
+    expect(triageText({ state: "ignored" })).toBe("Ignored");
+  });
+  it("offers each state the actions that change it", () => {
+    expect(triageActions("open")).toEqual(["resolve", "ignore"]);
+    expect(triageActions("resolved")).toEqual(["ignore", "reopen"]);
+    expect(triageActions("regressed")).toEqual(["resolve", "ignore", "reopen"]);
+    expect(triageActions("ignored")).toEqual(["reopen"]);
+    for (const state of ["open", "resolved", "regressed", "ignored"] as const) {
+      expect(TRIAGE_LABEL[state]).not.toBe("");
+      expect(TRIAGE_TITLE[state]).not.toBe("");
+    }
   });
 });

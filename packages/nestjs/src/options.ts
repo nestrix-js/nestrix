@@ -316,6 +316,28 @@ export interface NestrixErrorsOptions {
     | ((exception: unknown) => boolean | undefined);
 }
 
+/**
+ * The local tail decision (D-100), active when `sampleRate` is below 1 and Nestrix owns the tracer
+ * provider. A new trace the ratio leaves out is recorded in full and held in memory until its local
+ * root span ends (at most 10,000 spans and 10,000 undecided traces in the process, the oldest
+ * undecided trace dropped first and counted in `getExportStatus().traces.dropped`), then exported
+ * when a rule below keeps it, else dropped. A trace whose incoming `traceparent` says not sampled
+ * is not recorded: the calling service decided.
+ */
+export interface NestrixSamplingOptions {
+  /**
+   * Keep every trace in which a span failed: status error, unless every exception on it is
+   * expected (`errors.expected`; a 4xx `HttpException` is expected by default). Default `true`.
+   */
+  keepErrors?: boolean;
+  /**
+   * Keep every trace whose local root span (the request, the job) took longer than this many
+   * milliseconds. Default `false` (off): a useful threshold depends on the app, and any default
+   * would export more than `sampleRate` says without being asked.
+   */
+  keepSlowerThanMs?: number | false;
+}
+
 export interface NestrixModuleOptions {
   /** Default `true`. `false`, or `NESTRIX_ENABLED=false` in the environment, registers nothing at all. */
   enabled?: boolean;
@@ -331,7 +353,8 @@ export interface NestrixModuleOptions {
   serviceVersion?: string;
   /**
    * Reads the user behind a request, recorded as `user.id` on the server span (D-56). Off by
-   * default: a user id is personal data. Called once per sampled request, when the response has
+   * default: a user id is personal data. Called once per recorded request (below `sampleRate` 1, every request while
+   * the tail decision runs, D-100), when the response has
    * closed and before the server span ends, with the same request object guards get from
    * `context.switchToHttp().getRequest()`: Express's `req`, Fastify's `FastifyRequest` (not
    * `request.raw`), platform-node's `IncomingMessage`. So `request.user` set by a guard (Passport's
@@ -341,6 +364,34 @@ export interface NestrixModuleOptions {
    * nothing and is counted; the request is never affected. The attribute goes through `redact`.
    */
   user?(request: unknown): string | number | undefined;
+  /**
+   * Reads attributes of a request, such as its tenant or API client, set on the server span
+   * (issue #27, D-102): `{ 'tenant.id': request.user?.tenantId, 'app.client_id': ... }`. Off by
+   * default: a tenant id can be personal data. Called with the same request object as `user`, at
+   * most once per sampled request: when the response has closed, or earlier when the handler
+   * queues a job and `contextPropagation.keys` lists a key (guards have run by then). Must be
+   * synchronous and return a plain object. Values: strings (cut to 256 characters), finite numbers,
+   * booleans; `undefined` skips the key. At most 32 keys; names start with a letter and use
+   * letters, digits, `_`, `.` and `-`; the `nestrix.`, `http.`, `url.`, `exception.` and other
+   * semantic-convention prefixes and `user.id` are refused. A throw, a promise or an invalid entry
+   * records nothing for it and is counted; the request is never affected. Values go through
+   * `redact`. For work without a request, call `setTraceAttributes()`.
+   */
+  context?(
+    request: unknown,
+  ): Record<string, string | number | boolean | undefined> | undefined;
+  /**
+   * Carries some `context` and `setTraceAttributes()` keys to the jobs a request queues, as W3C
+   * baggage in BullMQ's job metadata (`bullmqTelemetry()`), so the job's consumer span in the worker
+   * carries them too (D-102). Default: nothing is propagated. The worker process must list the same
+   * keys: only listed keys are read back from a job. With `outgoing: true` they are also sent in the
+   * `baggage` header of outgoing HTTP requests (`node:http`, `fetch`) to every downstream service,
+   * so leave it off unless those services are your own. At most 16 keys.
+   */
+  contextPropagation?: {
+    keys: string[];
+    outgoing?: boolean;
+  };
   /** Method spans (level 2). `false` turns them off. */
   methods?: false | NestrixMethodsOptions;
   /** Database and cache spans (level 3). */
@@ -348,11 +399,18 @@ export interface NestrixModuleOptions {
   /** Extra resource attributes. `OTEL_RESOURCE_ATTRIBUTES` is honoured too; these win. */
   resourceAttributes?: Record<string, string | number | boolean>;
   /**
-   * Head sampling ratio for new root traces, 0 to 1. Default 1. Implemented as
-   * `ParentBased(TraceIdRatioBased(sampleRate))`, so an incoming sampled `traceparent` is honoured.
-   * Ignored when the host owns the SDK.
+   * Head sampling ratio for new root traces, 0 to 1. Default `NESTRIX_SAMPLE_RATE` when set (read
+   * only when this option is not given; a value that is not a number from 0 to 1 is a startup
+   * error), else 1. Implemented as `ParentBased(TraceIdRatioBased(sampleRate))`, so an incoming
+   * `traceparent` decides for its trace, sampled or not. Below 1, a new trace the ratio leaves out
+   * is still recorded until its root span ends, and exported when it failed or was slow (see
+   * `sampling`, D-100); calls to other services still carry the ratio's decision. Every exported
+   * local root carries `nestrix.sampling.probability`, the chance it had of being kept (the
+   * standalone server weights its counts by it). Ignored when the host owns the SDK.
    */
   sampleRate?: number;
+  /** What sampling keeps besides `sampleRate`'s share (D-100). Ignored when the host owns the SDK. */
+  sampling?: NestrixSamplingOptions;
   /**
    * Most spans one trace records in this process (D-78). Default 10,000; at least 100; `false`
    * turns the limit off. Spans past the limit are not recorded, and neither are their children;

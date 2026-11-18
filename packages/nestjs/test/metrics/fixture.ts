@@ -23,10 +23,15 @@ export const ADAPTERS = ["express", "fastify", "node"] as const;
 
 @Controller("m")
 export class MetricsController {
-  /** Also says whether the active span records, to show the sample rate took effect. */
+  /**
+   * Also says whether the active span was sampled by the head decision (its trace flags), to show
+   * the sample rate took effect. Below rate 1 an unsampled span still records for the tail
+   * decision (D-100), so `isRecording()` no longer tells the two apart.
+   */
   @Get("ok/:id")
   ok(@Param("id") id: string): { id: string; recording: boolean } {
-    return { id, recording: trace.getActiveSpan()?.isRecording() ?? false };
+    const flags = trace.getActiveSpan()?.spanContext().traceFlags ?? 0;
+    return { id, recording: (flags & 1) === 1 };
   }
 
   @Get("boom")

@@ -18,6 +18,7 @@ Nest-aware OpenTelemetry tracing for NestJS 12+. Add one module and your app pro
 - [Large traces: `maxSpansPerTrace`](#large-traces-maxspanspertrace)
 - [Microservices](#microservices)
 - [Releases and users](#releases-and-users)
+- [Tenants, request ids and other attributes](#tenants-request-ids-and-other-attributes)
 - [Metrics](#metrics)
 - [Custom spans](#custom-spans)
 - [Errors: occurrences, expected exceptions, `recordError`](#errors-occurrences-expected-exceptions-recorderror)
@@ -120,7 +121,7 @@ If your app registers its own tracer provider before Nestrix starts (that is, be
 
 **One rule for every signal.** Nestrix exports a signal itself only when it owns the trace provider and trace export is on (an endpoint resolves and `export.otlp` is not `false`). That holds for traces, for metrics and for logs. With a host-owned SDK, Nestrix never starts a `MeterProvider` or a `LoggerProvider` of its own: metrics are recorded through `@opentelemetry/api`, so your `MeterProvider` receives them, and with `logs.export: true` Nestrix logs one line saying it registers no `LoggerProvider`. A logs or metrics endpoint variable alone (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`) never turns export on.
 
-**Several Nestrix apps in one process** (an e2e suite, for example) share what the first one set up: its `export`, `sampleRate`, resource and `redact` settings, and the outbound `ignore.outgoing` and `http` settings. Later apps' values for those are ignored; Nestrix logs one line when that happens.
+**Several Nestrix apps in one process** (an e2e suite, for example) share what the first one set up: its `export`, `sampleRate`, `sampling`, resource and `redact` settings, and the outbound `ignore.outgoing` and `http` settings. Later apps' values for those are ignored; Nestrix logs one line when that happens.
 
 Nestrix registers its OpenTelemetry globals during `NestFactory.create`, never at import time or when `forRoot()` runs. If you start your SDK in the body of `main.ts` after importing `AppModule`, start it before `NestFactory.create`.
 
@@ -273,7 +274,7 @@ Per-route statistics (the Routes view) count **every request**, whatever the sam
 - Each key keeps one-minute buckets for the last 60 minutes: request count, error count, and a duration histogram that gives p50, p95 and p99 (30 log-spaced buckets from 1 ms to 60 s, so a percentile is accurate to a bucket, not exact).
 - At most 500 keys are tracked; further routes are counted together under `* (other)` (method `*`, route `(other)`).
 
-The request list and the error list come from stored spans, so they **are sampled**. The dashboard says so when `sampleRate` is below 1, and says they may be when your SDK owns the sampler. At `sampleRate: 0.1`, the Routes view shows every request and the list shows about one in ten.
+The request list and the error list come from stored spans, so they **are sampled**. The dashboard says so when `sampleRate` is below 1, and says they may be when your SDK owns the sampler. At `sampleRate: 0.1`, the Routes view shows every request and the list shows about one in ten of the successful ones, and every failed one (`sampling.keepErrors`).
 
 **What is an error.** A span is an error when its status code is `error`. For a server span that means a 5xx response, or a handler exception that maps to 5xx. A thrown `NotFoundException` (404) or any other expected exception keeps its exception event in the trace detail, marked expected, but counts as no error in route statistics, the error list, the error groups or the error filter. The error list holds error occurrences: stored spans with error status, client spans and your own spans included, with one thrown error counted once per trace, on the deepest span that recorded it. See [Errors](#errors-occurrences-expected-exceptions-recorderror).
 
@@ -447,10 +448,16 @@ That sample sets most options to their defaults, except where a default is "unse
 | `enabled` | `true` | `false` registers nothing at all. `NESTRIX_ENABLED=false` (or `0`) in the environment does the same and wins over `enabled: true`: it is a kill switch. |
 | `serviceName` | `OTEL_SERVICE_NAME`, then the SDK's default | The `service.name` resource attribute. |
 | `resourceAttributes` | none | Extra resource attributes. `OTEL_RESOURCE_ATTRIBUTES` is honoured too; these win. |
-| `sampleRate` | `1` | Head sampling ratio for new root traces, 0 to 1. Implemented as a parent-based ratio sampler, so an incoming sampled `traceparent` is honoured whatever the ratio. Ignored when your app owns the SDK. |
+| `sampleRate` | `NESTRIX_SAMPLE_RATE`, else `1` | Head sampling ratio for new root traces, 0 to 1. Implemented as a parent-based ratio sampler, so an incoming `traceparent` decides for its trace, sampled or not. Below 1, a new trace the ratio leaves out is still recorded until its first span in this process (the request, the job) ends, and is exported anyway when it failed or was slow (see `sampling`); calls to other services carry the ratio's decision. Every exported local root carries `nestrix.sampling.probability`, the chance it had of being kept (`1` for a failed or slow one), which the standalone server uses to weight its counts. Ignored when your app owns the SDK. |
+| `sampling.keepErrors` | `true` | Below `sampleRate` 1, export every trace in which a span failed (status error, unless every exception on it is expected; a 4xx is expected by default). Ignored when your app owns the SDK. |
+| `sampling.keepSlowerThanMs` | `false` (off) | Below `sampleRate` 1, export every trace whose local root took longer than this many milliseconds (a positive number). Ignored when your app owns the SDK. See [Sampling](#sampling-keep-errors-and-slow-requests). |
 | `maxSpansPerTrace` | `10000` | Most spans one trace records in this process; at least `100`; `false` turns the limit off. Spans past it are counted, not recorded. When your app owns the SDK, only Nestrix's own spans are limited. See [Large traces](#large-traces-maxspanspertrace). |
 | `serviceVersion` | the chain in [Releases and users](#releases-and-users) | The `service.version` every trace carries. |
 | `user` | none (off) | A synchronous function that returns the user id for a request, recorded as `user.id`. See [Releases and users](#releases-and-users). |
+| `context` | none (off) | A synchronous function that returns attributes of a request (`{ 'tenant.id': ... }`), set on its server span. See [Tenants, request ids and other attributes](#tenants-request-ids-and-other-attributes). |
+| `contextPropagation` | `{ keys: [] }` | Which `context` and `setTraceAttributes()` keys travel to the jobs a request queues (BullMQ metadata) and, with `outgoing: true`, in the `baggage` header of outgoing requests. See [Tenants, request ids and other attributes](#tenants-request-ids-and-other-attributes). |
+| `contextPropagation.keys` | `[]` | At most 16 attribute names. Only these travel, and a worker reads back only the keys it lists itself. |
+| `contextPropagation.outgoing` | `false` | `true` also sends the keys in the `baggage` header of outgoing `node:http` and `fetch` requests, to every downstream service. |
 | `methods` | see below | Method spans for your own classes. Needs `NestrixInstrument`. See [`methods`](#methods). |
 | `integrations` | see below | Database and cache spans. See [`integrations`](#integrations). |
 | `export` | see below | Export settings. |
@@ -559,7 +566,7 @@ The lists add to the privacy defaults below; they never replace them.
 |---|---|---|
 | `http.requestHeaders` | none | Extra request headers recorded as `http.request.header.<name>`. |
 | `http.responseHeaders` | none | Extra response headers recorded as `http.response.header.<name>`. |
-| `http.redactQueryKeys` | none | Extra query-string keys whose values are replaced by `REDACTED`. |
+| `http.redactQueryKeys` | none | Extra query-string keys whose values are replaced by `REDACTED`. With several apps in one process, log export (`logs.export`) uses the keys of the first app that enabled it. |
 | `http.recordPath` | `'raw'` | What the server span records as `url.path`. `'raw'`: the path as sent, with the values of `http.redactPathParams` written as `REDACTED`. `'template'`: the matched route template (`/invitations/:token`, the same value as `http.route`); a request that matched no route (a 404) records no `url.path`. `ignore.paths` always matches the raw path. |
 | `http.redactPathParams` | none | Extra route parameter names (`token` for `/invitations/:token`) whose values are written as `REDACTED` in `url.path`, case-insensitive. Added to the default list (see Privacy). |
 | `http.redactOutgoingPath` | none | Path patterns whose `:name` segments are written as `REDACTED` in an outgoing request's `url.full`: `'/v1/invitations/:token'`, or with an origin, `'https://api.example.com/v1/invitations/:token'`. `*` matches any one segment; other segments must be equal; a pattern matches the start of the path. A `RegExp` runs on the path, and each capture group (or the whole match) becomes `REDACTED`. |
@@ -606,6 +613,7 @@ Ignored while the dashboard is off. See [Memory and the `store` option](#memory-
 | Variable | Effect |
 |---|---|
 | `NESTRIX_ENABLED` | `false` or `0` (any case) registers nothing at all, and `NestrixInstrument` leaves instances untouched. Importing the package then loads neither the OpenTelemetry SDK nor the exporters nor the dashboard code: they are loaded with `import()` while Nest builds an app that has Nestrix on. |
+| `NESTRIX_SAMPLE_RATE` | Default for `sampleRate`, read only when `sampleRate` is not set in code: a decimal from 0 to 1 (`0.1`). Anything else (`10%`, `1e-1`, `abc`) is a startup error naming the variable; blank is unset. |
 | `OTEL_SERVICE_NAME` | Default for `serviceName`. |
 | `OTEL_RESOURCE_ATTRIBUTES` | `key=value,key2=value2`, merged into the resource; `resourceAttributes` wins. |
 | `GIT_SHA` | The release (`service.version`) when no option or `OTEL_RESOURCE_ATTRIBUTES` sets one. |
@@ -625,7 +633,7 @@ Ignored while the dashboard is off. See [Memory and the `store` option](#memory-
 | `OTEL_EXPORTER_OTLP_METRICS_HEADERS_FILE` | The same, for `OTEL_EXPORTER_OTLP_METRICS_HEADERS`. |
 | `OTEL_METRIC_EXPORT_INTERVAL` | Milliseconds between metric exports. Default `60000`; a value that is not a positive integer is ignored. |
 
-An option always wins over the variable of the same meaning. Nestrix itself reads no other `OTEL_*` variables. In particular `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG`, `OTEL_SDK_DISABLED` and `OTEL_EXPORTER_OTLP_PROTOCOL` are not read: use `sampleRate` and `enabled` (or `NESTRIX_ENABLED`), and note that export is OTLP/HTTP with protobuf only. The OTLP exporter Nestrix uses reads a few on its own, though: the OTLP exporter it uses reads some on its own:
+An option always wins over the variable of the same meaning. Nestrix itself reads no other `OTEL_*` variables. In particular `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG`, `OTEL_SDK_DISABLED` and `OTEL_EXPORTER_OTLP_PROTOCOL` are not read: use `sampleRate` (or `NESTRIX_SAMPLE_RATE`) and `enabled` (or `NESTRIX_ENABLED`), and note that export is OTLP/HTTP with protobuf only. The OTLP exporter Nestrix uses reads a few on its own, though: the OTLP exporter it uses reads some on its own:
 
 - `OTEL_EXPORTER_OTLP_COMPRESSION` and `OTEL_EXPORTER_OTLP_TRACES_COMPRESSION` take effect (read by `@opentelemetry/otlp-exporter-base` 0.301.1; found in its source, not run through Nestrix).
 - `OTEL_EXPORTER_OTLP_TIMEOUT` has no effect: Nestrix always passes `timeoutMillis` (default 10000).
@@ -889,6 +897,35 @@ GET /orders                      server
 
 The consumer span is a **child** of the producer span in the same trace, with no span link, so a request and the jobs it queued show as one trace, however much later the worker ran them. A job added outside a request (no active span) starts a trace of its own. Making a long or repeated job its own trace, linked to the request that queued it, is planned (D-78), not built. Without `telemetry`, the processor's method span (if `NestrixInstrument` is on) is a root span: nothing connects it to the request that queued the job. In the dashboard's request list, the `jobs` type filter shows traces that a job started.
 
+## Sampling: keep errors and slow requests
+
+`sampleRate` (or `NESTRIX_SAMPLE_RATE` in the environment) samples new traces by ratio. When Nestrix owns the SDK and the rate is below 1, it also takes a local tail decision, so a failed or slow request is never lost to the ratio:
+
+<!-- sample: sampling -->
+
+```ts
+import { Module } from "@nestjs/common";
+import { NestrixModule } from "@nestrix-js/nestjs";
+
+@Module({
+  imports: [
+    NestrixModule.forRoot({
+      // One in ten traces, plus every failed request and every request slower than 1 s.
+      sampleRate: 0.1,
+      sampling: { keepErrors: true, keepSlowerThanMs: 1000 },
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+- A new trace the ratio leaves out is still recorded. Its spans are held in memory until its first span in this process (the request's server span, a job's span) ends. The trace is then exported in full when a span in it failed (`keepErrors`, default on; expected exceptions such as a 4xx do not count) or that root took longer than `keepSlowerThanMs` (default off), and dropped otherwise.
+- Other services see the ratio's decision: a `traceparent` sent from an undecided trace carries the sampled flag off (`-00`), so a downstream service does not record its part of a trace that is later kept here. An incoming `traceparent` decides for its trace as before; an unsampled one is not recorded at all.
+- Every exported local root carries `nestrix.sampling.probability`: the ratio for a trace the ratio kept, `1` for one a rule kept. The standalone server weights its route counts by it, so its counts, error rates, SLOs and alerts stand for every request (an estimate).
+- **Memory bound.** At most 10,000 spans are held in the whole process, over at most 10,000 undecided traces, and one trace holds at most `maxSpansPerTrace`. The dashboard's log lines for an undecided trace are held too, count against the same 10,000 (at most 50 per trace, and at most about 4 MiB of log text in the process; a line past either bound is dropped) and reach the store only if the trace is kept. Past the bound the oldest undecided trace that holds something is dropped, its spans are counted in `getExportStatus().traces.dropped`, and a log line says so once. Measured: 10,000 held method spans with four attributes each took about 9 MB of heap; spans with long attribute values (SQL text) take more.
+- **Cost.** Below rate 1 every request records its spans, so the per-request CPU cost is that of rate 1; only export is saved. `trace.getActiveSpan()?.isRecording()` is then `true` for unsampled requests too. `keepErrors: false` with no `keepSlowerThanMs` turns the tail decision off and gives plain head sampling.
+- Route statistics, the Classes view and the request-duration metric are counted before sampling either way.
+
 ## Large traces: `maxSpansPerTrace`
 
 A job that touches every row of a table can put thousands, or millions, of spans into one trace: one per query, per Redis command, per method call. Nothing can show a trace like that usefully, and every span costs memory, export bandwidth and storage. So Nestrix records at most `maxSpansPerTrace` spans of one trace in each process (default `10000`; at least `100`; `false` turns the limit off):
@@ -982,7 +1019,7 @@ export const client = instrumentClient(
 
 **Release.** Every trace carries `service.version`, so the request list can be filtered by release and a deploy that made things worse shows up. Nestrix takes the first of these that is set: the `serviceVersion` option, `service.version` in `resourceAttributes`, `service.version` in `OTEL_RESOURCE_ATTRIBUTES`, the `GIT_SHA` environment variable, then `npm_package_version` (set by `npm run` and `pnpm run`, not by `node dist/main.js`). When your app owns the SDK, its resource wins and these are ignored.
 
-**User.** Which user made a request is personal data, so it is **off** unless you give `user`: a function that reads the request and returns a string or number. It runs once per sampled request, as the response closes, with the object your guards get from `context.switchToHttp().getRequest()` (Express's `req`, Fastify's `FastifyRequest`, platform-node's `IncomingMessage`). Guards have run by then, so a `request.user` set by Passport's `AuthGuard` or your own guard is visible. It is `undefined` on a route with no guard, and when a guard rejected the request. The result is recorded as `user.id`, cut to 256 characters, and goes through `redact`. The function must be synchronous; a throw, a promise or any other result records nothing and never affects the request.
+**User.** Which user made a request is personal data, so it is **off** unless you give `user`: a function that reads the request and returns a string or number. It runs once per recorded request (below `sampleRate` 1 that is every request while [sampling](#sampling-keep-errors-and-slow-requests) can keep one), as the response closes, with the object your guards get from `context.switchToHttp().getRequest()` (Express's `req`, Fastify's `FastifyRequest`, platform-node's `IncomingMessage`). Guards have run by then, so a `request.user` set by Passport's `AuthGuard` or your own guard is visible. It is `undefined` on a route with no guard, and when a guard rejected the request. The result is recorded as `user.id`, cut to 256 characters, and goes through `redact`. The function must be synchronous; a throw, a promise or any other result records nothing and never affects the request.
 
 <!-- sample: release-user -->
 
@@ -1004,6 +1041,64 @@ export class AppModule {}
 ```
 
 The dashboard's request list shows release and user columns when any stored trace has them, and filters by release, user and trace type (HTTP, jobs, scheduled).
+
+## Tenants, request ids and other attributes
+
+To answer "what happened to tenant X's requests and jobs" or "show me the trace of request id Y", put the tenant (or API client) on the trace and filter by it. Nothing here is recorded unless you configure it: a tenant id can be personal data.
+
+**`context`.** A synchronous function, read like `user`: once per sampled request, with the request object your guards get, after they ran. It returns a plain object; each entry becomes an attribute of the request's server span.
+
+<!-- sample: tenant-context -->
+
+```ts
+import { Module } from "@nestjs/common";
+import { NestrixModule } from "@nestrix-js/nestjs";
+
+@Module({
+  imports: [
+    NestrixModule.forRoot({
+      // Off unless set. `request` is what your guards get, after they ran.
+      context: (request: {
+        user?: { tenantId?: string; clientId?: string };
+      }) => ({
+        "tenant.id": request.user?.tenantId,
+        "app.client_id": request.user?.clientId,
+      }),
+      // Carried to the jobs the request queues; the worker must list the same keys.
+      contextPropagation: { keys: ["tenant.id"] },
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+Values are strings (cut to 256 characters), finite numbers or booleans; `undefined` skips a key. At most 32 keys; a name starts with a letter and uses letters, digits, `_`, `.` and `-`. Names Nestrix or the OpenTelemetry conventions own are refused: the `nestrix.`, `http.`, `url.`, `exception.`, `error.`, `server.`, `client.`, `network.`, `db.`, `messaging.`, `rpc.`, `service.`, `telemetry.`, `otel.`, `code.` and `user_agent.` prefixes, and `user.id` (that is the `user` option). A throw, a promise, a result that is not a plain object or an invalid entry records nothing for it and is counted; the request is never affected. Values go through `redact`.
+
+**`setTraceAttributes(attributes)`.** For work without a request (a BullMQ job, a scheduled tick), or a value known only inside the handler: sets the same kind of attributes on the local root span of the current trace (the request's server span, the job's or tick's root span, else the active span). Same rules as `context`; it never throws and does nothing while Nestrix is disabled.
+
+<!-- sample: tenant-job -->
+
+```ts
+import { Processor, WorkerHost } from "@nestjs/bullmq";
+import type { Job } from "bullmq";
+import { setTraceAttributes } from "@nestrix-js/nestjs";
+
+@Processor("reports")
+export class ReportProcessor extends WorkerHost {
+  async process(job: Job<{ tenantId: string }>): Promise<void> {
+    // On the job's root span; listed in contextPropagation.keys, it also reaches the jobs this one queues.
+    setTraceAttributes({ "tenant.id": job.data.tenantId });
+  }
+}
+```
+
+**Jobs.** `contextPropagation.keys` (at most 16) lists the keys that travel, as W3C baggage, in the job metadata `bullmqTelemetry()` stores with each job. The worker reads back only the keys its own `contextPropagation.keys` lists and sets them on the job's consumer span, so a job queued by tenant `acme`'s request carries `tenant.id = acme` in the worker, and the jobs it queues carry it on. A value that arrived in an incoming request's `baggage` header is never passed on as the request's own: only values Nestrix set travel. Nestrix does not put them in the OpenTelemetry context's baggage, so a host propagator does not send them anywhere. The worker trusts its queue: every producer must list the same `contextPropagation.keys`, or must not run an SDK baggage propagator. Otherwise a client's incoming `baggage: tenant.id=...` header can be copied into job metadata by the host's propagator, and the worker reads it as the tenant. Listed keys replace any entry with the same key already in the host's baggage. Propagated values are sent as given: `redact` applies when spans are exported, not to the baggage. Nestrix's entries come first in the header and the whole header stays within 8192 characters; an entry that would not fit is skipped and counted.
+
+**Outgoing requests.** With `contextPropagation: { keys, outgoing: true }` the same keys are also added to the `baggage` header of outgoing `node:http` and `fetch` requests. Every downstream service then receives your tenant ids, so leave it off unless they are your own.
+
+**Filtering.** The trace list, the timeline, the error list and the error groups take `attr.<key>=<value>` (at most 4, all must match, the value compared exactly with the attribute's text: `12`, `true`). The value is the trace root's, else the first span's in the trace that has the key. The embedded dashboard accepts any well-formed key and offers the keys this process set or propagates (`meta.attributeFilters`); the [standalone server](../../apps/server/README.md) only the keys it indexes (`NESTRIX_INDEXED_ATTRIBUTES`).
+
+**Request ids.** `x-request-id` is on the default header allowlist, so its value is recorded on the server span. The request list's search box also matches a recorded request id exactly (request or response header), so the id a customer quotes from an error answer finds its trace.
 
 ## Metrics
 
@@ -1225,7 +1320,7 @@ If your app already registered a `LoggerProvider`, the records go to it and Nest
 
 ### Logs from your own logger
 
-An app that keeps its own logger (a `ConsoleLogger` subclass with its own redaction, pino, winston) sends its lines through the same path with `emitLog({ level, message, context?, error?, attributes? })`. Nestrix still patches nothing: you call it from your logger's print path. A record goes where a `NestrixLogger` line goes, under the same rules: to `/v1/logs` with the active span's trace and span id when `logs.export` is on, and next to its trace in the dashboard while a recording span is active (`ui.logs`). The message is sent as given (a string as is, an `Error` as its message, anything else as JSON), cut to 8,192 characters. `level` is Nest's (`verbose`, `debug`, `log`, `warn`, `error`, `fatal`; anything else counts as `log`); `error` takes an `Error` or a stack string and is exported as `exception.stacktrace` (never kept in the dashboard); `attributes` are added to the exported record only. `emitLog` prints nothing, redacts nothing and never throws. With Nestrix disabled (`enabled: false`, `NESTRIX_ENABLED=false`), or with neither log export nor the dashboard on, it returns after two reads and does not look at the record.
+An app that keeps its own logger (a `ConsoleLogger` subclass with its own redaction, pino, winston) sends its lines through the same path with `emitLog({ level, message, context?, error?, attributes? })`. Nestrix still patches nothing: you call it from your logger's print path. A record goes where a `NestrixLogger` line goes, under the same rules: to `/v1/logs` with the active span's trace and span id when `logs.export` is on, and next to its trace in the dashboard while a recording span is active (`ui.logs`). The message is sent as given (a string as is, an `Error` as its message, anything else as JSON), cut to 8,192 characters. `level` is Nest's (`verbose`, `debug`, `log`, `warn`, `error`, `fatal`; anything else counts as `log`); `error` takes an `Error` or a stack string and is exported as `exception.stacktrace` (never kept in the dashboard); `attributes` are added to the exported record only, after Nestrix's built-in scrub rule: `http.request.header.*` / `http.response.header.*` attributes for `authorization`, `proxy-authorization`, `cookie` and `set-cookie` become `["REDACTED"]`, the listed query keys in `url.query` and `url.full` are `REDACTED`, and `url.full` loses its fragment and any `user:password@` (an attribute that cannot be read is left out; attributes that cannot be cleaned at all drop the record, counted). That is all it redacts: the message and the stack are sent as given, other attributes are not filtered, and the `redact` hook (which is for spans) does not run on log records. `emitLog` prints nothing and never throws. With Nestrix disabled (`enabled: false`, `NESTRIX_ENABLED=false`), or with neither log export nor the dashboard on, it returns after two reads and does not look at the record.
 
 **Redact before you call it.** Nestrix sends exactly the message you pass, so pass the one your logger already redacted. A `ConsoleLogger` subclass masks the message, then hands it to `emitLog` and to `super`:
 
@@ -1338,6 +1433,8 @@ By default Nestrix records no request or response bodies, no query bind paramete
 - `url.full` on outgoing requests has credentials removed and the same query keys redacted. Path segments of outgoing URLs are kept unless `http.redactOutgoingPath` covers them.
 
 `http.requestHeaders`, `http.responseHeaders`, `http.redactQueryKeys` and `http.redactPathParams` add to these lists.
+
+Before a span is exported or stored, Nestrix's own redaction runs on its attributes **and on the attributes of each of its events** (an exception event from `recordError(error, attributes)`, an event your code adds with `span.addEvent`, an event from another instrumentation), including spans from other instrumentations: `url.query` and the query of `url.full` lose the values of the listed keys, `url.full` loses its fragment and any `user:password@`, and `http.request.header.*` / `http.response.header.*` attributes for the always-redacted headers become `["REDACTED"]`. The same rule runs on the attributes of each of a span's links before the Nestrix-owned exporter sends them (links are not given to the `redact` hook; the dashboard keeps only link ids), and on the `attributes` of an `emitLog` record before it is exported ([Logs](#logs)). If an attribute cannot be read safely it is removed; if an event's or link's attributes cannot be read at all they are emptied, and a span or log record that cannot be cleaned is dropped. Other header attributes set by your code or another instrumentation are kept as they are; the allowlist decides only which headers Nestrix itself records.
 
 Key-based redaction cannot clean free text. Exception messages and status messages are stored as they are. Use `redact` for those.
 

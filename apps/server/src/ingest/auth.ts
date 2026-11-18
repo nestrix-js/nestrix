@@ -10,9 +10,11 @@ export type AuthResult =
   /**
    * `principal` names the rate-limit bucket: `key:<n>` for a key, `ip:<address>` with auth off.
    * `owner` is the stable ownership identity of the key (a fingerprint of its digest), which survives a
-   * reorder or rotation of the key list; `undefined` with auth off.
+   * reorder or rotation of the key list; `undefined` with auth off. `environment` (issue #28, D-101):
+   * the environment the key is bound to, which overrides what the records' resources claim;
+   * `undefined` for an unbound key and with auth off.
    */
-  | { ok: true; principal: string; owner?: string }
+  | { ok: true; principal: string; owner?: string; environment?: string }
   | { ok: false; message: string };
 
 function digest(value: string): Buffer {
@@ -70,12 +72,13 @@ export class IngestAuth {
       if (timingSafeEqual(presented, this.digests[i]) && match === -1)
         match = i;
     }
-    return match === -1
-      ? { ok: false, message: "invalid API key" }
-      : {
-          ok: true,
-          principal: `key:${match}`,
-          owner: fingerprint(this.digests[match] as Buffer),
-        };
+    if (match === -1) return { ok: false, message: "invalid API key" };
+    const environment = this.config.keyEnvironments[match] ?? null;
+    return {
+      ok: true,
+      principal: `key:${match}`,
+      owner: fingerprint(this.digests[match] as Buffer),
+      ...(environment === null ? {} : { environment }),
+    };
   }
 }

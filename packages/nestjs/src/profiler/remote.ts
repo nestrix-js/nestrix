@@ -376,6 +376,9 @@ export class RemoteProfilerPoller {
     };
     if (identity.version !== undefined) body.version = identity.version;
     if (identity.host !== undefined) body.host = identity.host;
+    if (identity.environment !== undefined) {
+      body.environment = identity.environment;
+    }
     const version = readSdkVersion();
     if (version !== undefined) body.sdkVersion = version;
     if (this.capture !== undefined) {

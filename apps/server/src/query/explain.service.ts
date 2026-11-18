@@ -17,6 +17,7 @@ import {
   MAX_TRACES_PER_SIDE,
 } from "./explain-compute.js";
 import { timeKeyOf } from "./overview-compute.js";
+import { type Scope, scopeSql } from "./scope.js";
 import { TARGET_KEYS, targetOf } from "./targets.js";
 
 const MINUTE_MS = 60_000;
@@ -33,10 +34,11 @@ const DEPENDENCY_KIND: Record<string, "http" | "db" | "redis" | "messaging"> = {
 
 class Params {
   readonly values: unknown[] = [];
-  add(value: unknown): string {
+  /** An arrow function, so `params.add` can be passed on (`scopeSql`). */
+  readonly add = (value: unknown): string => {
     this.values.push(value);
     return `$${this.values.length}`;
-  }
+  };
 }
 
 export interface ExplainRequest {
@@ -45,13 +47,14 @@ export interface ExplainRequest {
   windowMinutes: number;
   releaseA: string | undefined;
   releaseB: string | undefined;
-  service: string | undefined;
+  /** Service and environment (D-101). */
+  scope: Scope;
 }
 
 interface RouteFilter {
   method: string | undefined;
   route: string;
-  service: string | undefined;
+  scope: Scope;
 }
 
 interface TraceSqlRow {
@@ -108,7 +111,7 @@ export class ExplainService {
     const filter: RouteFilter = {
       method,
       route: req.route,
-      service: req.service,
+      scope: req.scope,
     };
     const [beforeRows, afterRows, releases] = await Promise.all([
       releaseMode
@@ -179,9 +182,7 @@ export class ExplainService {
     if (filter.method !== undefined) {
       where.push(`http_method = ${p.add(filter.method)}`);
     }
-    if (filter.service !== undefined) {
-      where.push(`service_name = ${p.add(filter.service)}`);
-    }
+    where.push(...scopeSql(filter.scope, p.add));
     if (side.release !== undefined) {
       where.push(`release = ${p.add(side.release)}`);
     }
@@ -223,9 +224,7 @@ export class ExplainService {
     if (filter.method !== undefined) {
       where.push(`http_method = ${p.add(filter.method)}`);
     }
-    if (filter.service !== undefined) {
-      where.push(`service_name = ${p.add(filter.service)}`);
-    }
+    where.push(...scopeSql(filter.scope, p.add));
     const rows = await this.rows<{ release: string }>(
       `SELECT release FROM traces WHERE ${where.join(" AND ")}
         GROUP BY release ORDER BY max(start_time) DESC, release LIMIT ${MAX_RELEASES}`,

@@ -20,6 +20,7 @@ import type {
   SloListResponse,
 } from "@nestrix-js/protocol";
 import { SessionQueryGuard } from "../auth/query-guard.js";
+import { AdminOnly, Audited } from "../auth/roles.js";
 import {
   QUERY_HEADERS,
   QueryExceptionFilter,
@@ -55,7 +56,7 @@ function notFound(): never {
  *
  * Access is the alerts controller's: the admin login's middleware and global guard (a session; a
  * state-changing method also needs a same-origin `Origin`), `SessionQueryGuard` again here, and
- * no CORS headers.
+ * no CORS headers. Writes are `@AdminOnly()` and audited (issue #34).
  */
 @Controller("api/v1/slos")
 @UseGuards(SessionQueryGuard)
@@ -70,6 +71,8 @@ export class SlosController {
   }
 
   @Post()
+  @AdminOnly()
+  @Audited("slo.create")
   @HttpCode(201)
   @Headers()
   async create(@Body() body: unknown): Promise<Slo> {
@@ -85,6 +88,8 @@ export class SlosController {
   }
 
   @Patch(":id")
+  @AdminOnly()
+  @Audited("slo.update")
   @Headers()
   async update(@Param("id") id: string, @Body() body: unknown): Promise<Slo> {
     const sloId = parseId(id);
@@ -96,6 +101,8 @@ export class SlosController {
   }
 
   @Delete(":id")
+  @AdminOnly()
+  @Audited("slo.delete")
   @HttpCode(204)
   @Headers()
   async remove(@Param("id") id: string): Promise<void> {

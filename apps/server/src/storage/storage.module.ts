@@ -39,6 +39,8 @@ export interface StorageOptions {
   databaseUrl?: string;
   /** Days kept before today. Default: `NESTRIX_RETENTION_DAYS`, else 7. */
   retentionDays?: number;
+  /** Days of log lines kept (issue #17); at most `retentionDays`. Default: `retentionDays`. */
+  logRetentionDays?: number;
   /** Also provide the writer under this token (the receiver's `IngestSink` token). */
   sinkToken?: InjectionToken;
   /** Pool size. Default 10. */
@@ -53,6 +55,7 @@ export interface StorageOptions {
 interface ResolvedStorageOptions {
   databaseUrl: string;
   retentionDays: number;
+  logRetentionDays: number;
   poolMax: number;
   writer: WriterOptions;
   maintenanceIntervalMs: number;
@@ -81,6 +84,10 @@ export function resolveStorageOptions(
   const resolved: ResolvedStorageOptions = {
     databaseUrl,
     retentionDays,
+    logRetentionDays: Math.min(
+      options.logRetentionDays ?? retentionDays,
+      retentionDays,
+    ),
     poolMax: options.poolMax ?? 10,
     writer: options.writer ?? {},
     maintenanceIntervalMs: options.maintenanceIntervalMs ?? 3_600_000,
@@ -141,6 +148,7 @@ export class StorageModule {
           }
           const partitions = new PartitionManager(pool, {
             retentionDays: o.retentionDays,
+            logRetentionDays: o.logRetentionDays,
             intervalMs: o.maintenanceIntervalMs,
             onError: (error) =>
               logger.warn(

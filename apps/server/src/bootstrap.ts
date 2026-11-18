@@ -44,9 +44,11 @@ export function configureApp(
   app.use(healthMiddleware(app.get(HealthService)));
   // #39: a `/v1/…` path that is not an ingest route (`/v1/metrics`) answers an OTLP 404, before
   // the admin login, so exporters see "not found" instead of 403/503 (src/ingest/unknown-path.ts).
+  // Issue #18 (D-105): `/v1/metrics` reaches the receiver only with NESTRIX_METRICS=on.
   app.use(
     unknownOtlpPathMiddleware(
       config?.ingest.discardTimeoutMs ?? DEFAULT_INGEST.discardTimeoutMs,
+      config?.metrics.enabled ?? false,
     ),
   );
   // Next, before the body parsers and every Nest route: the admin login's default-deny

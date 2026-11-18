@@ -20,6 +20,7 @@
     "docs:build": "pnpm --filter docs-site docs:build",
     "check:packages": "pnpm -r --if-present check:package && node scripts/check-readme-status.mjs",
     "check:tla": "node scripts/check-no-tla.mjs",
+    "check:old-writer": "node scripts/check-old-writer.mjs",
     "verify": "pnpm build && pnpm check:packages && pnpm check:tla && pnpm test && pnpm lint && pnpm typecheck",
     "changeset": "changeset",
     "version-packages": "changeset version",

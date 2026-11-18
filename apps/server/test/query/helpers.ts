@@ -25,11 +25,14 @@ export async function startQueryServer(
   databaseUrl: string,
   open = true,
   signedIn = true,
+  env: Record<string, string> = {},
 ): Promise<QueryServer> {
   const config = testConfig({
+    ...env,
     DATABASE_URL: databaseUrl,
     NESTRIX_ADMIN_PASSWORD: ADMIN_PW,
     NESTRIX_SESSION_SECRET: SESSION_SECRET,
+    ...env,
   });
   let builder = Test.createTestingModule({
     imports: [AppModule.forRoot(config)],

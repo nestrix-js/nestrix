@@ -7,6 +7,7 @@ export function toApiSlo(row: SloRow, status: SloStatus): Slo {
     id: String(row.id),
     name: row.name,
     service: row.service_name,
+    environment: row.environment,
     route: row.route,
     kind: row.kind,
     latencyThresholdMs: row.latency_threshold_ms,
@@ -22,6 +23,7 @@ export function toApiSlo(row: SloRow, status: SloStatus): Slo {
 export interface SloFields {
   name?: string;
   service_name?: string;
+  environment?: string | null;
   route?: string | null;
   kind?: "availability" | "latency";
   latency_threshold_ms?: number | null;
@@ -36,6 +38,7 @@ export type SloValidation =
 const KEYS = new Set<keyof SloCreate>([
   "name",
   "service",
+  "environment",
   "route",
   "kind",
   "latencyThresholdMs",
@@ -110,6 +113,15 @@ export function validateSloInput(
     const v = text(input.service, "service", 256);
     if (typeof v !== "string") return fail(v.error);
     fields.service_name = v;
+  }
+  if (Object.hasOwn(input, "environment")) {
+    if (input.environment === null || input.environment === undefined) {
+      fields.environment = null;
+    } else {
+      const v = text(input.environment, "environment", 256);
+      if (typeof v !== "string") return fail(v.error);
+      fields.environment = v;
+    }
   }
   if (Object.hasOwn(input, "route")) {
     if (input.route === null || input.route === undefined) {

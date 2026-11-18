@@ -219,7 +219,7 @@ test("no traffic: a friendly empty state, no cards", async ({ page }) => {
   // The default answer of the mock has no requests.
   await page.goto(url());
   await expect(page.getByTestId("overview-empty")).toContainText(
-    "No requests in the last 15 minutes",
+    "No requests in the last 15 min",
   );
   await expect(page.getByTestId("health")).toHaveCount(0);
   await expect(page.getByTestId("card-attention")).toHaveCount(0);
@@ -227,7 +227,7 @@ test("no traffic: a friendly empty state, no cards", async ({ page }) => {
   mock.overview = (w) => empty(w);
   await page.getByRole("button", { name: "60 min", exact: true }).click();
   await expect(page.getByTestId("overview-empty")).toContainText(
-    "No requests in the last 60 minutes",
+    "No requests in the last 60 min",
   );
 });
 
@@ -397,6 +397,7 @@ test("standalone: the service is sent and the SLO budget rings show", async ({
     id,
     name,
     service: "orders",
+    environment: null,
     route: null,
     kind: "availability",
     latencyThresholdMs: null,

@@ -17,6 +17,10 @@ import {
   ExportLogsServiceRequestSchema,
 } from "../proto/gen/opentelemetry/proto/collector/logs/v1/logs_service_pb.js";
 import {
+  type ExportMetricsServiceRequest,
+  ExportMetricsServiceRequestSchema,
+} from "../proto/gen/opentelemetry/proto/collector/metrics/v1/metrics_service_pb.js";
+import {
   type ExportTraceServiceRequest,
   ExportTraceServiceRequestSchema,
 } from "../proto/gen/opentelemetry/proto/collector/trace/v1/trace_service_pb.js";
@@ -133,6 +137,84 @@ export function decodeLogsRequest(
   }
 }
 
+/**
+ * `decodeRequest` for `POST /v1/metrics` (issue #18, D-105): the same rules, over
+ * `ExportMetricsServiceRequest`. Run `checkBody(…, METRIC_SHAPE)` first. In JSON, exemplars (whose
+ * ids are hex) are removed before decoding: nothing reads them.
+ */
+export function decodeMetricsRequest(
+  body: Buffer,
+  format: BodyFormat,
+  limits: DecodeLimits,
+): ExportMetricsServiceRequest {
+  try {
+    if (format === "protobuf") {
+      return fromBinary(ExportMetricsServiceRequestSchema, body, {
+        recursionLimit: limits.maxDepth,
+        readUnknownFields: false,
+      });
+    }
+    const json: unknown = JSON.parse(body.toString("utf8"));
+    if (json === null || typeof json !== "object" || Array.isArray(json)) {
+      throw new DecodeError("expected a JSON object");
+    }
+    const points = dropExemplars(json as Record<string, unknown>);
+    if (points > limits.maxSpans) {
+      throw new LimitError(
+        `request has more than ${limits.maxSpans} data points`,
+      );
+    }
+    return fromJson(ExportMetricsServiceRequestSchema, json as JsonValue, {
+      ignoreUnknownFields: true,
+    });
+  } catch (error) {
+    if (error instanceof DecodeError || error instanceof LimitError) {
+      throw error;
+    }
+    throw new DecodeError(
+      describe(error, format, "ExportMetricsServiceRequest"),
+    );
+  }
+}
+
+const METRIC_DATA_FIELDS = [
+  "gauge",
+  "sum",
+  "histogram",
+  "exponentialHistogram",
+  "summary",
+] as const;
+
+/** A JSON field by its camelCase name or, failing that, its snake_case spelling (protobuf JSON accepts both). */
+function field(o: Record<string, unknown>, camel: string): unknown {
+  if (Object.hasOwn(o, camel)) return o[camel];
+  return o[camel.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)];
+}
+
+/** Removes `exemplars` from every data point in place; returns the data point count. */
+function dropExemplars(request: Record<string, unknown>): number {
+  let points = 0;
+  for (const rm of objects(field(request, "resourceMetrics"))) {
+    for (const sm of objects(field(rm, "scopeMetrics"))) {
+      for (const metric of objects(sm.metrics)) {
+        for (const kind of METRIC_DATA_FIELDS) {
+          const data =
+            metric[kind] ??
+            metric[kind.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)];
+          if (data === null || typeof data !== "object") continue;
+          for (const point of objects(
+            field(data as Record<string, unknown>, "dataPoints"),
+          )) {
+            points++;
+            delete point.exemplars;
+          }
+        }
+      }
+    }
+  }
+  return points;
+}
+
 function describe(
   error: unknown,
   format: BodyFormat,
@@ -175,8 +257,8 @@ function objects(value: unknown): Record<string, unknown>[] {
  */
 function rewriteIds(request: Record<string, unknown>): number {
   let spans = 0;
-  for (const rs of objects(request.resourceSpans)) {
-    for (const ss of objects(rs.scopeSpans)) {
+  for (const rs of objects(field(request, "resourceSpans"))) {
+    for (const ss of objects(field(rs, "scopeSpans"))) {
       for (const span of objects(ss.spans)) {
         spans++;
         if ("traceId" in span) span.traceId = hexToBase64(span.traceId);

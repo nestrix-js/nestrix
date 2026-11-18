@@ -5,8 +5,14 @@
  * `logs.export` filled the export slot, and nothing here throws.
  */
 import type { LogLevel } from "@nestjs/common";
-import { type Attributes, isSpanContextValid, trace } from "@opentelemetry/api";
+import {
+  type Attributes,
+  isSpanContextValid,
+  TraceFlags,
+  trace,
+} from "@opentelemetry/api";
 import { diagnostics } from "../diagnostics.js";
+import { holdTraceLog } from "../tail-sampling.js";
 import { getLogSink, getTraceLogSink, type TraceLogSink } from "./sink.js";
 import type { TraceIds } from "./trace-ids.js";
 
@@ -63,14 +69,21 @@ function bodyOf(message: unknown): string {
  * The ids of the active span when it is recording: a line written under a sampled-out span
  * would be kept for a trace the store never receives.
  */
-function recordingIds(): TraceIds | undefined {
+function recordingIds(): TargetIds | undefined {
   const span = trace.getActiveSpan();
   if (!span?.isRecording()) return undefined;
   const spanContext = span.spanContext();
   return isSpanContextValid(spanContext)
-    ? { traceId: spanContext.traceId, spanId: spanContext.spanId }
+    ? {
+        traceId: spanContext.traceId,
+        spanId: spanContext.spanId,
+        sampled: (spanContext.traceFlags & TraceFlags.SAMPLED) !== 0,
+      }
     : undefined;
 }
+
+/** The active span's ids and whether its trace flags say sampled (else it records for the tail decision). */
+type TargetIds = TraceIds & { sampled: boolean };
 
 /** Set while records are handed to the trace slot, so a line logged on that path is not fed back. */
 let addingToTrace = false;
@@ -78,7 +91,7 @@ let addingToTrace = false;
 /** The active recording span's ids when the store takes lines now; `undefined` otherwise. Never throws. */
 function traceTarget(
   traceSink: TraceLogSink | undefined,
-): TraceIds | undefined {
+): TargetIds | undefined {
   if (traceSink === undefined || addingToTrace) return undefined;
   try {
     return recordingIds();
@@ -91,7 +104,7 @@ function traceTarget(
 /** Hands the lines to the dashboard store. Never throws. */
 function addToTrace(
   traceSink: TraceLogSink,
-  ids: TraceIds,
+  target: TargetIds,
   level: LogLevel,
   bodies: readonly string[],
   context: string | undefined,
@@ -100,8 +113,16 @@ function addToTrace(
   addingToTrace = true;
   try {
     const timeUnixMs = Date.now();
+    const ids = { traceId: target.traceId, spanId: target.spanId };
     for (const body of bodies) {
-      traceSink.add({ ...ids, timeUnixMs, level, body, context });
+      const record = { ...ids, timeUnixMs, level, body, context };
+      // Below sampleRate 1 a recording span may belong to a trace that is still undecided (D-100):
+      // its lines wait in the tail registry and reach the store only if the trace is kept.
+      if (!target.sampled) {
+        const outcome = holdTraceLog(record);
+        if (outcome === "held" || outcome === "drop") continue;
+      }
+      traceSink.add(record);
     }
   } catch (error) {
     diagnostics.countFailure("logs.trace", error);
@@ -149,8 +170,10 @@ function stackOf(error: unknown): string | undefined {
  * Sends one log record from your own logger through the same path as `NestrixLogger`: kept next
  * to its trace in the dashboard while a recording span is active, and exported over OTLP to
  * `/v1/logs` when `logs.export` is on, with the active span's trace and span id. It prints
- * nothing and redacts nothing: call it from your logger's print path with the message your logger
- * already redacted. Never throws. With Nestrix disabled, or with neither the dashboard nor log
+ * nothing and does not redact the message: call it from your logger's print path with the message
+ * your logger already redacted. `attributes` get Nestrix's built-in scrub rule before export
+ * (D-112: always-redacted headers, listed query keys and `url.full` credentials), not the `redact`
+ * hook. Never throws. With Nestrix disabled, or with neither the dashboard nor log
  * export on, it returns after two slot reads.
  */
 export function emitLog(record: NestrixLogRecord): void {

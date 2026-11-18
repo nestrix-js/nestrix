@@ -45,7 +45,7 @@ Until a full previous window has been kept, changes show "—" and the lists say
 
 **Profiler.** An on-demand [CPU profile](#profiler), when the dashboard is authenticated. On the standalone server the same tab profiles any instance that opted in: see [remote CPU profiling](/guide/standalone-server#remote-cpu-profiling).
 
-The [standalone server](/guide/standalone-server) adds **SLOs** (error budgets and burn rates) and **Settings** (read-only API tokens). The Runtime tab belongs to the embedded dashboard only.
+The [standalone server](/guide/standalone-server) adds **SLOs** (error budgets and burn rates), **Alerts** (rules, state, test notifications and delivery history) and **Settings** (read-only API tokens). The Runtime tab belongs to the embedded dashboard only.
 
 ## Logs next to the trace
 

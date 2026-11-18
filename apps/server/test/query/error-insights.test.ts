@@ -153,9 +153,11 @@ describe.skipIf(noDatabase)(`error insights ${skipReason}`, () => {
   });
 
   it("gives groups their history: first seen ever, releases and a regressed state", async () => {
+    const before = Date.now();
     const r = await server.json<ErrorGroupsResponse>(
       "/api/v1/errors/groups?service=shop",
     );
+    const after = Date.now();
     expect(r.groups).toHaveLength(1);
     expect(r.groups[0]).toMatchObject({
       pattern: "order <n> failed",
@@ -167,8 +169,12 @@ describe.skipIf(noDatabase)(`error insights ${skipReason}`, () => {
       releases: [{ release: "1.1.0", count: 1 }],
     });
     expect(r.groups[0]?.firstEverUnixMs).toBeLessThan(NOW - 49 * HOUR);
+    // The history reaches back 7 days from the server's own clock at request time.
+    expect(r.history?.fromUnixMs).toBeGreaterThanOrEqual(
+      before - 7 * 24 * HOUR - 1000,
+    );
     expect(r.history?.fromUnixMs).toBeLessThanOrEqual(
-      NOW - 7 * 24 * HOUR + 1000,
+      after - 7 * 24 * HOUR + 1000,
     );
     // A group with nothing before the window is new.
     const billing = await server.json<ErrorGroupsResponse>(

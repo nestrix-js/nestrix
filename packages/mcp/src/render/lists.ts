@@ -7,7 +7,15 @@ import type {
   RouteStatsResponse,
   TraceListResponse,
 } from "@nestrix-js/protocol";
-import { clean, fmtMs, fmtPct, fmtTime, plural, table } from "./format.js";
+import {
+  clean,
+  fmtMs,
+  fmtPct,
+  fmtTime,
+  plural,
+  table,
+  windowWords,
+} from "./format.js";
 import {
   STANDALONE_STATISTICS_NOTE,
   type StatisticsMode,
@@ -136,7 +144,7 @@ export function renderRoutes(
   mode?: StatisticsMode,
 ): string {
   if (stats.routes.length === 0) {
-    return `No requests counted in the last ${stats.windowMinutes} minutes.`;
+    return `No requests counted in the last ${windowWords(stats.windowMinutes)}.`;
   }
   const sorted = [...stats.routes].sort(
     (a, b) =>
@@ -145,7 +153,7 @@ export function renderRoutes(
   );
   const shown = sorted.slice(0, MAX_ROWS);
   const lines = [
-    `Routes over the last ${stats.windowMinutes} minutes, slowest p95 first. ${statisticsCounting(mode)}`,
+    `Routes over the last ${windowWords(stats.windowMinutes)}, slowest p95 first. ${statisticsCounting(mode)}`,
     ...table([
       ["route", "requests", "errors", "error rate", "p50", "p95", "p99", "max"],
       ...shown.map(routeLine),
@@ -162,13 +170,13 @@ export function renderClasses(
   mode?: StatisticsMode,
 ): string {
   if (stats.methodsState === "no-data-in-range") {
-    return `This service has sent method spans before, but none in the last ${stats.windowMinutes} minutes (it may be idle). Try a longer window.`;
+    return `This service has sent method spans before, but none in the last ${windowWords(stats.windowMinutes)} (it may be idle). Try a longer window.`;
   }
   if (!stats.methodsEnabled) {
     return "Method spans are off in this app (no NestrixInstrument, or it runs under @nestjs/testing), so there are no per-class statistics.";
   }
   if (stats.classes.length === 0) {
-    return `No traced class calls in the last ${stats.windowMinutes} minutes.`;
+    return `No traced class calls in the last ${windowWords(stats.windowMinutes)}.`;
   }
   const sorted = [...stats.classes].sort(
     (a, b) =>
@@ -178,7 +186,7 @@ export function renderClasses(
   );
   const shown = sorted.slice(0, MAX_ROWS);
   const lines = [
-    `Classes over the last ${stats.windowMinutes} minutes, most own time first. Own time is estimated from the sampled traces in the store; ${mode === "standalone" ? STANDALONE_STATISTICS_NOTE : "calls and errors are counted before sampling."}`,
+    `Classes over the last ${windowWords(stats.windowMinutes)}, most own time first. Own time is estimated from the sampled traces in the store; ${mode === "standalone" ? STANDALONE_STATISTICS_NOTE : "calls and errors are counted before sampling."}`,
     ...table([
       ["class", "kind", "calls", "errors", "avg", "own time"],
       ...shown.map((c) => [
@@ -211,7 +219,7 @@ export function renderClasses(
 
 export function renderMap(map: AppMapResponse): string {
   if (map.edges.length === 0) {
-    return `No calls between the app and other systems in the stored traces of the last ${map.windowMinutes} minutes.`;
+    return `No calls between the app and other systems in the stored traces of the last ${windowWords(map.windowMinutes)}.`;
   }
   const names = new Map(map.nodes.map((n) => [n.id, n]));
   const label = (id: string): string => {
@@ -222,7 +230,7 @@ export function renderMap(map: AppMapResponse): string {
     (a, b) => b.calls - a.calls || (a.to < b.to ? -1 : 1),
   );
   const lines = [
-    `App map from the sampled traces of the last ${map.windowMinutes} minutes (call counts reflect sampling):`,
+    `App map from the sampled traces of the last ${windowWords(map.windowMinutes)} (call counts reflect sampling):`,
     ...edges
       .slice(0, MAX_ROWS)
       .map(
@@ -266,6 +274,15 @@ export function renderOverview(input: OverviewInput): string {
   lines.push(
     `CPU profiler: ${meta.profiler.available ? (meta.profiler.running ? "available, a capture is running" : "available (start_profile)") : "not available here (embedded dashboards only)"}.`,
   );
+  // D-102: the keys find_traces and list_errors accept in `attributes`.
+  const attributeFilters = (meta.attributeFilters ?? [])
+    .slice(0, 32)
+    .map((k) => clean(k, 128));
+  if (attributeFilters.length > 0) {
+    lines.push(
+      `Attribute filters (find_traces and list_errors attributes): ${attributeFilters.join(", ")}.`,
+    );
+  }
   for (const w of meta.warnings)
     lines.push(`Warning: ${clean(w.message, 300)}`);
 
@@ -275,7 +292,7 @@ export function renderOverview(input: OverviewInput): string {
     const failed = withTraffic.reduce((n, r) => n + r.errors, 0);
     lines.push(
       "",
-      `Traffic in the last ${routes.windowMinutes} minutes: ${plural(total, "request")}, ${plural(failed, "error")} (${fmtPct(failed, total)}).`,
+      `Traffic in the last ${windowWords(routes.windowMinutes)}: ${plural(total, "request")}, ${plural(failed, "error")} (${fmtPct(failed, total)}).`,
     );
     const slowest = [...withTraffic]
       .sort(

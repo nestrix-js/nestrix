@@ -79,6 +79,35 @@ function sources(): ApiSources {
 
 const body = (r: { body?: unknown }) => JSON.parse(r.body as string);
 
+describe("environment filter (issue #28)", () => {
+  const inEnvironment = (environment?: string): ApiSources => ({
+    ...sources(),
+    service: { name: "shop", ...(environment ? { environment } : {}) },
+  });
+
+  it("answers empty results for another environment, and everything for its own", () => {
+    const s = inEnvironment("production");
+    for (const query of ["", "?environment=production"]) {
+      expect(body(tracesHandler(`/t${query}`, s)).items).toHaveLength(2);
+    }
+    expect(body(tracesHandler("/t?environment=staging", s)).items).toEqual([]);
+    expect(body(tracesHandler("/t?environment=unset", s)).items).toEqual([]);
+    expect(
+      body(routesHandler("/r?environment=staging", s, NOW)).routes,
+    ).toEqual([]);
+  });
+
+  it("matches `unset` only when the application has no environment", () => {
+    const s = inEnvironment();
+    expect(body(tracesHandler("/t?environment=unset", s)).items).toHaveLength(
+      2,
+    );
+    expect(body(tracesHandler("/t?environment=production", s)).items).toEqual(
+      [],
+    );
+  });
+});
+
 describe("service filter", () => {
   it("is part of the specs", () => {
     for (const spec of [

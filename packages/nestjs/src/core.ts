@@ -8,6 +8,7 @@ import {
   Optional,
 } from "@nestjs/common";
 import { HttpAdapterHost, ModulesContainer } from "@nestjs/core";
+import { installContextPropagation } from "./context/trace-attributes.js";
 // Types only: the code behind them is loaded lazily, through `NESTRIX_RUNTIME` (D-99).
 import type {
   Dashboard,
@@ -127,6 +128,11 @@ export class NestrixCore
           rt.installProcessErrorMonitor(),
           // D-93/D-94: `recordError` works while an enabled app runs; `errors.expected` applies.
           installErrorTracking(options.errors.expected),
+          // D-102: which trace attributes travel to jobs (and, opted in, outgoing requests).
+          installContextPropagation({
+            keys: new Set(options.contextPropagation.keys),
+            outgoing: options.contextPropagation.outgoing,
+          }),
         );
       }
     } catch (error) {

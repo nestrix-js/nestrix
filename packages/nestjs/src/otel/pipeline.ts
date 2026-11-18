@@ -42,6 +42,8 @@ export function spanProcessors(
 
 export interface PipelineCounters extends RedactionCounters {
   droppedSpans: number;
+  /** D-100: spans dropped at the tail-sampling buffer's bound. */
+  tailDroppedSpans: number;
 }
 
 /**

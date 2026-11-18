@@ -28,6 +28,12 @@ export interface IngestConfig {
   readonly auth: "keys" | "none" | "unconfigured";
   /** API keys, each at least 32 characters. Empty unless `auth` is `keys`. */
   readonly keys: readonly string[];
+  /**
+   * Issue #28, D-101: the environment each key of `keys` (same index) is bound to, or `null` for an
+   * unbound key. Records sent with a bound key are stored under its environment, whatever their
+   * resource claims (`<environment>:<key>` entries of `NESTRIX_INGEST_KEYS`, `parseIngestKeys`).
+   */
+  readonly keyEnvironments: readonly (string | null)[];
   /** Limit on the request body, applied to the compressed bytes and, separately, to the decompressed size. */
   readonly maxBodyBytes: number;
   /** Per key (per client address when `auth` is `none`). */
@@ -77,6 +83,66 @@ export interface LogConfig {
   readonly hideRouteMapping: boolean;
 }
 
+/** Native log storage (issue #17, D-106). */
+export interface LogStoreConfig {
+  /**
+   * `NESTRIX_LOGS`: `trace` (default, D-75) keeps only records that carry a trace id, 200 per
+   * trace; `all` also keeps records without one and lifts the per-trace cap to `maxPerTrace`.
+   */
+  readonly mode: "trace" | "all";
+  /** `NESTRIX_LOG_RETENTION_DAYS`: days of log lines kept; at most `retentionDays`. */
+  readonly retentionDays: number;
+  /** `NESTRIX_LOGS_MAX_PER_TRACE` (`all` mode): lines kept per trace. */
+  readonly maxPerTrace: number;
+  /** `NESTRIX_LOGS_MAX_PER_MINUTE` (`all` mode): lines stored per minute by this process. */
+  readonly maxPerMinute: number;
+  /** `NESTRIX_LOG_SEARCH_CONCURRENCY`: log searches this process runs at once; more answer 503. */
+  readonly searchConcurrency: number;
+}
+
+/**
+ * Issue #18 (D-105): the optional OTLP metrics receiver. Off by default: `/v1/metrics` then answers
+ * `404` with `google.rpc.Status` as before (D-82 (7)).
+ */
+export interface MetricsConfig {
+  /** `NESTRIX_METRICS=on`. */
+  readonly enabled: boolean;
+  /**
+   * `NESTRIX_METRICS_MAX_SERIES_PER_SERVICE`: series (instance x metric x attribute set) a service
+   * may have active at once in this server process; points of further series are dropped and counted.
+   */
+  readonly maxSeriesPerService: number;
+  /** `NESTRIX_METRICS_MAX_SERIES`: the same, over every service together. */
+  readonly maxSeries: number;
+}
+
+/**
+ * OpenID Connect sign-in for the dashboard (issue #34, D-104). Present only when
+ * `NESTRIX_OIDC_ISSUER` is set; then every field below has been checked.
+ */
+export interface OidcConfig {
+  /** `NESTRIX_OIDC_ISSUER`, exactly as given (compared byte for byte with `iss`). */
+  readonly issuer: string;
+  readonly clientId: string;
+  /** `NESTRIX_OIDC_CLIENT_SECRET` or `NESTRIX_OIDC_CLIENT_SECRET_FILE`. */
+  readonly clientSecret: string;
+  /** `NESTRIX_OIDC_REDIRECT_URL`, or `NESTRIX_PUBLIC_URL` + `/login/oidc/callback`. Never from `Host`. */
+  readonly redirectUrl: string;
+  /** `NESTRIX_OIDC_SCOPES` (space or comma separated), always with `openid`. */
+  readonly scopes: readonly string[];
+  /** `NESTRIX_OIDC_ROLE_CLAIM`, default `groups`: a top-level claim of the ID token, read exactly. */
+  readonly roleClaim: string;
+  /** `NESTRIX_OIDC_ADMIN_GROUPS`: values of the role claim that make a user admin. */
+  readonly adminGroups: readonly string[];
+  /**
+   * `NESTRIX_OIDC_ALLOWED_GROUPS`: values that let a user sign in as viewer; `*` lets in every user
+   * the identity provider signs in for this client. Admin groups are always allowed.
+   */
+  readonly allowedGroups: readonly string[];
+  /** `NESTRIX_OIDC_SESSION_SECONDS` (default 3600): absolute lifetime of an OIDC session. */
+  readonly sessionSeconds: number;
+}
+
 export interface ServerConfig {
   readonly port: number;
   readonly databaseUrl: string;
@@ -93,11 +159,28 @@ export interface ServerConfig {
   readonly maxSpansPerTrace: number;
   readonly alerts: AlertsConfig;
   readonly log: LogConfig;
+  /** Native log storage and search (issue #17, D-106). */
+  readonly logStore: LogStoreConfig;
   /**
    * `NESTRIX_TRUSTED_PROXIES` (issue #31, D-96): reverse proxies whose `X-Forwarded-For` names the
    * client the login limiter keys on. `undefined`: none, the socket peer is the client.
    */
   readonly trustedProxies: TrustedProxies | undefined;
+  /** Issue #18 (D-105): the optional metrics receiver and its limits. */
+  readonly metrics: MetricsConfig;
+  /** `undefined` unless `NESTRIX_OIDC_ISSUER` is set (issue #34, D-104). */
+  readonly oidc?: OidcConfig | undefined;
+  /**
+   * `NESTRIX_ADMIN_PASSWORD_LOGIN` (default true): whether `NESTRIX_ADMIN_PASSWORD` signs in (the
+   * break-glass admin). `false` is accepted only with OIDC configured.
+   */
+  readonly passwordLogin?: boolean;
+  /**
+   * `NESTRIX_INDEXED_ATTRIBUTES` (issue #27, D-102): span attribute keys stored per trace in an
+   * indexed column at ingest and offered as `attr.<key>=` filters. Empty by default: nothing is
+   * indexed. Keys arriving before a key was listed are not backfilled.
+   */
+  readonly indexedAttributes: readonly string[];
 }
 
 export const LOG_LEVEL_NAMES = [
@@ -129,10 +212,50 @@ export const MIN_ADMIN_PASSWORD_LENGTH = 12;
 export const MIN_SESSION_SECRET_LENGTH = 32;
 export const MAX_RETENTION_DAYS = 3650;
 export const DEFAULT_MAX_CONNECTIONS = 1024;
+export const DEFAULT_LOGS_MAX_PER_TRACE = 1_000;
+export const DEFAULT_LOGS_MAX_PER_MINUTE = 30_000;
+export const DEFAULT_LOG_SEARCH_CONCURRENCY = 2;
 export const DEFAULT_MAX_SPANS_PER_TRACE = 50_000;
 export const MIN_MAX_SPANS_PER_TRACE = 1_000;
 export const MAX_MAX_SPANS_PER_TRACE = 10_000_000;
-export const DEFAULT_INGEST: Omit<IngestConfig, "auth" | "keys"> = {
+/** `NESTRIX_INDEXED_ATTRIBUTES` (D-102): at most this many keys, each matching the protocol's pattern. */
+export const MAX_INDEXED_ATTRIBUTES = 16;
+const INDEXED_ATTRIBUTE_KEY = /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/;
+
+/**
+ * The keys of `NESTRIX_INDEXED_ATTRIBUTES` (comma-separated, spaces ignored, duplicates dropped),
+ * with a message per problem in `errors`.
+ */
+export function parseIndexedAttributes(
+  raw: string | undefined,
+  errors: string[],
+): string[] {
+  const keys: string[] = [];
+  for (const entry of (raw ?? "").split(",")) {
+    const key = entry.trim();
+    if (key === "") continue;
+    if (!INDEXED_ATTRIBUTE_KEY.test(key)) {
+      errors.push(
+        `NESTRIX_INDEXED_ATTRIBUTES: "${key.slice(0, 64)}" is not an attribute name (a letter, then at most 127 letters, digits, '_', '.' or '-').`,
+      );
+      continue;
+    }
+    if (!keys.includes(key)) keys.push(key);
+  }
+  if (keys.length > MAX_INDEXED_ATTRIBUTES) {
+    errors.push(
+      `NESTRIX_INDEXED_ATTRIBUTES lists ${keys.length} keys; at most ${MAX_INDEXED_ATTRIBUTES} can be indexed.`,
+    );
+  }
+  return keys;
+}
+
+export const DEFAULT_METRICS_MAX_SERIES_PER_SERVICE = 2_000;
+export const DEFAULT_METRICS_MAX_SERIES = 20_000;
+export const DEFAULT_INGEST: Omit<
+  IngestConfig,
+  "auth" | "keys" | "keyEnvironments"
+> = {
   // As the OpenTelemetry Collector's OTLP receiver. A single request at every cap below is
   // charged about 20 MiB + (400k + 100k) x 512 B = 264 MiB of the budget, so it always fits.
   maxBodyBytes: 20 * MIB,
@@ -292,17 +415,11 @@ export function loadConfig(
     errors.push("DATABASE_PASSWORD_FILE is set but DATABASE_URL is not.");
   }
 
-  const keys = (secret(env, "NESTRIX_INGEST_KEYS", errors, readFile) ?? "")
-    .split(",")
-    .map((k) => k.trim())
-    .filter((k) => k !== "");
-  keys.forEach((key, index) => {
-    if (key.length < MIN_INGEST_KEY_LENGTH) {
-      errors.push(
-        `NESTRIX_INGEST_KEYS: key ${index + 1} has ${key.length} characters; each key needs at least ${MIN_INGEST_KEY_LENGTH}.`,
-      );
-    }
-  });
+  const parsedKeys = parseIngestKeys(
+    secret(env, "NESTRIX_INGEST_KEYS", errors, readFile) ?? "",
+    errors,
+  );
+  const keys = parsedKeys.map((k) => k.key);
 
   const authOptOut = present(env, "NESTRIX_INGEST_AUTH")?.trim();
   if (authOptOut !== undefined && authOptOut !== "none") {
@@ -367,6 +484,49 @@ export function loadConfig(
     DEFAULT_MAX_SPANS_PER_TRACE,
     MIN_MAX_SPANS_PER_TRACE,
     MAX_MAX_SPANS_PER_TRACE,
+    errors,
+  );
+
+  const logsRaw = present(env, "NESTRIX_LOGS")?.trim().toLowerCase();
+  if (logsRaw !== undefined && logsRaw !== "trace" && logsRaw !== "all") {
+    errors.push(`NESTRIX_LOGS accepts "trace" or "all" (got "${logsRaw}").`);
+  }
+  const logRetentionDays = integer(
+    env,
+    "NESTRIX_LOG_RETENTION_DAYS",
+    retentionDays,
+    1,
+    MAX_RETENTION_DAYS,
+    errors,
+  );
+  if (logRetentionDays > retentionDays) {
+    errors.push(
+      `NESTRIX_LOG_RETENTION_DAYS (${logRetentionDays}) cannot exceed NESTRIX_RETENTION_DAYS (${retentionDays}): log partitions are created and dropped with the span partitions.`,
+    );
+  }
+  const logsMaxPerTrace = integer(
+    env,
+    "NESTRIX_LOGS_MAX_PER_TRACE",
+    DEFAULT_LOGS_MAX_PER_TRACE,
+    200,
+    100_000,
+    errors,
+  );
+  const logsMaxPerMinute = integer(
+    env,
+    "NESTRIX_LOGS_MAX_PER_MINUTE",
+    DEFAULT_LOGS_MAX_PER_MINUTE,
+    1,
+    100_000_000,
+    errors,
+  );
+
+  const logSearchConcurrency = integer(
+    env,
+    "NESTRIX_LOG_SEARCH_CONCURRENCY",
+    DEFAULT_LOG_SEARCH_CONCURRENCY,
+    1,
+    16,
     errors,
   );
 
@@ -448,6 +608,50 @@ export function loadConfig(
   const trusted = parseTrustedProxies(present(env, "NESTRIX_TRUSTED_PROXIES"));
   if (!trusted.ok) errors.push(...trusted.errors);
   const trustedProxies = trusted.ok ? trusted.value : undefined;
+  const indexedAttributes = parseIndexedAttributes(
+    present(env, "NESTRIX_INDEXED_ATTRIBUTES"),
+    errors,
+  );
+
+  // Issue #18 (D-105): `on` or `off` (default), nothing else.
+  const metricsRaw = present(env, "NESTRIX_METRICS")?.trim().toLowerCase();
+  if (metricsRaw !== undefined && metricsRaw !== "on" && metricsRaw !== "off") {
+    errors.push(`NESTRIX_METRICS accepts "on" or "off" (got "${metricsRaw}").`);
+  }
+  const maxSeriesPerService = integer(
+    env,
+    "NESTRIX_METRICS_MAX_SERIES_PER_SERVICE",
+    DEFAULT_METRICS_MAX_SERIES_PER_SERVICE,
+    10,
+    1_000_000,
+    errors,
+  );
+  const maxSeries = integer(
+    env,
+    "NESTRIX_METRICS_MAX_SERIES",
+    DEFAULT_METRICS_MAX_SERIES,
+    10,
+    10_000_000,
+    errors,
+  );
+  const oidc = loadOidc(env, publicUrl, errors, readFile);
+  const passwordLoginRaw = present(env, "NESTRIX_ADMIN_PASSWORD_LOGIN")
+    ?.trim()
+    .toLowerCase();
+  let passwordLogin = true;
+  if (passwordLoginRaw !== undefined) {
+    if (passwordLoginRaw === "false") passwordLogin = false;
+    else if (passwordLoginRaw !== "true") {
+      errors.push(
+        `NESTRIX_ADMIN_PASSWORD_LOGIN accepts "true" or "false" (got "${passwordLoginRaw.slice(0, 32)}").`,
+      );
+    }
+  }
+  if (!passwordLogin && present(env, "NESTRIX_OIDC_ISSUER") === undefined) {
+    errors.push(
+      "NESTRIX_ADMIN_PASSWORD_LOGIN=false needs OIDC sign-in (NESTRIX_OIDC_ISSUER); otherwise nobody could sign in.",
+    );
+  }
 
   if (errors.length > 0) return { ok: false, errors };
 
@@ -460,6 +664,9 @@ export function loadConfig(
         ...DEFAULT_INGEST,
         auth,
         keys: Object.freeze(auth === "keys" ? keys : []),
+        keyEnvironments: Object.freeze(
+          auth === "keys" ? parsedKeys.map((k) => k.environment) : [],
+        ),
       }),
       http: Object.freeze({ ...DEFAULT_HTTP, maxConnections }),
       adminPassword,
@@ -475,9 +682,232 @@ export function loadConfig(
         publicUrl,
       }),
       log,
+      logStore: Object.freeze({
+        mode: logsRaw === "all" ? "all" : "trace",
+        retentionDays: Math.min(logRetentionDays, retentionDays),
+        maxPerTrace: logsMaxPerTrace,
+        maxPerMinute: logsMaxPerMinute,
+        searchConcurrency: logSearchConcurrency,
+      }),
       trustedProxies,
+      metrics: Object.freeze({
+        enabled: metricsRaw === "on",
+        maxSeriesPerService,
+        maxSeries,
+      }),
+      oidc,
+      passwordLogin,
+      indexedAttributes: Object.freeze(indexedAttributes),
     }),
   };
+}
+
+/** An environment an ingest key can be bound to: 1 to 64 letters, digits, `.`, `_` or `-`, starting with a letter or digit. */
+export const INGEST_KEY_ENVIRONMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+export interface IngestKeyEntry {
+  readonly key: string;
+  /** `null`: unbound (records keep the environment their resource claims). */
+  readonly environment: string | null;
+}
+
+/**
+ * `NESTRIX_INGEST_KEYS` (issue #28, D-101): comma-separated entries, each a plain key or
+ * `<environment>:<key>`. Entries are trimmed and empty ones skipped. An entry with a `:` is always
+ * read as bound: the text before its first `:` is the environment (`INGEST_KEY_ENVIRONMENT`, not
+ * `unset`), the rest is the key, which may itself contain `:`. Every key needs 32 characters. The
+ * same key listed twice with different bindings is an error (which one applies would be a guess).
+ * Messages name the entry by its position, never its text, which may be (part of) a key.
+ */
+export function parseIngestKeys(
+  text: string,
+  errors: string[],
+): IngestKeyEntry[] {
+  const entries: IngestKeyEntry[] = [];
+  const bindingOf = new Map<
+    string,
+    { environment: string | null; n: number }
+  >();
+  const parts = text
+    .split(",")
+    .map((k) => k.trim())
+    .filter((k) => k !== "");
+  parts.forEach((entry, index) => {
+    const n = index + 1;
+    const colon = entry.indexOf(":");
+    let environment: string | null = null;
+    let key = entry;
+    if (colon >= 0) {
+      const name = entry.slice(0, colon);
+      key = entry.slice(colon + 1);
+      if (!INGEST_KEY_ENVIRONMENT.test(name) || name === "unset") {
+        errors.push(
+          `NESTRIX_INGEST_KEYS: entry ${n} contains ":", so it is read as <environment>:<key>, but its environment is not 1 to 64 letters, digits, ".", "_" or "-" starting with a letter or digit (and not "unset").`,
+        );
+        return;
+      }
+      environment = name;
+    }
+    if (key.length < MIN_INGEST_KEY_LENGTH) {
+      errors.push(
+        `NESTRIX_INGEST_KEYS: key ${n} has ${key.length} characters; each key needs at least ${MIN_INGEST_KEY_LENGTH}.`,
+      );
+      return;
+    }
+    const earlier = bindingOf.get(key);
+    if (earlier !== undefined) {
+      if (earlier.environment !== environment) {
+        errors.push(
+          `NESTRIX_INGEST_KEYS: entries ${earlier.n} and ${n} have the same key with different environments; list each key once.`,
+        );
+      }
+      return;
+    }
+    bindingOf.set(key, { environment, n });
+    entries.push({ key, environment });
+  });
+  return entries;
+}
+
+export const DEFAULT_OIDC_SESSION_SECONDS = 3600;
+export const MIN_OIDC_SESSION_SECONDS = 300;
+export const MAX_OIDC_SESSION_SECONDS = 8 * 3600;
+export const OIDC_CALLBACK_PATH = "/login/oidc/callback";
+const LOOPBACK_URL_HOST = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
+
+/**
+ * An `https://` URL, or `http://` to a loopback host (a local identity provider in development),
+ * without credentials or fragment. `allowQuery` for the redirect URL only (never for the issuer).
+ */
+export function isAcceptableOidcUrl(text: string, allowQuery = false): boolean {
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    return false;
+  }
+  if (url.username !== "" || url.password !== "" || url.hash !== "")
+    return false;
+  if (!allowQuery && url.search !== "") return false;
+  if (url.protocol === "https:") return true;
+  return url.protocol === "http:" && LOOPBACK_URL_HOST.test(url.hostname);
+}
+
+function list(raw: string | undefined, separators: RegExp): string[] {
+  return (raw ?? "")
+    .split(separators)
+    .map((v) => v.trim())
+    .filter((v) => v !== "");
+}
+
+/** The OIDC settings (D-104), or `undefined` when `NESTRIX_OIDC_ISSUER` is unset. */
+function loadOidc(
+  env: Env,
+  publicUrl: string | undefined,
+  errors: string[],
+  readFile: ReadFile,
+): OidcConfig | undefined {
+  const issuer = present(env, "NESTRIX_OIDC_ISSUER")?.trim();
+  const clientSecret = secret(
+    env,
+    "NESTRIX_OIDC_CLIENT_SECRET",
+    errors,
+    readFile,
+  );
+  const others = [
+    "NESTRIX_OIDC_CLIENT_ID",
+    "NESTRIX_OIDC_REDIRECT_URL",
+    "NESTRIX_OIDC_SCOPES",
+    "NESTRIX_OIDC_ROLE_CLAIM",
+    "NESTRIX_OIDC_ADMIN_GROUPS",
+    "NESTRIX_OIDC_ALLOWED_GROUPS",
+    "NESTRIX_OIDC_SESSION_SECONDS",
+  ].filter((name) => present(env, name) !== undefined);
+  if (issuer === undefined) {
+    if (others.length > 0 || clientSecret !== undefined) {
+      errors.push(
+        `${[...others, ...(clientSecret === undefined ? [] : ["NESTRIX_OIDC_CLIENT_SECRET"])].join(", ")} set without NESTRIX_OIDC_ISSUER.`,
+      );
+    }
+    return undefined;
+  }
+  const before = errors.length;
+  if (!isAcceptableOidcUrl(issuer)) {
+    errors.push(
+      "NESTRIX_OIDC_ISSUER must be an https:// URL (http:// only to localhost) without credentials, query or fragment.",
+    );
+  }
+  const clientId = present(env, "NESTRIX_OIDC_CLIENT_ID")?.trim();
+  if (clientId === undefined) {
+    errors.push("NESTRIX_OIDC_CLIENT_ID is required with NESTRIX_OIDC_ISSUER.");
+  } else if (clientId.length > 512) {
+    errors.push("NESTRIX_OIDC_CLIENT_ID is longer than 512 characters.");
+  }
+  if (clientSecret === undefined) {
+    if (!errors.some((e) => e.startsWith("NESTRIX_OIDC_CLIENT_SECRET"))) {
+      errors.push(
+        "NESTRIX_OIDC_CLIENT_SECRET (or NESTRIX_OIDC_CLIENT_SECRET_FILE) is required with NESTRIX_OIDC_ISSUER.",
+      );
+    }
+  }
+  let redirectUrl = present(env, "NESTRIX_OIDC_REDIRECT_URL")?.trim();
+  if (redirectUrl === undefined) {
+    if (publicUrl === undefined) {
+      errors.push(
+        `NESTRIX_OIDC_REDIRECT_URL or NESTRIX_PUBLIC_URL is required with NESTRIX_OIDC_ISSUER (the callback is <public URL>${OIDC_CALLBACK_PATH}).`,
+      );
+    } else {
+      redirectUrl = `${publicUrl}${OIDC_CALLBACK_PATH}`;
+    }
+  } else if (!isAcceptableOidcUrl(redirectUrl, true)) {
+    errors.push(
+      "NESTRIX_OIDC_REDIRECT_URL must be an https:// URL (http:// only to localhost) without credentials or fragment.",
+    );
+  }
+  const scopes = list(present(env, "NESTRIX_OIDC_SCOPES"), /[\s,]+/);
+  if (scopes.length === 0) scopes.push("openid", "email", "profile");
+  if (!scopes.includes("openid")) {
+    errors.push("NESTRIX_OIDC_SCOPES must include openid.");
+  }
+  if (scopes.some((s) => !/^[\x21\x23-\x5b\x5d-\x7e]{1,128}$/.test(s))) {
+    errors.push("NESTRIX_OIDC_SCOPES holds a character a scope cannot have.");
+  }
+  const roleClaim = present(env, "NESTRIX_OIDC_ROLE_CLAIM")?.trim() ?? "groups";
+  if (roleClaim.length > 256) {
+    errors.push("NESTRIX_OIDC_ROLE_CLAIM is longer than 256 characters.");
+  }
+  const adminGroups = list(present(env, "NESTRIX_OIDC_ADMIN_GROUPS"), /,/);
+  const allowedGroups = list(present(env, "NESTRIX_OIDC_ALLOWED_GROUPS"), /,/);
+  if (adminGroups.includes("*")) {
+    errors.push(
+      'NESTRIX_OIDC_ADMIN_GROUPS cannot be "*": name the groups whose members are admins.',
+    );
+  }
+  if (adminGroups.length === 0 && allowedGroups.length === 0) {
+    errors.push(
+      'NESTRIX_OIDC_ALLOWED_GROUPS or NESTRIX_OIDC_ADMIN_GROUPS is required with NESTRIX_OIDC_ISSUER: name who may sign in (NESTRIX_OIDC_ALLOWED_GROUPS="*" lets in every user the identity provider signs in).',
+    );
+  }
+  const sessionSeconds = integer(
+    env,
+    "NESTRIX_OIDC_SESSION_SECONDS",
+    DEFAULT_OIDC_SESSION_SECONDS,
+    MIN_OIDC_SESSION_SECONDS,
+    MAX_OIDC_SESSION_SECONDS,
+    errors,
+  );
+  if (errors.length > before) return undefined;
+  return Object.freeze({
+    issuer,
+    clientId: clientId as string,
+    clientSecret: clientSecret as string,
+    redirectUrl: redirectUrl as string,
+    scopes: Object.freeze(scopes),
+    roleClaim,
+    adminGroups: Object.freeze(adminGroups),
+    allowedGroups: Object.freeze(allowedGroups),
+    sessionSeconds,
+  });
 }
 
 /**

@@ -10,9 +10,11 @@ import {
 import { AppShell } from "@/components/app-shell";
 import { NuqsHashAdapter } from "@/lib/nuqs-hash-adapter";
 import { isRequestListLink } from "@/lib/params";
+import { AlertsPage } from "@/views/alerts/alerts-page";
 import { ClassesPage } from "@/views/classes/classes-page";
 import { DependenciesPage } from "@/views/dependencies/dependencies-page";
 import { ErrorsPage } from "@/views/errors/errors-page";
+import { LogsPage } from "@/views/logs/logs-page";
 import { MapPage } from "@/views/map/map-page";
 import { OverviewPage } from "@/views/overview/overview-page";
 import { ProfilerPage } from "@/views/profiler/profiler-page";
@@ -76,6 +78,11 @@ const classesRoute = createRoute({
   path: "/classes",
   component: ClassesPage,
 });
+const logsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/logs",
+  component: LogsPage,
+});
 const mapRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/map",
@@ -106,6 +113,11 @@ const slosRoute = createRoute({
   path: "/slos",
   component: SlosPage,
 });
+const alertsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/alerts",
+  component: AlertsPage,
+});
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
@@ -127,12 +139,14 @@ export const router = createRouter({
     routesRoute,
     routeDetailRoute,
     classesRoute,
+    logsRoute,
     mapRoute,
     queriesRoute,
     dependenciesRoute,
     profilerRoute,
     runtimeRoute,
     slosRoute,
+    alertsRoute,
     settingsRoute,
     traceRoute,
   ]),

@@ -2,6 +2,7 @@ import type {
   AppMapResponse,
   ClassStatsResponse,
   ErrorListResponse,
+  LogSearchResponse,
   MetaResponse,
   ProfileDetail,
   ProfileListResponse,
@@ -58,6 +59,9 @@ export class NestrixClient {
   }
   errors(params: Record<string, QueryValue>): Promise<ErrorListResponse> {
     return this.#get("api/v1/errors", params);
+  }
+  logs(params: Record<string, QueryValue>): Promise<LogSearchResponse> {
+    return this.#get("api/v1/logs", params);
   }
   routes(params: Record<string, QueryValue>): Promise<RouteStatsResponse> {
     return this.#get("api/v1/routes", params);

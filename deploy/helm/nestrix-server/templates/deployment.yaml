@@ -1,0 +1,141 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nestrix-server.fullname" . }}
+  labels:
+    {{- include "nestrix-server.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # A new pod becomes ready (and has applied any migration) before an old one is stopped. That is
+  # safe while a release's migrations are additive: production.md, "Upgrades". For a release that
+  # says "stop all replicas first": kubectl scale deploy/{{ include "nestrix-server.fullname" . }} --replicas=0, then helm upgrade.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "nestrix-server.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nestrix-server.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000   # the image's `node` user
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: server
+          image: {{ include "nestrix-server.image" .Values.image | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          ports:
+            - name: http
+              containerPort: 4318
+          env:
+            - name: PORT
+              value: "4318"
+            - name: NESTRIX_RETENTION_DAYS
+              value: {{ .Values.config.retentionDays | quote }}
+            - name: NESTRIX_LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            {{- if .Values.postgresql.enabled }}
+            - name: DATABASE_URL
+              value: {{ printf "postgres://%s@%s:5432/%s" .Values.postgresql.user (include "nestrix-server.postgresName" .) .Values.postgresql.database | quote }}
+            - name: DATABASE_PASSWORD_FILE
+              value: /run/secrets/nestrix/{{ .Values.existingSecret.keys.dbPassword }}
+            {{- else }}
+            - name: DATABASE_URL_FILE
+              value: /run/secrets/nestrix/{{ .Values.existingSecret.keys.databaseUrl }}
+            {{- end }}
+            - name: NESTRIX_INGEST_KEYS_FILE
+              value: /run/secrets/nestrix/{{ .Values.existingSecret.keys.ingestKeys }}
+            - name: NESTRIX_ADMIN_PASSWORD_FILE
+              value: /run/secrets/nestrix/{{ .Values.existingSecret.keys.adminPassword }}
+            - name: NESTRIX_SESSION_SECRET_FILE
+              value: /run/secrets/nestrix/{{ .Values.existingSecret.keys.sessionSecret }}
+            {{- with .Values.config.publicUrl }}
+            - name: NESTRIX_PUBLIC_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.config.trustedProxies }}
+            - name: NESTRIX_TRUSTED_PROXIES
+              value: {{ join "," .Values.config.trustedProxies | quote }}
+            {{- end }}
+            {{- range $name, $value := .Values.config.extraEnv }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: secrets
+              mountPath: /run/secrets/nestrix
+              readOnly: true
+          startupProbe:
+            httpGet: { path: /readyz, port: http }
+            {{- toYaml .Values.probes.startup | nindent 12 }}
+          livenessProbe:
+            httpGet: { path: /livez, port: http }
+            {{- toYaml .Values.probes.liveness | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            {{- toYaml .Values.probes.readiness | nindent 12 }}
+          {{- if gt (int .Values.preStopSleepSeconds) 0 }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", {{ .Values.preStopSleepSeconds | quote }}]
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: secrets
+          secret:
+            secretName: {{ include "nestrix-server.secretName" . }}
+            defaultMode: 0440
+            # Only the keys the container reads: the database one is the password (bundled
+            # PostgreSQL) or the whole URL (your own), never both.
+            items:
+              {{- if .Values.postgresql.enabled }}
+              - key: {{ .Values.existingSecret.keys.dbPassword | quote }}
+                path: {{ .Values.existingSecret.keys.dbPassword | quote }}
+              {{- else }}
+              - key: {{ .Values.existingSecret.keys.databaseUrl | quote }}
+                path: {{ .Values.existingSecret.keys.databaseUrl | quote }}
+              {{- end }}
+              - key: {{ .Values.existingSecret.keys.ingestKeys | quote }}
+                path: {{ .Values.existingSecret.keys.ingestKeys | quote }}
+              - key: {{ .Values.existingSecret.keys.adminPassword | quote }}
+                path: {{ .Values.existingSecret.keys.adminPassword | quote }}
+              - key: {{ .Values.existingSecret.keys.sessionSecret | quote }}
+                path: {{ .Values.existingSecret.keys.sessionSecret | quote }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -3,12 +3,24 @@ import {
   type DynamicModule,
   type ExistingProvider,
   type FactoryProvider,
+  Logger,
   Module,
   type ValueProvider,
 } from "@nestjs/common";
+import type { Pool } from "pg";
+import {
+  ERROR_SYNC_OPTIONS,
+  ErrorGroupSync,
+  type ErrorSyncOptions,
+} from "../errors/sync.js";
+import { ErrorGroupSyncLifecycle } from "../errors/sync.lifecycle.js";
+import { ErrorTriageController } from "../errors/triage.controller.js";
 import { SlosService } from "../slos/slos.service.js";
+import { STORAGE_POOL } from "../storage/storage.module.js";
 import { ExplainService } from "./explain.service.js";
 import { DenyQueryGuard, QUERY_GUARD, QueryGuardGate } from "./guard.js";
+import { LogSearchService } from "./log-search.service.js";
+import { MetricsService } from "./metrics.service.js";
 import {
   QUERY_OPTIONS,
   type QueryModuleOptions,
@@ -33,7 +45,9 @@ export class QueryModule {
     return {
       module: QueryModule,
       imports: options.imports ?? [],
-      controllers: [QueryController],
+      // The triage routes are admin-only writes (`SessionQueryGuard`); they share the path of the
+      // error group reads.
+      controllers: [QueryController, ErrorTriageController],
       providers: [
         {
           provide: QUERY_GUARD,
@@ -47,6 +61,27 @@ export class QueryModule {
         // Stateless (needs only STORAGE_POOL): the overview reads SLO burn rates through it.
         SlosService,
         TraceLogsService,
+        LogSearchService,
+        // Stored triage state of error groups (issue #26, D-103).
+        { provide: ERROR_SYNC_OPTIONS, useValue: options.errorSync ?? {} },
+        {
+          provide: ErrorGroupSync,
+          inject: [STORAGE_POOL, QueryService, ERROR_SYNC_OPTIONS],
+          useFactory: (
+            pool: Pool,
+            query: QueryService,
+            o: ErrorSyncOptions,
+          ) => {
+            const logger = new Logger("NestrixErrorGroups");
+            return new ErrorGroupSync(pool, query, {
+              ...o,
+              onError: o.onError ?? ((message) => logger.warn(message)),
+            });
+          },
+        },
+        ErrorGroupSyncLifecycle,
+        // Issue #18 (D-105): the routes answer 404 unless NESTRIX_METRICS=on.
+        MetricsService,
       ],
     };
   }

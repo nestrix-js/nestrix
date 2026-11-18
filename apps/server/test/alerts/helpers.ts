@@ -109,6 +109,7 @@ export async function seedMinute(
   init: {
     minuteMs: number;
     service: string;
+    environment?: string | null;
     route?: string;
     method?: string;
     count: number;
@@ -120,9 +121,9 @@ export async function seedMinute(
   const hist = new Array<number>(HISTOGRAM_BUCKETS).fill(0);
   hist[bucketIndex(duration)] = init.count;
   await pool.query(
-    `INSERT INTO route_minutes (minute, service_name, method, route, count, errors, total_ms, max_ms, hist)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-     ON CONFLICT (minute, service_name, method, route) DO UPDATE
+    `INSERT INTO route_minutes (minute, service_name, environment, method, route, count, errors, total_ms, max_ms, hist)
+     VALUES ($1, $2, $10, $3, $4, $5, $6, $7, $8, $9)
+     ON CONFLICT (minute, service_name, environment, method, route) DO UPDATE
        SET count = EXCLUDED.count, errors = EXCLUDED.errors, total_ms = EXCLUDED.total_ms,
            max_ms = EXCLUDED.max_ms, hist = EXCLUDED.hist`,
     [
@@ -135,6 +136,7 @@ export async function seedMinute(
       duration * init.count,
       duration,
       hist,
+      init.environment ?? null,
     ],
   );
 }

@@ -1,6 +1,7 @@
 import { type DynamicModule, Module } from "@nestjs/common";
 import { NestrixModule } from "@nestrix-js/nestjs";
 import { AlertsModule } from "./alerts/alerts.module.js";
+import { AuditLogModule } from "./auth/audit.module.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { ReadQueryGuard } from "./auth/query-guard.js";
 import { SessionStoreModule } from "./auth/session-store.module.js";
@@ -55,7 +56,9 @@ export class AppModule {
           ignore: { paths: [INGEST_PATH_PATTERN, HEALTH_PATH_PATTERN] },
         }),
         // Admin login (P5-04): its middleware is mounted by `configureApp`, its guard is global
-        // and covers every controller, the query API included.
+        // and covers every controller, the query API included. The audit log and the role guard
+        // (`@AdminOnly()`, issue #34) are global, for every feature module's controllers.
+        AuditLogModule,
         AuthModule,
         UiModule,
         HealthModule,
@@ -65,7 +68,22 @@ export class AppModule {
               StorageModule.forRoot({
                 databaseUrl: config.databaseUrl,
                 retentionDays: config.retentionDays,
-                writer: { maxSpansPerTrace: config.maxSpansPerTrace },
+                logRetentionDays: config.logStore.retentionDays,
+                writer: {
+                  maxSpansPerTrace: config.maxSpansPerTrace,
+                  logs: {
+                    mode: config.logStore.mode,
+                    allMaxPerTrace: config.logStore.maxPerTrace,
+                    maxPerMinute: config.logStore.maxPerMinute,
+                  },
+                  // Issue #18 (D-105): used only with NESTRIX_METRICS=on.
+                  metrics: {
+                    maxSeriesPerService: config.metrics.maxSeriesPerService,
+                    maxSeries: config.metrics.maxSeries,
+                  },
+                  // Issue #27, D-102: stored per trace for the `attr.<key>=` filters.
+                  indexedAttributes: config.indexedAttributes,
+                },
               }),
               ingest,
               // Remote CPU profiling (P10-02, D-76): instance check-in and upload on the ingest
