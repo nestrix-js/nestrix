@@ -43,7 +43,7 @@ For Claude Code, the `claude mcp add` command with the same two variables is in 
 | Tool | What for |
 |---|---|
 | `overview` | Start here: the app, sampling, store size, slowest and most failing routes, error count |
-| `find_traces` | Stored traces with filters (route, method, status, minimum duration, text, type, release, user, service) |
+| `find_traces` | Stored traces with filters (route, method, status, has errors, minimum duration, text, type, release, user, service) |
 | `get_trace` | One trace written for a model, repeated statements first |
 | `list_errors` | Recent errors grouped by type and message |
 | `route_stats` | Count, error rate and p50/p95/p99 per route over 15 or 60 minutes |
