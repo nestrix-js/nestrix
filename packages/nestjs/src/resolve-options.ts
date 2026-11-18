@@ -1,7 +1,9 @@
+import { readFileSync } from "node:fs";
 import {
   type SecretDigests,
   secretDigests,
 } from "./dashboard/startup-token.js";
+import { logErrorOnce } from "./diagnostics.js";
 import type { ExpectedRule } from "./errors/exception.js";
 import type { NestrixExportFailureCallback } from "./export-status.js";
 import { isDisabledByEnv } from "./kill-switch.js";
@@ -728,11 +730,67 @@ export function resolveIntegrations(
  * Throws on invalid options; that is a startup error, not a request-path failure.
  * `NESTRIX_ENABLED=false` in `env` overrides `enabled: true` (a kill switch).
  */
+/** The OTLP header variables that also take a `<name>_FILE` form (#62, D-111). */
+const HEADER_VARIABLES = [
+  "OTEL_EXPORTER_OTLP_HEADERS",
+  "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+  "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+  "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+] as const;
+
+/**
+ * #62 (D-111): `env` with each OTLP header variable that is unset or blank filled from the file
+ * named by `<name>_FILE` (a Docker or Kubernetes secret), read once here, the whole content
+ * trimmed, same `key=value,...` format. The variable itself wins when both are set. A file that
+ * cannot be read, or is empty, logs one error (naming the variable and the path, never the
+ * content) and the export runs without those headers: telemetry must not stop the app from
+ * starting. Never throws.
+ */
+export function withHeaderFiles(
+  env: Environment,
+  readFile: (path: string) => string = (path) => readFileSync(path, "utf8"),
+): Environment {
+  let out: Record<string, string | undefined> | undefined;
+  for (const name of HEADER_VARIABLES) {
+    const fileVar = `${name}_FILE`;
+    const path = blank(env[fileVar])?.trim();
+    if (path === undefined || blank(env[name]) !== undefined) continue;
+    let text: string;
+    try {
+      text = readFile(path).trim();
+    } catch (error) {
+      const code = (error as { code?: unknown } | null)?.code;
+      logErrorOnce(
+        `env.${fileVar}`,
+        `${fileVar} names "${path}", which could not be read (${typeof code === "string" ? code : "error"}). Spans, logs and metrics are exported without the headers it holds.`,
+      );
+      continue;
+    }
+    if (text === "") {
+      logErrorOnce(
+        `env.${fileVar}`,
+        `${fileVar} names "${path}", which is empty. Spans, logs and metrics are exported without the headers it would hold.`,
+      );
+      continue;
+    }
+    out ??= { ...env };
+    out[name] = text;
+  }
+  return out ?? env;
+}
+
 export function resolveOptions(
   options: NestrixModuleOptions | undefined,
-  env: Environment,
+  environment: Environment,
 ): ResolvedOptions {
   const o = options ?? {};
+  // Read only when something may export: a disabled Nestrix logs nothing about a secret file.
+  const env =
+    o.enabled === false ||
+    o.export?.otlp === false ||
+    isDisabledByEnv(environment)
+      ? environment
+      : withHeaderFiles(environment);
 
   const sampleRate = o.sampleRate ?? 1;
   if (

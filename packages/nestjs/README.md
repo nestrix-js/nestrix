@@ -619,6 +619,10 @@ Ignored while the dashboard is off. See [Memory and the `store` option](#memory-
 | `OTEL_EXPORTER_OTLP_LOGS_HEADERS` | Same format, for logs; wins over the generic variable key by key. |
 | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | Full metrics URL, used as given, when `export.otlp.endpoint` is not set. Does not switch export on by itself. |
 | `OTEL_EXPORTER_OTLP_METRICS_HEADERS` | Same as the headers variable, for metrics; wins over the generic one key by key. |
+| `OTEL_EXPORTER_OTLP_HEADERS_FILE` | Path to a file holding the value of `OTEL_EXPORTER_OTLP_HEADERS` (a Docker or Kubernetes secret), same format; read once at startup, trimmed. `OTEL_EXPORTER_OTLP_HEADERS` wins when both are set, and `export.otlp.headers` wins over both, key by key. A file that is missing, unreadable or empty logs one error (the path, never the content) and Nestrix exports without those headers; the app starts. |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS_FILE` | The same, for `OTEL_EXPORTER_OTLP_TRACES_HEADERS`. |
+| `OTEL_EXPORTER_OTLP_LOGS_HEADERS_FILE` | The same, for `OTEL_EXPORTER_OTLP_LOGS_HEADERS`. |
+| `OTEL_EXPORTER_OTLP_METRICS_HEADERS_FILE` | The same, for `OTEL_EXPORTER_OTLP_METRICS_HEADERS`. |
 | `OTEL_METRIC_EXPORT_INTERVAL` | Milliseconds between metric exports. Default `60000`; a value that is not a positive integer is ignored. |
 
 An option always wins over the variable of the same meaning. Nestrix itself reads no other `OTEL_*` variables. In particular `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG`, `OTEL_SDK_DISABLED` and `OTEL_EXPORTER_OTLP_PROTOCOL` are not read: use `sampleRate` and `enabled` (or `NESTRIX_ENABLED`), and note that export is OTLP/HTTP with protobuf only. The OTLP exporter Nestrix uses reads a few on its own, though: the OTLP exporter it uses reads some on its own:

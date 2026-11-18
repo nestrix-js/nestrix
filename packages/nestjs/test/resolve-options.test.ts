@@ -1,5 +1,14 @@
-import { describe, expect, it } from "vitest";
-import { isDisabledByEnv, resolveOptions } from "../src/resolve-options.js";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Logger } from "@nestjs/common";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { resetDiagnosticsForTests } from "../src/diagnostics.js";
+import {
+  isDisabledByEnv,
+  resolveOptions,
+  withHeaderFiles,
+} from "../src/resolve-options.js";
 
 const none = {};
 
@@ -389,5 +398,107 @@ describe("resolveOptions validation", () => {
     expect(() => resolveOptions({ sampleRate: 5 }, none)).toThrow(
       /^Invalid Nestrix options:/,
     );
+  });
+});
+
+describe("OTLP headers from a secret file (#62, D-111)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "nestrix-headers-"));
+  const file = (name: string, content: string) => {
+    const path = join(dir, name);
+    writeFileSync(path, content);
+    return path;
+  };
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetDiagnosticsForTests();
+  });
+  const endpoint = { OTEL_EXPORTER_OTLP_ENDPOINT: "http://c:4318" };
+  const headersOf = (otlp: { headers: object } | false) =>
+    otlp === false ? undefined : otlp.headers;
+
+  it("reads each *_HEADERS_FILE once, trimmed, in the variable's format, for traces, logs and metrics", () => {
+    const r = resolveOptions(
+      { logs: { export: true } },
+      {
+        ...endpoint,
+        OTEL_EXPORTER_OTLP_HEADERS_FILE: file("generic", "x-key=s3cret,a=1\n"),
+        OTEL_EXPORTER_OTLP_TRACES_HEADERS_FILE: file("traces", " a=traces "),
+        OTEL_EXPORTER_OTLP_LOGS_HEADERS_FILE: file("logs", "a=logs"),
+        OTEL_EXPORTER_OTLP_METRICS_HEADERS_FILE: file("metrics", "a=metrics"),
+      },
+    );
+    expect(headersOf(r.export.otlp)).toEqual({
+      "x-key": "s3cret",
+      a: "traces",
+    });
+    expect(headersOf(r.logs.otlp)).toEqual({
+      "x-key": "s3cret",
+      a: "logs",
+    });
+    expect(headersOf(r.metrics === false ? false : r.metrics.export)).toEqual({
+      "x-key": "s3cret",
+      a: "metrics",
+    });
+  });
+
+  it("the variable wins over its file, and the option wins over both", () => {
+    const read = vi.fn(() => "a=file");
+    expect(
+      withHeaderFiles(
+        {
+          OTEL_EXPORTER_OTLP_HEADERS: "a=var",
+          OTEL_EXPORTER_OTLP_HEADERS_FILE: "/x",
+        },
+        read,
+      ).OTEL_EXPORTER_OTLP_HEADERS,
+    ).toBe("a=var");
+    expect(read).not.toHaveBeenCalled();
+    const r = resolveOptions(
+      { export: { otlp: { headers: { a: "option" } } } },
+      {
+        ...endpoint,
+        OTEL_EXPORTER_OTLP_HEADERS_FILE: file("opt", "a=file,b=2"),
+      },
+    );
+    expect(headersOf(r.export.otlp)).toEqual({
+      a: "option",
+      b: "2",
+    });
+  });
+
+  it("a missing or empty file logs one error, without the content, and exports without those headers", () => {
+    const error = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => {});
+    const env = {
+      ...endpoint,
+      OTEL_EXPORTER_OTLP_HEADERS_FILE: join(dir, "does-not-exist"),
+      OTEL_EXPORTER_OTLP_TRACES_HEADERS_FILE: file("empty", " \n"),
+    };
+    const r = resolveOptions({}, env);
+    resolveOptions({}, env);
+    expect(headersOf(r.export.otlp)).toEqual({});
+    const lines = error.mock.calls.map((c) => String(c[0]));
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(
+      /^OTEL_EXPORTER_OTLP_HEADERS_FILE names ".*does-not-exist", which could not be read \(ENOENT\)/,
+    );
+    expect(lines[1]).toMatch(
+      /OTEL_EXPORTER_OTLP_TRACES_HEADERS_FILE .* is empty/,
+    );
+  });
+
+  it("is not read while Nestrix is disabled or export is off", () => {
+    const error = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => {});
+    const env = {
+      ...endpoint,
+      OTEL_EXPORTER_OTLP_HEADERS_FILE: join(dir, "does-not-exist"),
+    };
+    resolveOptions({ enabled: false }, env);
+    resolveOptions({ export: { otlp: false } }, env);
+    resolveOptions({}, { ...env, NESTRIX_ENABLED: "false" });
+    expect(error).not.toHaveBeenCalled();
   });
 });
