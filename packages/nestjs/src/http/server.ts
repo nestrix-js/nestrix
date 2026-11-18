@@ -469,11 +469,13 @@ export class HttpServerInstrumentation {
     };
     if (this.context !== undefined) {
       // D-102: read once, at `close` or when the handler queues a job (trace-attributes.ts).
+      // An early read (a job queued from a guard) that found no keys is tried again later, since
+      // a guard that has not run yet may set what `context` reads; the read at `close` is final.
       let read = false;
-      state.readContext = () => {
+      state.readContext = (final) => {
         if (read) return;
-        read = true;
-        this.recordContext(span, req);
+        const settled = this.recordContext(span, req);
+        if (settled || final) read = true;
       };
     }
     setStateForRequest(rawReq, state);
@@ -630,14 +632,15 @@ export class HttpServerInstrumentation {
    * The `context` option (D-102): called at most once per request (through `state.readContext`),
    * only for a recording span, before it ends. A throw, a promise, a result that is not a plain
    * object or an invalid entry records nothing for it and is counted (never with the value). Its
-   * own guard, so a failure here leaves the rest of `finish` untouched.
+   * own guard, so a failure here leaves the rest of `finish` untouched. Returns false when it ran
+   * cleanly but produced no keys (so an early read may be retried later), true otherwise.
    */
-  private recordContext(span: Span, request: unknown): void {
+  private recordContext(span: Span, request: unknown): boolean {
     const read = this.context;
-    if (read === undefined) return;
+    if (read === undefined) return true;
     try {
       maybeFault("context");
-      if (!span.isRecording()) return;
+      if (!span.isRecording()) return false;
       const result: unknown = read(request);
       const values = readTraceAttributes(result, (why) =>
         this.diagnostics.countFailure(
@@ -648,8 +651,10 @@ export class HttpServerInstrumentation {
         ),
       );
       applyTraceAttributes(span, values);
+      return values.size > 0;
     } catch (error) {
       this.diagnostics.countFailure("http.context", error);
+      return true; // a failure is final: the function is not called again
     }
   }
 
@@ -794,7 +799,7 @@ export class HttpServerInstrumentation {
         span.setStatus({ code: SpanStatusCode.ERROR });
       }
       if (this.user !== undefined) this.recordUser(span, request);
-      state.readContext?.();
+      state.readContext?.(true);
       endNestrixSpan(span);
     } catch (error) {
       this.diagnostics.countFailure("http.close-listener", error);

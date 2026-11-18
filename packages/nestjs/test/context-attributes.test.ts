@@ -12,6 +12,10 @@ import {
   type ExecutionContext,
   Get,
   Injectable,
+  type MiddlewareConsumer,
+  Module,
+  type NestMiddleware,
+  type NestModule,
   UseGuards,
 } from "@nestjs/common";
 import { type BootedApp, bootApp } from "@nestrix-js/testing";
@@ -36,6 +40,7 @@ import {
   resetDiagnosticsForTests,
 } from "../src/diagnostics.js";
 import { faultInjection } from "../src/http/request-state.js";
+import { NestrixModule } from "../src/index.js";
 import { bullmqTelemetry } from "../src/jobs/bullmq.js";
 import type { NestrixModuleOptions } from "../src/options.js";
 import { resolveOptions } from "../src/resolve-options.js";
@@ -415,8 +420,63 @@ describe("setTraceAttributes outside a request", () => {
   });
 });
 
+describe("setTraceAttributes in early middleware", () => {
+  let earlyReads = 0;
+  @Injectable()
+  class EarlyMiddleware implements NestMiddleware {
+    use(_req: unknown, _res: unknown, next: () => void): void {
+      setTraceAttributes({ "app.early": "yes" });
+      next();
+    }
+  }
+
+  @Controller("early")
+  @UseGuards(TenantGuard)
+  class EarlyController {
+    @Get()
+    get(): string {
+      return "early";
+    }
+  }
+
+  @Module({
+    imports: [
+      NestrixModule.forRoot({
+        ...DEFAULT_TEST_OPTIONS,
+        context: (request) => {
+          earlyReads++;
+          return { "tenant.id": tenantOf(request) };
+        },
+      }),
+    ],
+    controllers: [EarlyController],
+  })
+  class EarlyModule implements NestModule {
+    configure(consumer: MiddlewareConsumer): void {
+      consumer.apply(EarlyMiddleware).forRoutes("early");
+    }
+  }
+
+  it("does not read `context` before a later guard has set what it reads", async () => {
+    const booted = await bootApp("express", { module: EarlyModule });
+    try {
+      const res = await fetch(`${booted.baseUrl}/early`, {
+        headers: { "x-tenant": "acme" },
+      });
+      expect(res.status).toBe(200);
+      const span = await serverSpan(booted, "/early");
+      expect(span.attributes["app.early"]).toBe("yes");
+      expect(span.attributes["tenant.id"]).toBe("acme");
+      expect(earlyReads).toBe(1);
+    } finally {
+      await booted.close();
+    }
+  });
+});
+
 describe("baggage helpers", () => {
   const keys = new Set(["tenant.id"]);
+  beforeEach(() => resetDiagnosticsForTests());
 
   it("drop an allow-listed key arriving in incoming baggage, keep other entries, and add Nestrix's", () => {
     expect(
@@ -425,7 +485,7 @@ describe("baggage helpers", () => {
         new Map([["tenant.id", "acme"]]),
         keys,
       ),
-    ).toBe("vendor=1;p,tenant.id=acme");
+    ).toBe("tenant.id=acme,vendor=1;p");
     expect(mergeBaggage("tenant.id=evil", new Map(), keys)).toBeUndefined();
   });
 
@@ -438,6 +498,36 @@ describe("baggage helpers", () => {
     ).toEqual(new Map([["tenant.id", "a".repeat(256)]]));
     expect(parseBaggage("tenant.id=%E0%A4%A", keys)).toBeUndefined();
     expect(parseBaggage(42, keys)).toBeUndefined();
+  });
+
+  it("read a wrong value from a header cut at the limit never: a partial last item is dropped", () => {
+    const host = `vendor=${"x".repeat(8180 - "vendor=".length)}`;
+    expect(host.length).toBe(8180);
+    // Appended last, as the old merge did: the receiver's cut leaves `tenant.id=a`.
+    const old = `${host},tenant.id=acme-corp`;
+    expect(parseBaggage(old, keys)).toBeUndefined();
+    // A header cut exactly after a whole item still reads the earlier items.
+    expect(
+      parseBaggage(`tenant.id=acme,vendor=${"x".repeat(9000)}`, keys),
+    ).toEqual(new Map([["tenant.id", "acme"]]));
+  });
+
+  it("merge puts Nestrix's entries first and keeps the whole header within 8192", () => {
+    const host = `vendor=${"x".repeat(8180 - "vendor=".length)}`;
+    const entries = new Map([["tenant.id", "acme-corp"]]);
+    const merged = mergeBaggage(host, entries, keys);
+    // Does not fit: skipped, host data untouched.
+    expect(merged).toBe(host);
+    expect(getFailureCounts().get("context.propagate")).toBe(1);
+    // A worker reading the result gets the right value or none.
+    expect(parseBaggage(merged, keys)).toBeUndefined();
+    const roomy = `vendor=${"x".repeat(7000)}`;
+    const fits = mergeBaggage(roomy, entries, keys) ?? "";
+    expect(fits.startsWith("tenant.id=acme-corp,")).toBe(true);
+    expect(fits.length).toBeLessThanOrEqual(8192);
+    expect(parseBaggage(fits, keys)).toEqual(
+      new Map([["tenant.id", "acme-corp"]]),
+    );
   });
 
   it("keep Nestrix's part within its byte budget", () => {

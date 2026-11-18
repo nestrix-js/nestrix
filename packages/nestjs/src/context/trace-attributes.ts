@@ -40,6 +40,8 @@ export {
 
 /** Bytes of `baggage` Nestrix adds to one carrier, at most (W3C allows 8192 in all). */
 export const MAX_BAGGAGE_BYTES = 4096;
+/** The W3C limit for a whole `baggage` header; receivers cut at it. */
+const MAX_BAGGAGE_HEADER = 8192;
 
 function cut(text: string): string {
   if (text.length <= MAX_TRACE_ATTRIBUTE_VALUE_LENGTH) return text;
@@ -243,8 +245,13 @@ function sameTrace(span: Span, traceId: string | undefined): boolean {
  * The local root of the work in `ctx`, as `recordError` finds it (D-93): the request's server
  * span, then the nearest local root Nestrix started, each only when in the active span's trace.
  * `ended` roots are included (for propagation after the response closed), unless `recording`.
+ * `readContext`: run the request's `context` option now if it has not produced keys yet.
  */
-function localRoot(ctx: Context, recording: boolean): Span | undefined {
+function localRoot(
+  ctx: Context,
+  recording: boolean,
+  readContext: boolean,
+): Span | undefined {
   const active = trace.getSpan(ctx);
   let traceId: string | undefined;
   try {
@@ -254,8 +261,9 @@ function localRoot(ctx: Context, recording: boolean): Span | undefined {
   }
   const state = getStateFromContext(ctx);
   if (state !== undefined) {
-    // The request's `context` result, read once, now if not yet (a job queued by the handler).
-    if (!state.ended) state.readContext?.();
+    // The request's `context` result, read now if not yet (a job queued by the handler). Not for
+    // `setTraceAttributes`: it may run in middleware, before a guard sets what `context` reads.
+    if (readContext && !state.ended) state.readContext?.(false);
     const span = state.span;
     if (
       (!recording || (!state.ended && isRecording(span))) &&
@@ -294,7 +302,7 @@ export function setTraceAttributes(
   try {
     if (!errorTrackingEnabled()) return;
     const ctx = context.active();
-    let target = localRoot(ctx, true);
+    let target = localRoot(ctx, true, false);
     if (target === undefined) {
       const active = trace.getSpan(ctx);
       if (isRecording(active)) target = active;
@@ -324,7 +332,7 @@ function outboundEntries(
   ctx: Context,
   config: ResolvedContextPropagation,
 ): Map<string, string> | undefined {
-  const root = localRoot(ctx, false);
+  const root = localRoot(ctx, false, true);
   const record = root === undefined ? undefined : recordsBySpan.get(root);
   const out = new Map<string, string>();
   if (record !== undefined) {
@@ -358,20 +366,38 @@ export function mergeBaggage(
   entries: ReadonlyMap<string, string>,
   keys: ReadonlySet<string>,
 ): string | undefined {
-  const kept =
+  const host =
     existing === undefined
       ? []
       : baggageItems(existing)
           .filter((i) => !keys.has(i.key))
           .map((i) => i.raw);
+  // Nestrix's entries go first, so a receiver that cuts the header at its limit loses host
+  // entries, never ours. Host data is kept whole; an entry of ours that would take the header
+  // over the limit is skipped and counted.
+  let hostLength = host.reduce((n, raw) => n + raw.length + 1, 0);
   let budget = MAX_BAGGAGE_BYTES;
+  const ours: string[] = [];
   for (const [key, value] of entries) {
     const item = `${key}=${encodeURIComponent(value)}`;
-    if (item.length + 1 > budget) continue;
+    if (
+      item.length + 1 > budget ||
+      hostLength + item.length + 1 > MAX_BAGGAGE_HEADER
+    ) {
+      diagnostics.countFailure(
+        "context.propagate",
+        new TypeError(
+          "a trace attribute did not fit the baggage header and was not propagated",
+        ),
+      );
+      continue;
+    }
     budget -= item.length + 1;
-    kept.push(item);
+    hostLength += item.length + 1;
+    ours.push(item);
   }
-  return kept.length > 0 ? kept.join(",") : undefined;
+  const all = [...ours, ...host];
+  return all.length > 0 ? all.join(",") : undefined;
 }
 
 /** Allow-listed entries of a baggage header, decoded and cut. Never throws. */
@@ -382,7 +408,11 @@ export function parseBaggage(
   if (typeof header !== "string" || header === "" || keys.size === 0)
     return undefined;
   const out = new Map<string, string>();
-  for (const item of baggageItems(header.slice(0, 8192))) {
+  // A header over the limit was cut mid-item: its last item may be a partial value, so drop it.
+  const cutOff = header.length > MAX_BAGGAGE_HEADER;
+  const items = baggageItems(header.slice(0, MAX_BAGGAGE_HEADER));
+  if (cutOff) items.pop();
+  for (const item of items) {
     if (!keys.has(item.key) || out.has(item.key)) continue;
     const text = item.raw.slice(item.raw.indexOf("=") + 1);
     const semi = text.indexOf(";");

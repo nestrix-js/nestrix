@@ -48,7 +48,7 @@ export interface RequestState {
    * span; later calls do nothing. Called at `close`, or earlier when the request queues a job
    * whose metadata carries propagated keys. Never throws.
    */
-  readContext?: () => void;
+  readContext?: (final: boolean) => void;
 }
 
 /**
