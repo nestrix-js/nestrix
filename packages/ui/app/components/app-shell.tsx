@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Activity, LogOut, Pause, Play } from "lucide-react";
 import type * as React from "react";
@@ -6,8 +6,9 @@ import { useEffect, useRef } from "react";
 
 import { Chip } from "@/components/kit/chip";
 import { Button } from "@/components/ui/button";
-import { getMeta, signOut } from "@/lib/api";
+import { getMeta, setActiveEnvironment, signOut } from "@/lib/api";
 import { readConfig } from "@/lib/config";
+import { useEnvironment } from "@/lib/environment";
 import { samplingNotice } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
 import { useService } from "@/lib/service";
@@ -74,11 +75,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const runtimeOn = meta.data?.runtime?.available === true;
   const services = meta.data?.services ?? [];
   const [selected, setSelected] = useService();
+  const environments = meta.data?.environments ?? [];
+  const [selectedEnvironment, setSelectedEnvironment] = useEnvironment();
+  // Set while rendering, so the pages' queries below (which run after this render) carry it.
+  setActiveEnvironment(selectedEnvironment);
+  const queryClient = useQueryClient();
+  const firstEnvironment = useRef(true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a change of environment is the trigger
+  useEffect(() => {
+    if (firstEnvironment.current) {
+      firstEnvironment.current = false;
+      return;
+    }
+    void queryClient.invalidateQueries({
+      predicate: (q) => q.queryKey[0] !== "meta",
+    });
+  }, [selectedEnvironment]);
   // Links keep the chosen service: the hash holds it, and a plain link would drop it.
   // The route detail page belongs to Routes: that tab stays marked while it is open.
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const onRouteDetail = pathname === "/route";
-  const keep = selected ? `?service=${encodeURIComponent(selected)}` : "";
+  const keepParams = new URLSearchParams();
+  if (selected) keepParams.set("service", selected);
+  if (selectedEnvironment) keepParams.set("environment", selectedEnvironment);
+  const keep = keepParams.size > 0 ? `?${keepParams.toString()}` : "";
 
   // On a narrow screen the menu scrolls; bring the current section into view when it changes.
   const navRef = useRef<HTMLElement>(null);
@@ -121,6 +141,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Chip>
           )}
           <div className="ml-auto flex flex-wrap items-center gap-2 sm:gap-3">
+            {environments.length > 1 && (
+              <select
+                aria-label="Environment"
+                data-testid="environment-select"
+                value={selectedEnvironment ?? ""}
+                onChange={(e) =>
+                  void setSelectedEnvironment(e.target.value || undefined)
+                }
+                className="h-8 rounded-lg border border-border bg-background px-2 text-sm"
+              >
+                <option value="">All environments</option>
+                {environments.map((e) => (
+                  <option key={e.name} value={e.name}>
+                    {e.unset ? "No environment" : e.name}
+                  </option>
+                ))}
+              </select>
+            )}
             {services.length > 1 && (
               <select
                 aria-label="Service"

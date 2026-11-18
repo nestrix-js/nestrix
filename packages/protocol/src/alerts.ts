@@ -7,7 +7,8 @@
 /**
  * `error_rate`: errors / requests as a fraction (0.05 is 5%). `p95_ms`: latency in ms.
  * `slo_burn_rate`: the burn rate of the rule's SLO over the rule's window (14.4 spends a 30-day
- * budget in 2 days); the rule has `sloId`, and takes its service and route from the SLO.
+ * budget in 2 days); the rule has `sloId`, and takes its service, environment and route from the
+ * SLO.
  */
 export type AlertMetric = "error_rate" | "p95_ms" | "slo_burn_rate";
 
@@ -19,6 +20,11 @@ export interface AlertRule {
   id: string;
   name: string;
   service: string;
+  /**
+   * The environment scope (issue #28, D-101): `null` watches every environment, `"unset"` the data
+   * without an environment, any other value that `deployment.environment.name`.
+   */
+  environment: string | null;
   /** `null`: every route of the service. */
   route: string | null;
   metric: AlertMetric;
@@ -48,6 +54,8 @@ export interface AlertRuleCreate {
   name: string;
   /** Required unless `metric` is `slo_burn_rate` (then taken from the SLO). */
   service?: string;
+  /** `null` or absent: every environment. Taken from the SLO for `slo_burn_rate`. */
+  environment?: string | null;
   route?: string | null;
   metric: AlertMetric;
   /** Required for, and only for, `slo_burn_rate`: the id of an existing SLO. */
@@ -118,6 +126,8 @@ export interface AlertWebhookPayload {
   threshold: number;
   window: { minutes: number };
   service: string;
+  /** The rule's environment scope; `null` is every environment (D-101). */
+  environment: string | null;
   route: string | null;
   /** When the condition started (firing), or when the alert began (resolved). ISO 8601. */
   startedAt: string;

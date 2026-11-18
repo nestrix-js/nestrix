@@ -19,6 +19,8 @@
  *   method, route (`(unmatched)` without `http.route`) and the minute of its end; an error there
  *   is a status error or a 5xx (the embedded route statistics' definition: 5xx or thrown handler).
  * - class rollup (`class_minutes`): every span with string `nestrix.class` and `nestrix.method`.
+ * - environment (D-101): `environmentOf` of the resource (the receiver has already replaced it with
+ *   the ingest key's environment when the key is bound to one); `null` is unset.
  *
  * Postgres cannot store U+0000 in `text` or `jsonb`, and rejects a lone UTF-16 surrogate escaped
  * in JSON; every string (names, attribute keys and values, messages) is made well-formed and its
@@ -106,7 +108,39 @@ export interface ResourceRow {
   hash: string;
   serviceName: string;
   serviceVersion: string | null;
+  /** `environmentOf(attributes)`: `null` is unset (D-101). */
+  environment: string | null;
   attributes: IngestAttributes;
+}
+
+/** The semantic-convention key of the environment, and the deprecated one read when it is absent. */
+export const ENVIRONMENT_KEY = "deployment.environment.name";
+export const LEGACY_ENVIRONMENT_KEY = "deployment.environment";
+/**
+ * The stored name of "no environment" in the API (`environment=unset`). A resource that claims it
+ * is stored as unset (`NULL`), so the name always means one thing (D-101).
+ */
+export const UNSET_ENVIRONMENT = "unset";
+/** Longest environment name stored; a longer one is cut (the query parameter's bound). */
+export const MAX_ENVIRONMENT_LENGTH = 256;
+
+/**
+ * The environment of a resource (D-101): the string `deployment.environment.name`, else the string
+ * `deployment.environment`; trimmed, cut to 256 characters, made safe for PostgreSQL. `null`
+ * (unset) when neither is a non-empty string, or the value is `unset`. Never throws.
+ */
+export function environmentOf(
+  attributes: IngestAttributes | undefined,
+): string | null {
+  if (attributes === null || typeof attributes !== "object") return null;
+  for (const key of [ENVIRONMENT_KEY, LEGACY_ENVIRONMENT_KEY]) {
+    const value = attributes[key];
+    if (typeof value !== "string") continue;
+    const name = cleanString(value).trim().slice(0, MAX_ENVIRONMENT_LENGTH);
+    if (name === "") continue;
+    return name === UNSET_ENVIRONMENT ? null : name;
+  }
+  return null;
 }
 
 export function deriveResource(
@@ -121,6 +155,7 @@ export function deriveResource(
       typeof name === "string" && name !== "" ? name : UNKNOWN_SERVICE,
     serviceVersion:
       typeof version === "string" && version !== "" ? version : null,
+    environment: environmentOf(attributes),
     attributes,
   };
 }
@@ -172,6 +207,8 @@ export interface SpanRow {
   parentSpanId: string | null;
   resourceHash: string;
   serviceName: string;
+  /** The resource's environment (D-101); `null` is unset. */
+  environment: string | null;
   /** `service.version` of the span's resource (the trace's release when the span is its root). */
   release: string | null;
   name: string;
@@ -263,6 +300,7 @@ export function deriveSpan(
     parentSpanId,
     resourceHash: resource.hash,
     serviceName: resource.serviceName,
+    environment: resource.environment,
     release: resource.serviceVersion,
     name: cleanString(String(span.name)),
     kind: span.kind,

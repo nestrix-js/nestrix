@@ -18,6 +18,7 @@ export const routeHistogramParams = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type RouteHistogramParamsSpec = typeof routeHistogramParams;
 
@@ -38,6 +39,7 @@ export const routeCompareParams = {
   releaseA: { kind: "string", maxLength: 255 },
   releaseB: { kind: "string", maxLength: 255 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type RouteCompareParamsSpec = typeof routeCompareParams;
 

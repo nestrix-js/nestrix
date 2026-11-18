@@ -546,6 +546,7 @@ export class MockApi {
         id: String(this.slos.length + 100),
         name: String(input.name),
         service: String(input.service),
+        environment: (input.environment as string | null | undefined) ?? null,
         route: (input.route as string | null | undefined) ?? null,
         kind: input.kind === "latency" ? "latency" : "availability",
         latencyThresholdMs: (input.latencyThresholdMs as number) ?? null,

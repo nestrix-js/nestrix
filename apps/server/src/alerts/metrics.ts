@@ -12,11 +12,14 @@
  * to the `metric` check in a migration (`slo_burn_rate` did, in 0003_slos.sql).
  */
 import type { Pool, PoolClient } from "pg";
+import { environmentSql } from "../query/scope.js";
 import { badFraction, type SloRow } from "../slos/compute.js";
 import { estimateQuantile, HISTOGRAM_BUCKETS } from "../storage/histogram.js";
 
 export interface MetricRule {
   serviceName: string;
+  /** `null` every environment, `unset` the rows without one (D-101). */
+  environment: string | null;
   route: string | null;
   windowMinutes: number;
   minRequests: number;
@@ -46,26 +49,32 @@ export function windowTotals(
   return rangeTotals(
     db,
     rule.serviceName,
+    rule.environment,
     rule.route,
     nowMs - rule.windowMinutes * 60_000,
     nowMs,
   );
 }
 
-/** Sums of `route_minutes` with `fromMs < minute <= toMs` for a service (and a route, any method). */
+/** Sums of `route_minutes` with `fromMs < minute <= toMs` for a service (an environment and a route, any method). */
 export async function rangeTotals(
   db: Pool | PoolClient,
   serviceName: string,
+  environment: string | null,
   route: string | null,
   fromMs: number,
   toMs: number,
 ): Promise<WindowTotals> {
   const params: unknown[] = [serviceName, new Date(fromMs), new Date(toMs)];
-  let routeClause = "";
-  if (route !== null) {
-    params.push(route);
-    routeClause = "AND route = $4";
-  }
+  const add = (v: unknown) => {
+    params.push(v);
+    return `$${params.length}`;
+  };
+  const conditions: string[] = [];
+  const env = environmentSql(environment, add);
+  if (env !== undefined) conditions.push(env);
+  if (route !== null) conditions.push(`route = ${add(route)}`);
+  const routeClause = conditions.map((c) => `AND ${c}`).join(" ");
   const { rows } = await db.query<{
     count: string | null;
     errors: string | null;
@@ -126,6 +135,7 @@ export const METRICS: Record<
     const t = await rangeTotals(
       db,
       slo.service_name,
+      slo.environment,
       slo.route,
       nowMs - rule.windowMinutes * 60_000,
       nowMs,

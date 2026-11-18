@@ -16,6 +16,7 @@ import {
   type SloBurnInput,
 } from "./overview-compute.js";
 import { QueryService } from "./query.service.js";
+import { type Scope, scopeSql, scopeWhere } from "./scope.js";
 
 const MINUTE_MS = 60_000;
 /** Clock skew allowed between a span and a child on another host. */
@@ -24,10 +25,11 @@ const SKEW_MS = MINUTE_MS;
 /** Placeholders for one statement: `add` returns `$n` for the value. */
 class Params {
   readonly values: unknown[] = [];
-  add(value: unknown): string {
+  /** An arrow function, so `params.add` can be passed on (`scopeSql`). */
+  readonly add = (value: unknown): string => {
     this.values.push(value);
     return `$${this.values.length}`;
-  }
+  };
 }
 
 interface KindSqlRow {
@@ -58,7 +60,7 @@ export class OverviewService {
   async overview(
     windowMinutes: number,
     apdexMs: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<OverviewResponse> {
     const last = Math.floor(now / MINUTE_MS);
@@ -80,17 +82,17 @@ export class OverviewService {
       previousDependencies,
       slos,
     ] = await Promise.all([
-      this.routeMinutes(prevFromMs, last * MINUTE_MS, service),
-      this.statisticsSince(service),
-      this.statusMix(curFromMs, now, service),
-      this.kindRows(curFromMs, now, service),
-      this.kindRows(prevFromMs, curFromMs - 1, service),
-      this.newReleases(curFromMs, now, service),
-      this.query.errorGroups(windowMinutes, service, now),
-      this.query.errorGroups(windowMinutes, service, curFromMs - 1),
-      this.query.dependencies(windowMinutes, service, now),
-      this.query.dependencies(windowMinutes, service, curFromMs - 1),
-      this.sloBurns(service),
+      this.routeMinutes(prevFromMs, last * MINUTE_MS, scope),
+      this.statisticsSince(scope),
+      this.statusMix(curFromMs, now, scope),
+      this.kindRows(curFromMs, now, scope),
+      this.kindRows(prevFromMs, curFromMs - 1, scope),
+      this.newReleases(curFromMs, now, scope),
+      this.query.errorGroups(windowMinutes, scope, now),
+      this.query.errorGroups(windowMinutes, scope, curFromMs - 1),
+      this.query.dependencies(windowMinutes, scope, now),
+      this.query.dependencies(windowMinutes, scope, curFromMs - 1),
+      this.sloBurns(scope),
     ]);
 
     const previousCovered = since !== undefined && since <= prevFromMs;
@@ -122,14 +124,14 @@ export class OverviewService {
   private async routeMinutes(
     fromMs: number,
     toMs: number,
-    service: string | undefined,
+    scope: Scope,
   ): Promise<MinuteRow[]> {
     const p = new Params();
     const where = [
       `minute >= ${p.add(new Date(fromMs))}`,
       `minute <= ${p.add(new Date(toMs))}`,
     ];
-    if (service !== undefined) where.push(`service_name = ${p.add(service)}`);
+    where.push(...scopeSql(scope, p.add));
     const rows = await this.rows<{
       minute_ms: string;
       method: string;
@@ -155,12 +157,9 @@ export class OverviewService {
   }
 
   /** The first minute with statistics (of the service), Unix ms. */
-  private async statisticsSince(
-    service: string | undefined,
-  ): Promise<number | undefined> {
+  private async statisticsSince(scope: Scope): Promise<number | undefined> {
     const p = new Params();
-    const where =
-      service === undefined ? "" : `WHERE service_name = ${p.add(service)}`;
+    const where = scopeWhere(scope, p.add);
     const [row] = await this.rows<{ since: string | null }>(
       `SELECT (extract(epoch FROM min(minute)) * 1000)::bigint AS since FROM route_minutes ${where}`,
       p.values,
@@ -172,14 +171,14 @@ export class OverviewService {
   private async statusMix(
     fromMs: number,
     toMs: number,
-    service: string | undefined,
+    scope: Scope,
   ): Promise<OverviewStatusMix> {
     const p = new Params();
     const where = [
       `start_time >= ${p.add(new Date(fromMs))}`,
       `start_time <= ${p.add(new Date(toMs))}`,
     ];
-    if (service !== undefined) where.push(`service_name = ${p.add(service)}`);
+    where.push(...scopeSql(scope, p.add));
     const [row] = await this.rows<{
       total: string;
       server_error: string;
@@ -209,14 +208,14 @@ export class OverviewService {
   private async kindRows(
     fromMs: number,
     toMs: number,
-    service: string | undefined,
+    scope: Scope,
   ): Promise<KindRow[]> {
     const p = new Params();
     const where = [
       `s.start_time >= ${p.add(new Date(fromMs))}`,
       `s.start_time <= ${p.add(new Date(toMs))}`,
     ];
-    if (service !== undefined) where.push(`s.service_name = ${p.add(service)}`);
+    where.push(...scopeSql(scope, p.add, "s"));
     // One pass: the window's spans once, their children summed once per parent. A child may start
     // a little before its parent (another host's clock), so children are bounded by the window's
     // start less a minute of skew, which still lets Postgres skip older partitions.
@@ -262,13 +261,14 @@ export class OverviewService {
   private async newReleases(
     fromMs: number,
     toMs: number,
-    service: string | undefined,
+    scope: Scope,
   ): Promise<{ version: string; firstSeenUnixMs: number }[]> {
     const p = new Params();
     const from = p.add(new Date(fromMs));
     const to = p.add(new Date(toMs));
-    const serviceFilter =
-      service === undefined ? "" : `AND service_name = ${p.add(service)}`;
+    const serviceFilter = scopeSql(scope, p.add)
+      .map((c) => `AND ${c}`)
+      .join(" ");
     const rows = await this.rows<{ release: string; first_ms: string }>(
       `SELECT release, (extract(epoch FROM min(start_time)) * 1000)::bigint AS first_ms
          FROM traces
@@ -286,12 +286,21 @@ export class OverviewService {
     }));
   }
 
-  /** SLOs (of the service, when given) with their one-hour burn rate. Never fails the overview. */
-  private async sloBurns(service: string | undefined): Promise<SloBurnInput[]> {
+  /**
+   * SLOs (of the service and environment, when given: an SLO scoped to every environment counts
+   * for each) with their one-hour burn rate. Never fails the overview.
+   */
+  private async sloBurns(scope: Scope): Promise<SloBurnInput[]> {
     try {
       const all = await this.slos.list();
       return all
-        .filter((s) => service === undefined || s.service === service)
+        .filter(
+          (s) =>
+            (scope.service === undefined || s.service === scope.service) &&
+            (scope.environment === undefined ||
+              s.environment === null ||
+              s.environment === scope.environment),
+        )
         .map((s) => ({
           id: s.id,
           name: s.name,

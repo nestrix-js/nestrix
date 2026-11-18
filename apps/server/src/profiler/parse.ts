@@ -7,13 +7,17 @@
  *   `pid` kept when a whole number from 0 to 2^31 - 1. `runtimeSample` (P15-03, D-80): each figure
  *   kept when a finite number from 0 to its bound (`RUNTIME_BOUNDS`), dropped otherwise; the whole
  *   sample dropped when it is not an object, `sampledAtUnixMs` is not a positive whole number, or
- *   no figure is left. A bad sample never fails the check-in.
+ *   no figure is left. A bad sample never fails the check-in. `environment` (issue #28, D-101): the
+ *   instance's `deployment.environment.name`, kept as the stored environment rule gives it
+ *   (`environmentOf`: trimmed, cut to 256, `unset` or blank is unset); a key bound to an
+ *   environment replaces it (`instance.controller.ts`).
  * - Failure report (from an instance, unknown fields ignored): `message`, a string, control
  *   characters removed, cut to 500.
  * - Start (from the dashboard, unknown fields refused like the embedded `POST profiles`):
  *   `service`, `instanceId` as in a check-in, `durationSeconds` a whole number from 1 to 120,
  *   default 30.
  */
+import { environmentOf } from "../storage/derive.js";
 import type { CheckIn, CheckInRuntime } from "./store.js";
 
 export const MAX_IDENTITY_LENGTH = 256;
@@ -127,6 +131,15 @@ export function parseCheckIn(
         sdkVersion: optionalText(value.sdkVersion),
         runningCaptureId: optionalText(value.runningCaptureId),
         runtimeSample: parseRuntimeSample(value.runtimeSample),
+        environment:
+          typeof value.environment === "string"
+            ? environmentOf({
+                "deployment.environment.name": cleanText(
+                  value.environment,
+                  MAX_FIELD_LENGTH,
+                ),
+              })
+            : null,
       },
     };
   } catch {

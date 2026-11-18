@@ -28,6 +28,8 @@ export interface SloRow {
   id: string;
   name: string;
   service_name: string;
+  /** `null` every environment, `unset` the rows without one (D-101). */
+  environment: string | null;
   route: string | null;
   kind: "availability" | "latency";
   latency_threshold_ms: number | null;

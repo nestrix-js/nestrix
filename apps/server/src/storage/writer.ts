@@ -143,9 +143,12 @@ interface Rollup {
   hist: number[];
 }
 
+/** A rollup key: minute, service, environment (`null` unset, D-101), then the two names. */
+type RollupKey = [string, string, string | null, string, string];
+
 function addToRollup(
-  map: Map<string, Rollup & { key: string[] }>,
-  key: string[],
+  map: Map<string, Rollup & { key: RollupKey }>,
+  key: RollupKey,
   s: SpanRow,
   error: boolean,
 ): void {
@@ -215,6 +218,8 @@ export class PostgresIngestSink implements IngestSink {
   readonly logs: PostgresLogWriter;
   private readonly resourceIds = new Map<string, number>();
   private readonly servicesWritten = new Map<string, number>();
+  /** `JSON.stringify([service, environment])` → when its `service_environments` row was refreshed. */
+  private readonly environmentsWritten = new Map<string, number>();
   private readonly counters = {
     writtenSpans: 0,
     duplicateSpans: 0,
@@ -478,6 +483,15 @@ export class PostgresIngestSink implements IngestSink {
             [services],
           );
         }
+        const pairs = this.environmentsDue(inserted);
+        if (pairs.length > 0) {
+          await client.query(
+            `INSERT INTO service_environments (service_name, environment, last_seen)
+               SELECT u.s, u.e, now() FROM unnest($1::text[], $2::text[]) AS u(s, e)
+             ON CONFLICT (service_name, environment) DO UPDATE SET last_seen = EXCLUDED.last_seen`,
+            [pairs.map((p) => p[0]), pairs.map((p) => p[1])],
+          );
+        }
         await client.query("COMMIT");
         this.counters.transactions++;
         this.counters.writtenSpans += inserted.length;
@@ -487,6 +501,9 @@ export class PostgresIngestSink implements IngestSink {
         this.counters.invalidSpans += invalid;
         const now = Date.now();
         for (const name of services) this.servicesWritten.set(name, now);
+        for (const pair of pairs) {
+          this.environmentsWritten.set(JSON.stringify(pair), now);
+        }
         const droppedByBatch = batches.map(() => 0);
         for (const r of capped.dropped) {
           const i = batchOf.get(r);
@@ -594,6 +611,24 @@ export class PostgresIngestSink implements IngestSink {
     return [...names].sort();
   }
 
+  /** (service, environment) pairs whose `service_environments` row is due (D-101), sorted. */
+  private environmentsDue(
+    inserted: readonly SpanRow[],
+  ): [string, string | null][] {
+    const now = Date.now();
+    const due = new Map<string, [string, string | null]>();
+    for (const s of inserted) {
+      const pair: [string, string | null] = [s.serviceName, s.environment];
+      const key = JSON.stringify(pair);
+      const at = this.environmentsWritten.get(key);
+      if (at === undefined || now - at >= SERVICES_REFRESH_MS)
+        due.set(key, pair);
+    }
+    return [...due.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([, pair]) => pair);
+  }
+
   /** Hash → id for every given resource, inserting unknown ones. */
   private async resolveResources(
     resources: ResourceRow[],
@@ -654,13 +689,13 @@ export class PostgresIngestSink implements IngestSink {
          trace_id, span_id, parent_span_id, resource_id, service_name, name, kind, start_time,
          start_ns, end_ns, duration_ns, status_code, status_message, scope, attributes, events,
          links, http_route, http_method, http_status, is_root, is_error, trace_type, user_id,
-         class_name, method_name, is_occurrence, error_key)
+         class_name, method_name, is_occurrence, error_key, environment)
        SELECT * FROM unnest(
          $1::text[], $2::text[], $3::text[], $4::bigint[], $5::text[], $6::text[], $7::text[],
          $8::timestamptz[], $9::bigint[], $10::bigint[], $11::bigint[], $12::text[], $13::text[],
          $14::text[], $15::jsonb[], $16::jsonb[], $17::jsonb[], $18::text[], $19::text[],
          $20::int[], $21::boolean[], $22::boolean[], $23::text[], $24::text[], $25::text[],
-         $26::text[], $27::boolean[], $28::text[])
+         $26::text[], $27::boolean[], $28::text[], $29::text[])
        ON CONFLICT DO NOTHING
        RETURNING trace_id, span_id, start_ns::text AS start_ns`,
       [
@@ -692,6 +727,7 @@ export class PostgresIngestSink implements IngestSink {
         col((r) => r.methodName),
         col((r) => r.isOccurrence),
         col((r) => r.errorKey),
+        col((r) => r.environment),
       ],
     );
     if (result.rows.length === rows.length) return rows;
@@ -711,8 +747,8 @@ export class PostgresIngestSink implements IngestSink {
     client: PoolClient,
     inserted: readonly SpanRow[],
   ): Promise<void> {
-    const routes = new Map<string, Rollup & { key: string[] }>();
-    const classes = new Map<string, Rollup & { key: string[] }>();
+    const routes = new Map<string, Rollup & { key: RollupKey }>();
+    const classes = new Map<string, Rollup & { key: RollupKey }>();
     const kinds = new Map<string, string>();
     for (const s of inserted) {
       if (!this.partitions.hasDay(minuteDay(s.endMinuteMs))) continue;
@@ -723,6 +759,7 @@ export class PostgresIngestSink implements IngestSink {
           [
             minute,
             s.serviceName,
+            s.environment,
             s.httpMethod as string,
             s.httpRoute ?? UNMATCHED_ROUTE,
           ],
@@ -731,12 +768,18 @@ export class PostgresIngestSink implements IngestSink {
         );
       }
       if (s.className !== null && s.methodName !== null) {
-        const key = [minute, s.serviceName, s.className, s.methodName];
+        const key: RollupKey = [
+          minute,
+          s.serviceName,
+          s.environment,
+          s.className,
+          s.methodName,
+        ];
         addToRollup(classes, key, s, s.isError);
         kinds.set(JSON.stringify(key), s.classKind);
       }
     }
-    const sorted = (m: Map<string, Rollup & { key: string[] }>) =>
+    const sorted = (m: Map<string, Rollup & { key: RollupKey }>) =>
       [...m.entries()]
         .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
         .map(([, v]) => v);
@@ -744,13 +787,15 @@ export class PostgresIngestSink implements IngestSink {
       const list = sorted(routes);
       await client.query(
         `INSERT INTO route_minutes AS r
-           (minute, service_name, method, route, count, errors, total_ms, max_ms, hist)
-         SELECT u.minute, u.service_name, u.method, u.route, u.count, u.errors, u.total_ms,
-                u.max_ms, u.hist::int[]
-           FROM unnest($1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::int[],
-                       $6::int[], $7::float8[], $8::float8[], $9::text[])
-                AS u(minute, service_name, method, route, count, errors, total_ms, max_ms, hist)
-         ON CONFLICT (minute, service_name, method, route) DO UPDATE SET
+           (minute, service_name, environment, method, route, count, errors, total_ms, max_ms,
+            hist)
+         SELECT u.minute, u.service_name, u.environment, u.method, u.route, u.count, u.errors,
+                u.total_ms, u.max_ms, u.hist::int[]
+           FROM unnest($1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[],
+                       $6::int[], $7::int[], $8::float8[], $9::float8[], $10::text[])
+                AS u(minute, service_name, environment, method, route, count, errors, total_ms,
+                     max_ms, hist)
+         ON CONFLICT (minute, service_name, environment, method, route) DO UPDATE SET
            count = r.count + EXCLUDED.count,
            errors = r.errors + EXCLUDED.errors,
            total_ms = r.total_ms + EXCLUDED.total_ms,
@@ -761,6 +806,7 @@ export class PostgresIngestSink implements IngestSink {
           list.map((r) => r.key[1]),
           list.map((r) => r.key[2]),
           list.map((r) => r.key[3]),
+          list.map((r) => r.key[4]),
           list.map((r) => r.count),
           list.map((r) => r.errors),
           list.map((r) => r.totalMs),
@@ -773,15 +819,16 @@ export class PostgresIngestSink implements IngestSink {
       const list = sorted(classes);
       await client.query(
         `INSERT INTO class_minutes AS c
-           (minute, service_name, class_name, method_name, class_kind, count, errors, total_ms,
-            max_ms, hist)
-         SELECT u.minute, u.service_name, u.class_name, u.method_name, u.class_kind, u.count,
-                u.errors, u.total_ms, u.max_ms, u.hist::int[]
+           (minute, service_name, environment, class_name, method_name, class_kind, count,
+            errors, total_ms, max_ms, hist)
+         SELECT u.minute, u.service_name, u.environment, u.class_name, u.method_name,
+                u.class_kind, u.count, u.errors, u.total_ms, u.max_ms, u.hist::int[]
            FROM unnest($1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[],
-                       $6::int[], $7::int[], $8::float8[], $9::float8[], $10::text[])
-                AS u(minute, service_name, class_name, method_name, class_kind, count, errors,
-                     total_ms, max_ms, hist)
-         ON CONFLICT (minute, service_name, class_name, method_name) DO UPDATE SET
+                       $6::text[], $7::int[], $8::int[], $9::float8[], $10::float8[],
+                       $11::text[])
+                AS u(minute, service_name, environment, class_name, method_name, class_kind,
+                     count, errors, total_ms, max_ms, hist)
+         ON CONFLICT (minute, service_name, environment, class_name, method_name) DO UPDATE SET
            class_kind = EXCLUDED.class_kind,
            count = c.count + EXCLUDED.count,
            errors = c.errors + EXCLUDED.errors,
@@ -793,6 +840,7 @@ export class PostgresIngestSink implements IngestSink {
           list.map((r) => r.key[1]),
           list.map((r) => r.key[2]),
           list.map((r) => r.key[3]),
+          list.map((r) => r.key[4]),
           list.map((r) => kinds.get(JSON.stringify(r.key)) ?? "provider"),
           list.map((r) => r.count),
           list.map((r) => r.errors),

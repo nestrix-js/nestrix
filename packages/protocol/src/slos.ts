@@ -10,6 +10,11 @@ export type SloKind = "availability" | "latency";
 export interface SloDefinition {
   name: string;
   service: string;
+  /**
+   * The environment scope (issue #28, D-101): `null` covers every environment, `"unset"` the data
+   * without an environment, any other value that `deployment.environment.name`.
+   */
+  environment: string | null;
   /** `null`: every route of the service. */
   route: string | null;
   kind: SloKind;
@@ -54,6 +59,8 @@ export interface Slo extends SloDefinition {
 export interface SloCreate {
   name: string;
   service: string;
+  /** `null` or absent: every environment (D-101). */
+  environment?: string | null;
   route?: string | null;
   kind: SloKind;
   latencyThresholdMs?: number;

@@ -16,7 +16,11 @@
  *   ```
  *
  * Semantics the shapes cannot express: `before` and `after` are mutually exclusive
- * (both given is a `400`); `service` filters by `service.name` (the standalone server serves several services; an embedded dashboard answers empty unless it equals its own name); a parameter absent from the query string takes its
+ * (both given is a `400`); `service` filters by `service.name` (the standalone server serves several services; an embedded dashboard answers empty unless it equals its own name);
+ * `environment` (issue #28, D-101) filters by `deployment.environment.name`, beside `service` on
+ * every route that takes it: absent is every environment, `unset` the data without an environment
+ * (an embedded dashboard answers empty unless it equals its own environment, `unset` when it has
+ * none); a parameter absent from the query string takes its
  * `default` when it has one and is unset otherwise; unknown parameters are a `400`.
  */
 
@@ -91,6 +95,7 @@ export const traceListParams = {
    */
   hasErrors: { kind: "enum", values: ["true", "false"] },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
   /** Root started at or after / at or before this Unix time in milliseconds (the timeline's range). */
   fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
   toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
@@ -107,6 +112,7 @@ export const dependencyParams = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type DependencyParamsSpec = typeof dependencyParams;
 
@@ -128,6 +134,7 @@ export const traceTimelineParams = {
   user: { kind: "string", maxLength: 256 },
   hasErrors: { kind: "enum", values: ["true", "false"] },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type TraceTimelineParamsSpec = typeof traceTimelineParams;
 
@@ -138,6 +145,7 @@ export const errorListParams = {
   after: { kind: "cursor", maxLength: 256 },
   route: { kind: "string", maxLength: 512 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type ErrorListParamsSpec = typeof errorListParams;
 
@@ -151,6 +159,7 @@ export const errorGroupParams = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type ErrorGroupParamsSpec = typeof errorGroupParams;
 
@@ -158,6 +167,7 @@ export type ErrorGroupParamsSpec = typeof errorGroupParams;
 export const errorInsightsParams = {
   route: { kind: "string", maxLength: 512 },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type ErrorInsightsParamsSpec = typeof errorInsightsParams;
 
@@ -171,6 +181,7 @@ export const routeStatsParams = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type RouteStatsParamsSpec = typeof routeStatsParams;
 
@@ -184,6 +195,7 @@ export const classStatsParams = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type ClassStatsParamsSpec = typeof classStatsParams;
 
@@ -197,6 +209,7 @@ export const appMapParams = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
 } as const;
 export type AppMapParamsSpec = typeof appMapParams;
 
@@ -210,6 +223,7 @@ export const queryStatsParams = {
     default: 15,
   },
   service: { kind: "string", maxLength: 256 },
+  environment: { kind: "string", maxLength: 256 },
   sort: { kind: "enum", values: ["total", "count", "p95", "max"] },
   limit: { kind: "int", min: 1, max: 200, default: 50 },
 } as const;

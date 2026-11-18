@@ -40,6 +40,7 @@ import {
   decodeLogsRequest,
   decodeRequest,
 } from "./decode.js";
+import { bindLogBatch, bindTraceBatch } from "./environment.js";
 import {
   ByteBudget,
   type DecodeLimits,
@@ -99,6 +100,8 @@ type Outcome = { body: Uint8Array | string } | Reply;
 interface Signal<B> {
   shape: WireShape;
   decode(body: Buffer, format: BodyFormat, limits: DecodeLimits): B;
+  /** Stores the batch under the ingest key's environment (issue #28, D-101). */
+  bind(batch: B, environment: string): void;
   store(batch: B, format: BodyFormat): Promise<Outcome>;
 }
 
@@ -124,12 +127,14 @@ export class IngestReceiver implements OnApplicationBootstrap {
     shape: TRACE_SHAPE,
     decode: (body, format, limits) =>
       toIngestBatch(decodeRequest(body, format, limits)),
+    bind: bindTraceBatch,
     store: (batch, format) => this.store(batch, format),
   };
   private readonly logs: Signal<IngestLogBatch> = {
     shape: LOG_SHAPE,
     decode: (body, format, limits) =>
       toIngestLogBatch(decodeLogsRequest(body, format, limits)),
+    bind: bindLogBatch,
     store: (batch, format) => this.storeLogs(batch, format),
   };
 
@@ -159,8 +164,11 @@ export class IngestReceiver implements OnApplicationBootstrap {
         "Ingest is not configured, so POST /v1/traces and /v1/logs answer 401. Set NESTRIX_INGEST_KEYS (comma-separated keys of at least 32 characters) or, for a local demo, NESTRIX_INGEST_AUTH=none.",
       );
     } else {
+      const bound = this.config.ingest.keyEnvironments.filter(
+        (e) => e !== null,
+      ).length;
       this.logger.log(
-        `POST /v1/traces and /v1/logs require an API key (${keys.length} configured).`,
+        `POST /v1/traces and /v1/logs require an API key (${keys.length} configured${bound > 0 ? `, ${bound} bound to an environment` : ""}).`,
       );
     }
   }
@@ -200,10 +208,16 @@ export class IngestReceiver implements OnApplicationBootstrap {
    * The ingest key (401) and the rate limit (429) of every ingest-key route: `/v1/traces`,
    * `/v1/logs` and the instance side of remote profiling (P10-02), which share one bucket per
    * key. `principal` (the rate-limit bucket) is `key:<n>`, or `ip:<address>` with auth off; `owner` is
-   * the key's fingerprint (`undefined` with auth off). Never throws.
+   * the key's fingerprint (`undefined` with auth off); `environment` the key's bound environment
+   * (`undefined` when unbound, D-101). Never throws.
    */
   admit(req: IncomingMessage):
-    | { ok: true; principal: string; owner: string | undefined }
+    | {
+        ok: true;
+        principal: string;
+        owner: string | undefined;
+        environment: string | undefined;
+      }
     | {
         ok: false;
         status: number;
@@ -232,7 +246,12 @@ export class IngestReceiver implements OnApplicationBootstrap {
           headers: { "Retry-After": String(rate.retryAfterSeconds) },
         };
       }
-      return { ok: true, principal: auth.principal, owner: auth.owner };
+      return {
+        ok: true,
+        principal: auth.principal,
+        owner: auth.owner,
+        environment: auth.environment,
+      };
     } catch {
       return {
         ok: false,
@@ -318,6 +337,10 @@ export class IngestReceiver implements OnApplicationBootstrap {
         }
         if (!reserve(charge)) return busy();
         batch = signal.decode(body, format, this.limits);
+        // A bound key decides the environment, whatever the resources claim (D-101).
+        if (admitted.environment !== undefined) {
+          signal.bind(batch, admitted.environment);
+        }
       } catch (error) {
         if (error instanceof DecodeError) {
           return { status: 400, message: error.message };

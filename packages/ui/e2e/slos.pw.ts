@@ -25,6 +25,7 @@ const slo = (over: Partial<Slo> = {}): Slo => ({
   id: "1",
   name: "Checkout availability",
   service: "orders",
+  environment: null,
   route: "/checkout",
   kind: "availability",
   latencyThresholdMs: null,

@@ -36,6 +36,7 @@ import {
   type Values,
 } from "./params.js";
 import { NotFoundError, QueryService } from "./query.service.js";
+import { scopeOf } from "./scope.js";
 import { TraceLogsService } from "./trace-logs.service.js";
 
 interface RequestLike {
@@ -67,7 +68,7 @@ function parse(
 
 /**
  * `/api/v1/*`: the routes of the embedded dashboard's API with the same shapes and parameter
- * checks, plus `service`. Every route runs the `QUERY_GUARD` provider first (`guard.ts`).
+ * checks, plus `service` and `environment` (D-101: `scope.ts`). Every route runs the `QUERY_GUARD` provider first (`guard.ts`).
  */
 @Controller("api/v1")
 @UseGuards(QueryGuardGate)
@@ -151,30 +152,21 @@ export class QueryController {
   @Headers()
   errorGroups(@Req() req: RequestLike) {
     const v = parse(req, errorGroupSpec);
-    return this.query.errorGroups(
-      v.windowMinutes as number,
-      v.service as string | undefined,
-    );
+    return this.query.errorGroups(v.windowMinutes as number, scopeOf(v));
   }
 
   @Get("errors/insights")
   @Headers()
   errorInsights(@Req() req: RequestLike) {
     const v = parse(req, errorInsightsSpec);
-    return this.query.errorInsights(
-      v.route as string | undefined,
-      v.service as string | undefined,
-    );
+    return this.query.errorInsights(v.route as string | undefined, scopeOf(v));
   }
 
   @Get("routes")
   @Headers()
   routes(@Req() req: RequestLike) {
     const v = parse(req, routeStatsSpec);
-    return this.query.routes(
-      v.windowMinutes as number,
-      v.service as string | undefined,
-    );
+    return this.query.routes(v.windowMinutes as number, scopeOf(v));
   }
 
   @Get("routes/histogram")
@@ -194,7 +186,7 @@ export class QueryController {
       v.route,
       typeof v.method === "string" ? v.method.toUpperCase() : undefined,
       v.windowMinutes as number,
-      v.service as string | undefined,
+      scopeOf(v),
     );
   }
 
@@ -214,11 +206,11 @@ export class QueryController {
       };
       throw new HttpException(body, 400);
     }
-    const service = v.service as string | undefined;
+    const scope = scopeOf(v);
     if (typeof a === "string" && typeof b === "string") {
-      return this.query.releaseCompare(a, b, service);
+      return this.query.releaseCompare(a, b, scope);
     }
-    return this.query.windowCompare(v.windowMinutes as number, service);
+    return this.query.windowCompare(v.windowMinutes as number, scope);
   }
 
   @Get("routes/explain")
@@ -241,7 +233,7 @@ export class QueryController {
       windowMinutes: v.windowMinutes as number,
       releaseA: v.releaseA as string | undefined,
       releaseB: v.releaseB as string | undefined,
-      service: v.service as string | undefined,
+      scope: scopeOf(v),
     });
   }
 
@@ -252,7 +244,7 @@ export class QueryController {
     return this.overviewService.overview(
       v.windowMinutes as number,
       v.apdexMs as number,
-      v.service as string | undefined,
+      scopeOf(v),
     );
   }
 
@@ -262,7 +254,7 @@ export class QueryController {
     const v = parse(req, classStatsSpec);
     return this.query.classesWithPrevious(
       v.windowMinutes as number,
-      v.service as string | undefined,
+      scopeOf(v),
     );
   }
 
@@ -272,7 +264,7 @@ export class QueryController {
     const v = parse(req, queryStatsSpec);
     return this.query.queries(
       v.windowMinutes as number,
-      v.service as string | undefined,
+      scopeOf(v),
       (v.sort as QuerySort | undefined) ?? "total",
       v.limit as number,
     );
@@ -282,10 +274,7 @@ export class QueryController {
   @Headers()
   map(@Req() req: RequestLike) {
     const v = parse(req, appMapSpec);
-    return this.query.mapWithPrevious(
-      v.windowMinutes as number,
-      v.service as string | undefined,
-    );
+    return this.query.mapWithPrevious(v.windowMinutes as number, scopeOf(v));
   }
 
   @Get("dependencies")
@@ -294,7 +283,7 @@ export class QueryController {
     const v = parse(req, dependencySpec);
     return this.query.dependenciesWithPrevious(
       v.windowMinutes as number,
-      v.service as string | undefined,
+      scopeOf(v),
     );
   }
 }

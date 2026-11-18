@@ -27,6 +27,7 @@ import type {
   ClassStatsResponse,
   DependenciesResponse,
   DependencyStats,
+  EnvironmentInfo,
   ErrorGroupsResponse,
   ErrorInsightsResponse,
   ErrorItem,
@@ -91,6 +92,13 @@ import {
   releasesSql,
   type SideRow,
 } from "./route-insights.js";
+import {
+  type Scope,
+  scopeOf,
+  scopeSql,
+  scopeWhere,
+  UNSET_ENVIRONMENT,
+} from "./scope.js";
 import { TARGET_KEYS, targetOf } from "./targets.js";
 
 export const PROTOCOL_VERSION: MetaResponse["protocolVersion"] = 1;
@@ -140,10 +148,11 @@ const HISTORY_ROW_CAP = 20_000;
 
 class Params {
   readonly values: unknown[] = [];
-  add(value: unknown): string {
+  /** An arrow function, so `params.add` can be passed on (`scopeSql`). */
+  readonly add = (value: unknown): string => {
     this.values.push(value);
     return `$${this.values.length}`;
-  }
+  };
 }
 
 /** `count(*) FILTER` columns h0..h29: the latency histogram of `column` (nanoseconds). */
@@ -391,10 +400,38 @@ export class QueryService {
     return rows.map((r) => r.name);
   }
 
+  /**
+   * Environments with data within the retention window, most recently seen first (D-101), from
+   * `service_environments`; the unset one is named `unset`.
+   */
+  async environments(now: number): Promise<EnvironmentInfo[]> {
+    const since = new Date(now - this.config.retentionDays * 86_400_000);
+    const rows = await this.rows<{
+      environment: string | null;
+      services: string[];
+      last_seen_ms: string;
+    }>(
+      `SELECT environment, array_agg(service_name ORDER BY service_name) AS services,
+              (extract(epoch FROM max(last_seen)) * 1000)::bigint::text AS last_seen_ms
+         FROM service_environments
+        WHERE last_seen >= $1
+        GROUP BY environment
+        ORDER BY max(last_seen) DESC, environment NULLS LAST`,
+      [since],
+    );
+    return rows.map((r) => ({
+      name: r.environment ?? UNSET_ENVIRONMENT,
+      unset: r.environment === null,
+      services: r.services,
+      lastSeenUnixMs: Number(r.last_seen_ms),
+    }));
+  }
+
   async meta(now: number = Date.now()): Promise<MetaResponse> {
-    const [store, services, since] = await Promise.all([
+    const [store, services, environments, since] = await Promise.all([
       this.storeStats(now),
       this.serviceNames(now),
+      this.environments(now),
       this.rows<{ since: string | null }>(
         "SELECT (extract(epoch FROM min(minute)) * 1000)::bigint AS since FROM route_minutes",
       ),
@@ -414,6 +451,7 @@ export class QueryService {
       warnings: [],
       mode: "standalone",
       services,
+      environments,
       // The embedded profiler profiles the process it runs in, so it is not offered here; instances
       // that opted in are profiled remotely (P10-02, D-76: `instances`, `remote-profiles`).
       profiler: { available: false, running: false, remote: true },
@@ -439,8 +477,7 @@ export class QueryService {
     // D-94: any span failed (`traces.has_errors`), the root included.
     if (v.hasErrors === "true") where.push(TRACE_HAS_ERRORS_SQL);
     else if (v.hasErrors === "false") where.push(`NOT ${TRACE_HAS_ERRORS_SQL}`);
-    if (v.service !== undefined)
-      where.push(`service_name = ${params.add(v.service)}`);
+    where.push(...scopeSql(scopeOf(v), params.add));
     if (v.method !== undefined) {
       where.push(
         `upper(http_method) = ${params.add(String(v.method).toUpperCase())}`,
@@ -601,9 +638,7 @@ export class QueryService {
     const params = new Params();
     // Error occurrences only: propagated and expected exceptions are not counted (D-93, D-94).
     const where: string[] = [occurrenceSql("s")];
-    if (v.service !== undefined) {
-      where.push(`s.service_name = ${params.add(v.service)}`);
-    }
+    where.push(...scopeSql(scopeOf(v), params.add, "s"));
     if (v.route !== undefined) {
       where.push(
         `EXISTS (SELECT 1 FROM traces t WHERE t.trace_id = s.trace_id AND t.http_route = ${params.add(v.route)})`,
@@ -688,7 +723,7 @@ export class QueryService {
    */
   async errorGroups(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<ErrorGroupsResponse> {
     const empty = groupErrors([], windowMinutes, now);
@@ -696,13 +731,13 @@ export class QueryService {
       this.errorOccurrences(
         new Date(empty.fromUnixMs),
         undefined,
-        service,
+        scope,
         WINDOW_ROW_CAP,
       ),
       this.errorOccurrences(
         new Date(now - INSIGHTS_MS),
         new Date(empty.fromUnixMs),
-        service,
+        scope,
         HISTORY_ROW_CAP,
       ),
     ]);
@@ -724,7 +759,7 @@ export class QueryService {
   private async errorOccurrences(
     from: Date,
     before: Date | undefined,
-    service: string | undefined,
+    scope: Scope,
     limit: number,
   ): Promise<ErrorOccurrence[]> {
     const params = new Params();
@@ -736,9 +771,7 @@ export class QueryService {
     if (before !== undefined) {
       where.push(`s.start_time < ${params.add(before)}`);
     }
-    if (service !== undefined) {
-      where.push(`s.service_name = ${params.add(service)}`);
-    }
+    where.push(...scopeSql(scope, params.add, "s"));
     const rows = await this.rows<
       ErrorRow & {
         service_name: string | null;
@@ -794,7 +827,7 @@ export class QueryService {
    */
   async errorInsights(
     route: string | undefined,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<ErrorInsightsResponse> {
     const from = new Date(now - INSIGHTS_MS);
@@ -805,8 +838,7 @@ export class QueryService {
       `s.start_time >= ${grid.add(from)}`,
       `s.start_time <= ${grid.add(to)}`,
     ];
-    if (service !== undefined)
-      gridWhere.push(`s.service_name = ${grid.add(service)}`);
+    gridWhere.push(...scopeSql(scope, grid.add, "s"));
     if (route !== undefined)
       gridWhere.push(`t.http_route = ${grid.add(route)}`);
     const cells = await this.rows<{ dow: number; hour: number; n: number }>(
@@ -831,8 +863,7 @@ export class QueryService {
       `s.start_time >= ${perRelease.add(from)}`,
       `s.start_time <= ${perRelease.add(to)}`,
     ];
-    if (service !== undefined)
-      evWhere.push(`s.service_name = ${perRelease.add(service)}`);
+    evWhere.push(...scopeSql(scope, perRelease.add, "s"));
     if (route !== undefined)
       evWhere.push(`t.http_route = ${perRelease.add(route)}`);
     const events = await this.rows<{ release: string; n: number }>(
@@ -848,8 +879,7 @@ export class QueryService {
       `t.start_time >= ${req.add(from)}`,
       `t.start_time <= ${req.add(to)}`,
     ];
-    if (service !== undefined)
-      reqWhere.push(`t.service_name = ${req.add(service)}`);
+    reqWhere.push(...scopeSql(scope, req.add, "t"));
     const routeFilter =
       route === undefined ? "" : ` AND t.http_route = ${req.add(route)}`;
     const requests = await this.rows<{
@@ -900,7 +930,7 @@ export class QueryService {
 
   async routes(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<RouteStatsResponse> {
     const w = windowOf(windowMinutes, now);
@@ -908,10 +938,8 @@ export class QueryService {
     const where = [
       `minute >= ${params.add(new Date(w.first * MINUTE_MS))}`,
       `minute <= ${params.add(new Date(w.last * MINUTE_MS))}`,
+      ...scopeSql(scope, params.add),
     ];
-    if (service !== undefined) {
-      where.push(`service_name = ${params.add(service)}`);
-    }
     const rows = await this.rows<{
       minute_ms: string;
       method: string;
@@ -1023,7 +1051,7 @@ export class QueryService {
     route: string,
     method: string | undefined,
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<RouteHistogramResponse> {
     const w = windowOf(windowMinutes, now);
@@ -1034,9 +1062,7 @@ export class QueryService {
       `route = ${params.add(route)}`,
     ];
     if (method !== undefined) where.push(`method = ${params.add(method)}`);
-    if (service !== undefined) {
-      where.push(`service_name = ${params.add(service)}`);
-    }
+    where.push(...scopeSql(scope, params.add));
     const rows = await this.rows<{
       count: number;
       max_ms: number;
@@ -1070,7 +1096,7 @@ export class QueryService {
 
   async windowCompare(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<RouteWindowCompareResponse> {
     const last = Math.floor(now / MINUTE_MS);
@@ -1081,10 +1107,8 @@ export class QueryService {
     const where = [
       `minute >= ${params.add(new Date(prevFirst * MINUTE_MS))}`,
       `minute <= ${params.add(new Date(last * MINUTE_MS))}`,
+      ...scopeSql(scope, params.add),
     ];
-    if (service !== undefined) {
-      where.push(`service_name = ${params.add(service)}`);
-    }
     const rows = await this.rows<{
       minute_ms: string;
       method: string;
@@ -1141,16 +1165,13 @@ export class QueryService {
           p95Ms: estimateQuantile(a.hist, a.count, 0.95, a.max),
         }));
     const sinceParams = new Params();
-    const sinceWhere =
-      service === undefined
-        ? ""
-        : `WHERE service_name = ${sinceParams.add(service)}`;
+    const sinceWhere = scopeWhere(scope, sinceParams.add);
     const [since, releases] = await Promise.all([
       this.rows<{ since: string | null }>(
         `SELECT (extract(epoch FROM min(minute)) * 1000)::bigint AS since FROM route_minutes ${sinceWhere}`,
         sinceParams.values,
       ),
-      this.releases(service),
+      this.releases(scope),
     ]);
     const sinceMs = since[0]?.since;
     const covered = sinceMs != null && Number(sinceMs) <= prevFirst * MINUTE_MS;
@@ -1174,12 +1195,12 @@ export class QueryService {
   async releaseCompare(
     releaseA: string,
     releaseB: string,
-    service: string | undefined,
+    scope: Scope,
   ): Promise<RouteReleaseCompareResponse> {
-    const q = releaseCompareSql(releaseA, releaseB, service);
+    const q = releaseCompareSql(releaseA, releaseB, scope);
     const [rows, releases] = await Promise.all([
       this.rows<ReleaseRow>(q.text, q.values),
-      this.releases(service),
+      this.releases(scope),
     ]);
     const sides = releaseSides(rows, releaseA, releaseB);
     return {
@@ -1191,8 +1212,8 @@ export class QueryService {
     };
   }
 
-  private async releases(service: string | undefined): Promise<string[]> {
-    const q = releasesSql(service);
+  private async releases(scope: Scope): Promise<string[]> {
+    const q = releasesSql(scope);
     const rows = await this.rows<{ release: string }>(q.text, q.values);
     return rows.map((r) => r.release);
   }
@@ -1200,12 +1221,9 @@ export class QueryService {
   // ---- previous windows (P15-01) ---------------------------------------------------------------
 
   /** When the first route statistics of the service were kept; `undefined` without any. */
-  private async statisticsSince(
-    service: string | undefined,
-  ): Promise<number | undefined> {
+  private async statisticsSince(scope: Scope): Promise<number | undefined> {
     const p = new Params();
-    const where =
-      service === undefined ? "" : `WHERE service_name = ${p.add(service)}`;
+    const where = scopeWhere(scope, p.add);
     const [row] = await this.rows<{ since: string | null }>(
       `SELECT (extract(epoch FROM min(minute)) * 1000)::bigint AS since FROM route_minutes ${where}`,
       p.values,
@@ -1217,64 +1235,64 @@ export class QueryService {
   private async coversPrevious(
     windowMinutes: number,
     fromMs: number,
-    service: string | undefined,
+    scope: Scope,
   ): Promise<boolean> {
-    const since = await this.statisticsSince(service);
+    const since = await this.statisticsSince(scope);
     return since !== undefined && since <= fromMs - windowMinutes * MINUTE_MS;
   }
 
   /** `classes` with the previous window (the same query for the window before), or why not. */
   async classesWithPrevious(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<ClassStatsResponse> {
-    const current = await this.classes(windowMinutes, service, now);
+    const current = await this.classes(windowMinutes, scope, now);
     if (
-      !(await this.coversPrevious(windowMinutes, current.fromUnixMs, service))
+      !(await this.coversPrevious(windowMinutes, current.fromUnixMs, scope))
     ) {
       return uncovered(current);
     }
     const before = current.fromUnixMs - 1;
     return withPreviousClasses(
       current,
-      await this.classes(windowMinutes, service, before, before),
+      await this.classes(windowMinutes, scope, before, before),
     );
   }
 
   /** `dependencies` with the previous window, or why not. */
   async dependenciesWithPrevious(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<DependenciesResponse> {
-    const current = await this.dependencies(windowMinutes, service, now);
+    const current = await this.dependencies(windowMinutes, scope, now);
     if (
-      !(await this.coversPrevious(windowMinutes, current.fromUnixMs, service))
+      !(await this.coversPrevious(windowMinutes, current.fromUnixMs, scope))
     ) {
       return uncovered(current);
     }
     return withPreviousDependencies(
       current,
-      await this.dependencies(windowMinutes, service, current.fromUnixMs - 1),
+      await this.dependencies(windowMinutes, scope, current.fromUnixMs - 1),
     );
   }
 
   /** `map` with the previous window, or why not. */
   async mapWithPrevious(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<AppMapResponse> {
-    const current = await this.map(windowMinutes, service, now);
+    const current = await this.map(windowMinutes, scope, now);
     if (
-      !(await this.coversPrevious(windowMinutes, current.fromUnixMs, service))
+      !(await this.coversPrevious(windowMinutes, current.fromUnixMs, scope))
     ) {
       return uncovered(current);
     }
     return withPreviousMap(
       current,
-      await this.map(windowMinutes, service, current.fromUnixMs - 1),
+      await this.map(windowMinutes, scope, current.fromUnixMs - 1),
     );
   }
 
@@ -1282,7 +1300,7 @@ export class QueryService {
 
   async classes(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
     /** Count own time only from spans that started by then (the previous window's end). */
     ownUntilMs?: number,
@@ -1292,10 +1310,8 @@ export class QueryService {
     const where = [
       `minute >= ${params.add(new Date(w.first * MINUTE_MS))}`,
       `minute <= ${params.add(new Date(w.last * MINUTE_MS))}`,
+      ...scopeSql(scope, params.add),
     ];
-    if (service !== undefined) {
-      where.push(`service_name = ${params.add(service)}`);
-    }
     const rows = await this.rows<{
       class_name: string;
       method_name: string;
@@ -1321,9 +1337,7 @@ export class QueryService {
       if (ownUntilMs !== undefined) {
         spanWhere.push(`s.start_time <= ${p.add(new Date(ownUntilMs))}`);
       }
-      if (service !== undefined) {
-        spanWhere.push(`s.service_name = ${p.add(service)}`);
-      }
+      spanWhere.push(...scopeSql(scope, p.add, "s"));
       const skewFrom = p.add(new Date(w.fromMs - SKEW_MS));
       const ownRows = await this.rows<{
         class_name: string;
@@ -1451,9 +1465,7 @@ export class QueryService {
     if (rows.length === 0) {
       const p = new Params();
       const any = await this.rows<{ found: boolean }>(
-        `SELECT EXISTS (SELECT 1 FROM class_minutes${
-          service === undefined ? "" : ` WHERE service_name = ${p.add(service)}`
-        }) AS found`,
+        `SELECT EXISTS (SELECT 1 FROM class_minutes ${scopeWhere(scope, p.add)}) AS found`,
         p.values,
       );
       methodsState = any[0]?.found === true ? "no-data-in-range" : "off";
@@ -1524,7 +1536,7 @@ export class QueryService {
    */
   async dependencies(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<DependenciesResponse> {
     const bucketMs = bucketMsFor(windowMinutes);
@@ -1545,7 +1557,7 @@ export class QueryService {
                      AND c.start_time >= ${fromParam}::timestamptz - interval '${SKEW_MS / 1000} seconds'
                      AND c.start_time <= ${toParam}::timestamptz + interval '${SKEW_MS / 1000} seconds')`,
     ];
-    if (service !== undefined) where.push(`s.service_name = ${t.add(service)}`);
+    where.push(...scopeSql(scope, t.add, "s"));
     const attributes = TARGET_KEYS.map((key) =>
       key === "url.full"
         ? `'url.full', to_jsonb(substring(s.attributes->>'url.full' from '^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*'))`
@@ -1658,7 +1670,7 @@ export class QueryService {
   /** Statements across the stored, sampled traces of the window (P9-03). */
   async queries(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     sort: QuerySort,
     limit: number,
     now: number = Date.now(),
@@ -1667,7 +1679,7 @@ export class QueryService {
     const { text, values } = queriesSql({
       from: new Date(w.fromMs),
       to: new Date(now),
-      service,
+      scope,
       sort,
       limit,
     });
@@ -1708,7 +1720,7 @@ export class QueryService {
 
   async map(
     windowMinutes: number,
-    service: string | undefined,
+    scope: Scope,
     now: number = Date.now(),
   ): Promise<AppMapResponse> {
     const w = windowOf(windowMinutes, now);
@@ -1729,9 +1741,7 @@ export class QueryService {
                      AND c.start_time >= ${fromParam}::timestamptz - interval '${SKEW_MS / 1000} seconds'
                      AND c.start_time <= ${toParam}::timestamptz + interval '${SKEW_MS / 1000} seconds')`,
     ];
-    if (service !== undefined) {
-      targetWhere.push(`s.service_name = ${t.add(service)}`);
-    }
+    targetWhere.push(...scopeSql(scope, t.add, "s"));
     const attributes = TARGET_KEYS.map((key) =>
       key === "url.full"
         ? `'url.full', to_jsonb(substring(s.attributes->>'url.full' from '^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*'))`
@@ -1763,9 +1773,13 @@ export class QueryService {
       `c.start_time >= ${eFrom}::timestamptz - interval '${SKEW_MS / 1000} seconds'`,
       `c.start_time <= ${eTo}::timestamptz + interval '${SKEW_MS / 1000} seconds'`,
     ];
-    if (service !== undefined) {
-      const name = e.add(service);
-      edgeWhere.push(`(p.service_name = ${name} OR c.service_name = ${name})`);
+    // An edge belongs to the scope when either end does.
+    const callerIn = scopeSql(scope, e.add, "p");
+    if (callerIn.length > 0) {
+      const calleeIn = scopeSql(scope, e.add, "c");
+      edgeWhere.push(
+        `((${callerIn.join(" AND ")}) OR (${calleeIn.join(" AND ")}))`,
+      );
     }
     const edgeRows = await this.rows<Record<string, unknown>>(
       `SELECT p.service_name AS from_service, c.service_name AS to_service,
@@ -1781,11 +1795,14 @@ export class QueryService {
     );
 
     // Service nodes: services seen in the window, plus both ends of every edge.
+    // From `service_environments` (D-101): the same rows as `services`, kept per environment.
     const s = new Params();
-    const seenWhere = [`last_seen >= ${s.add(new Date(w.fromMs - SKEW_MS))}`];
-    if (service !== undefined) seenWhere.push(`name = ${s.add(service)}`);
+    const seenWhere = [
+      `last_seen >= ${s.add(new Date(w.fromMs - SKEW_MS))}`,
+      ...scopeSql(scope, s.add),
+    ];
     const seen = await this.rows<{ name: string }>(
-      `SELECT name FROM services WHERE ${seenWhere.join(" AND ")}`,
+      `SELECT DISTINCT service_name AS name FROM service_environments WHERE ${seenWhere.join(" AND ")}`,
       s.values,
     );
     const serviceNames = new Set(seen.map((r) => r.name));

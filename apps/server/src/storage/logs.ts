@@ -62,10 +62,16 @@ interface LogRow {
   body: string;
   context: string | null;
   serviceName: string;
+  /** The resource's environment (D-101); `null` is unset. Not part of `hash`. */
+  environment: string | null;
   hash: string;
 }
 
-function rowOf(record: IngestLogRecord, serviceName: string): LogRow | null {
+function rowOf(
+  record: IngestLogRecord,
+  serviceName: string,
+  environment: string | null,
+): LogRow | null {
   const ns = record.timeUnixNano;
   if (ns <= 0n || ns > MAX_NS) return null;
   const spanId = record.spanId ?? null;
@@ -95,6 +101,7 @@ function rowOf(record: IngestLogRecord, serviceName: string): LogRow | null {
     body: record.body,
     context,
     serviceName,
+    environment,
     hash,
   };
 }
@@ -160,9 +167,9 @@ export class PostgresLogWriter {
     const seen = new Map<string, number>();
     let invalid = 0;
     for (const rl of batch.resourceLogs) {
-      const { serviceName } = deriveResource(rl.resource);
+      const { serviceName, environment } = deriveResource(rl.resource);
       for (const record of rl.records) {
-        const row = rowOf(record, serviceName);
+        const row = rowOf(record, serviceName, environment);
         if (row === null) {
           invalid++;
           continue;
@@ -256,10 +263,10 @@ export class PostgresLogWriter {
     const result = await client.query(
       `INSERT INTO logs (
          trace_id, span_id, time, time_ns, severity_number, severity_text, body, context,
-         service_name, record_hash)
+         service_name, record_hash, environment)
        SELECT * FROM unnest(
          $1::text[], $2::text[], $3::timestamptz[], $4::bigint[], $5::int[], $6::text[],
-         $7::text[], $8::text[], $9::text[], $10::text[])
+         $7::text[], $8::text[], $9::text[], $10::text[], $11::text[])
        ON CONFLICT DO NOTHING`,
       [
         col((r) => r.traceId),
@@ -272,6 +279,7 @@ export class PostgresLogWriter {
         col((r) => r.context),
         col((r) => r.serviceName),
         col((r) => r.hash),
+        col((r) => r.environment),
       ],
     );
     return result.rowCount ?? 0;

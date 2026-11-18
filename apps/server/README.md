@@ -140,7 +140,7 @@ Read once from the environment at start and validated. A bad value exits with on
 | `NESTRIX_LOG_FORMAT` | `json` when `NODE_ENV=production` (the image sets it), else `text` | `json`: one JSON object per line (`level`, `timestamp`, `pid`, `context`, `message`), no colours. `text`: Nest's text lines. |
 | `NESTRIX_LOG_LEVEL` | `info` | `verbose`, `debug`, `info`, `warn`, `error` or `fatal` (`log` is accepted for `info`). At `info` and above the lines that list every mapped route are not written; `debug` and `verbose` show them. |
 | `PORT` | `4318` | Whole number, 1 to 65535. |
-| `NESTRIX_INGEST_KEYS` | none | Comma-separated keys, each at least 32 characters. Or `NESTRIX_INGEST_KEYS_FILE`. |
+| `NESTRIX_INGEST_KEYS` | none | Comma-separated keys, each at least 32 characters, optionally bound to an environment as `<environment>:<key>` (see "Environments"). Or `NESTRIX_INGEST_KEYS_FILE`. |
 | `NESTRIX_INGEST_AUTH` | unset | Only `none` is accepted: an explicit opt-out of ingest authentication, logged as a warning on every start. Setting it together with `NESTRIX_INGEST_KEYS` is an error. |
 | `NESTRIX_ADMIN_PASSWORD` | none | At least 12 characters. Or `NESTRIX_ADMIN_PASSWORD_FILE`. Without it the UI, `/login` and the query API answer 503 and a log line says why; ingest still works. |
 | `NESTRIX_SESSION_SECRET` | random per start | At least 32 characters. Or `NESTRIX_SESSION_SECRET_FILE`. With the admin password, the session signing key. Set it (the same value on every instance) so sessions survive restarts and work on every instance; unset, sessions end at restart and work only on the instance that issued them. See "Admin login". |
@@ -152,6 +152,18 @@ Read once from the environment at start and validated. A bad value exits with on
 | `NESTRIX_PUBLIC_URL` | unset | `http://` or `https://` address of the dashboard, without credentials, query or fragment. Put in alert notifications as a link. |
 
 Not configurable by environment: the ingest limits and rate limit below, and the HTTP timeouts (`requestTimeout` 60 s, `headersTimeout` 20 s).
+
+## Environments
+
+Send staging and production (and several products) to one server and look at each separately. The environment of a record is the resource's `deployment.environment.name` (else the deprecated `deployment.environment`); the dashboard shows an Environment selector when the server holds more than one, every query takes `environment` beside `service`, and the MCP tools take it too. Without it every environment is shown together. The value `unset` selects the data without an environment, which includes everything stored before the upgrade. Alert rules and SLOs have an `environment` field (`null` watches every environment, as before).
+
+An app's resource attribute is only a claim. To make "a staging key cannot write production data" true, bind each key to an environment:
+
+```
+NESTRIX_INGEST_KEYS=production:<key-1>,staging:<key-2>,<key-3-unbound>
+```
+
+Anything sent with a bound key is stored under that environment, whatever its resource says, and so is that app's remote-profiling check-in. An entry with a `:` is always read as `<environment>:<key>` (1 to 64 letters, digits, `.`, `_` or `-`; `unset` is refused), so a key that contains a `:` cannot be used. Not available yet: keys managed in the dashboard, and retention per environment.
 
 ## Admin login
 
@@ -374,6 +386,19 @@ ALTER INDEX spans_parent_idx ATTACH PARTITION spans_pYYYYMMDD_parent_idx;
 ```
 
 Partitions created after that inherit the index.
+
+### Upgrading to environments (issue #28)
+
+`0016_environments.sql` adds a nullable `environment` column to `spans`, `traces`, `route_minutes`, `class_minutes`, `logs`, `instances`, `alert_rules` and `slos` (catalog changes, no rewrite; each takes a brief `ACCESS EXCLUSIVE` lock), then builds a new unique key on `route_minutes` and `class_minutes` and drops their old primary keys. Those two tables hold one row per minute, service and route (or class method), far fewer than `spans`, so the build is normally seconds. It needs PostgreSQL 15 or later (`NULLS NOT DISTINCT`). On a large install build the keys first, without blocking writes; the migration then finds them and the old key is dropped at the end:
+
+```sql
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS route_minutes_env_key
+  ON route_minutes (minute, service_name, environment, method, route) NULLS NOT DISTINCT;
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS class_minutes_env_key
+  ON class_minutes (minute, service_name, environment, class_name, method_name) NULLS NOT DISTINCT;
+```
+
+(Add the `environment` columns first: `ALTER TABLE route_minutes ADD COLUMN IF NOT EXISTS environment text;` and the same for `class_minutes`.) The first batches written after the upgrade by an older server replica would fail on the new key, so upgrade every replica together.
 
 ### Upgrading to the `hasErrors` filter: the `traces` index
 

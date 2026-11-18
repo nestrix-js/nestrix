@@ -55,6 +55,8 @@ export interface InstanceIdentity {
   readonly instanceId: string;
   readonly version: string | undefined;
   readonly host: string | undefined;
+  /** `deployment.environment.name`, else `deployment.environment` (issue #28, D-101). */
+  readonly environment: string | undefined;
 }
 
 const HOST_NAME = "host.name";
@@ -110,5 +112,8 @@ export function instanceIdentity(
       stringAttribute(attributes?.[ATTR_SERVICE_VERSION]) ??
       config.serviceVersion,
     host,
+    environment:
+      stringAttribute(attributes?.["deployment.environment.name"]) ??
+      stringAttribute(attributes?.["deployment.environment"]),
   });
 }

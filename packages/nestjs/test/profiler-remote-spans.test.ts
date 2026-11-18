@@ -74,6 +74,7 @@ describe("the poller's requests are invisible to tracing", () => {
         instanceId: "i",
         version: undefined,
         host: undefined,
+        environment: undefined,
       },
       diagnostics,
       log: () => undefined,

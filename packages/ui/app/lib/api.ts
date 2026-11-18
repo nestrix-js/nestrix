@@ -92,8 +92,43 @@ export const shouldLogin = (
   mode: MetaResponse["mode"] | undefined,
 ) => status === 401 && mode !== "embedded";
 
+/**
+ * The environment every read is narrowed to (issue #28, D-101), set by the app shell from the
+ * URL. Sent as `environment` on the endpoints that take it, unless the call names one itself.
+ */
+let activeEnvironment: string | undefined;
+export function setActiveEnvironment(environment: string | undefined): void {
+  activeEnvironment = environment;
+}
+
+/** The read endpoints that accept `environment` beside `service`. */
+const ENVIRONMENT_ENDPOINTS = new Set([
+  "traces",
+  "traces/timeline",
+  "errors",
+  "errors/groups",
+  "errors/insights",
+  "routes",
+  "routes/histogram",
+  "routes/compare",
+  "routes/explain",
+  "classes",
+  "map",
+  "queries",
+  "dependencies",
+  "overview",
+  "instances",
+  "remote-profiles",
+]);
+
 async function getJson<T>(endpoint: string, params?: QueryParams): Promise<T> {
-  return requestJson<T>("GET", endpoint, params);
+  const scoped =
+    activeEnvironment !== undefined &&
+    ENVIRONMENT_ENDPOINTS.has(endpoint) &&
+    params?.environment === undefined
+      ? { ...params, environment: activeEnvironment }
+      : params;
+  return requestJson<T>("GET", endpoint, scoped);
 }
 
 /**

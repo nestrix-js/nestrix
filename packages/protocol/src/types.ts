@@ -97,10 +97,29 @@ export interface MetaResponse {
    * serves one application (`service.name` names it). Filter lists and statistics with `service`.
    */
   services?: string[];
+  /**
+   * Environments (`deployment.environment.name`) with data in the store, most recently seen first
+   * (issue #28, D-101). Absent when the API serves one application (`service.environment` names
+   * its environment). Filter lists and statistics with `environment`; omitting it means every
+   * environment.
+   */
+  environments?: EnvironmentInfo[];
   /** The on-demand CPU profiler (P7-02): `available: false` in the standalone server. */
   profiler: MetaProfiler;
   /** The process runtime view (P9-06): `available: false` in the standalone server. Absent from older servers. */
   runtime?: MetaRuntime;
+}
+
+/** One environment the standalone server holds data for (`MetaResponse.environments`). */
+export interface EnvironmentInfo {
+  /** The value to pass as `environment`: the environment's name, or `unset` for data without one. */
+  name: string;
+  /** True for the data without an environment (`name` is `unset`). */
+  unset: boolean;
+  /** Services seen in this environment, sorted. */
+  services: string[];
+  /** The last time data arrived for this environment (refreshed about once a minute). */
+  lastSeenUnixMs: number;
 }
 
 /** Fields shared by every cursor-paged list response. */

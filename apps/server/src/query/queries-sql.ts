@@ -5,6 +5,7 @@
  * parameters.
  */
 import type { QuerySort } from "@nestrix-js/protocol";
+import { adder, type Scope, scopeSql } from "./scope.js";
 
 /** A statement that ran this many times in one trace is an N+1 candidate. */
 export const REPEAT_THRESHOLD = 3;
@@ -26,7 +27,8 @@ export interface QueriesSql {
 export function queriesSql(opts: {
   from: Date;
   to: Date;
-  service: string | undefined;
+  /** Service and environment (D-101). */
+  scope: Scope;
   sort: QuerySort;
   limit: number;
 }): QueriesSql {
@@ -38,10 +40,7 @@ export function queriesSql(opts: {
     "s.attributes->>'db.query.text' IS NOT NULL",
     "COALESCE(s.attributes->>'db.system.name', s.attributes->>'db.system') IS NOT NULL",
   ];
-  if (opts.service !== undefined) {
-    values.push(opts.service);
-    where.push(`s.service_name = $${values.length}`);
-  }
+  where.push(...scopeSql(opts.scope, adder(values), "s"));
   values.push(opts.limit);
   const limit = `$${values.length}`;
   const text = `WITH q AS (

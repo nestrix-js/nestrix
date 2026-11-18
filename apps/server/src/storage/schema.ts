@@ -55,6 +55,13 @@ export const services = pgTable("services", {
   lastSeen: timestamp("last_seen", tz).notNull(),
 });
 
+/** (service, environment) pairs seen (migration 0016, D-101); unique NULLS NOT DISTINCT. */
+export const serviceEnvironments = pgTable("service_environments", {
+  serviceName: text("service_name").notNull(),
+  environment: text("environment"),
+  lastSeen: timestamp("last_seen", tz).notNull(),
+});
+
 export const spans = pgTable(
   "spans",
   {
@@ -92,6 +99,8 @@ export const spans = pgTable(
     isOccurrence: boolean("is_occurrence"),
     /** Hash of the primary exception (migration 0012, D-93). */
     errorKey: text("error_key"),
+    /** `deployment.environment.name` of the resource, or the ingest key's (migration 0016, D-101); `NULL` is unset. */
+    environment: text("environment"),
   },
   (t) => [primaryKey({ columns: [t.traceId, t.spanId, t.startTime] })],
 );
@@ -134,48 +143,40 @@ export const traces = pgTable(
     services: text("services").array().notNull(),
     spanNames: text("span_names").array().notNull(),
     updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
+    /** `deployment.environment.name` of the root's resource, or the ingest key's (migration 0016, D-101); `NULL` is unset. */
+    environment: text("environment"),
   },
   (t) => [primaryKey({ columns: [t.traceId, t.partitionTime] })],
 );
 
-export const routeMinutes = pgTable(
-  "route_minutes",
-  {
-    minute: timestamp("minute", tz).notNull(),
-    serviceName: text("service_name").notNull(),
-    method: text("method").notNull(),
-    route: text("route").notNull(),
-    count: integer("count").notNull(),
-    errors: integer("errors").notNull(),
-    totalMs: doublePrecision("total_ms").notNull(),
-    maxMs: doublePrecision("max_ms").notNull(),
-    hist: integer("hist").array().notNull(),
-  },
-  (t) => [
-    primaryKey({ columns: [t.minute, t.serviceName, t.method, t.route] }),
-  ],
-);
+export const routeMinutes = pgTable("route_minutes", {
+  minute: timestamp("minute", tz).notNull(),
+  serviceName: text("service_name").notNull(),
+  method: text("method").notNull(),
+  route: text("route").notNull(),
+  count: integer("count").notNull(),
+  errors: integer("errors").notNull(),
+  totalMs: doublePrecision("total_ms").notNull(),
+  maxMs: doublePrecision("max_ms").notNull(),
+  hist: integer("hist").array().notNull(),
+  /** Part of the key (migration 0016, D-101): unique on (minute, service, environment, method, route), NULLS NOT DISTINCT. */
+  environment: text("environment"),
+});
 
-export const classMinutes = pgTable(
-  "class_minutes",
-  {
-    minute: timestamp("minute", tz).notNull(),
-    serviceName: text("service_name").notNull(),
-    className: text("class_name").notNull(),
-    methodName: text("method_name").notNull(),
-    classKind: text("class_kind").notNull(),
-    count: integer("count").notNull(),
-    errors: integer("errors").notNull(),
-    totalMs: doublePrecision("total_ms").notNull(),
-    maxMs: doublePrecision("max_ms").notNull(),
-    hist: integer("hist").array().notNull(),
-  },
-  (t) => [
-    primaryKey({
-      columns: [t.minute, t.serviceName, t.className, t.methodName],
-    }),
-  ],
-);
+export const classMinutes = pgTable("class_minutes", {
+  minute: timestamp("minute", tz).notNull(),
+  serviceName: text("service_name").notNull(),
+  className: text("class_name").notNull(),
+  methodName: text("method_name").notNull(),
+  classKind: text("class_kind").notNull(),
+  count: integer("count").notNull(),
+  errors: integer("errors").notNull(),
+  totalMs: doublePrecision("total_ms").notNull(),
+  maxMs: doublePrecision("max_ms").notNull(),
+  hist: integer("hist").array().notNull(),
+  /** Part of the key (migration 0016, D-101): unique on (minute, service, environment, class, method), NULLS NOT DISTINCT. */
+  environment: text("environment"),
+});
 
 /** Log lines next to their trace (migrations/0007_logs.sql, src/storage/logs.ts; P9-07). */
 export const logs = pgTable(
@@ -191,6 +192,8 @@ export const logs = pgTable(
     context: text("context"),
     serviceName: text("service_name").notNull(),
     recordHash: text("record_hash").notNull(),
+    /** `deployment.environment.name` of the resource, or the ingest key's (migration 0016, D-101); `NULL` is unset. */
+    environment: text("environment"),
   },
   (t) => [primaryKey({ columns: [t.traceId, t.recordHash, t.time] })],
 );
@@ -212,6 +215,8 @@ export const alertRules = pgTable("alert_rules", {
   minRequests: integer("min_requests").notNull().default(10),
   webhookUrl: text("webhook_url").notNull(),
   secret: text("secret").notNull(),
+  /** Migration 0016 (D-101): `NULL` watches every environment, `unset` rows without one. */
+  environment: text("environment"),
   enabled: boolean("enabled").notNull().default(true),
   createdAt: timestamp("created_at", tz).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
@@ -227,6 +232,8 @@ export const slos = pgTable("slos", {
   latencyThresholdMs: doublePrecision("latency_threshold_ms"),
   objective: doublePrecision("objective").notNull(),
   windowDays: integer("window_days").notNull(),
+  /** Migration 0016 (D-101): `NULL` covers every environment, `unset` rows without one. */
+  environment: text("environment"),
   createdAt: timestamp("created_at", tz).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
 });
@@ -270,6 +277,7 @@ export const alertEvents = pgTable("alert_events", {
 export const schema = {
   resources,
   services,
+  serviceEnvironments,
   spans,
   traces,
   routeMinutes,

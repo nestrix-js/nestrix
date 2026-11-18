@@ -222,6 +222,7 @@ export class AlertEvaluator {
             client,
             {
               serviceName: rule.service_name,
+              environment: rule.environment,
               route: rule.route,
               windowMinutes: rule.window_minutes,
               minRequests: rule.min_requests,

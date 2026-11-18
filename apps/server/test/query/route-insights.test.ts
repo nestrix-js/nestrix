@@ -53,19 +53,29 @@ describe("route insights (server, pure)", () => {
   });
 
   it("builds a parameterised release query, with the service filter only when given", () => {
-    const plain = releaseCompareSql("1.0", "1.1", undefined);
+    const plain = releaseCompareSql("1.0", "1.1", {});
     expect(plain.values).toEqual([["1.0", "1.1"]]);
     expect(plain.text).toContain("percentile_disc(0.95)");
     expect(plain.text).toContain("release = ANY($1::text[])");
     expect(plain.text).not.toContain("service_name");
     // Values never reach the SQL text.
     expect(plain.text).not.toContain("1.1");
-    const scoped = releaseCompareSql("1.0", "1.1", "shop");
+    const scoped = releaseCompareSql("1.0", "1.1", { service: "shop" });
     expect(scoped.values).toEqual([["1.0", "1.1"], "shop"]);
     expect(scoped.text).toContain("service_name = $2");
-    expect(releasesSql(undefined).values).toEqual([]);
-    expect(releasesSql("shop")).toMatchObject({ values: ["shop"] });
-    expect(releasesSql("shop").text).toContain("service_name = $1");
+    const staging = releaseCompareSql("1.0", "1.1", {
+      service: "shop",
+      environment: "staging",
+    });
+    expect(staging.values).toEqual([["1.0", "1.1"], "shop", "staging"]);
+    expect(staging.text).toContain("environment = $3");
+    expect(releasesSql({}).values).toEqual([]);
+    expect(releasesSql({ service: "shop" })).toMatchObject({
+      values: ["shop"],
+    });
+    expect(releasesSql({ service: "shop" }).text).toContain(
+      "service_name = $1",
+    );
   });
 
   it("splits release rows by release and reads numeric strings", () => {

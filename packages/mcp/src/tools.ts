@@ -66,6 +66,14 @@ const service = z
     "Only this service (service.name). Only useful on the Nestrix server, which stores several services.",
   );
 
+const environment = z
+  .string()
+  .max(256)
+  .optional()
+  .describe(
+    "Only this environment (deployment.environment.name); `unset` is the data without one. Omit for every environment. Only useful on the Nestrix server, which can store several.",
+  );
+
 function text(value: string): CallToolResult {
   return { content: [{ type: "text", text: value }] };
 }
@@ -138,14 +146,14 @@ export function createMcpServer(
     {
       title: "Nestrix overview",
       description: `Start here. Describes the app (service, release, sampling, store size, whether CPU profiling is available), then the slowest and most failing routes of the last 15 minutes and the number of stored errors. Traces are sampled. ${statisticsCounting()}`,
-      inputSchema: { service },
+      inputSchema: { service, environment },
       annotations: READ_ONLY,
     },
-    ({ service }) =>
+    ({ service, environment }) =>
       run(async () => {
         const meta = await client.meta();
         knownMode = meta.mode;
-        const query = { service };
+        const query = { service, environment };
         const [routes, errors] = await Promise.all([
           client.routes({ ...query, windowMinutes: 15 }).catch(() => undefined),
           client.errors({ ...query, limit: 50 }).catch(() => undefined),
@@ -194,6 +202,7 @@ export function createMcpServer(
           .optional()
           .describe("user.id recorded on the root span."),
         service,
+        environment,
         limit: z
           .number()
           .int()
@@ -280,6 +289,7 @@ export function createMcpServer(
           .optional()
           .describe("Route template, exact match."),
         service,
+        environment,
         limit: z
           .number()
           .int()
@@ -290,11 +300,16 @@ export function createMcpServer(
       },
       annotations: READ_ONLY,
     },
-    ({ route, service, limit }) =>
+    ({ route, service, environment, limit }) =>
       run(async () =>
         withNote(
           renderErrors(
-            await client.errors({ route, service, limit: limit ?? 20 }),
+            await client.errors({
+              route,
+              service,
+              environment,
+              limit: limit ?? 20,
+            }),
             route === undefined ? undefined : clean(route, 160),
           ),
         ),
@@ -306,13 +321,13 @@ export function createMcpServer(
     {
       title: "Route statistics",
       description: `Per-route request count, errors, error rate and latency percentiles (p50, p95, p99, max) over the last 15 or 60 minutes, slowest p95 first, at most 25 routes. ${statisticsCounting()} Resets when the app restarts.`,
-      inputSchema: { windowMinutes, service },
+      inputSchema: { windowMinutes, service, environment },
       annotations: READ_ONLY,
     },
-    ({ windowMinutes, service }) =>
+    ({ windowMinutes, service, environment }) =>
       run(async () =>
         renderRoutes(
-          await client.routes({ windowMinutes, service }),
+          await client.routes({ windowMinutes, service, environment }),
           await modeOf(),
         ),
       ),
@@ -324,13 +339,13 @@ export function createMcpServer(
       title: "Class statistics",
       description:
         "Per traced class (controllers, services, repositories, guards, processors) calls, errors, average time and own time (time not spent in child spans), most own time first, with the slowest methods of the top classes. Needs the app to use NestrixInstrument; otherwise says so. Own time is estimated from sampled traces; calls and errors are counted before sampling on an embedded dashboard, and from the stored spans on the standalone server.",
-      inputSchema: { windowMinutes, service },
+      inputSchema: { windowMinutes, service, environment },
       annotations: READ_ONLY,
     },
-    ({ windowMinutes, service }) =>
+    ({ windowMinutes, service, environment }) =>
       run(async () =>
         renderClasses(
-          await client.classes({ windowMinutes, service }),
+          await client.classes({ windowMinutes, service, environment }),
           await modeOf(),
         ),
       ),
@@ -342,11 +357,13 @@ export function createMcpServer(
       title: "App map",
       description:
         "What the app talks to: databases, caches, queues and outbound HTTP services, with call counts, errors and latency, from the sampled traces of the last 15 or 60 minutes (counts reflect sampling).",
-      inputSchema: { windowMinutes, service },
+      inputSchema: { windowMinutes, service, environment },
       annotations: READ_ONLY,
     },
-    ({ windowMinutes, service }) =>
-      run(async () => renderMap(await client.map({ windowMinutes, service }))),
+    ({ windowMinutes, service, environment }) =>
+      run(async () =>
+        renderMap(await client.map({ windowMinutes, service, environment })),
+      ),
   );
 
   server.registerTool(
@@ -368,15 +385,16 @@ export function createMcpServer(
           .describe("HTTP method, for example GET."),
         windowMinutes,
         service,
+        environment,
       },
       annotations: READ_ONLY,
     },
-    ({ route, method, windowMinutes, service }) =>
+    ({ route, method, windowMinutes, service, environment }) =>
       run(async () => {
         const window = windowMinutes ?? 15;
         const [routes, list] = await Promise.all([
-          client.routes({ windowMinutes: window, service }),
-          client.traces({ route, method, service, limit: 200 }),
+          client.routes({ windowMinutes: window, service, environment }),
+          client.traces({ route, method, service, environment, limit: 200 }),
         ]);
         const stats = routes.routes.filter(
           (r) =>

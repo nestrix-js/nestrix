@@ -14,6 +14,7 @@ import {
   HISTOGRAM_BUCKETS,
   HISTOGRAM_UPPER_BOUNDS_MS,
 } from "../storage/histogram.js";
+import { adder, type Scope, scopeSql } from "./scope.js";
 
 const round = (ms: number) => Math.round(ms * 1000) / 1000;
 
@@ -93,14 +94,12 @@ export const MAX_RELEASES = 20;
 export function releaseCompareSql(
   releaseA: string,
   releaseB: string,
-  service: string | undefined,
+  scope: Scope,
 ): { text: string; values: unknown[] } {
   const values: unknown[] = [[releaseA, releaseB]];
-  let serviceFilter = "";
-  if (service !== undefined) {
-    values.push(service);
-    serviceFilter = `AND service_name = $${values.length}`;
-  }
+  const serviceFilter = scopeSql(scope, adder(values))
+    .map((c) => `AND ${c}`)
+    .join(" ");
   return {
     text: `SELECT release, http_method AS method, http_route AS route,
                   count(*)::int AS count,
@@ -116,16 +115,14 @@ export function releaseCompareSql(
 }
 
 /** The releases seen, most recently stored first. */
-export function releasesSql(service: string | undefined): {
+export function releasesSql(scope: Scope): {
   text: string;
   values: unknown[];
 } {
   const values: unknown[] = [];
-  let where = "release IS NOT NULL";
-  if (service !== undefined) {
-    values.push(service);
-    where += ` AND service_name = $1`;
-  }
+  const where = ["release IS NOT NULL", ...scopeSql(scope, adder(values))].join(
+    " AND ",
+  );
   return {
     text: `SELECT release FROM traces WHERE ${where}
             GROUP BY release ORDER BY max(seq) DESC LIMIT ${MAX_RELEASES}`,
