@@ -97,6 +97,20 @@ jobs:
           persist-credentials: false
       - run: helm lint deploy/helm/nestrix-server --set existingSecret.name=x
       - run: helm template t deploy/helm/nestrix-server --set existingSecret.name=x > /dev/null
+      # Assertions on the rendered chart (deploy/helm/nestrix-server/README.md): the bundled
+      # PostgreSQL pod mounts only the database password, and the server rolls without downtime.
+      - name: Assert the rendered chart
+        run: |
+          helm template t deploy/helm/nestrix-server --set existingSecret.name=x > "$RUNNER_TEMP/chart.yaml"
+          pg="$(awk '/^kind: StatefulSet/{f=1} f&&/^---/{f=0} f' "$RUNNER_TEMP/chart.yaml")"
+          [ -n "$pg" ] || { echo "no StatefulSet rendered" >&2; exit 1; }
+          items="$(printf '%s\n' "$pg" | grep -c '^ *- key: ')"
+          [ "$items" = 1 ] || { echo "postgres pod projects $items secret keys, want 1" >&2; exit 1; }
+          printf '%s\n' "$pg" | grep -q '^ *- key: "db-password"$' || { echo "postgres pod does not project db-password" >&2; exit 1; }
+          dep="$(awk '/^kind: Deployment/{f=1} f&&/^---/{f=0} f' "$RUNNER_TEMP/chart.yaml")"
+          printf '%s\n' "$dep" | grep -q '^    type: RollingUpdate$' || { echo "server strategy is not RollingUpdate" >&2; exit 1; }
+          printf '%s\n' "$dep" | grep -q '^      maxUnavailable: 0$' || { echo "server maxUnavailable is not 0" >&2; exit 1; }
+          printf '%s\n' "$dep" | grep -q '^      maxSurge: 1$' || { echo "server maxSurge is not 1" >&2; exit 1; }
       - run: helm template t deploy/helm/nestrix-server --set existingSecret.name=x --set postgresql.enabled=false --set ingress.enabled=true --set 'ingress.hosts={a.example.com}' > /dev/null
       - run: NESTRIX_DOMAIN=nestrix.example.com docker stack config -c deploy/swarm/stack.yml > /dev/null
 
@@ -125,15 +139,15 @@ jobs:
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [verify, consume, jaeger, e2e]
+    needs: [verify, consume, jaeger, deploy-render, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Fail if any job failed or was cancelled
+      - name: Fail if any job failed, was cancelled or was skipped
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
           echo "results: $RESULTS"
           case "$RESULTS" in
-            *failure*|*cancelled*) exit 1 ;;
+            *failure*|*cancelled*|*skipped*) exit 1 ;;
           esac

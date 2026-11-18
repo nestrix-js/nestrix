@@ -121,6 +121,7 @@ jobs:
     env:
       IMAGE: ghcr.io/nestrix-js/nestrix-server
       INPUT_VERSION: ${{ inputs.version }}
+      EVENT_NAME: ${{ github.event_name }}
     steps:
       # An explicit version builds from that release's tag, not from the tip of main.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -132,14 +133,26 @@ jobs:
         run: |
           version="${INPUT_VERSION:-$(node -p "require('./packages/nestjs/package.json').version")}"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "bad version: $version" >&2; exit 1; }
-          # The npm dist-tag: the Changesets pre tag for a prerelease, latest otherwise.
-          if [[ "$version" == *-* ]]; then
-            tag="$(node -p "require('./.changeset/pre.json').tag")"
-          else
-            tag=latest
+          # Tags to push. A release run also moves the npm dist-tag name (the Changesets pre tag
+          # for a prerelease, latest otherwise). A manual run is a backfill of an existing
+          # release, possibly an old one: it pushes the version tag only, never `latest`.
+          tags="$IMAGE:$version"
+          if [[ "$EVENT_NAME" != workflow_dispatch ]]; then
+            if [[ "$version" == *-* ]]; then
+              tag="$(node -p "require('./.changeset/pre.json').tag")"
+            else
+              tag=latest
+            fi
+            tags="$tags"$'\n'"$IMAGE:$tag"
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$version"
+            # The commit actually checked out (the release tag on a backfill), not the dispatch ref.
+            echo "revision=$(git rev-parse HEAD)"
+            echo "tags<<EOF"
+            echo "$tags"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
@@ -153,16 +166,14 @@ jobs:
           file: apps/server/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ env.IMAGE }}:${{ steps.v.outputs.version }}
-            ${{ env.IMAGE }}:${{ steps.v.outputs.tag }}
+          tags: ${{ steps.v.outputs.tags }}
           labels: |
             org.opencontainers.image.title=nestrix-server
             org.opencontainers.image.description=Standalone Nestrix server: OTLP ingest, PostgreSQL storage and the dashboard
             org.opencontainers.image.source=https://github.com/nestrix-js/nestrix
             org.opencontainers.image.url=https://github.com/nestrix-js/nestrix
             org.opencontainers.image.version=${{ steps.v.outputs.version }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ steps.v.outputs.revision }}
             org.opencontainers.image.licenses=Apache-2.0
           provenance: mode=max
           sbom: true

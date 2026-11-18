@@ -27,6 +27,39 @@ export function checkReadme(text, version, label) {
   return problems;
 }
 
+/**
+ * Problems in AGENTS.md's "Current state": the version it names ("package versions in this tree:
+ * `X`") must be the packages' own, and a phase it calls "in progress" must have a backlog with an
+ * unfinished task. `backlog(n)` returns docs/backlog/phase-<n>.md's text, or undefined.
+ */
+export function checkAgentsState(text, version, backlog, label = "AGENTS.md") {
+  const problems = [];
+  const match = /package versions in this tree: `([^`]+)`/i.exec(text);
+  if (!match) {
+    problems.push(
+      `${label}: "Current state" must say "package versions in this tree: \`${version}\`".`,
+    );
+  } else if (match[1] !== version) {
+    problems.push(
+      `${label}: says package versions in this tree are ${match[1]}, but they are ${version}.`,
+    );
+  }
+  for (const [, n] of text.matchAll(/phase (\d+) is in progress/gi)) {
+    const rows = (backlog(n) ?? "")
+      .split("\n")
+      .filter((line) => /^\|\s*P\d+-\d+\s*\|/.test(line));
+    const unfinished = rows.some(
+      (line) => !/^done/i.test(line.split("|").slice(-2, -1)[0].trim()),
+    );
+    if (!unfinished) {
+      problems.push(
+        `${label}: says phase ${n} is in progress, but docs/backlog/phase-${n}.md has no unfinished task.`,
+      );
+    }
+  }
+  return problems;
+}
+
 function publishedPackageDirs() {
   const packages = join(root, "packages");
   return readdirSync(packages)
@@ -72,9 +105,24 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       ),
     );
   }
+  if (args.length === 0) {
+    const version = JSON.parse(
+      readFileSync(join(root, "packages/nestjs/package.json"), "utf8"),
+    ).version;
+    problems.push(
+      ...checkAgentsState(
+        readFileSync(join(root, "AGENTS.md"), "utf8"),
+        version,
+        (n) => {
+          const file = join(root, `docs/backlog/phase-${n}.md`);
+          return existsSync(file) ? readFileSync(file, "utf8") : undefined;
+        },
+      ),
+    );
+  }
   if (problems.length > 0) {
     console.error(problems.join("\n"));
     process.exit(1);
   }
-  console.log("README status lines: ok");
+  console.log("README status lines and AGENTS.md state: ok");
 }

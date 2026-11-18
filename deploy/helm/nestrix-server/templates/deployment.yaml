@@ -111,6 +111,22 @@ spec:
           secret:
             secretName: {{ include "nestrix-server.secretName" . }}
             defaultMode: 0440
+            # Only the keys the container reads: the database one is the password (bundled
+            # PostgreSQL) or the whole URL (your own), never both.
+            items:
+              {{- if .Values.postgresql.enabled }}
+              - key: {{ .Values.existingSecret.keys.dbPassword | quote }}
+                path: {{ .Values.existingSecret.keys.dbPassword | quote }}
+              {{- else }}
+              - key: {{ .Values.existingSecret.keys.databaseUrl | quote }}
+                path: {{ .Values.existingSecret.keys.databaseUrl | quote }}
+              {{- end }}
+              - key: {{ .Values.existingSecret.keys.ingestKeys | quote }}
+                path: {{ .Values.existingSecret.keys.ingestKeys | quote }}
+              - key: {{ .Values.existingSecret.keys.adminPassword | quote }}
+                path: {{ .Values.existingSecret.keys.adminPassword | quote }}
+              - key: {{ .Values.existingSecret.keys.sessionSecret | quote }}
+                path: {{ .Values.existingSecret.keys.sessionSecret | quote }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
