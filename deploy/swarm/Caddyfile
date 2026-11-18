@@ -1,0 +1,13 @@
+# TLS for the Nestrix server (deploy/swarm/stack.yml). Caddy obtains and renews a certificate for
+# $NESTRIX_DOMAIN by itself; ports 80 and 443 must reach it from the internet for that.
+{$NESTRIX_DOMAIN} {
+	encode zstd gzip
+
+	# Caddy passes the browser's Host header through unchanged (the server's Origin check needs
+	# it) and sets X-Forwarded-For to the client's address, discarding any value the client sent,
+	# because no trusted_proxies are configured. NESTRIX_TRUSTED_PROXIES on the server names this
+	# container's network, so the login limit keys on that address.
+	# `server` is the service's virtual address: Swarm sends traffic only to replicas whose
+	# healthcheck (/readyz) passes, so Caddy needs no health checks of its own.
+	reverse_proxy server:4318
+}

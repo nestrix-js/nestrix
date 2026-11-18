@@ -30,6 +30,7 @@ export default defineConfig({
           { text: "Large traces", link: "/guide/large-traces" },
           { text: "Security model", link: "/guide/security" },
           { text: "Standalone server", link: "/guide/standalone-server" },
+          { text: "Running in production", link: "/guide/production" },
           { text: "MCP for AI assistants", link: "/guide/mcp" },
           { text: "Microservices", link: "/guide/microservices" },
           { text: "Logs and metrics", link: "/guide/logs-and-metrics" },

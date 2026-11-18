@@ -1,0 +1,120 @@
+# Values for the nestrix-server chart. Everything here has a default that renders; the only thing
+# you must supply is `existingSecret.name` (see "Secrets"). README.md has the commands.
+
+# -- The server image. Pinned by version AND digest: the tag says what it is, the digest makes sure
+# a re-pushed tag cannot change what runs. To move to a newer release, read its digest (production.md,
+# "Pinned images": `docker buildx imagetools inspect ghcr.io/nestrix-js/nestrix-server:<version>`)
+# and change both. Leave `digest` empty to run the tag alone (not recommended).
+image:
+  repository: ghcr.io/nestrix-js/nestrix-server
+  tag: "0.6.0"
+  digest: sha256:c9fb43475334430c5bdd30e9302a9009abe12951932380c3951a6483d96822f6
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# -- Server replicas. Two or more give availability and ingest throughput; they share one database
+# and, because NESTRIX_SESSION_SECRET is the same for all, one admin login.
+replicaCount: 2
+
+# -- Secrets. The chart never takes a secret value: create a Secret yourself (README.md) and name it
+# here, so nothing sensitive lands in values files or in the Helm release history. The Secret is
+# mounted as files in /run/secrets/nestrix and handed to the server through its *_FILE variables.
+existingSecret:
+  name: ""
+  keys:
+    ingestKeys: ingest-keys # NESTRIX_INGEST_KEYS: comma-separated, each key 32+ characters
+    adminPassword: admin-password # NESTRIX_ADMIN_PASSWORD: 12+ characters
+    sessionSecret: session-secret # NESTRIX_SESSION_SECRET: 32+ characters, the same for every replica
+    dbPassword: db-password # the bundled PostgreSQL's password (used when postgresql.enabled)
+    databaseUrl: database-url # the whole URL of your PostgreSQL (used when it is not enabled)
+
+# -- Server settings (environment variables, see apps/server/README.md "Configuration").
+config:
+  retentionDays: 7 # NESTRIX_RETENTION_DAYS, 1 to 3650
+  logLevel: info # NESTRIX_LOG_LEVEL
+  publicUrl: "" # NESTRIX_PUBLIC_URL, the dashboard's https address (a link in alert messages)
+  # -- NESTRIX_TRUSTED_PROXIES: the addresses of the ingress controller pods (CIDRs). Only a
+  # connection from one of them may name the visitor in X-Forwarded-For, which the login limit keys
+  # on. Empty: the limit keys on the connection, so everyone behind the ingress shares one limit.
+  trustedProxies: []
+  # -- Anything else, as name: value (for example NESTRIX_MAX_SPANS_PER_TRACE: "20000").
+  extraEnv: {}
+
+# -- The server's database. Either the single-node PostgreSQL this chart can run (enabled), or
+# your own (disabled; put its URL in the Secret under `existingSecret.keys.databaseUrl`).
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "18.6"
+    digest: sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
+    pullPolicy: IfNotPresent
+  user: nestrix
+  database: nestrix
+  # -- `-c name=value` settings; see production.md, "PostgreSQL". max_connections: each server
+  # replica holds a pool of up to 10 connections.
+  config:
+    max_connections: "100"
+    shared_buffers: 512MB
+    autovacuum_vacuum_scale_factor: "0.05"
+    autovacuum_analyze_scale_factor: "0.05"
+  persistence:
+    size: 20Gi # see production.md, "Storage", for how to size it
+    storageClassName: "" # empty: the cluster's default class
+  resources:
+    requests: { cpu: 500m, memory: 512Mi }
+    limits: { cpu: "2", memory: 2Gi }
+  terminationGracePeriodSeconds: 60
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+service:
+  type: ClusterIP
+  port: 4318
+
+# -- Ingress with TLS. The server answers /login, the dashboard, the API and ingest on one port, so
+# the ingress must pass the Host header through (every common controller does by default) and
+# serve HTTPS. Example for ingress-nginx with cert-manager:
+#   ingress:
+#     enabled: true
+#     className: nginx
+#     annotations: { cert-manager.io/cluster-issuer: letsencrypt }
+#     hosts: [nestrix.example.com]
+#     tls: [{ secretName: nestrix-tls, hosts: [nestrix.example.com] }]
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  tls: []
+
+# -- Requests and limits come from the sizing table in production.md: about 0.03 core per 1 000
+# spans/s and 300 to 470 MiB under load. These suit roughly 10 000 spans/s across both replicas.
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { cpu: "1", memory: 768Mi }
+
+# -- On a pod's shutdown the server answers /readyz 503 at once, drains its write queue (up to 10 s)
+# and its webhook sender (up to 10 s), then closes the database pool. The grace period must cover
+# preStopSleepSeconds plus that.
+terminationGracePeriodSeconds: 30
+# -- Seconds the pod sleeps before SIGTERM, so the Service stops routing to it before the server
+# starts shutting down. 0 turns it off.
+preStopSleepSeconds: 5
+
+probes:
+  # /livez ignores the database: an outage takes pods out of the Service (readiness), not restarts them.
+  liveness: { periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3 }
+  readiness: { periodSeconds: 5, timeoutSeconds: 3, failureThreshold: 2 }
+  # Passes once migrations have run; covers a slow first start on a large database.
+  startup: { periodSeconds: 2, failureThreshold: 60 }
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

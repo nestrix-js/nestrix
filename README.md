@@ -62,7 +62,7 @@ services:
   postgres:
     image: postgres:18-alpine
   nestrix-server:
-    image: ghcr.io/nestrix-js/nestrix-server:latest
+    image: ghcr.io/nestrix-js/nestrix-server:0.6.0@sha256:c9fb43475334430c5bdd30e9302a9009abe12951932380c3951a6483d96822f6
     environment:
       DATABASE_URL: postgres://postgres@postgres:5432/postgres
       NESTRIX_ADMIN_PASSWORD: ${NESTRIX_ADMIN_PASSWORD}   # 12+ characters

@@ -17,9 +17,11 @@ Use it when you want history beyond one process's memory, several services in on
 Without cloning the repository:
 
 ```bash
-docker pull ghcr.io/nestrix-js/nestrix-server:latest
-docker run -p 4318:4318 -e DATABASE_URL=postgres://… -e NESTRIX_INGEST_KEYS=… -e NESTRIX_ADMIN_PASSWORD=… ghcr.io/nestrix-js/nestrix-server:latest
+docker pull ghcr.io/nestrix-js/nestrix-server:0.6.0@sha256:c9fb43475334430c5bdd30e9302a9009abe12951932380c3951a6483d96822f6
+docker run -p 4318:4318 -e DATABASE_URL=postgres://… -e NESTRIX_INGEST_KEYS=… -e NESTRIX_ADMIN_PASSWORD=… ghcr.io/nestrix-js/nestrix-server:0.6.0@sha256:c9fb43475334430c5bdd30e9302a9009abe12951932380c3951a6483d96822f6
 ```
+
+The image is pinned by version and digest so a re-pushed tag cannot change what runs; `:latest` also exists but moves. How to read the digest of a release, sizing, storage growth, backup and restore, upgrades and TLS are in [docs-site/guide/production.md](../../docs-site/guide/production.md); a Docker Swarm stack is in [`deploy/swarm/`](../../deploy/swarm/README.md) and a Helm chart in [`deploy/helm/nestrix-server/`](../../deploy/helm/nestrix-server/README.md).
 
 `examples/standalone/` has a compose file with PostgreSQL, this image and two services (one with two replicas), and a snippet for adding the server to an existing compose project.
 
@@ -66,7 +68,7 @@ Docker Compose (the image already has this check; the form is for another image 
 ```yaml
 services:
   nestrix:
-    image: ghcr.io/nestrix-js/nestrix-server:latest
+    image: ghcr.io/nestrix-js/nestrix-server:0.6.0@sha256:c9fb43475334430c5bdd30e9302a9009abe12951932380c3951a6483d96822f6
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4318/readyz').then(r=>process.exit(r.status===200?0:1),()=>process.exit(1))"]
       interval: 5s
@@ -106,7 +108,7 @@ Docker Swarm secrets and Kubernetes secret volumes arrive as files. For `DATABAS
 ```yaml
 services:
   nestrix:
-    image: ghcr.io/nestrix-js/nestrix-server:latest
+    image: ghcr.io/nestrix-js/nestrix-server:0.6.0@sha256:c9fb43475334430c5bdd30e9302a9009abe12951932380c3951a6483d96822f6
     environment:
       DATABASE_URL: postgres://nestrix@postgres:5432/nestrix
       DATABASE_PASSWORD_FILE: /run/secrets/db_password
@@ -399,7 +401,7 @@ Service level objectives are managed on the dashboard's **SLOs** page or through
 
 ## Upgrading
 
-Pull or rebuild the image and restart. Migrations are applied at start, in order, under a PostgreSQL advisory lock, so several instances starting together are safe; each runs in a transaction, and a migration file changed after it was applied stops the start. There is no downgrade: back up the database before upgrading. With `NESTRIX_SESSION_SECRET` set, admins stay signed in across the restart (see "Admin login").
+Pull or rebuild the image and restart (see also [Upgrades in the production guide](../../docs-site/guide/production.md#upgrades) for the rolling-upgrade policy). Migrations are applied at start, in order, under a PostgreSQL advisory lock, so several instances starting together are safe; each runs in a transaction, and a migration file changed after it was applied stops the start. There is no downgrade: back up the database before upgrading. With `NESTRIX_SESSION_SECRET` set, admins stay signed in across the restart (see "Admin login").
 
 ### Upgrading to users and roles (issue #34)
 
@@ -417,7 +419,7 @@ Several server instances can share one PostgreSQL database behind a load balance
 # docker-compose.yml (excerpt): two replicas behind one proxy, one database
 services:
   nestrix-a: &nestrix
-    image: ghcr.io/nestrix-js/nestrix-server:latest
+    image: ghcr.io/nestrix-js/nestrix-server:0.6.0@sha256:c9fb43475334430c5bdd30e9302a9009abe12951932380c3951a6483d96822f6
     environment:
       DATABASE_URL: postgres://nestrix:${PGPASSWORD}@postgres:5432/nestrix
       NESTRIX_INGEST_KEYS: ${NESTRIX_INGEST_KEYS}

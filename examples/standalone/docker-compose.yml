@@ -30,7 +30,7 @@ services:
       retries: 30
 
   nestrix-server:
-    image: ghcr.io/nestrix-js/nestrix-server:latest
+    image: ghcr.io/nestrix-js/nestrix-server:0.6.0@sha256:c9fb43475334430c5bdd30e9302a9009abe12951932380c3951a6483d96822f6
     depends_on:
       postgres:
         condition: service_healthy
