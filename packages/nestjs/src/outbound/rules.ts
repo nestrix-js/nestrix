@@ -40,8 +40,10 @@ import {
   DEFAULT_RESPONSE_HEADERS,
   type HeadersInput,
   headerAttributes,
+  type OutgoingPathRedactor,
   REQUEST_HEADER_PREFIX,
   RESPONSE_HEADER_PREFIX,
+  redactOutgoingPath,
   redactQuery,
   splitUrl,
 } from "../privacy.js";
@@ -75,6 +77,8 @@ export interface OutboundConfig {
   readonly responseHeaders: ReadonlySet<string>;
   readonly queryKeys: ReadonlySet<string>;
   readonly ignore: readonly UrlMatcher[];
+  /** `http.redactOutgoingPath` (D-97), applied to `url.full` after the ignore check. */
+  readonly outgoingPath?: readonly OutgoingPathRedactor[];
   readonly diagnostics: Diagnostics;
 }
 
@@ -93,6 +97,7 @@ export function buildOutboundConfig(
     ),
     queryKeys: buildRedactedQueryKeys(options.http.redactQueryKeys),
     ignore: options.ignore.outgoing,
+    outgoingPath: options.http.redactOutgoingPath,
     diagnostics,
   };
 }
@@ -264,15 +269,24 @@ export function clientSpanName(method: string): string {
   return KNOWN_METHODS.has(method) ? method : "HTTP";
 }
 
-/** Attributes known when the request is created. */
+/**
+ * Attributes known when the request is created. `url.full` gets `http.redactOutgoingPath` here
+ * (D-97), so `ignore.outgoing`, checked on `target.full` before this, sees the path as sent.
+ */
 export function requestAttributes(
   method: string,
   target: ClientTarget,
   headers: HeadersInput | null | undefined,
   config: OutboundConfig,
 ): Attributes {
+  const redactors = config.outgoingPath;
   const attributes: Attributes = {
-    [ATTR_URL_FULL]: target.full,
+    [ATTR_URL_FULL]:
+      redactors === undefined || redactors.length === 0
+        ? target.full
+        : redactOutgoingPath(target.full, redactors, (error) =>
+            config.diagnostics.countFailure("outbound.redact-path", error),
+          ),
     [ATTR_SERVER_ADDRESS]: target.address,
   };
   if (KNOWN_METHODS.has(method)) {
