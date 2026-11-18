@@ -52,6 +52,7 @@ import {
   type SpanRow,
   UNMATCHED_ROUTE,
 } from "./derive.js";
+import { EnvironmentTracker } from "./environments.js";
 import { bucketIndex, emptyHistogram } from "./histogram.js";
 import { ADVISORY_CLASS, TRACES_LOCK } from "./locks.js";
 import { type LogWriterOptions, PostgresLogWriter } from "./logs.js";
@@ -225,8 +226,8 @@ export class PostgresIngestSink implements IngestSink {
   readonly metrics: PostgresMetricWriter;
   private readonly resourceIds = new Map<string, number>();
   private readonly servicesWritten = new Map<string, number>();
-  /** `JSON.stringify([service, environment])` → when its `service_environments` row was refreshed. */
-  private readonly environmentsWritten = new Map<string, number>();
+  /** Shared with the log and metric writers: `service_environments` (D-101). */
+  private readonly environments = new EnvironmentTracker();
   private readonly counters = {
     writtenSpans: 0,
     duplicateSpans: 0,
@@ -248,14 +249,18 @@ export class PostgresIngestSink implements IngestSink {
     this.retryAfterSeconds = options.retryAfterSeconds ?? 5;
     this.resourceCacheSize = options.resourceCacheSize ?? 10_000;
     this.maxSpansPerTrace = options.maxSpansPerTrace ?? 50_000;
-    this.logs = new PostgresLogWriter(pool, partitions, {
-      retryAfterSeconds: this.retryAfterSeconds,
-      ...options.logs,
-    });
-    this.metrics = new PostgresMetricWriter(pool, partitions, {
-      retryAfterSeconds: this.retryAfterSeconds,
-      ...options.metrics,
-    });
+    this.logs = new PostgresLogWriter(
+      pool,
+      partitions,
+      { retryAfterSeconds: this.retryAfterSeconds, ...options.logs },
+      this.environments,
+    );
+    this.metrics = new PostgresMetricWriter(
+      pool,
+      partitions,
+      { retryAfterSeconds: this.retryAfterSeconds, ...options.metrics },
+      this.environments,
+    );
   }
 
   /** Stores metric points per minute (`metrics.ts`). Same contract as `write`. */
@@ -508,15 +513,13 @@ export class PostgresIngestSink implements IngestSink {
             [services],
           );
         }
-        const pairs = this.environmentsDue(inserted);
-        if (pairs.length > 0) {
-          await client.query(
-            `INSERT INTO service_environments (service_name, environment, last_seen)
-               SELECT u.s, u.e, now() FROM unnest($1::text[], $2::text[]) AS u(s, e)
-             ON CONFLICT (service_name, environment) DO UPDATE SET last_seen = EXCLUDED.last_seen`,
-            [pairs.map((p) => p[0]), pairs.map((p) => p[1])],
-          );
-        }
+        const pairs = this.environments.due(
+          inserted.map((s) => ({
+            service: s.serviceName,
+            environment: s.environment,
+          })),
+        );
+        await this.environments.insert(client, pairs);
         await client.query("COMMIT");
         this.counters.transactions++;
         this.counters.writtenSpans += inserted.length;
@@ -526,9 +529,7 @@ export class PostgresIngestSink implements IngestSink {
         this.counters.invalidSpans += invalid;
         const now = Date.now();
         for (const name of services) this.servicesWritten.set(name, now);
-        for (const pair of pairs) {
-          this.environmentsWritten.set(JSON.stringify(pair), now);
-        }
+        this.environments.markWritten(pairs);
         const droppedByBatch = batches.map(() => 0);
         for (const r of capped.dropped) {
           const i = batchOf.get(r);
@@ -634,24 +635,6 @@ export class PostgresIngestSink implements IngestSink {
         names.add(s.serviceName);
     }
     return [...names].sort();
-  }
-
-  /** (service, environment) pairs whose `service_environments` row is due (D-101), sorted. */
-  private environmentsDue(
-    inserted: readonly SpanRow[],
-  ): [string, string | null][] {
-    const now = Date.now();
-    const due = new Map<string, [string, string | null]>();
-    for (const s of inserted) {
-      const pair: [string, string | null] = [s.serviceName, s.environment];
-      const key = JSON.stringify(pair);
-      const at = this.environmentsWritten.get(key);
-      if (at === undefined || now - at >= SERVICES_REFRESH_MS)
-        due.set(key, pair);
-    }
-    return [...due.entries()]
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([, pair]) => pair);
   }
 
   /** Hash → id for every given resource, inserting unknown ones. */

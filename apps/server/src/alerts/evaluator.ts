@@ -20,7 +20,12 @@ import { ADVISORY_CLASS, ALERTS_LOCK } from "../storage/locks.js";
 import { claimErrorGroups } from "./error-group-rule.js";
 import { METRICS } from "./metrics.js";
 import { type StoredState, transition } from "./state.js";
-import { type AlertRuleRow, buildPayload, type EventKind } from "./store.js";
+import {
+  type AlertRuleRow,
+  buildPayload,
+  type EventKind,
+  withSloScope,
+} from "./store.js";
 import type { DeliveryResult, WebhookSender } from "./webhook.js";
 
 export interface AlertEvaluatorOptions {
@@ -265,7 +270,7 @@ export class AlertEvaluator {
         secret: rule.secret,
         body: JSON.stringify(
           buildPayload(
-            rule,
+            await withSloScope(client, rule),
             eventId,
             kind,
             value,

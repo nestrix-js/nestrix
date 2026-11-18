@@ -196,6 +196,11 @@ export class IngestReceiver implements OnApplicationBootstrap {
       this.logger.log(
         `POST /v1/traces and /v1/logs require an API key (${keys.length} configured${bound > 0 ? `, ${bound} bound to an environment` : ""}).`,
       );
+      if (bound > 0 && bound < keys.length) {
+        this.logger.warn(
+          `NESTRIX_INGEST_KEYS mixes ${bound} environment-bound and ${keys.length - bound} unbound keys. An unbound key stores whatever environment its resource claims, so it can write into any environment, including a bound key's. Bind every key (<environment>:<key>) to keep environments apart.`,
+        );
+      }
     }
   }
 

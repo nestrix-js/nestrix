@@ -428,16 +428,37 @@ Partitions created after that inherit the index.
 
 ### Upgrading to environments (issue #28)
 
-`0016_environments.sql` adds a nullable `environment` column to `spans`, `traces`, `route_minutes`, `class_minutes`, `logs`, `instances`, `alert_rules` and `slos` (catalog changes, no rewrite; each takes a brief `ACCESS EXCLUSIVE` lock), then builds a new unique key on `route_minutes` and `class_minutes` and drops their old primary keys. Those two tables hold one row per minute, service and route (or class method), far fewer than `spans`, so the build is normally seconds. It needs PostgreSQL 15 or later (`NULLS NOT DISTINCT`). On a large install build the keys first, without blocking writes; the migration then finds them and the old key is dropped at the end:
+`0016_environments.sql` adds a nullable `environment` column to `spans`, `traces`, `route_minutes`, `class_minutes`, `logs`, `instances`, `alert_rules` and `slos` (catalog changes, no rewrite; each takes a brief `ACCESS EXCLUSIVE` lock), then builds a new unique key on `route_minutes` and `class_minutes` and drops their old primary keys. Those two tables hold one row per minute, service and route (or class method), far fewer than `spans`, so the build is normally seconds. It needs PostgreSQL 15 or later (`NULLS NOT DISTINCT`). A partitioned table's index cannot be built `CONCURRENTLY`, so the migration's build takes a `SHARE` lock on both tables and their partitions (reads go on, ingest's rollup writes wait). On a large install build the keys first without blocking writes, then upgrade; the migration finds the indexes by name (`CREATE UNIQUE INDEX IF NOT EXISTS`) and only drops the old primary keys. The pattern is the one of the `spans` and `traces` indexes above: one index per partition, `CONCURRENTLY`, then the parent's index `ON ONLY`, then attach each partition's:
 
 ```sql
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS route_minutes_env_key
-  ON route_minutes (minute, service_name, environment, method, route) NULLS NOT DISTINCT;
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS class_minutes_env_key
-  ON class_minutes (minute, service_name, environment, class_name, method_name) NULLS NOT DISTINCT;
+-- the columns first (catalog changes; 0016's ADD COLUMN IF NOT EXISTS then skips them):
+ALTER TABLE route_minutes ADD COLUMN IF NOT EXISTS environment text;
+ALTER TABLE class_minutes ADD COLUMN IF NOT EXISTS environment text;
+-- for each partition route_minutes_pYYYYMMDD and class_minutes_pYYYYMMDD (list them with
+-- \d+ route_minutes), outside a transaction:
+CREATE UNIQUE INDEX CONCURRENTLY route_minutes_pYYYYMMDD_env_key
+  ON route_minutes_pYYYYMMDD (minute, service_name, environment, method, route) NULLS NOT DISTINCT;
+CREATE UNIQUE INDEX CONCURRENTLY class_minutes_pYYYYMMDD_env_key
+  ON class_minutes_pYYYYMMDD (minute, service_name, environment, class_name, method_name) NULLS NOT DISTINCT;
+-- once each, on the parents without touching the partitions:
+CREATE UNIQUE INDEX route_minutes_env_key
+  ON ONLY route_minutes (minute, service_name, environment, method, route) NULLS NOT DISTINCT;
+CREATE UNIQUE INDEX class_minutes_env_key
+  ON ONLY class_minutes (minute, service_name, environment, class_name, method_name) NULLS NOT DISTINCT;
+-- for each partition:
+ALTER INDEX route_minutes_env_key ATTACH PARTITION route_minutes_pYYYYMMDD_env_key;
+ALTER INDEX class_minutes_env_key ATTACH PARTITION class_minutes_pYYYYMMDD_env_key;
 ```
 
-(Add the `environment` columns first: `ALTER TABLE route_minutes ADD COLUMN IF NOT EXISTS environment text;` and the same for `class_minutes`.) The first batches written after the upgrade by an older server replica would fail on the new key, so upgrade every replica together.
+Attach every existing partition: the parent's index stays invalid until the last one is attached, and ingest's `ON CONFLICT` needs it valid. Partitions created afterwards inherit the index. The first batches written after the upgrade by an older server replica would fail on the new key, so upgrade every replica together.
+
+### Environments and ingest keys (issue #28)
+
+A record's environment is its resource's `deployment.environment.name`, which is only a claim: any key can send any environment. To make an environment mean something, bind each key to one: `NESTRIX_INGEST_KEYS=production:<key>,staging:<key>`. Records sent with a bound key are stored under its environment, whatever the resource says.
+
+- **An unbound key can write into any environment**, including one that has bound keys. So can `NESTRIX_INGEST_AUTH=none`. The server logs one warning at start when `NESTRIX_INGEST_KEYS` mixes bound and unbound keys. Bind every key if the environments must be kept apart.
+- A span from another environment never replaces the root of a trace that is already stored (so a staging key cannot move a production trace by sending an earlier, parentless span with a known trace id); its spans are still stored and counted under that trace.
+- Trace ids are not scoped to an environment. A trace that spans two environments is one trace, shown under the environment of its root.
 
 ### Upgrading to the `hasErrors` filter: the `traces` index
 

@@ -11,6 +11,7 @@ import type {
   AlertRuleCreate,
   AlertWebhookPayload,
 } from "@nestrix-js/protocol";
+import type { Pool } from "pg";
 import { UNSET_ENVIRONMENT } from "../storage/derive.js";
 import { webhookUrlProblem } from "./webhook.js";
 
@@ -110,6 +111,33 @@ export function toApiEvent(row: AlertEventRow): AlertEvent {
     attempts: row.attempts,
     responseStatus: row.response_status,
     error: row.error,
+  };
+}
+
+/**
+ * A `slo_burn_rate` rule is evaluated against its SLO, which can be edited after the rule was
+ * saved, so its payload names the SLO's service, environment and route, not the copy stored on
+ * the rule (D-101). Other rules, and a rule whose SLO is gone, come back unchanged.
+ */
+export async function withSloScope<T extends AlertRuleRow>(
+  db: { query: Pool["query"] },
+  rule: T,
+): Promise<T> {
+  if (rule.slo_id === null || rule.slo_id === undefined) return rule;
+  const { rows } = await db.query<{
+    service_name: string;
+    environment: string | null;
+    route: string | null;
+  }>("SELECT service_name, environment, route FROM slos WHERE id = $1", [
+    rule.slo_id,
+  ]);
+  const slo = rows[0];
+  if (slo === undefined) return rule;
+  return {
+    ...rule,
+    service_name: slo.service_name,
+    environment: slo.environment,
+    route: slo.route,
   };
 }
 

@@ -28,6 +28,7 @@ import {
   type IngestLogRecord,
 } from "../ingest/model.js";
 import { deriveResource, MAX_NS, nsToIso } from "./derive.js";
+import { EnvironmentTracker } from "./environments.js";
 import { LOGS_LOCK_CLASS } from "./locks.js";
 import { type PartitionManager, utcDay } from "./partitions.js";
 import { isTransient } from "./writer.js";
@@ -149,6 +150,7 @@ export class PostgresLogWriter {
     private readonly pool: Pool,
     private readonly partitions: PartitionManager,
     options: LogWriterOptions = {},
+    private readonly environments = new EnvironmentTracker(),
   ) {
     this.maxInflight = options.maxInflightRecords ?? 20_000;
     this.all = options.mode === "all";
@@ -272,6 +274,7 @@ export class PostgresLogWriter {
 
     const client = await this.pool.connect();
     let broken: Error | undefined;
+    let committed: LogRow[] = [];
     try {
       await client.query("BEGIN");
       // In lock key order, so two transactions never wait on each other in a cycle.
@@ -301,6 +304,7 @@ export class PostgresLogWriter {
       insert.push(...traceless);
       const inserted = await this.insert(client, insert);
       await client.query("COMMIT");
+      committed = insert;
       if (overCap > 0) drops.set("trace_cap", overCap);
       this.counters.writtenLogs += inserted;
       this.counters.duplicateLogs += insert.length - inserted;
@@ -315,6 +319,13 @@ export class PostgresLogWriter {
     } finally {
       client.release(broken);
     }
+    await this.environments.touch(
+      this.pool,
+      committed.map((r) => ({
+        service: r.serviceName,
+        environment: r.environment,
+      })),
+    );
     await this.recordDrops(drops);
   }
 

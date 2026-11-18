@@ -43,6 +43,7 @@ import type {
 import type { Pool, PoolClient } from "pg";
 import type { ServerConfig } from "../config.js";
 import { SERVER_CONFIG } from "../config.module.js";
+import { adder, environmentSql, type Scope, scopeSql } from "../query/scope.js";
 import { STORAGE_POOL } from "../storage/storage.module.js";
 import { normalizeProfile } from "./normalize.js";
 
@@ -496,19 +497,24 @@ export class RemoteProfileStore
   }
 
   /** Instances seen in the last 2 minutes, newest check-in first, each with its active capture. */
-  async instances(service: string | undefined): Promise<InstanceSummary[]> {
+  async instances(scope: Scope): Promise<InstanceSummary[]> {
     await this.expire();
     const params: unknown[] = [MAX_LISTED_INSTANCES];
-    let where = `i.last_seen >= now() - interval '${INSTANCE_WINDOW_MS} milliseconds'`;
-    if (service !== undefined) {
-      params.push(service);
-      where += " AND i.service = $2";
-    }
+    const add = adder(params);
+    const conditions = [
+      `i.last_seen >= now() - interval '${INSTANCE_WINDOW_MS} milliseconds'`,
+      ...scopeSql(scope, add, "i", {
+        service: "service",
+        environment: "environment",
+      }),
+    ];
+    const where = conditions.join(" AND ");
     const { rows } = await this.pool.query<
       {
         i_service: string;
         i_instance_id: string;
         i_version: string | null;
+        i_environment: string | null;
         host: string | null;
         pid: number | null;
         runtime: string | null;
@@ -522,7 +528,7 @@ export class RemoteProfileStore
         runtime_sampled_at: Date | null;
       } & { [K in keyof ProfileRow as `r_${K}`]: ProfileRow[K] | null }
     >(
-      `SELECT i.service AS i_service, i.instance_id AS i_instance_id, i.version AS i_version,
+      `SELECT i.service AS i_service, i.instance_id AS i_instance_id, i.version AS i_version, i.environment AS i_environment,
               i.host, i.pid, i.runtime, i.sdk_version, i.first_seen, i.last_seen,
               i.cpu_percent, i.event_loop_p99_ms, i.heap_used_bytes, i.rss_bytes,
               i.runtime_sampled_at,
@@ -542,6 +548,7 @@ export class RemoteProfileStore
     );
     return rows.map((row) => ({
       service: row.i_service,
+      ...(row.i_environment === null ? {} : { environment: row.i_environment }),
       instanceId: row.i_instance_id,
       version: row.i_version,
       host: row.host,
@@ -574,15 +581,24 @@ export class RemoteProfileStore
 
   /** Captures, newest first, at most 50. */
   async list(
-    service: string | undefined,
+    scope: Scope,
     instanceId: string | undefined,
   ): Promise<RemoteProfileSummary[]> {
     await this.expire();
     const params: unknown[] = [MAX_LISTED_PROFILES];
+    const add = adder(params);
     const where: string[] = [];
-    if (service !== undefined) {
-      params.push(service);
-      where.push(`service = $${params.length}`);
+    if (scope.service !== undefined) {
+      where.push(`service = ${add(scope.service)}`);
+    }
+    // A capture belongs to the environment of the instance it ran on (D-101).
+    const env = environmentSql(scope.environment, add, "i.environment");
+    if (env !== undefined) {
+      where.push(
+        `EXISTS (SELECT 1 FROM instances i
+                  WHERE i.service = remote_profiles.service
+                    AND i.instance_id = remote_profiles.instance_id AND ${env})`,
+      );
     }
     if (instanceId !== undefined) {
       params.push(instanceId);
