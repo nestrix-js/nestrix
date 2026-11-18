@@ -272,7 +272,8 @@ class JobSpan implements BullmqSpan {
           : String(exception),
         typeof exception === "string"
           ? { byMessage: true, expected: false, time }
-          : { time },
+          : // A consumer span is the attempt's outermost span: errors below travelled up (D-93).
+            { root: this.#attempt !== undefined, time },
       );
     } catch (error) {
       fail("span", error);

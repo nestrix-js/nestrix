@@ -189,6 +189,13 @@ describe.skipIf(noDatabase)(`error occurrences ${skipReason}`, () => {
     expect(derived.rows.map((r) => r.is_occurrence)).toEqual([true, true]);
     expect(derived.rows[0]?.error_key).toMatch(/^[0-9a-f]{32}$/);
     expect(derived.rows[0]?.error_key).toBe(derived.rows[1]?.error_key);
+    // Keep exactly what ingest derived, to put it back afterwards.
+    const saved = await db.pool.query<{
+      trace_id: string;
+      span_id: string;
+      is_occurrence: boolean | null;
+      error_key: string | null;
+    }>("SELECT trace_id, span_id, is_occurrence, error_key FROM spans");
     await db.pool.query(
       "UPDATE spans SET is_occurrence = NULL, error_key = NULL",
     );
@@ -204,11 +211,68 @@ describe.skipIf(noDatabase)(`error occurrences ${skipReason}`, () => {
       );
       expect(groups.groups.find((g) => g.pattern === "legacy")?.count).toBe(1);
     } finally {
-      // Restore what ingest derives, for the tests after this one.
       await db.pool.query(
-        'UPDATE spans SET is_occurrence = (is_error AND (NOT jsonb_path_exists(events, \'$[*] ? (@.name == "exception")\') OR jsonb_path_exists(events, \'$[*] ? (@.name == "exception" && !(@.attributes."nestrix.exception.propagated" == true) && !(@.attributes."nestrix.exception.expected" == true || @.attributes."nestrix.exception.expected" == "true"))\')))',
+        `UPDATE spans s SET is_occurrence = v.is_occurrence, error_key = v.error_key
+           FROM unnest($1::text[], $2::text[], $3::boolean[], $4::text[])
+                AS v(trace_id, span_id, is_occurrence, error_key)
+          WHERE s.trace_id = v.trace_id AND s.span_id = v.span_id`,
+        [
+          saved.rows.map((r) => r.trace_id),
+          saved.rows.map((r) => r.span_id),
+          saved.rows.map((r) => r.is_occurrence),
+          saved.rows.map((r) => r.error_key),
+        ],
       );
     }
+    const restored = await db.pool.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM spans WHERE is_occurrence IS NULL",
+    );
+    expect(restored.rows[0]?.n).toBe(0);
+  });
+
+  it("a trace straddling the upgrade (new parent with error_key, child stored before 0012) is not deduplicated", async () => {
+    // Documented limit (D-93): the legacy parent rule compares the derived keys, which a child
+    // stored before migration 0012 does not have. Only spans from SDKs that do not mark
+    // propagation are affected, and only for traces in flight during the upgrade.
+    const sink = server.app.get(PostgresIngestSink);
+    await sink.write(
+      batch("shop", [
+        child(9, 1, "OldChild.boom", [exception("straddle")]),
+        root(9, "/straddle", {
+          status: 500,
+          error: true,
+          events: [exception("straddle")],
+        }),
+      ]),
+    );
+    await db.pool.query(
+      "UPDATE spans SET is_occurrence = NULL, error_key = NULL WHERE trace_id = $1 AND span_id = $2",
+      [tid(9), sid(9, 1)],
+    );
+    const list = await server.json<ErrorListResponse>(
+      "/api/v1/errors?limit=200",
+    );
+    expect(
+      list.items
+        .filter((i) => i.traceId === tid(9))
+        .map((i) => i.spanName)
+        .sort(),
+    ).toEqual(["GET /straddle", "OldChild.boom"]);
+    // A stringified mark ("true") on a pre-0012 row is read as the boolean.
+    await db.pool.query(
+      `UPDATE spans SET is_occurrence = NULL, error_key = NULL,
+              events = jsonb_set(events, '{0,attributes,nestrix.exception.propagated}', '"true"')
+        WHERE trace_id = $1 AND span_id = $2`,
+      [tid(9), sid(9)],
+    );
+    const again = await server.json<ErrorListResponse>(
+      "/api/v1/errors?limit=200",
+    );
+    expect(
+      again.items.filter((i) => i.traceId === tid(9)).map((i) => i.spanName),
+    ).toEqual(["OldChild.boom"]);
+    await db.pool.query("DELETE FROM spans WHERE trace_id = $1", [tid(9)]);
+    await db.pool.query("DELETE FROM traces WHERE trace_id = $1", [tid(9)]);
   });
 
   it("hasErrors: set when any span failed; the filter finds it; status=error stays the root's", async () => {

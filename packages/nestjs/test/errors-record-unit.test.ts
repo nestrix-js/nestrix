@@ -394,6 +394,82 @@ describe("exception events", () => {
     expect(heldAttemptsForTests()).toBe(0);
   });
 
+  it("recordError on the root, then a rethrow recorded by a method span below: one occurrence", () => {
+    uninstall = installErrorTracking(undefined);
+    const request = tracer.startSpan("GET /pay");
+    const state: RequestState = {
+      span: request,
+      method: "GET",
+      baseName: "GET",
+      route: undefined,
+      reached: true,
+      exception: undefined,
+      ended: false,
+    };
+    const ctx = trace
+      .setSpan(ROOT_CONTEXT, request)
+      .setValue(REQUEST_STATE_KEY, state);
+    const error = new Error("card declined upstream");
+    context.with(ctx, () => {
+      tracer.startActiveSpan("PaymentService.charge", (service) => {
+        recordError(error);
+        // The method span's wrapper records the rethrow when it leaves the method.
+        recordExceptionEvent(service, error);
+        service.end();
+      });
+    });
+    request.end();
+    expect(exceptionEvents("GET /pay")[0]?.attributes).not.toHaveProperty(
+      "nestrix.exception.propagated",
+    );
+    expect(
+      exceptionEvents("PaymentService.charge")[0]?.attributes?.[
+        "nestrix.exception.propagated"
+      ],
+    ).toBe(true);
+  });
+
+  it("an RPC handler span is a root: an error recorded below a host span in between is propagation", async () => {
+    const { recordError: recordRpcError } = await import(
+      "../src/microservices/server.js"
+    );
+    const error = new Error("rpc handler broke");
+    tracer.startActiveSpan("rpc orders.create", (rpc) => {
+      tracer.startActiveSpan("host instrumentation", (host) => {
+        tracer.startActiveSpan("OrdersController.create", (method) => {
+          recordExceptionEvent(method, error);
+          method.end();
+        });
+        host.end();
+      });
+      recordRpcError(rpc, error, true);
+      rpc.end();
+    });
+    expect(
+      exceptionEvents("rpc orders.create")[0]?.attributes?.[
+        "nestrix.exception.propagated"
+      ],
+    ).toBe(true);
+  });
+
+  it("a recording on a span that records nothing is no propagation source (maxSpansPerTrace stand-in, unsampled)", () => {
+    uninstall = installErrorTracking(undefined);
+    const error = new Error("dropped below");
+    const root = tracer.startSpan("root kept");
+    const standIn = trace.wrapSpanContext({
+      traceId: root.spanContext().traceId,
+      spanId: "c".repeat(16),
+      traceFlags: TraceFlags.SAMPLED,
+    });
+    expect(standIn.isRecording()).toBe(false);
+    recordExceptionEvent(standIn, error);
+    recordExceptionEvent(root, error, { root: true });
+    root.end();
+    expect(exceptionEvents("root kept")[0]?.attributes).not.toHaveProperty(
+      "nestrix.exception.propagated",
+    );
+  });
+
   it("propagation needs ancestry: one shared error object thrown from two siblings counts twice", () => {
     uninstall = installErrorTracking(undefined);
     const shared = new Error("shared");

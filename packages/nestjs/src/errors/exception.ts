@@ -245,6 +245,11 @@ interface Recording {
   readonly spans: Set<string>;
   /** Some recording in this trace was not expected: a propagation source. */
   unexpected: boolean;
+  /**
+   * An unexpected recording on a local root (`recordError` on the request's span, before the
+   * error is rethrown through the method spans): every later recording in the trace is propagation.
+   */
+  rootRecorded: boolean;
 }
 
 /** Error object to its recordings per trace. Weak: never keeps an error alive. */
@@ -287,6 +292,14 @@ function parentIdOf(span: Span): string | undefined {
   }
 }
 
+function isRecording(span: Span): boolean {
+  try {
+    return span.isRecording();
+  } catch {
+    return false;
+  }
+}
+
 function isObject(value: unknown): value is object {
   return (
     value !== null && (typeof value === "object" || typeof value === "function")
@@ -318,12 +331,16 @@ function note(
       const oldest = traces.keys().next();
       if (!oldest.done) traces.delete(oldest.value);
     }
-    rec = { spans: new Set(), unexpected: false };
+    rec = { spans: new Set(), unexpected: false, rootRecorded: false };
     traces.set(traceId, rec);
   } else {
-    propagated = rec.unexpected && (root || rec.spans.has(spanId));
+    propagated =
+      rec.rootRecorded || (rec.unexpected && (root || rec.spans.has(spanId)));
   }
-  if (!expected) rec.unexpected = true;
+  if (!expected) {
+    rec.unexpected = true;
+    if (root) rec.rootRecorded = true;
+  }
   if (rec.spans.size < MAX_SPANS_PER_RECORDING) {
     rec.spans.add(spanId);
     const parent = parentIdOf(span);
@@ -467,7 +484,9 @@ export function recordExceptionEvent(
       : isExpectedException(error);
   const sc = span.spanContext();
   let propagated = false;
-  if (hasIds(sc.traceId, sc.spanId)) {
+  // A span that records nothing (unsampled, or a stand-in past maxSpansPerTrace) must not become a
+  // propagation source: its event is dropped, so the next recording is the occurrence.
+  if (hasIds(sc.traceId, sc.spanId) && isRecording(span)) {
     const message = attributes[ATTR_EXCEPTION_MESSAGE];
     if (options?.byMessage === true) {
       propagated =

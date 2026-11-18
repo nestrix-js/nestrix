@@ -48,6 +48,16 @@ class OrderService {
   fail(): never {
     throw new BoomError("order service broke");
   }
+
+  /** The documented "report, then rethrow" pattern (docs-site/guide/errors.md). */
+  reportAndRethrow(): never {
+    try {
+      throw new Error("reported then rethrown");
+    } catch (error) {
+      recordError(error);
+      throw error;
+    }
+  }
 }
 
 @Injectable()
@@ -100,6 +110,11 @@ class ErrorsController {
       // handled
     }
     throw new Error("second of two");
+  }
+
+  @Get("rethrow")
+  rethrow(): string {
+    return this.orders.reportAndRethrow();
   }
 
   @Get("notfound")
@@ -209,6 +224,7 @@ async function hit(paths: string[]): Promise<void> {
 }
 
 const ROUTES = [
+  "/e/rethrow",
   "/e/boom",
   "/e/deep",
   "/e/two",
@@ -250,6 +266,10 @@ describe.each(ADAPTERS)("error occurrences on %s", (adapter) => {
         message: "order service broke",
         spanName: methods ? "OrderService.fail" : "GET /e/deep",
       });
+      // recordError, then a rethrow through the method spans: one occurrence.
+      expect(of("/e/rethrow").map((e) => e.message)).toEqual([
+        "reported then rethrown",
+      ]);
       // Two different errors in one trace stay two.
       expect(
         of("/e/two")

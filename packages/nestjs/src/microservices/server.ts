@@ -177,12 +177,16 @@ function exceptionType(error: unknown): string {
   return "_OTHER";
 }
 
-/** Records `error` on `span` and sets error status. Never throws. */
-export function recordError(span: Span, error: unknown): void {
+/**
+ * Records `error` on `span` and sets error status. Never throws. `root`: `span` is an RPC handler's
+ * server or consumer span, the outermost Nestrix span of the handler's work whatever its parent, so
+ * an error recorded below it travelled up to it (D-93).
+ */
+export function recordError(span: Span, error: unknown, root = false): void {
   try {
     fault("record-error");
     // Marked propagated when a method span below already recorded the same error (D-93).
-    recordExceptionEvent(span, error);
+    recordExceptionEvent(span, error, root ? { root: true } : undefined);
   } catch (failure) {
     diagnostics.countFailure("microservices.record-error", failure);
   }
@@ -231,7 +235,7 @@ export function traceRpc(
   } catch (error) {
     if (called) {
       // The handler pipeline itself threw: record it and let it reach Nest unchanged.
-      recordError(span, error);
+      recordError(span, error, true);
       endSpan(span);
       throw error;
     }
@@ -251,7 +255,7 @@ export function traceRpc(
     const observed = stream.pipe(
       tap({
         error: (error: unknown) => {
-          recordError(span, error);
+          recordError(span, error, true);
           end();
         },
         complete: end,

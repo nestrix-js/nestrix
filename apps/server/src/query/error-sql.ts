@@ -81,7 +81,7 @@ export function occurrenceSql(s: string, from?: string): string {
 /**
  * `traces.has_errors` with the fallback for rows stored before migration 0012 (`NULL`: any error
  * span), or the root's own error (D-94). Written exactly as the predicate of the partial index
- * `traces_has_errors_seq_idx` (migration 0012), so the planner can use it.
+ * `traces_has_errors_seq_idx` (migration 0013), so the planner can use it.
  */
 export const TRACE_HAS_ERRORS_SQL =
   "(coalesce(has_errors, error_count > 0) OR is_error)";

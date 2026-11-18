@@ -6,6 +6,13 @@
 -- Nullable with no default, so adding it rewrites nothing. Existing rows keep NULL; the query
 -- reads `coalesce(has_errors, error_count > 0)` for them (any error span, expected ones included),
 -- and a row that receives new spans gets the exact flag merged with that fallback.
+--
+-- Locks: each ADD COLUMN takes an ACCESS EXCLUSIVE lock on the table and its partitions, held
+-- until this file's transaction commits (src/storage/migrate.ts runs one transaction per file).
+-- With no default and no rewrite that is a catalog change only, so the transaction is short; it
+-- still waits for running queries on these tables to finish first. The index on the new column
+-- is built in the next migration, in its own transaction, so these locks are not held while it
+-- builds.
 ALTER TABLE traces ADD COLUMN IF NOT EXISTS has_errors boolean;
 
 -- Error occurrences (issue #22, D-93), derived at ingest so the error queries do not evaluate the
@@ -15,15 +22,3 @@ ALTER TABLE traces ADD COLUMN IF NOT EXISTS has_errors boolean;
 -- rewrite; rows stored before keep NULL and are read from their events JSON until they expire.
 ALTER TABLE spans ADD COLUMN IF NOT EXISTS is_occurrence boolean;
 ALTER TABLE spans ADD COLUMN IF NOT EXISTS error_key text;
-
--- `traces?hasErrors=true` lists newest first: a partial index on seq with the query's exact
--- predicate (`TRACE_HAS_ERRORS_SQL` in src/query/error-sql.ts), as `traces_has_job_seq_idx` does
--- for jobs. Created on the partitioned parent, so it applies to the existing partitions and to
--- every later one. A partitioned table's index cannot be built CONCURRENTLY, so ingest waits on
--- each partition while its index builds. A large install can pre-build it as for
--- `spans_parent_idx` (migration 0009, apps/server/README.md upgrade notes): per partition
--- CREATE INDEX CONCURRENTLY, then CREATE INDEX traces_has_errors_seq_idx ON ONLY traces (...),
--- then ALTER INDEX ... ATTACH PARTITION for each. This statement is IF NOT EXISTS, so it then
--- does nothing.
-CREATE INDEX IF NOT EXISTS traces_has_errors_seq_idx ON traces (seq DESC)
-  WHERE (coalesce(has_errors, error_count > 0) OR is_error);
