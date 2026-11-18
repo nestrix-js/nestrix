@@ -60,6 +60,10 @@ function AttributeList({ pairs }: { pairs: [string, string][] }) {
   );
 }
 
+function isMarked(value: unknown): boolean {
+  return value === true || value === "true";
+}
+
 function EventItem({
   event,
   spanStartMs,
@@ -72,8 +76,16 @@ function EventItem({
   const message = attrs["exception.message"];
   const stack = attrs["exception.stacktrace"];
   const isException = event.name === "exception";
+  // D-93, D-94: shown, but not counted as an error occurrence.
+  const expected = isException && isMarked(attrs["nestrix.exception.expected"]);
+  const propagated =
+    isException && isMarked(attrs["nestrix.exception.propagated"]);
   const rest = sortedAttributes(attrs).filter(
-    ([key]) => !(isException && key.startsWith("exception.")),
+    ([key]) =>
+      !(
+        isException &&
+        (key.startsWith("exception.") || key.startsWith("nestrix.exception."))
+      ),
   );
   return (
     <li
@@ -81,8 +93,24 @@ function EventItem({
       className="space-y-1 rounded-md border p-2 text-xs"
     >
       <div className="flex items-baseline justify-between gap-2">
-        <span className="font-medium">
+        <span className="inline-flex items-center gap-1.5 font-medium">
           {isException && type !== undefined ? attributeText(type) : event.name}
+          {expected ? (
+            <Chip
+              data-testid="exception-expected"
+              title="An expected exception (a 4xx answer, or errors.expected): not counted as an error"
+            >
+              expected
+            </Chip>
+          ) : null}
+          {propagated ? (
+            <Chip
+              data-testid="exception-propagated"
+              title="The same error was recorded on a deeper span first; it is counted there"
+            >
+              propagated
+            </Chip>
+          ) : null}
         </span>
         <span className="tabular-nums text-muted-foreground">
           +{formatDuration(event.timeUnixMs - spanStartMs)}

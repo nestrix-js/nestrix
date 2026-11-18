@@ -96,6 +96,8 @@ const OPTIONS = [
   "integrations.pg",
   "integrations.mysql2",
   "integrations.ioredis",
+  "errors",
+  "errors.expected",
 ];
 
 describe("README options", () => {

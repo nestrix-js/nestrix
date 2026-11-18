@@ -8,11 +8,11 @@ import {
   type Span as ApiSpan,
   type Context,
   context,
-  type Exception,
   type SpanOptions,
   SpanStatusCode,
   trace,
 } from "@opentelemetry/api";
+import { recordExceptionEvent } from "./errors/exception.js";
 import { endNestrixSpan, hostGate, hostStarted } from "./trace-limit.js";
 
 const TRACER_NAME = "@nestrix-js/nestjs";
@@ -27,12 +27,7 @@ function end(span: ApiSpan): void {
 
 function fail(span: ApiSpan, error: unknown): void {
   try {
-    span.recordException(
-      (typeof error === "string" ||
-      (typeof error === "object" && error !== null)
-        ? error
-        : String(error)) as Exception,
-    );
+    recordExceptionEvent(span, error);
     span.setStatus({ code: SpanStatusCode.ERROR });
   } catch {
     // see end()

@@ -28,7 +28,7 @@ export function renderTraceList(
   const rows = list.items.map((t) => {
     const what = t.method && t.route ? `${t.method} ${t.route}` : t.name;
     const tags = [
-      t.error ? "ERROR" : "",
+      t.error ? "ERROR" : t.hasErrors ? "errors inside" : "",
       t.hasJob ? "job" : "",
       t.type !== "http" ? t.type : "",
     ].filter(Boolean);

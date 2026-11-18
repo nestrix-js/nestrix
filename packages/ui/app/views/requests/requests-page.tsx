@@ -41,6 +41,17 @@ const TYPES = [
   { label: "Jobs", value: "job", title: "Traces with job processing" },
   { label: "Scheduled", value: "scheduled" },
 ];
+// D-94: "has errors" is any failed span, the root included; the status filter is the root's own.
+const ERROR_FILTERS = [
+  { label: "Errors: Any", value: "" },
+  {
+    label: "Has errors",
+    value: "true",
+    title:
+      "A span failed: the request, a job, or an error recorded below the root",
+  },
+  { label: "No errors", value: "false", title: "No span failed" },
+];
 const WINDOWS = [
   { value: 15, label: "15 min" },
   { value: 60, label: "60 min" },
@@ -67,6 +78,7 @@ export function filtersToParams(filters: RequestFilters): QueryParams {
     type: filters.type ?? undefined,
     release: filters.release ?? undefined,
     user: filters.user ?? undefined,
+    hasErrors: filters.hasErrors ?? undefined,
     fromUnixMs: filters.fromUnixMs ?? undefined,
     toUnixMs: filters.toUnixMs ?? undefined,
   };
@@ -224,6 +236,24 @@ export function RequestsPage() {
           {TYPES.map((t) => (
             <option key={t.value} value={t.value} title={t.title}>
               {t.value === "" ? "Type: All" : t.label}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Errors"
+          data-testid="has-errors-filter"
+          className="h-7 rounded-lg border border-border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+          value={filters.hasErrors ?? ""}
+          onChange={(e) => {
+            const value = e.target.value;
+            void setFilters({
+              hasErrors: value === "true" || value === "false" ? value : null,
+            });
+          }}
+        >
+          {ERROR_FILTERS.map((f) => (
+            <option key={f.value} value={f.value} title={f.title}>
+              {f.label}
             </option>
           ))}
         </select>

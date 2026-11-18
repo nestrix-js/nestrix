@@ -2,6 +2,7 @@ import {
   type SecretDigests,
   secretDigests,
 } from "./dashboard/startup-token.js";
+import type { ExpectedRule } from "./errors/exception.js";
 import {
   DEFAULT_METHODS,
   DISABLED_METHODS,
@@ -86,6 +87,8 @@ export interface ResolvedOptions {
   readonly metrics: ResolvedMetrics | false;
   /** Level 3 integrations (P3-01): `pg` on, `mysql2` and `ioredis` off by default (D-49). */
   readonly integrations: ResolvedIntegrations;
+  /** `errors` (D-94): `expected` is `undefined` for the default rule. */
+  readonly errors: { readonly expected: ExpectedRule };
 }
 
 /** `export.profiler: true`, resolved (P10-01, D-76). */
@@ -770,8 +773,47 @@ export function resolveOptions(
     methods: resolveMethods(o.methods),
     metrics: resolveMetrics(o, env),
     integrations: resolveIntegrations(o.integrations),
+    errors: resolveErrors(o.errors),
   };
   return Object.freeze(resolved);
+}
+
+/** `errors` (D-94) with defaults applied. Throws on an invalid value. */
+export function resolveErrors(errors: unknown): {
+  readonly expected: ExpectedRule;
+} {
+  if (errors === undefined) return Object.freeze({ expected: undefined });
+  if (errors === null || typeof errors !== "object") {
+    invalid("errors must be an object");
+  }
+  const expected: unknown = (errors as { expected?: unknown }).expected;
+  if (expected === undefined || expected === false) {
+    return Object.freeze({ expected });
+  }
+  if (typeof expected === "function") {
+    return Object.freeze({
+      expected: expected as (exception: unknown) => boolean | undefined,
+    });
+  }
+  if (!Array.isArray(expected)) {
+    invalid(
+      "errors.expected must be false, a function or an array of classes, class names or RegExps",
+    );
+  }
+  for (const m of expected as unknown[]) {
+    if (
+      typeof m !== "string" &&
+      typeof m !== "function" &&
+      !(m instanceof RegExp)
+    ) {
+      invalid(
+        "errors.expected entries must be a class, a class name or a RegExp",
+      );
+    }
+  }
+  return Object.freeze({
+    expected: Object.freeze([...(expected as ClassMatcher[])]),
+  });
 }
 
 const ENHANCER_KINDS: readonly NestrixEnhancerKind[] = [

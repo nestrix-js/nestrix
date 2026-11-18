@@ -4,6 +4,8 @@
  * Rules (kept the same as the embedded store, `packages/nestjs/src/store/store.ts`, so both
  * backends answer alike):
  * - error: the span's status code is `error`. An exception event alone (a thrown 4xx) is not.
+ * - failed (`isFailure`, the trace's `has_errors`, D-94): status `error`, unless every exception
+ *   event on the span is marked `nestrix.exception.expected` (`error-facts.ts`).
  * - `http_route` / `http_method`: the string attributes `http.route` / `http.request.method`.
  * - `http_status`: `http.response.status_code`, an integer or an integer string.
  * - trace type of a span as a root (backlog P3-03): `http` for a server span; `job` for a
@@ -25,6 +27,7 @@ import type {
   IngestAttributeValue,
   IngestSpan,
 } from "../ingest/model.js";
+import { isFailedSpan } from "./error-facts.js";
 import { bucketIndex } from "./histogram.js";
 import type { StoredEvent, StoredLink } from "./schema.js";
 
@@ -186,6 +189,8 @@ export interface SpanRow {
   httpStatus: number | null;
   isRoot: boolean;
   isError: boolean;
+  /** Failed under `isFailedSpan`: marks its trace `has_errors` (D-94). */
+  isFailure: boolean;
   traceType: TraceType;
   /** A consumer span or `nestrix.entry = 'job'`: marks its trace `has_job`, whatever the root. */
   isJob: boolean;
@@ -274,6 +279,7 @@ export function deriveSpan(
     httpStatus,
     isRoot: parentSpanId === null,
     isError,
+    isFailure: isFailedSpan(statusCode, events),
     traceType: traceTypeOf(span.kind, attributes),
     isJob: span.kind === "consumer" || attributes["nestrix.entry"] === "job",
     userId: stringAttr(attributes, "user.id"),

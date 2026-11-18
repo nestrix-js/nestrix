@@ -117,6 +117,8 @@ export const traces = pgTable(
       .$type<"http" | "job" | "scheduled" | "other">()
       .notNull(),
     hasJob: boolean("has_job").notNull().default(false),
+    /** Any span failed (migration 0012, D-94); `NULL` on rows stored before it. */
+    hasErrors: boolean("has_errors"),
     release: text("release"),
     userId: text("user_id"),
     spanCount: integer("span_count").notNull(),

@@ -15,7 +15,7 @@
 import { context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import { ATTR_ERROR_TYPE } from "@opentelemetry/semantic-conventions";
 import { diagnostics } from "./diagnostics.js";
-import { exceptionType } from "./http/interceptor.js";
+import { exceptionType, recordExceptionEvent } from "./errors/exception.js";
 import { getStateFromContext, maybeFault } from "./http/request-state.js";
 import { TRACER_NAME } from "./http/server.js";
 import { endNestrixSpan, startNestrixSpan } from "./trace-limit.js";
@@ -47,7 +47,7 @@ export function onUncaughtExceptionMonitor(
     const active = context.active();
     const state = getStateFromContext(active);
     if (state && !state.ended) {
-      state.span.recordException(asException(error));
+      recordExceptionEvent(state.span, asException(error));
       state.exception ??= { status: 500, type: exceptionType(error) };
       return;
     }
@@ -61,7 +61,7 @@ export function onUncaughtExceptionMonitor(
       { kind: SpanKind.INTERNAL },
       active,
     );
-    span.recordException(asException(error));
+    recordExceptionEvent(span, asException(error));
     span.setAttribute(ATTR_ERROR_TYPE, exceptionType(error));
     span.setStatus({ code: SpanStatusCode.ERROR });
     endNestrixSpan(span);

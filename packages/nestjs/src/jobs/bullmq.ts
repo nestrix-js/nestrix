@@ -50,7 +50,6 @@ import {
   type Attributes,
   type Context,
   context,
-  type Exception,
   isSpanContextValid,
   type Meter,
   type MeterProvider,
@@ -66,6 +65,7 @@ import {
   trace,
 } from "@opentelemetry/api";
 import { diagnostics } from "../diagnostics.js";
+import { recordExceptionEvent, withLocalRoot } from "../errors/exception.js";
 
 /** Options of `bullmqTelemetry()`. */
 export interface BullmqTelemetryOptions {
@@ -172,14 +172,21 @@ function fail(where: string, error: unknown): void {
 /** Wraps one OpenTelemetry span in BullMQ's `Span` shape. */
 class JobSpan implements BullmqSpan {
   readonly #span: OtelSpan;
+  /** The context the span was started in: decides whether it is a local root (`recordError`). */
+  readonly #parent: Context;
 
-  constructor(span: OtelSpan) {
+  constructor(span: OtelSpan, parent: Context) {
     this.#span = span;
+    this.#parent = parent;
   }
 
   setSpanOnContext(ctx: Context): Context {
     try {
-      return trace.setSpan(ctx, this.#span);
+      return withLocalRoot(
+        this.#parent,
+        this.#span,
+        trace.setSpan(ctx, this.#span),
+      );
     } catch (error) {
       fail("span", error);
       return ctx;
@@ -216,9 +223,12 @@ class JobSpan implements BullmqSpan {
       this.#span.addEvent(name, recorded as Attributes | undefined, time);
       if (name === JOB_FAILED_EVENT) {
         const reason = attributes?.[ATTR_FAILED_REASON];
-        this.#span.recordException(
+        // BullMQ passes only `err.message`: when the processor's method span already recorded
+        // that error in this trace, this event is marked propagated (one occurrence, D-93).
+        recordExceptionEvent(
+          this.#span,
           typeof reason === "string" && reason !== "" ? reason : "job failed",
-          time,
+          { byMessage: true, time },
         );
         this.#span.setStatus({ code: SpanStatusCode.ERROR });
       }
@@ -229,12 +239,13 @@ class JobSpan implements BullmqSpan {
 
   recordException(exception: unknown, time?: TimeInput): void {
     try {
-      this.#span.recordException(
-        (typeof exception === "string" ||
-        (typeof exception === "object" && exception !== null)
+      recordExceptionEvent(
+        this.#span,
+        typeof exception === "string" ||
+          (typeof exception === "object" && exception !== null)
           ? exception
-          : String(exception)) as Exception,
-        time,
+          : String(exception),
+        { byMessage: typeof exception === "string", time },
       );
       this.#span.setStatus({ code: SpanStatusCode.ERROR });
     } catch (error) {
@@ -295,8 +306,9 @@ function lazyTracer(
             return NOOP_SPAN;
           }
         }
-        const span = current().startSpan(spanName, { kind }, ctx);
-        return new JobSpan(span);
+        const parent = ctx ?? context.active();
+        const span = current().startSpan(spanName, { kind }, parent);
+        return new JobSpan(span, parent);
       } catch (error) {
         fail("tracer", error);
         return NOOP_SPAN;

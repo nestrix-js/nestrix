@@ -84,6 +84,12 @@ export const traceListParams = {
   type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
   release: { kind: "string", maxLength: 255 },
   user: { kind: "string", maxLength: 256 },
+  /**
+   * `true`: traces where any span failed (`TraceSummary.hasErrors`: an error root, a failed job,
+   * an error recorded on a child span); `false`: traces with none. Absent: no filter (D-94).
+   * Additive; `status=error` still means the root's own outcome.
+   */
+  hasErrors: { kind: "enum", values: ["true", "false"] },
   service: { kind: "string", maxLength: 256 },
   /** Root started at or after / at or before this Unix time in milliseconds (the timeline's range). */
   fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
@@ -120,6 +126,7 @@ export const traceTimelineParams = {
   type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
   release: { kind: "string", maxLength: 255 },
   user: { kind: "string", maxLength: 256 },
+  hasErrors: { kind: "enum", values: ["true", "false"] },
   service: { kind: "string", maxLength: 256 },
 } as const;
 export type TraceTimelineParamsSpec = typeof traceTimelineParams;

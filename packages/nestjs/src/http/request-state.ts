@@ -157,7 +157,8 @@ export type FaultSite =
   | "process-monitor"
   | "stats-record"
   | "dashboard-close"
-  | "user";
+  | "user"
+  | "record-error";
 
 export const faultInjection: { site: FaultSite | undefined } = {
   site: undefined,

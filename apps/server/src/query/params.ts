@@ -39,6 +39,7 @@ export const traceListSpec: TraceListParamsSpec = {
   type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
   release: { kind: "string", maxLength: 255 },
   user: { kind: "string", maxLength: 256 },
+  hasErrors: { kind: "enum", values: ["true", "false"] },
   service: { kind: "string", maxLength: 256 },
   fromUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
   toUnixMs: { kind: "int", min: 0, max: 8_640_000_000_000_000 },
@@ -70,6 +71,7 @@ export const traceTimelineSpec: TraceTimelineParamsSpec = {
   type: { kind: "enum", values: ["http", "job", "scheduled", "other"] },
   release: { kind: "string", maxLength: 255 },
   user: { kind: "string", maxLength: 256 },
+  hasErrors: { kind: "enum", values: ["true", "false"] },
   service: { kind: "string", maxLength: 256 },
 };
 

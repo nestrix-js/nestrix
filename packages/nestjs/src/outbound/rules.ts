@@ -32,6 +32,7 @@ import {
   HTTP_REQUEST_METHOD_VALUE_OTHER,
 } from "@opentelemetry/semantic-conventions";
 import type { Diagnostics } from "../diagnostics.js";
+import { recordExceptionEvent } from "../errors/exception.js";
 import type { UrlMatcher } from "../options.js";
 import {
   buildHeaderAllowlist,
@@ -349,10 +350,10 @@ export function recordClientError(
   type = errorType(error),
 ): void {
   const message = errorMessage(error);
-  if (error !== null && typeof error === "object") {
-    span.recordException(error as Error);
-  } else if (message !== undefined) {
-    span.recordException(message);
+  // The same error object usually rejects the caller's method span next: that one is then marked
+  // propagated, so a failed call is one occurrence (D-93).
+  if ((error !== null && typeof error === "object") || message !== undefined) {
+    recordExceptionEvent(span, error);
   }
   span.setAttribute(ATTR_ERROR_TYPE, type);
   span.setStatus(

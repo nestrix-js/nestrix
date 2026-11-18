@@ -8,6 +8,7 @@ import {
   firstFrames,
   renderTrace,
   repeatedStatements,
+  spanErrors,
 } from "../src/render/trace.js";
 import {
   errorList,
@@ -177,6 +178,62 @@ describe("renderTrace", () => {
     expect(text).toMatch(/OrdersService\.load \[internal\] 35ms <ERROR>/);
     // The root has an error status but no exception event: its status message is shown.
     expect(text).toContain("- GET /orders/:id: Payments service unavailable");
+  });
+
+  it("lists a propagated error once, on the span that recorded it first, and flags expected ones (D-93, D-94)", () => {
+    const ev = (message: string, marks: Record<string, boolean> = {}) => ({
+      name: "exception",
+      timeUnixMs: T0 + 1,
+      attributes: {
+        "exception.type": "Error",
+        "exception.message": message,
+        ...marks,
+      },
+    });
+    const errors = spanErrors([
+      span(
+        1,
+        undefined,
+        "GET /boom",
+        0,
+        10,
+        {},
+        {
+          status: { code: "error" },
+          events: [ev("boom", { "nestrix.exception.propagated": true })],
+        },
+      ),
+      span(
+        2,
+        1,
+        "AppController.boom",
+        1,
+        5,
+        {},
+        {
+          status: { code: "error" },
+          events: [ev("boom")],
+        },
+      ),
+      span(
+        3,
+        1,
+        "AppController.find",
+        1,
+        5,
+        {},
+        {
+          status: { code: "error" },
+          events: [ev("nope", { "nestrix.exception.expected": true })],
+        },
+      ),
+    ]);
+    expect(
+      errors.map((e) => [e.span.name, e.message, e.expected ?? false]),
+    ).toEqual([
+      ["AppController.boom", "boom", false],
+      ["AppController.find", "nope", true],
+    ]);
   });
 
   it("extracts at most three `at` lines from a stack", () => {

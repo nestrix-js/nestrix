@@ -246,6 +246,28 @@ export interface NestrixMetricsOptions {
   export?: boolean;
 }
 
+/**
+ * Which recorded exceptions count as errors (issue #25, D-94). An expected exception is still
+ * recorded on its span and shown in the trace view, marked `nestrix.exception.expected = true`,
+ * but is left out of the error list, the error groups and the trace's "has errors" marker. Route
+ * error rates and SLOs do not change: they follow the response status.
+ */
+export interface NestrixErrorsOptions {
+  /**
+   * Default: an exception is expected when the status it maps to is below 500 (an `HttpException`
+   * such as `NotFoundException` or `BadRequestException`); anything else maps to 500.
+   * - An array of classes (matched with `instanceof`, so subclasses too), exact class names, or
+   *   `RegExp`s tested against the class name: those are expected as well as the default ones.
+   * - A function: called with each exception Nestrix records; `true` expected, `false` not
+   *   expected, `undefined` the default rule. Must be synchronous; a throw counts as `undefined`.
+   * - `false`: nothing is expected; a thrown 4xx is an error occurrence again.
+   */
+  expected?:
+    | false
+    | ClassMatcher[]
+    | ((exception: unknown) => boolean | undefined);
+}
+
 export interface NestrixModuleOptions {
   /** Default `true`. `false`, or `NESTRIX_ENABLED=false` in the environment, registers nothing at all. */
   enabled?: boolean;
@@ -302,6 +324,8 @@ export interface NestrixModuleOptions {
   store?: NestrixStoreOptions;
   /** Log correlation and export (`NestrixLogger`). */
   logs?: NestrixLogsOptions;
+  /** Which recorded exceptions are errors and which are expected answers (D-94). */
+  errors?: NestrixErrorsOptions;
   /**
    * `http.server.request.duration` for every request, sampled or not, and runtime metrics. Default
    * on. `false` records no metrics at all.

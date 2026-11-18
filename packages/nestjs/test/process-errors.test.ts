@@ -91,7 +91,16 @@ describe("the monitor (in process, called directly)", () => {
     const recorded: unknown[] = [];
     return {
       recorded,
-      span: { recordException: (e: unknown) => recorded.push(e) } as never,
+      // Nestrix records through `addEvent` (errors/exception.ts, D-93).
+      span: {
+        addEvent: (name: string, attributes: Record<string, unknown>) =>
+          recorded.push({ name, attributes }),
+        spanContext: () => ({
+          traceId: "1".repeat(32),
+          spanId: "2".repeat(16),
+          traceFlags: 1,
+        }),
+      } as never,
       method: "GET",
       baseName: "GET",
       route: undefined,
@@ -107,7 +116,16 @@ describe("the monitor (in process, called directly)", () => {
     context.with(ROOT_CONTEXT.setValue(REQUEST_STATE_KEY, state), () =>
       onUncaughtExceptionMonitor(error, "uncaughtException"),
     );
-    expect(state.recorded).toEqual([error]);
+    expect(state.recorded).toEqual([
+      {
+        name: "exception",
+        attributes: {
+          "exception.type": "TypeError",
+          "exception.message": "in request",
+          "exception.stacktrace": error.stack,
+        },
+      },
+    ]);
     expect(state.exception).toEqual({ status: 500, type: "TypeError" });
   });
 

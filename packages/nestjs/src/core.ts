@@ -16,6 +16,7 @@ import {
   UI_MISSING_MESSAGE,
 } from "./dashboard/mount.js";
 import { diagnostics } from "./diagnostics.js";
+import { installErrorTracking } from "./errors/exception.js";
 import { NestrixInterceptor } from "./http/interceptor.js";
 import { installHttpInstrumentation } from "./http/server.js";
 import {
@@ -119,6 +120,8 @@ export class NestrixCore
             metrics?.http,
           ),
           installProcessErrorMonitor(),
+          // D-93/D-94: `recordError` works while an enabled app runs; `errors.expected` applies.
+          installErrorTracking(options.errors.expected),
         );
       }
     } catch (error) {

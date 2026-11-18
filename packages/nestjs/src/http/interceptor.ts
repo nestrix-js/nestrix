@@ -5,7 +5,9 @@
  * - sets `code.function.name` to `Controller.handler`;
  * - marks the request state as reached (the 404 rule in `server.ts` reads it);
  * - records an exception thrown by a handler or a pipe as an event on the server span, and
- *   notes the status it maps to. Error status is decided at `close` (`server.ts`).
+ *   notes the status it maps to. Error status is decided at `close` (`server.ts`). The event is
+ *   marked `nestrix.exception.propagated` when a method span already recorded the same error,
+ *   and `nestrix.exception.expected` when it is expected (`errors/exception.ts`, D-93, D-94).
  *
  * It calls `next.handle()` exactly once, outside its guard, and returns that stream with a
  * `tap` whose error callback is guarded: values, completion and the error itself (same object)
@@ -22,6 +24,11 @@ import {
 import { ATTR_CODE_FUNCTION_NAME } from "@opentelemetry/semantic-conventions";
 import { type Observable, tap } from "rxjs";
 import { diagnostics } from "../diagnostics.js";
+import {
+  exceptionStatus,
+  exceptionType,
+  recordExceptionEvent,
+} from "../errors/exception.js";
 import { interceptRpc } from "../microservices/server.js";
 import type { ResolvedOptions } from "../resolve-options.js";
 import { NESTRIX_OPTIONS } from "../tokens.js";
@@ -31,43 +38,7 @@ import {
   type RequestState,
 } from "./request-state.js";
 
-/**
- * The status an exception maps to: `getStatus()` of an `HttpException` (duck-typed, so a second
- * copy of `@nestjs/common` still counts), otherwise 500.
- */
-export function exceptionStatus(error: unknown): number {
-  try {
-    if (error !== null && typeof error === "object") {
-      const getStatus = (error as { getStatus?: unknown }).getStatus;
-      const getResponse = (error as { getResponse?: unknown }).getResponse;
-      if (
-        typeof getStatus === "function" &&
-        typeof getResponse === "function"
-      ) {
-        const status: unknown = getStatus.call(error);
-        if (typeof status === "number" && Number.isInteger(status))
-          return status;
-      }
-    }
-  } catch {
-    // An exception whose getStatus throws is treated as unexpected.
-  }
-  return 500;
-}
-
-/** `error.type` for an exception: its constructor's name, else `_OTHER`. */
-export function exceptionType(error: unknown): string {
-  try {
-    if (error !== null && typeof error === "object") {
-      const name = (error as { constructor?: { name?: unknown } }).constructor
-        ?.name;
-      if (typeof name === "string" && name !== "") return name;
-    }
-  } catch {
-    // Fall through.
-  }
-  return "_OTHER";
-}
+export { exceptionStatus, exceptionType } from "../errors/exception.js";
 
 function recordException(state: RequestState, error: unknown): void {
   try {
@@ -77,24 +48,10 @@ function recordException(state: RequestState, error: unknown): void {
       status: exceptionStatus(error),
       type: exceptionType(error),
     };
-    if (error instanceof Error) {
-      state.span.recordException(error);
-    } else {
-      state.span.recordException({
-        name: exceptionType(error),
-        message: safeString(error),
-      });
-    }
+    // Marked propagated when a method span below already recorded the same error (D-93).
+    recordExceptionEvent(state.span, error);
   } catch (failure) {
     diagnostics.countFailure("http.interceptor-error", failure);
-  }
-}
-
-function safeString(value: unknown): string {
-  try {
-    return String(value);
-  } catch {
-    return "(unprintable)";
   }
 }
 
