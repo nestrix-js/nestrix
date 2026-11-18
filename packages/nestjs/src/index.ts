@@ -22,6 +22,7 @@ export {
   composeInstrument,
   type NestInstrument,
   NestrixInstrument,
+  nestrixInstrumentIf,
 } from "./methods/instrument.js";
 export {
   instrumentClient,

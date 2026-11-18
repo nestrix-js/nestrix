@@ -41,6 +41,11 @@ jobs:
       - name: Wait for Docker
         run: timeout 90 sh -c 'until docker info >/dev/null 2>&1; do sleep 2; done'
       - run: pnpm verify
+      # D-99 (issue #41): a report, never a failure; uses the build `pnpm verify` made.
+      - name: Import cost of a disabled app (report only)
+        continue-on-error: true
+        run: |
+          node scripts/measure-import-cost.mjs --runs 5 --modules | tee -a "$GITHUB_STEP_SUMMARY"
 
   # Packs both published packages, installs the tarballs outside the workspace into a fresh
   # ESM app and a fresh CommonJS app, and boots a trivial Nest 12 app in each.

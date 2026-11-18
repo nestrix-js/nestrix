@@ -4,8 +4,10 @@
 // marked class (controller, injectable, filter, processor) gets wrappers installed at once, in a
 // disabled state, all sharing one per-class plan. `NestrixCore`'s constructor computes the own set
 // and calls `configureMethods`, which switches each plan on or off. Instances decorated after that
-// are planned immediately, and get no wrappers at all when their plan is off.
+// are planned immediately, and get no wrappers at all when their plan is off. While Nestrix is
+// known to be off in this process (`switchedOff`), nothing is wrapped at all (D-99).
 import { diagnostics } from "../diagnostics.js";
+import { isDisabledByEnv } from "../kill-switch.js";
 import type { ClassMatcher } from "../options.js";
 import {
   classKind,
@@ -42,6 +44,11 @@ const configs: MethodsConfig[] = [];
 /** The newest active configuration: what the "current" accessors and `planFor` read. */
 let config: MethodsConfig | undefined;
 let decoratedAny = false;
+/**
+ * `NestrixModule` definitions seen in this process (`forRoot`/`forRootAsync` calls), by whether
+ * they can turn Nestrix on. Not reset for tests: module definitions are evaluated once (D-99).
+ */
+const moduleDefinitions = { on: 0, off: 0 };
 /** Plans by class prototype. A prototype with no wrappable method maps to `null`. */
 const plans = new WeakMap<object, ClassPlan | null>();
 /** Every plan built, held weakly so classes can be collected; dead refs are pruned on iteration. */
@@ -205,9 +212,12 @@ function planFor(proto: object): ClassPlan | null {
 /**
  * `instrument.instanceDecorator` for `NestFactory.create(AppModule, { instrument })`. Returns the
  * instance it was given, always; never throws (Nest would log a warning and carry on, but rule 1).
+ * Leaves every instance untouched (no own properties) while Nestrix is known to be off in this
+ * process (`switchedOff`, D-99).
  */
 export function nestrixInstanceDecorator(instance: unknown): unknown {
   try {
+    if (configs.length === 0 && switchedOff()) return instance;
     decoratedAny = true;
     if (configs.length > 0 && !configs.some((c) => c.enabled)) return instance;
     // Functions (plain middleware, factory results) and primitives pass untouched.
@@ -237,6 +247,28 @@ export function nestrixInstanceDecorator(instance: unknown): unknown {
     diagnostics.countFailure("methods.decorate", error);
     return instance;
   }
+}
+
+/**
+ * Nestrix is known to be off for every app this process builds (D-99, #41): no `NestrixModule`
+ * that can turn it on has been defined, and either one that cannot has been (`enabled: false`, or
+ * `NESTRIX_ENABLED=false` when `forRoot` ran) or `NESTRIX_ENABLED` is false now. A module defined
+ * as on keeps the earlier behaviour, since its app will configure the wrappers. Only consulted
+ * while no configuration is live, so the environment is not read per instance once an app runs.
+ */
+function switchedOff(): boolean {
+  if (moduleDefinitions.on > 0) return false;
+  return moduleDefinitions.off > 0 || isDisabledByEnv(process.env);
+}
+
+/**
+ * Called by `NestrixModule.forRoot`/`forRootAsync`: `on` is false when the returned module is the
+ * disabled one (no providers), true otherwise (including a `forRootAsync` whose factory may still
+ * say `enabled: false`). Never throws.
+ */
+export function noteModuleDefinition(on: boolean): void {
+  if (on) moduleDefinitions.on++;
+  else moduleDefinitions.off++;
 }
 
 /**
