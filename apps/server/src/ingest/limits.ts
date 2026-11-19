@@ -187,7 +187,7 @@ export interface DecodeCost {
   packedBytes?: number;
   /**
    * Bytes decoded into JS strings, which the decoder copies out of the body (D-116): the wire
-   * bytes of every known `string` field (protobuf; a `bytes` field is a view of the body), or
+   * bytes of every known `string` field (protobuf; a `bytes` field is a view of the body, and mapping encodes at most about 12 KiB of each), or
    * twice the body (JSON: the text, then the strings parsed from it).
    */
   textBytes?: number;

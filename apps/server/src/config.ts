@@ -259,7 +259,8 @@ export const DEFAULT_INGEST: Omit<
   // As the OpenTelemetry Collector's OTLP receiver. A single request at every cap below is
   // charged at most 2 x 20 MiB (chunks and their join) + 20 MiB (strings) + (400k + 100k) x
   // 512 B = 304 MiB of the budget (JSON: 2 x 20 + 2 x 20 MiB + 400k x 512 B + 800k x 48 B =
-  // 312 MiB), so it always fits (D-116).
+  // 312 MiB), so it always fits (D-116). This holds at the message and span caps; packed metric data and
+  // string-heavy bodies can reach the 413 threshold sooner than before (crafted, not realistic).
   maxBodyBytes: 20 * MIB,
   rateLimit: { requestsPerSecond: 100, burst: 200 },
   maxSpans: 100_000,

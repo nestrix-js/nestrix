@@ -57,6 +57,6 @@ The 32 "closed" (connection closed with no response) in one before run at 640 Mi
 ## Reading
 
 - Before D-116 the budget missed the join (2x the body while the chunks wait for GC) and the decoded strings (about 1x the string bytes); peak `external + heapUsed` reached 2.05x the budget.
-- After, everything a request in flight holds is charged; the residue is garbage of finished requests, about 1.2x to 1.7x at the default budget.
+- After, what a request in flight holds is charged (`bytes` fields are views of the body, and mapping encodes at most about 12 KiB of each); the residue is garbage of finished requests, about 1.2x to 1.7x at the default budget.
 - In a Linux container the peak RSS barely moved (558/631 to 535/632 MiB): requests finish fast enough there that the budget was rarely the binding limit. Plan on idle plus 1.6x the budget (about 650 MiB); 768 MiB holds, 512 MiB does not.
 - Throughput in these runs varied 2x to 6x between runs and is not a result.
