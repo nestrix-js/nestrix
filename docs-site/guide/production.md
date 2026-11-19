@@ -112,7 +112,7 @@ Evidence for "the previous version keeps working on the new schema for one minor
 
 So a rolling upgrade (start the new replica, then stop an old one) is safe for a release whose notes do not say otherwise. Both the stack (`order: start-first`) and the chart (`maxUnavailable: 0`, `maxSurge: 1`) do that. Steps:
 
-1. Read the release notes. Check for "stop all replicas first" and for the two heavy migrations in the server README ("Upgrading to 0.2.0: the `spans` index", "Upgrading to the `hasErrors` filter"): they lock tables while an index builds and have a way to pre-build it on a large database.
+1. Read the release notes. Check for "stop all replicas first" and for the heavy migrations in the server README ("Upgrading to 0.2.0: the `spans` index", "Upgrading to the `hasErrors` filter", "Upgrading to ingest order on `spans`"): they lock tables while an index builds and have a way to pre-build it on a large database.
 2. Back up (above).
 3. Change the image tag and digest, deploy.
 4. Check `/readyz` on the new replicas (it is 503 until every migration is applied).

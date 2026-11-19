@@ -357,7 +357,7 @@ Route counts, error rates, SLOs and alert rules come from per-minute rollups wri
 
 ## Error triage
 
-The server stores a triage state per error group (`open`, `resolved`, `regressed`, `ignored`), kept apart from the computed new, ongoing and quiet states and independent of span retention. A background sync (every 30 s, one instance at a time) records each group from the stored error spans, with its first and last seen and its counts per release.
+The server stores a triage state per error group (`open`, `resolved`, `regressed`, `ignored`), kept apart from the computed new, ongoing and quiet states and independent of span retention. A background sync (every 30 s, one instance at a time) records each group from the stored error spans, with its first and last seen and its counts per release. It reads spans in the order they were stored, so an error from a long job or a late export is counted once like any other (D-114).
 
 - `POST /api/v1/errors/groups/resolve`, `/ignore` and `/reopen` with `{"key": "<ErrorGroup.key>", "service": "<optional>", "environment": "<optional>"}` (admin session and a same-origin `Origin`, like the alert routes; an API token never reaches them). Without `service` the action applies to the group in every service, without `environment` in every environment (`unset`: the copy without one).
 - Groups are kept per service and [environment](#environments): resolving a group in staging leaves production's copy open, and a regression in one environment changes only that one. The dashboard acts in the selected environment. A list over several environments shows the most urgent state of the copies it covers.
@@ -432,6 +432,29 @@ Pull or rebuild the image and restart (see also [Upgrades in the production guid
 ### Upgrading to users and roles (issue #34)
 
 Migration `0019_dashboard_users.sql` adds the `dashboard_users` and `audit_log` tables. Nothing changes until you set `NESTRIX_OIDC_ISSUER`: the admin password signs in as before, as an admin, and existing sessions stay valid.
+
+### Upgrading to ingest order on `spans` (D-114)
+
+Rolling upgrade, no coordinated stop. Migration `0023_spans_ingest_seq.sql` adds `spans.ingest_seq` (nullable, then given the default `nextval('spans_ingest_seq')`, so it rewrites nothing; the previous release's span INSERT does not name the column and gets a value) and four nullable columns on `error_group_sync`. Each `ALTER TABLE` takes an `ACCESS EXCLUSIVE` lock on `spans` and its partitions for a catalog change only, so it commits at once; it waits for queries and ingest transactions already running on `spans`, and new ones queue behind it for that moment. Spans stored before the upgrade keep `NULL`: a live poll of the error list never returns them (a reload and "load older" do), and the error-group sync reads them by start time as before until it is past them.
+
+What changes: the error-group sync and the live error list (`GET /api/v1/errors?after=`) follow the order spans were stored in, so an error from a job that ran for minutes, a late export or a host with a slow clock now gets its group, its count and its `new_error_group` alert, and shows up in an open error list. The error list's `head` is now an ingest-order cursor (`es…`); a `head` from an earlier server (`e.…`) is still accepted by `after` and read as before. While a replica of the previous release is still running, its error-group sync finds nothing to count (this release keeps that release's watermark an hour ahead of the clock); if you roll back, the previous release resumes within that hour and does not count the errors stored in between. Rolling back for longer than that hour and then upgrading again counts the occurrences the previous release counted after the hour a second time (the ingest-order read resumes from its old position): keep a rollback under an hour, or restore the database backup. During a rolling upgrade, a live error list whose poll lands on a previous-release replica gets `reset: true` and reloads its first page (the `es…` head is new to it); nothing is lost, and it stops once the old replicas are gone.
+
+Migration `0024_spans_ingest_seq_index.sql`, a separate transaction, builds the partial index `spans_errors_ingest_seq_idx` on `spans (ingest_seq) WHERE is_error`. A partitioned table's index cannot be built `CONCURRENTLY`, so it takes a `SHARE` lock on `spans` and each partition while it builds: reads go on, span ingest waits (exports wait, or are answered 503 and retried). The build reads every partition: measured 56 ms per million stored spans on a local PostgreSQL 18.6, so about a minute per hundred million, more on slower disks. On a large install add the column and build the index first, without blocking ingest; the migrations then find both and do nothing that takes long:
+
+```sql
+-- the column and its default (0023's statements; IF NOT EXISTS, so 0023 then changes nothing):
+CREATE SEQUENCE IF NOT EXISTS spans_ingest_seq AS bigint CACHE 1;
+ALTER TABLE spans ADD COLUMN IF NOT EXISTS ingest_seq bigint;
+ALTER TABLE spans ALTER COLUMN ingest_seq SET DEFAULT nextval('spans_ingest_seq');
+-- for each partition spans_pYYYYMMDD (list them with \d+ spans), outside a transaction:
+CREATE INDEX CONCURRENTLY spans_pYYYYMMDD_errors_ingest_seq_idx ON spans_pYYYYMMDD (ingest_seq) WHERE is_error;
+-- once, on the parent without touching the partitions:
+CREATE INDEX spans_errors_ingest_seq_idx ON ONLY spans (ingest_seq) WHERE is_error;
+-- for each partition:
+ALTER INDEX spans_errors_ingest_seq_idx ATTACH PARTITION spans_pYYYYMMDD_errors_ingest_seq_idx;
+```
+
+Partitions created afterwards inherit the index and the default.
 
 ### Upgrading to shared sessions (issue #31)
 

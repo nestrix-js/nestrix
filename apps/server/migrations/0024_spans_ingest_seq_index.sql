@@ -1,0 +1,15 @@
+-- Error spans by ingest order (D-114): the error-group sync reads `ingest_seq > watermark` ranges
+-- of error spans, and `GET errors` takes its live head (the newest `ingest_seq` among error
+-- occurrences) and its `after` polls from it. Partial on `is_error`, as `spans_errors_idx` is, so
+-- it holds the error spans only. Rows stored before 0023 hold NULL (indexed, never in a range).
+--
+-- Locks: a partitioned table's index cannot be built CONCURRENTLY, so this takes a SHARE lock on
+-- `spans` and on each partition while its index builds, held until this file's transaction
+-- commits: reads of `spans` go on, span ingest waits (exports wait, or are answered 503 and
+-- retried). The build reads every partition; measured on PostgreSQL 18.6, 1,000,000 rows (2% of
+-- them errors) in 56 ms, so roughly a minute per hundred million stored spans, more on slow disks.
+-- A large install can pre-build the index without blocking ingest (apps/server/README.md, upgrade
+-- notes): per partition CREATE INDEX CONCURRENTLY, then CREATE INDEX spans_errors_ingest_seq_idx
+-- ON ONLY spans (...), then ALTER INDEX ... ATTACH PARTITION for each. This statement is
+-- IF NOT EXISTS, so it then does nothing.
+CREATE INDEX IF NOT EXISTS spans_errors_ingest_seq_idx ON spans (ingest_seq) WHERE is_error;

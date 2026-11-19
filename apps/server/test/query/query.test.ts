@@ -545,7 +545,8 @@ describe.skipIf(noDatabase)(`query API ${skipReason}`, () => {
       expect(r.items.map((i) => i.traceId)).toEqual([F, B]);
       expect(r.reset).toBe(false);
       expect(r.older).toBeNull();
-      expect(r.head).toBe(r.items[0]?.cursor);
+      // The live head is in ingest order (D-114), not an item's position.
+      expect(r.head).toMatch(/^es[0-9a-z]+$/);
       expect(r.items[1]).toMatchObject({
         traceId: B,
         spanId: sid(10),
