@@ -10,6 +10,12 @@ import {
   parseTrustedProxies,
   type TrustedProxies,
 } from "./auth/client-address.js";
+import {
+  ingestCapsForBudget,
+  MAX_INGEST_BUDGET_MIB,
+  MIN_INGEST_BUDGET_MIB,
+  worstCaseCharge,
+} from "./ingest/caps.js";
 
 export const MIB = 1024 * 1024;
 
@@ -47,6 +53,8 @@ export interface IngestConfig {
   /**
    * Process-wide memory budget for requests in flight: buffered body bytes plus an estimate of
    * the decoded objects. Full: 503 with Retry-After. A single request larger than it: 413.
+   * `NESTRIX_INGEST_MEMORY_BUDGET_MB` (D-117); below the default, `maxBodyBytes`, `maxSpans`,
+   * `maxMessages` and `maxJsonTokens` scale down with it (`ingestCapsForBudget`).
    */
   readonly inflightBudgetBytes: number;
   /** After an early answer, the unread body is discarded for at most this long, then the connection is destroyed. */
@@ -261,6 +269,8 @@ export const DEFAULT_INGEST: Omit<
   // 512 B = 304 MiB of the budget (JSON: 2 x 20 + 2 x 20 MiB + 400k x 512 B + 800k x 48 B =
   // 312 MiB), so it always fits (D-116). This holds at the message and span caps; packed metric data and
   // string-heavy bodies can reach the 413 threshold sooner than before (crafted, not realistic).
+  // These are `DEFAULT_INGEST_CAPS` (ingest/caps.ts); `NESTRIX_INGEST_MEMORY_BUDGET_MB` below 320
+  // scales all four down with the budget, so the same bound holds (D-117).
   maxBodyBytes: 20 * MIB,
   rateLimit: { requestsPerSecond: 100, burst: 200 },
   maxSpans: 100_000,
@@ -637,6 +647,7 @@ export function loadConfig(
     10_000_000,
     errors,
   );
+  const ingestLimits = loadIngestBudget(env, errors);
   const oidc = loadOidc(env, publicUrl, errors, readFile);
   const passwordLoginRaw = present(env, "NESTRIX_ADMIN_PASSWORD_LOGIN")
     ?.trim()
@@ -665,6 +676,7 @@ export function loadConfig(
       databaseUrl,
       ingest: Object.freeze({
         ...DEFAULT_INGEST,
+        ...ingestLimits,
         auth,
         keys: Object.freeze(auth === "keys" ? keys : []),
         keyEnvironments: Object.freeze(
@@ -703,6 +715,35 @@ export function loadConfig(
       indexedAttributes: Object.freeze(indexedAttributes),
     }),
   };
+}
+
+/**
+ * `NESTRIX_INGEST_MEMORY_BUDGET_MB` (D-117): the in-flight budget in MiB and the caps derived from
+ * it, or nothing (the defaults, unchanged) when it is unset or invalid. A derived set of caps that
+ * one request could not fit is refused (it cannot happen with the scaling; the check keeps it so).
+ */
+function loadIngestBudget(env: Env, errors: string[]): Partial<IngestConfig> {
+  if (present(env, "NESTRIX_INGEST_MEMORY_BUDGET_MB") === undefined) return {};
+  const before = errors.length;
+  const mib = integer(
+    env,
+    "NESTRIX_INGEST_MEMORY_BUDGET_MB",
+    0,
+    MIN_INGEST_BUDGET_MIB,
+    MAX_INGEST_BUDGET_MIB,
+    errors,
+  );
+  if (errors.length > before) return {};
+  const inflightBudgetBytes = mib * MIB;
+  const caps = ingestCapsForBudget(inflightBudgetBytes);
+  const worst = worstCaseCharge(caps);
+  if (Math.max(worst.protobuf, worst.json) > inflightBudgetBytes) {
+    errors.push(
+      `NESTRIX_INGEST_MEMORY_BUDGET_MB=${mib}: one request at the derived caps would not fit the budget.`,
+    );
+    return {};
+  }
+  return { inflightBudgetBytes, ...caps };
 }
 
 /** An environment an ingest key can be bound to: 1 to 64 letters, digits, `.`, `_` or `-`, starting with a letter or digit. */

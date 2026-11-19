@@ -168,11 +168,12 @@ Read once from the environment at start and validated. A bad value exits with on
 | `NESTRIX_METRICS_MAX_SERIES` | `20000` | Whole number, 10 to 10 000 000. Active metric series in all, per server process. |
 | `NESTRIX_INDEXED_ATTRIBUTES` | unset (nothing indexed) | Comma-separated span attribute keys (`tenant.id,app.client_id`), at most 16, each a letter then letters, digits, `_`, `.` or `-`. Their values are stored per trace at ingest and can then filter the trace list, the timeline, the errors and the error groups with `attr.<key>=<value>` (dashboard, query API, MCP tools). A key not listed is a `400`. Only spans ingested while a key is listed are indexed: adding a key later does not backfill. An invalid entry is a configuration error. See "Attribute filters". |
 | `NESTRIX_MAX_SPANS_PER_TRACE` | `50000` | Whole number, 1 000 to 10 000 000. Spans stored per trace; see "Span limit per trace". |
+| `NESTRIX_INGEST_MEMORY_BUDGET_MB` | unset (320) | Whole number, 32 to 1024, in MiB (1 MiB = 1 048 576 bytes). Memory for ingest requests in flight, whole server. Below 320 the per-request limits shrink in proportion, so one request at every limit still fits: 20 MiB body, 100 000 spans, 400 000 messages and 1 200 000 JSON values at 320 become 2 MiB, 10 000, 40 000 and 120 000 at 32. Above 320 they stay at the default and more requests are in flight at once. Size the container from it: see "Memory budget" under "Ingest". The effective limits are logged at start when it is set. |
 | `NESTRIX_MAX_CONNECTIONS` | `1024` | Whole number, 1 to 1 000 000. Node's `server.maxConnections`. |
 | `NESTRIX_WEBHOOK_ALLOWED_HOSTS` | empty | Comma-separated host names or IP addresses (no scheme, port or path) that alert webhooks may reach although they resolve to private addresses. |
 | `NESTRIX_PUBLIC_URL` | unset | `http://` or `https://` address of the dashboard, without credentials, query or fragment. Put in alert notifications as a link. |
 
-Not configurable by environment: the ingest limits and rate limit below, and the HTTP timeouts (`requestTimeout` 60 s, `headersTimeout` 20 s).
+Not configurable by environment: the ingest rate limit, the ingest limits below other than through `NESTRIX_INGEST_MEMORY_BUDGET_MB`, and the HTTP timeouts (`requestTimeout` 60 s, `headersTimeout` 20 s).
 
 ## Environments
 
@@ -245,7 +246,7 @@ curl -H "Authorization: Bearer $NESTRIX_TOKEN" https://nestrix.example.com/api/v
 | Spans (or log records) per request | 100 000 |
 | Protobuf submessages (or JSON objects) per request | 400 000 |
 | JSON values (`{`, `[`, `,`) per request | 1 200 000 |
-| Memory for requests in flight, whole server | 320 MiB |
+| Memory for requests in flight, whole server | 320 MiB (`NESTRIX_INGEST_MEMORY_BUDGET_MB`; below 320 the four limits above scale down with it, rounded down: the budget / 16 for the body) |
 | Rate limit | 100 requests per second per key, burst 200 (per client address with `NESTRIX_INGEST_AUTH=none`) |
 
 What the answers mean:
@@ -255,12 +256,25 @@ What the answers mean:
 | 400 | Malformed body, bad gzip, or invalid UTF-8 | Not retry. |
 | 401 | Missing or wrong key, or auth not configured | Fix the key. |
 | 404 | A `/v1/…` path that is not an ingest route, such as `/v1/metrics` while `NESTRIX_METRICS` is not `on` (no key needed) | Do not send that signal here. |
-| 413 | Body or inflated body over 20 MiB, or over a count cap, or a request too large for the memory budget | Send smaller batches; do not retry as is. |
+| 413 | Body or inflated body over 20 MiB (less with a smaller budget), or over a count cap, or a request too large for the memory budget | Send smaller batches; do not retry as is. |
 | 415 | Unsupported `Content-Type` or `Content-Encoding` | Send protobuf or JSON, gzip or none. |
 | 429 | Over the rate limit; has `Retry-After` | Retry after that many seconds. |
 | 503 | Memory budget full (`Retry-After: 1`), the write queue is full, or the database is unavailable (`Retry-After: 5`) | Retry; OTLP exporters do. |
 
-**Memory budget, what it counts and what it does not** (D-116). The 320 MiB budget is charged, per request, with each chunk of the body as it arrives (inflated bytes for gzip), the joined copy of a body that came in several chunks (so such a body is charged twice), and an estimate of what decoding allocates (per message, plus the bytes of every string; for JSON, twice the body). When a charge does not fit the answer is 503 with `Retry-After: 1`; a request that could never fit is 413. The budget bounds what requests in flight hold, not the process: buffers and objects of finished requests stay until the garbage collector frees them. Measured with 16 slow clients sending 19 MiB bodies (`benchmarks/results/ingest-memory.md`): peak resident memory 632 MiB in a Linux container with a 768 MiB limit (idle 133 MiB), killed for memory at 512 MiB. Plan on about 135 MiB plus 1.6 × the budget, about 650 MiB; the 768 MiB limit in the Helm chart and the Swarm stack holds it.
+**Memory budget, what it counts and what it does not** (D-116). The 320 MiB budget is charged, per request, with each chunk of the body as it arrives (inflated bytes for gzip), the joined copy of a body that came in several chunks (so such a body is charged twice), and an estimate of what decoding allocates (per message, plus the bytes of every string; for JSON, twice the body). When a charge does not fit the answer is 503 with `Retry-After: 1`; a request that could never fit is 413. The budget bounds what requests in flight hold, not the process: buffers and objects of finished requests stay until the garbage collector frees them. Measured with 16 slow clients sending 19 MiB bodies (`benchmarks/results/ingest-memory.md`): peak resident memory 632 MiB in a Linux container with a 768 MiB limit (idle 133 MiB), killed for memory at 512 MiB. The 768 MiB limit in the Helm chart and the Swarm stack holds it.
+
+**Choosing a budget** (`NESTRIX_INGEST_MEMORY_BUDGET_MB`, D-117). A smaller budget lets the container run in less memory; the cost is fewer large exports in flight at once (more 503s, which exporters retry) and smaller per-request limits (an exporter whose batches exceed them gets 413 and must send smaller batches: lower the SDK's or the Collector's batch size). Give the container at least **200 MiB + 1.6 × the budget**. The garbage left by finished requests is close to a fixed amount, not a share of the budget, so the 1.6 × alone is not enough at small budgets. Measured (`benchmarks/results/ingest-memory.md`, Linux container, memory sink, 16 slow clients sending bodies near the limit for 20 s, idle about 125 MiB):
+
+| Budget | Limits per request | Peak resident memory, worst profile | Formula | Result |
+|---|---|---|---|---|
+| 32 MiB | 2 MiB, 10 000 spans | 227 MiB | 252 MiB | lived at 251 MiB (peak 217 MiB there) |
+| 64 MiB | 4 MiB, 20 000 spans | 285 MiB | 303 MiB | lived at 302 MiB (peak 285 MiB there) |
+| 128 MiB | 8 MiB, 40 000 spans | 373 MiB | 405 MiB | lived at 416 MiB; **killed for memory at 352 MiB** (what 135 MiB + 1.6 × 128 gives) |
+| 320 MiB (default) | 20 MiB, 100 000 spans | 632 MiB (with PostgreSQL) | 712 MiB | lived at 768 MiB, killed at 512 MiB |
+
+The small budgets were measured with the in-memory sink; the PostgreSQL driver and pool add some memory that was not measured there (the margin at 64 MiB was 17 MiB), so round the limit up.
+
+The maximum is 1024 MiB: Node's default heap limit is about half of the container's memory and at most about 2 GiB (measured in the image: 408 MiB at a 768 MiB limit, 2 144 MiB at 4 and 8 GiB), and requests made of many small spans hold up to about 1.25 × the budget on the heap. For more ingest, run more replicas. At budgets under about 96 MiB, a 120-second remote CPU profile can exceed the JSON value limit (about two values per sample) and its upload is refused with 413 (the capture is shown as failed); the default 30-second capture fits at every budget.
 
 The 20 MiB limit matches the OpenTelemetry Collector's OTLP receiver. A batch of 2 048 spans, as the SDK's batch processor sends them, is far below every cap.
 
