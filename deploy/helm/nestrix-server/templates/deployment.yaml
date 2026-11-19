@@ -81,9 +81,9 @@ spec:
             - name: NESTRIX_TRUSTED_PROXIES
               value: {{ join "," .Values.config.trustedProxies | quote }}
             {{- end }}
-            {{- with .Values.config.ingestMemoryBudgetMb }}
+            {{- if ne (toString .Values.config.ingestMemoryBudgetMb) "" }}
             - name: NESTRIX_INGEST_MEMORY_BUDGET_MB
-              value: {{ . | quote }}
+              value: {{ .Values.config.ingestMemoryBudgetMb | quote }}
             {{- end }}
             {{- range $name, $value := .Values.config.extraEnv }}
             - name: {{ $name }}

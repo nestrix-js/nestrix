@@ -9,7 +9,10 @@
  * - JSON (traces, logs, metrics and the profile upload): `2B` + `2B` (the text and the parsed
  *   strings) + objects x `BYTES_PER_MESSAGE` + (values - objects) x `BYTES_PER_JSON_TOKEN`.
  * Packed metric runs are charged by their decoded size and are not bounded by the caps (as before,
- * D-116 (3)): a crafted metrics body can reach 413 below the body limit.
+ * D-116 (3)), so a metrics body can reach 413 below the body limit. This is ordinary output, not
+ * only crafted: exponential-histogram bucket counts are packed varints, mostly one byte each, charged
+ * 32 B per wire byte, so an export made mostly of them is refused above about budget / 32 (1 MiB
+ * at a 32 MiB budget, 10 MiB at the default).
  */
 import { BYTES_PER_JSON_TOKEN, BYTES_PER_MESSAGE } from "./limits.js";
 
@@ -27,8 +30,9 @@ export const DEFAULT_INGEST_CAPS: IngestCaps = Object.freeze({
 /**
  * Bounds of `NESTRIX_INGEST_MEMORY_BUDGET_MB`, in MiB. 32: the caps are then 2 MiB, 10 000 spans
  * and 40 000 messages, still above a Collector batch (8 192 spans by default) and an SDK batch
- * (512, at most 2 048). 1024: decoded messages live on the V8 heap (measured: up to about 1.25x
- * the budget for message-heavy requests), and Node's default heap limit is about half the memory
+ * (512, at most 2 048). 1024: decoded messages live on the V8 heap (host heapUsed reached about 1.25x
+ * the budget for message-heavy requests, mostly garbage V8 had not collected yet; in a 768 MiB
+ * container at the default budget the peak was 126 MiB, about 0.3x the charge), and Node's default heap limit is about half the memory
  * limit and at most about 2 GiB (measured in the image: 408 MiB at 768 MiB, 2 144 MiB at 4 GiB and
  * at 8 GiB); past 1 GiB a full budget of such requests could exhaust the heap.
  */
