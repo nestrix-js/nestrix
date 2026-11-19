@@ -6,6 +6,7 @@ import { Fragment, useEffect, useRef } from "react";
 
 import { Chip } from "@/components/kit/chip";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { getMeta, setActiveEnvironment, signOut } from "@/lib/api";
 import { readConfig } from "@/lib/config";
 import { lostConnectionText } from "@/lib/connection";
@@ -153,14 +154,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
           <div className="ml-auto flex flex-wrap items-center gap-2 sm:gap-3">
             {environments.length > 1 && (
-              <select
+              <Select
                 aria-label="Environment"
                 data-testid="environment-select"
                 value={selectedEnvironment ?? ""}
                 onChange={(e) =>
                   void setSelectedEnvironment(e.target.value || undefined)
                 }
-                className="h-7 rounded-lg border border-border bg-background px-2 text-sm"
+                size="sm"
               >
                 <option value="">All environments</option>
                 {environments.map((e) => (
@@ -168,15 +169,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     {e.unset ? "No environment" : e.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
             {services.length > 1 && (
-              <select
+              <Select
                 aria-label="Service"
                 data-testid="service-select"
                 value={selected ?? ""}
                 onChange={(e) => void setSelected(e.target.value || undefined)}
-                className="h-7 rounded-lg border border-border bg-background px-2 text-sm"
+                size="sm"
               >
                 <option value="">All services</option>
                 {services.map((name) => (
@@ -184,7 +185,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     {name}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
             <span
               data-testid="connection"

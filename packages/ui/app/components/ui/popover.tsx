@@ -24,12 +24,13 @@ function PopoverContent({
       <PopoverPrimitive.Positioner
         align={align}
         sideOffset={sideOffset}
+        collisionPadding={8}
         className="isolate z-50"
       >
         <PopoverPrimitive.Popup
           data-slot="popover-content"
           className={cn(
-            "z-50 w-64 origin-(--transform-origin) rounded-lg border border-border bg-background p-1 text-foreground shadow-md outline-none",
+            "z-50 w-64 max-w-[calc(100vw-1rem)] max-h-(--available-height) overflow-y-auto origin-(--transform-origin) rounded-lg border border-border bg-background p-1 text-foreground shadow-md outline-none",
             className,
           )}
           {...props}

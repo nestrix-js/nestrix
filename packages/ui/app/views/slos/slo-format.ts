@@ -164,11 +164,15 @@ export function formFromSlo(slo: Slo): SloForm {
 /** The request body for a form, or the first problem in it. */
 export function toRequest(
   form: SloForm,
-): { ok: true; body: SloCreate } | { ok: false; message: string } {
+):
+  | { ok: true; body: SloCreate }
+  | { ok: false; message: string; field: keyof SloForm } {
   const name = form.name.trim();
-  if (name === "") return { ok: false, message: "Give the SLO a name." };
+  if (name === "")
+    return { ok: false, message: "Give the SLO a name.", field: "name" };
   const service = form.service.trim();
-  if (service === "") return { ok: false, message: "Choose a service." };
+  if (service === "")
+    return { ok: false, message: "Choose a service.", field: "service" };
   const percent = Number(form.objectivePercent);
   if (
     form.objectivePercent.trim() === "" ||
@@ -178,7 +182,9 @@ export function toRequest(
   ) {
     return {
       ok: false,
-      message: "The objective is a percentage above 0 and below 100.",
+      message:
+        "The objective is a percentage above 0 and below 100, such as 99.9.",
+      field: "objectivePercent",
     };
   }
   const route = form.route.trim();
@@ -202,6 +208,7 @@ export function toRequest(
       return {
         ok: false,
         message: "The latency threshold is a number of milliseconds above 0.",
+        field: "latencyThresholdMs",
       };
     }
     body.latencyThresholdMs = ms;

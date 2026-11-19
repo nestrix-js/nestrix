@@ -31,6 +31,7 @@ export function DataTableFacetedFilter<TData extends RowData, TValue>({
   options: FacetOption[];
 }) {
   const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
   const selected = column?.getFilterValue() as string | undefined;
   // A value from the URL that the options do not list is still shown, so it can be cleared.
   const all =
@@ -40,8 +41,19 @@ export function DataTableFacetedFilter<TData extends RowData, TValue>({
   const shown = all.filter((o) =>
     o.label.toLowerCase().includes(query.trim().toLowerCase()),
   );
+  const choose = (value: string) => {
+    column?.setFilterValue(value === selected ? undefined : value);
+    setOpen(false);
+    setQuery("");
+  };
   return (
-    <Popover>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setQuery("");
+      }}
+    >
       <PopoverTrigger
         render={
           <Button
@@ -67,6 +79,14 @@ export function DataTableFacetedFilter<TData extends RowData, TValue>({
             aria-label={`Search ${title}`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter takes the first match, so the list can be driven from the keyboard.
+              const first = shown[0];
+              if (e.key === "Enter" && first) {
+                e.preventDefault();
+                choose(first.value);
+              }
+            }}
           />
         </div>
         <div
@@ -87,10 +107,11 @@ export function DataTableFacetedFilter<TData extends RowData, TValue>({
                 type="button"
                 role="option"
                 aria-selected={isSelected}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
-                onClick={() =>
-                  column?.setFilterValue(isSelected ? undefined : option.value)
-                }
+                className={cn(
+                  "flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted",
+                  isSelected && "bg-muted font-medium",
+                )}
+                onClick={() => choose(option.value)}
               >
                 <Check className={cn("size-4", !isSelected && "invisible")} />
                 <span className="truncate font-mono">{option.label}</span>
@@ -104,7 +125,10 @@ export function DataTableFacetedFilter<TData extends RowData, TValue>({
               variant="ghost"
               size="sm"
               className="w-full"
-              onClick={() => column?.setFilterValue(undefined)}
+              onClick={() => {
+                column?.setFilterValue(undefined);
+                setOpen(false);
+              }}
             >
               Clear filter
             </Button>

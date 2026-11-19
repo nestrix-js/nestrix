@@ -17,6 +17,7 @@ import { SkeletonChart, SkeletonKpiStrip } from "@/components/kit/skeletons";
 import { KpiStrip, StatTile } from "@/components/kit/stat-tile";
 import { EmptyState, ErrorState } from "@/components/kit/states";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import {
   ApiRequestError,
   getMeta,
@@ -233,10 +234,10 @@ export function RequestsPage() {
           title="Status"
           options={STATUSES}
         />
-        <select
+        <Select
           aria-label="Type"
           data-testid="type-filter"
-          className="h-7 rounded-lg border border-border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+          size="sm"
           value={filters.type ?? ""}
           onChange={(e) => {
             const type = TYPES.find((t) => t.value === e.target.value)?.value;
@@ -250,11 +251,11 @@ export function RequestsPage() {
               {t.value === "" ? "Type: All" : t.label}
             </option>
           ))}
-        </select>
-        <select
+        </Select>
+        <Select
           aria-label="Errors"
           data-testid="has-errors-filter"
-          className="h-7 rounded-lg border border-border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+          size="sm"
           value={filters.hasErrors ?? ""}
           onChange={(e) => {
             const value = e.target.value;
@@ -268,7 +269,7 @@ export function RequestsPage() {
               {f.label}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <AttributeFilter
@@ -292,7 +293,7 @@ export function RequestsPage() {
         />
         <DebouncedInput
           aria-label="Minimum duration (ms)"
-          placeholder="Min ms"
+          placeholder="Min"
           type="number"
           min={0}
           className="h-7 w-24"
@@ -311,7 +312,7 @@ export function RequestsPage() {
         </span>
         <DebouncedInput
           aria-label="Maximum duration (ms)"
-          placeholder="Max ms"
+          placeholder="Max"
           type="number"
           min={0}
           className="h-7 w-24"
@@ -325,6 +326,9 @@ export function RequestsPage() {
             });
           }}
         />
+        <span aria-hidden className="text-xs text-muted-foreground">
+          ms
+        </span>
       </div>
       <SavedFiltersMenu filters={filters} onApply={(f) => void setFilters(f)} />
     </DataTableToolbar>

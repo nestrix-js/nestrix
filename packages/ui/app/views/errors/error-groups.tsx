@@ -110,6 +110,11 @@ const ACTION_LABEL: Record<TriageAction, string> = {
   ignore: "Ignore",
   reopen: "Reopen",
 };
+const ACTION_TITLE: Record<TriageAction, string> = {
+  resolve: "Mark as fixed; it shows as Regressed if it comes back",
+  ignore: "Hide this group from the Active view",
+  reopen: "Put it back among the open groups",
+};
 /** Which stored states the list shows: `active` is everything but the ignored groups. */
 const TRIAGE_VIEWS = [
   { value: "active", label: "Active" },
@@ -192,16 +197,18 @@ function GroupRow({
           <Chip tone={STATE_TONE[state]} title={STATE_TITLE[state]}>
             {STATE_LABEL[state]}
           </Chip>
-          {group.triage !== undefined && group.triage.state !== "open" && (
-            <div className="mt-1" data-testid="group-triage">
-              <Chip
-                tone={TRIAGE_TONE[group.triage.state]}
-                title={TRIAGE_TITLE[group.triage.state]}
-              >
-                {TRIAGE_LABEL[group.triage.state]}
-              </Chip>
-            </div>
-          )}
+          {group.triage !== undefined &&
+            group.triage.state !== "open" &&
+            !(group.triage.state === "regressed" && state === "regressed") && (
+              <div className="mt-1" data-testid="group-triage">
+                <Chip
+                  tone={TRIAGE_TONE[group.triage.state]}
+                  title={TRIAGE_TITLE[group.triage.state]}
+                >
+                  {TRIAGE_LABEL[group.triage.state]}
+                </Chip>
+              </div>
+            )}
         </TableCell>
         <TableCell data-testid="group-count">
           <BarCell
@@ -279,6 +286,8 @@ function GroupRow({
                     size="sm"
                     variant="outline"
                     disabled={triagePending}
+                    title={ACTION_TITLE[action]}
+                    aria-label={`${ACTION_LABEL[action]} ${group.errorType ?? "this group"}`}
                     data-testid={`triage-${action}`}
                     onClick={() => onTriage(action)}
                   >

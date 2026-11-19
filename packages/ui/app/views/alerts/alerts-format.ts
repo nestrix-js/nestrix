@@ -203,6 +203,35 @@ export interface AlertForm {
   enabled: boolean;
 }
 
+/** The threshold a metric starts with, in its own unit (percent, ms, burn-rate multiple). */
+export const DEFAULT_THRESHOLD: Partial<Record<AlertMetric, string>> = {
+  error_rate: "5",
+  p95_ms: "500",
+  slo_burn_rate: "14.4",
+};
+
+/**
+ * What changing the metric does to the threshold. The three metrics measure in different units, so
+ * a value the person typed for the old metric does not fit the new one: it is replaced by the new
+ * default and `note` says so. An empty threshold, or one still at the old metric's default, is
+ * filled without a note. A metric without a threshold keeps the text and says nothing.
+ */
+export function thresholdForMetric(
+  previous: AlertMetric,
+  next: AlertMetric,
+  threshold: string,
+): { threshold: string; note: string | null } {
+  const fallback = DEFAULT_THRESHOLD[next];
+  if (fallback === undefined || previous === next)
+    return { threshold, note: null };
+  const typed = threshold.trim();
+  const untouched = typed === "" || typed === DEFAULT_THRESHOLD[previous];
+  return {
+    threshold: fallback,
+    note: untouched ? null : `Reset to the default for ${METRIC_LABEL[next]}`,
+  };
+}
+
 export function emptyForm(service = ""): AlertForm {
   return {
     name: "",
@@ -300,7 +329,7 @@ function checkedInt(
 
 export type RequestResult<T> =
   | { ok: true; body: T }
-  | { ok: false; message: string };
+  | { ok: false; message: string; field?: keyof AlertForm };
 
 /** The webhook URL of a form, checked as the server does, or the problem. */
 function checkedWebhook(
@@ -351,19 +380,23 @@ function optionalText(
 export function toRequest(
   form: AlertForm,
 ): RequestResult<AlertRuleCreate & AlertRuleUpdate> {
-  const fail = (message: string) => ({ ok: false as const, message });
+  const fail = (message: string, field?: keyof AlertForm) => ({
+    ok: false as const,
+    message,
+    ...(field === undefined ? {} : { field }),
+  });
   const name = checkedText(form.name, "Name", 200);
-  if (!name.ok) return fail(name.message);
+  if (!name.ok) return fail(name.message, "name");
 
   if (form.metric === "new_error_group") {
     const service = optionalText(form.service, "Service", 256);
-    if (!service.ok) return fail(service.message);
+    if (!service.ok) return fail(service.message, "service");
     const route = optionalText(form.route, "Route", 512);
-    if (!route.ok) return fail(route.message);
+    if (!route.ok) return fail(route.message, "route");
     const environment = optionalText(form.environment, "Environment", 256);
-    if (!environment.ok) return fail(environment.message);
+    if (!environment.ok) return fail(environment.message, "environment");
     const webhook = checkedWebhook(form.webhookUrl);
-    if (!webhook.ok) return fail(webhook.message);
+    if (!webhook.ok) return fail(webhook.message, "webhookUrl");
     return {
       ok: true,
       body: {
@@ -380,12 +413,14 @@ export function toRequest(
 
   const raw = form.threshold.trim();
   const entered = raw === "" ? Number.NaN : Number(raw);
-  if (!Number.isFinite(entered)) return fail("Threshold must be a number.");
+  if (!Number.isFinite(entered))
+    return fail("Threshold must be a number.", "threshold");
   let threshold = entered;
   if (form.metric === "error_rate") {
     if (!(entered >= 0 && entered < 100)) {
       return fail(
         "Threshold of an error rate is a percentage from 0 up to, not including, 100, e.g. 5.",
+        "threshold",
       );
     }
     threshold = Number((entered / 100).toPrecision(12));
@@ -393,28 +428,30 @@ export function toRequest(
     if (!(entered > 0 && entered <= 3_600_000)) {
       return fail(
         "Threshold of a p95 is in milliseconds, above 0 and at most 3600000.",
+        "threshold",
       );
     }
   } else if (!(entered > 0 && entered <= 1000)) {
     return fail(
       "Threshold of a burn rate is a multiple above 0 and at most 1000, e.g. 14.4.",
+      "threshold",
     );
   }
 
   const windowMinutes = checkedInt(form.windowMinutes, "Window", 5, 60);
-  if (!windowMinutes.ok) return fail(windowMinutes.message);
+  if (!windowMinutes.ok) return fail(windowMinutes.message, "windowMinutes");
   const forMinutes = checkedInt(form.forMinutes, "Pending duration", 0, 60);
-  if (!forMinutes.ok) return fail(forMinutes.message);
+  if (!forMinutes.ok) return fail(forMinutes.message, "forMinutes");
   const minRequests = checkedInt(
     form.minRequests,
     "Minimum requests",
     1,
     1_000_000,
   );
-  if (!minRequests.ok) return fail(minRequests.message);
+  if (!minRequests.ok) return fail(minRequests.message, "minRequests");
 
   const webhook = checkedWebhook(form.webhookUrl);
-  if (!webhook.ok) return fail(webhook.message);
+  if (!webhook.ok) return fail(webhook.message, "webhookUrl");
 
   const common = {
     name: name.value,
@@ -427,15 +464,16 @@ export function toRequest(
     enabled: form.enabled,
   };
   if (form.metric === "slo_burn_rate") {
-    if (!/^[1-9][0-9]{0,15}$/.test(form.sloId)) return fail("Choose an SLO.");
+    if (!/^[1-9][0-9]{0,15}$/.test(form.sloId))
+      return fail("Choose an SLO.", "sloId");
     return { ok: true, body: { ...common, sloId: form.sloId } };
   }
   const service = checkedText(form.service, "Service", 256);
-  if (!service.ok) return fail(service.message);
+  if (!service.ok) return fail(service.message, "service");
   const route = optionalText(form.route, "Route", 512);
-  if (!route.ok) return fail(route.message);
+  if (!route.ok) return fail(route.message, "route");
   const environment = optionalText(form.environment, "Environment", 256);
-  if (!environment.ok) return fail(environment.message);
+  if (!environment.ok) return fail(environment.message, "environment");
   return {
     ok: true,
     body: {
