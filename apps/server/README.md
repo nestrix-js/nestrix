@@ -260,6 +260,8 @@ What the answers mean:
 | 429 | Over the rate limit; has `Retry-After` | Retry after that many seconds. |
 | 503 | Memory budget full (`Retry-After: 1`), the write queue is full, or the database is unavailable (`Retry-After: 5`) | Retry; OTLP exporters do. |
 
+**Memory budget, what it counts and what it does not** (D-116). The 320 MiB budget is charged, per request, with each chunk of the body as it arrives (inflated bytes for gzip), the joined copy of a body that came in several chunks (so such a body is charged twice), and an estimate of what decoding allocates (per message, plus the bytes of every string; for JSON, twice the body). When a charge does not fit the answer is 503 with `Retry-After: 1`; a request that could never fit is 413. The budget bounds what requests in flight hold, not the process: buffers and objects of finished requests stay until the garbage collector frees them. Measured with 16 slow clients sending 19 MiB bodies (`benchmarks/results/ingest-memory.md`): peak resident memory 632 MiB in a Linux container with a 768 MiB limit (idle 133 MiB), killed for memory at 512 MiB. Plan on about 135 MiB plus 1.6 × the budget, about 650 MiB; the 768 MiB limit in the Helm chart and the Swarm stack holds it.
+
 The 20 MiB limit matches the OpenTelemetry Collector's OTLP receiver. A batch of 2 048 spans, as the SDK's batch processor sends them, is far below every cap.
 
 ### Log search

@@ -20,6 +20,7 @@
     "bench:outage": "node src/outage.mjs",
     "bench:memory": "node src/memory.mjs",
     "bench:install-size": "node src/install-size.mjs",
+    "bench:ingest-memory": "node src/ingest-memory.mjs",
     "all": "node src/all.mjs",
     "smoke": "node src/all.mjs --smoke"
   },

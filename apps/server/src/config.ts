@@ -257,7 +257,9 @@ export const DEFAULT_INGEST: Omit<
   "auth" | "keys" | "keyEnvironments"
 > = {
   // As the OpenTelemetry Collector's OTLP receiver. A single request at every cap below is
-  // charged about 20 MiB + (400k + 100k) x 512 B = 264 MiB of the budget, so it always fits.
+  // charged at most 2 x 20 MiB (chunks and their join) + 20 MiB (strings) + (400k + 100k) x
+  // 512 B = 304 MiB of the budget (JSON: 2 x 20 + 2 x 20 MiB + 400k x 512 B + 800k x 48 B =
+  // 312 MiB), so it always fits (D-116).
   maxBodyBytes: 20 * MIB,
   rateLimit: { requestsPerSecond: 100, burst: 200 },
   maxSpans: 100_000,

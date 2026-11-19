@@ -27,3 +27,7 @@ Results go to `results/<name>.json` (machine readable, with the raw runs and sam
 ## Dashboard (P2-12)
 
 `pnpm --filter benchmarks run bench:store-bytes | bench:dashboard | bench:dashboard-memory | bench:dashboard-micro`. Each takes under a minute at its defaults, except `bench:dashboard`, which is about 75 s per pass; `results/dashboard.md` has the commands that produced its numbers. Run them one at a time on an otherwise idle machine. The dashboard UI is not open during these runs (its polling would add requests).
+
+## Standalone server ingest memory (D-116)
+
+`pnpm build`, then `pnpm --filter benchmarks run bench:ingest-memory -- --budget-mib=320 --max-body-mib=20 --concurrency=16` (Docker needed for the default `--sink=postgres`, which starts a throwaway `postgres:18-alpine`; `--sink=memory` needs nothing). Each profile runs in a fresh `src/ingest-memory-server.mjs` process: the server from `apps/server/dist` with the given budget, sampling `process.memoryUsage()` every 1 ms, RSS from a worker thread, memory right after each large `Buffer.concat`, and the peak the budget charged. `--external-port` sends load to a server started elsewhere, for example in a container with a memory limit (`results/ingest-memory.md` has the `docker run` line). About 1 to 3 minutes per run of six profiles.

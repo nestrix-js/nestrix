@@ -34,7 +34,7 @@ Measured on 2026-11-18, one Apple-silicon laptop, Docker in a VM, load generator
 
 The earlier preliminary run (`benchmarks/results/server-ingest.md`) saw 4% to 9% of a core and 250 to 310 MiB at 20 000 spans/s. Rule of thumb, **estimate**: **0.03 core per 1 000 spans/s** for the server, 300 to 470 MiB resident, and PostgreSQL needing about as much CPU as the server under load. That is the whole basis of the requests and limits in the stack and the chart (0.25 core and 256 MiB requested, 1 core and 768 MiB limit per replica, roughly 10 000 spans/s across two replicas). The server accepted about 20 000 spans/s with nothing refused in the preliminary run; past what a replica takes, it answers 503 or 429 and OTLP exporters retry (back-pressure instead of growing memory; from the code, README "Ingest").
 
-Memory for requests in flight is capped at 320 MiB for the whole server (from the code), so the server's resident size has a ceiling; a 768 MiB limit leaves room above the measured peak.
+Memory for requests in flight is capped at 320 MiB for the whole server, but the process holds more than that at peak, because finished requests wait for the garbage collector. Measured with bursts of 19 MiB exports from slow clients (`benchmarks/results/ingest-memory.md`, Linux container, PostgreSQL): peak resident 632 MiB under a 768 MiB limit; at 512 MiB the server was killed for memory. Keep the limit at 768 MiB or more; do not lower it below about 650 MiB.
 
 What the numbers leave out: dashboard queries (a heavy page on a large database costs PostgreSQL more than ingest does), traces with many more attributes, and network between the pieces.
 
