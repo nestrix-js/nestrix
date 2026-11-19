@@ -23,7 +23,7 @@
     "check:old-writer": "node scripts/check-old-writer.mjs",
     "verify": "pnpm build && pnpm check:packages && pnpm check:tla && pnpm test && pnpm lint && pnpm typecheck",
     "changeset": "changeset",
-    "version-packages": "changeset version",
+    "version-packages": "changeset version && node scripts/sync-agents-version.mjs",
     "release": "node scripts/release.mjs"
   },
   "devDependencies": {
