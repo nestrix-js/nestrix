@@ -487,28 +487,49 @@ export function MapPage() {
                     })}
                     {layout.edges.map((e) => {
                       const level = errorLevel(e.errors, e.calls);
+                      const callsLine = `${e.calls} calls`;
+                      const detailLine = `p95 ${formatDuration(e.p95Ms)} · ${formatRate(e.errors, e.calls)} err`;
+                      // 11px text is about 6.2px a glyph, two lines are about 31px tall.
+                      const plateWidth =
+                        Math.max(callsLine.length, detailLine.length) * 6.2 +
+                        10;
+                      const half = edgeWidth(e.calls, maxCalls) / 2 + 4;
+                      // Beside the edge, not on it: above a mostly horizontal one, to the right of
+                      // a mostly vertical one. The plate (the page's colour) is a backstop for
+                      // the lines that still cross it.
+                      const horizontal =
+                        Math.abs(e.x2 - e.x1) >= Math.abs(e.y2 - e.y1);
+                      const cx = horizontal
+                        ? e.labelX
+                        : e.labelX + plateWidth / 2 + half;
+                      const cy = horizontal ? e.labelY - 15.5 - half : e.labelY;
                       return (
-                        <text
-                          key={`${e.from}>${e.to}`}
-                          data-testid="map-edge-label"
-                          x={e.labelX}
-                          y={e.labelY}
-                          textAnchor="middle"
-                          paintOrder="stroke"
-                          strokeWidth={4}
-                          className={cn(
-                            "stroke-background text-[11px]",
-                            EDGE_TEXT[level],
-                          )}
-                        >
-                          <tspan x={e.labelX} dy="-0.3em">
-                            {e.calls} calls
-                          </tspan>
-                          <tspan x={e.labelX} dy="1.3em">
-                            p95 {formatDuration(e.p95Ms)} ·{" "}
-                            {formatRate(e.errors, e.calls)} err
-                          </tspan>
-                        </text>
+                        <g key={`${e.from}>${e.to}`}>
+                          <rect
+                            data-testid="map-edge-plate"
+                            x={cx - plateWidth / 2}
+                            y={cy - 16}
+                            width={plateWidth}
+                            height={31}
+                            rx={4}
+                            className="fill-background"
+                            fillOpacity={0.94}
+                          />
+                          <text
+                            data-testid="map-edge-label"
+                            x={cx}
+                            y={cy}
+                            textAnchor="middle"
+                            className={cn("text-[11px]", EDGE_TEXT[level])}
+                          >
+                            <tspan x={cx} dy="-0.3em">
+                              {callsLine}
+                            </tspan>
+                            <tspan x={cx} dy="1.3em">
+                              {detailLine}
+                            </tspan>
+                          </text>
+                        </g>
                       );
                     })}
                     {layout.nodes.map((n) => {
@@ -741,7 +762,6 @@ export function MapPage() {
                           value={e.p95Ms}
                           max={Math.max(1, ...layout.edges.map((x) => x.p95Ms))}
                           label={formatDuration(e.p95Ms)}
-                          color="--chart-2"
                         />
                       </TableCell>
                       {showChange && (

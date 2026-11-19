@@ -307,7 +307,7 @@ export function QueriesPage() {
                     items={slowest.map((q) => ({
                       key: rowKey(q),
                       label: shortStatement(q.statement),
-                      segments: [{ value: q.avgMs, color: "--warning" }],
+                      segments: [{ value: q.avgMs }],
                       valueLabel: formatDuration(q.avgMs),
                       title: q.statement,
                     }))}
@@ -327,7 +327,7 @@ export function QueriesPage() {
                     items={frequent.map((q) => ({
                       key: rowKey(q),
                       label: shortStatement(q.statement),
-                      segments: [{ value: q.count, color: "--chart-1" }],
+                      segments: [{ value: q.count }],
                       valueLabel: q.count.toLocaleString("en"),
                       title: q.statement,
                     }))}
@@ -459,7 +459,6 @@ export function QueriesPage() {
                             value={q.avgMs}
                             max={maxAvg}
                             label={formatDuration(q.avgMs)}
-                            color="--warning"
                           />
                         </TableCell>
                         <TableCell className="text-right font-mono align-top">

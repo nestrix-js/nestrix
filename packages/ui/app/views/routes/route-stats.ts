@@ -1,6 +1,7 @@
 import type { RouteStats } from "@nestrix-js/protocol";
 
 import type { ChartSeries } from "@/components/kit/line-chart";
+import { PERCENTILE_COLOR } from "@/components/kit/series-colors";
 
 /** What the server calls requests that matched no route, and the overflow bucket past 500 keys. */
 export const UNMATCHED_ROUTE = "(unmatched)";
@@ -60,12 +61,12 @@ export function chartData(stats: RouteStats): RouteCharts {
     latency: [
       {
         label: "p50",
-        color: "--chart-1",
+        color: PERCENTILE_COLOR.p50,
         values: points.map((p) => (p.count > 0 ? (p.p50Ms ?? null) : null)),
       },
       {
         label: "p95",
-        color: "--chart-2",
+        color: PERCENTILE_COLOR.p95,
         values: points.map((p) => (p.count > 0 ? (p.p95Ms ?? null) : null)),
       },
     ],
@@ -77,7 +78,8 @@ export function chartData(stats: RouteStats): RouteCharts {
       },
       {
         label: "errors",
-        color: "--chart-3",
+        // Bad news, so red on purpose.
+        color: "--destructive",
         values: points.map((p) => p.errors),
       },
     ],

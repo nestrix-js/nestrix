@@ -23,7 +23,7 @@ export const KIND_GROUPS: readonly {
     label: "Guards, pipes, interceptors and filters",
     color: "--chart-5",
   },
-  { key: "processor", label: "Processors", color: "--warning" },
+  { key: "processor", label: "Processors", color: "--chart-3" },
   { key: "other", label: "Other providers", color: "--muted-foreground" },
 ];
 

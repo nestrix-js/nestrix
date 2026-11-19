@@ -201,12 +201,7 @@ function RouteRow({
         {formatDuration(r.p50Ms)}
       </TableCell>
       <TableCell>
-        <BarCell
-          value={r.p95Ms}
-          max={maxP95}
-          label={formatDuration(r.p95Ms)}
-          color="--chart-2"
-        />
+        <BarCell value={r.p95Ms} max={maxP95} label={formatDuration(r.p95Ms)} />
       </TableCell>
       <TableCell className="text-right font-mono">
         {formatDuration(r.p99Ms)}
@@ -477,7 +472,7 @@ export function RoutesPage() {
                     label: `${describeMethod(r.method)} ${describeRoute(r).label}`,
                     title: routeKey(r),
                     valueLabel: formatDuration(r.p95Ms),
-                    segments: [{ value: r.p95Ms, color: "--chart-2" }],
+                    segments: [{ value: r.p95Ms }],
                   }))}
                 />
               </Section>

@@ -94,10 +94,11 @@ test("selecting a route draws both charts; the selection is in the URL and survi
   ] as const) {
     const chart = page.getByTestId(id);
     await expect(chart.locator("canvas")).toBeVisible();
-    await expect(chart.locator(".u-legend .u-series th")).toContainText([
-      "",
+    // The kit's legend names the series; uPlot's own ("Time: --") is off.
+    await expect(page.getByTestId(`${id}-legend`).locator("li")).toContainText([
       ...labels,
     ]);
+    await expect(chart.locator(".u-legend")).toHaveCount(0);
   }
   expect(await violations(page)).toEqual([]);
   expect(problems).toEqual([]);
@@ -238,14 +239,14 @@ test("a route with data in a single minute still draws its latency points", asyn
   await page.goto(url("?method=GET&route=%2Forders%2F%3Aid"));
   const canvas = page.getByTestId("chart-latency").locator("canvas").first();
   await expect(canvas).toBeVisible();
-  // A line cannot draw one value, so the p95 colour (--chart-2) can only come from its marker.
+  // A line cannot draw one value, so the p95 colour (--chart-4) can only come from its marker.
   const pixels = () =>
     canvas.evaluate((el: HTMLCanvasElement) => {
       const probe = document.createElement("canvas").getContext("2d", {
         willReadFrequently: true,
       }) as CanvasRenderingContext2D;
       probe.fillStyle = getComputedStyle(document.documentElement)
-        .getPropertyValue("--chart-2")
+        .getPropertyValue("--chart-4")
         .trim();
       probe.fillRect(0, 0, 1, 1);
       const want = probe.getImageData(0, 0, 1, 1).data;

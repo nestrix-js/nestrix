@@ -222,7 +222,7 @@ export const TIME_KINDS: Record<
   { label: string; color: string }
 > = {
   db: { label: "Database", color: "--chart-1" },
-  "http-out": { label: "Outgoing HTTP", color: "--warning" },
+  "http-out": { label: "Outgoing HTTP", color: "--chart-3" },
   redis: { label: "Redis", color: "--chart-5" },
   messaging: { label: "Messaging", color: "--chart-4" },
   app: { label: "App code (Nest)", color: "--chart-2" },

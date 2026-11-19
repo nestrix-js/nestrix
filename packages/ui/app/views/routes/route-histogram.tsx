@@ -2,7 +2,7 @@ import type { RouteStats } from "@nestrix-js/protocol";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
-
+import { PERCENTILE_COLOR } from "@/components/kit/series-colors";
 import { ErrorState } from "@/components/kit/states";
 import { getRouteHistogram } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
@@ -64,17 +64,17 @@ export function RouteHistogram({
         : [
             {
               label: "p50",
-              color: "--foreground",
+              color: PERCENTILE_COLOR.p50,
               x: markerX(h.buckets, h.p50Ms),
             },
             {
               label: "p95",
-              color: "--chart-2",
+              color: PERCENTILE_COLOR.p95,
               x: markerX(h.buckets, h.p95Ms),
             },
             {
               label: "p99",
-              color: "--chart-3",
+              color: PERCENTILE_COLOR.p99,
               x: markerX(h.buckets, h.p99Ms),
             },
           ],

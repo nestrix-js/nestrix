@@ -7,6 +7,7 @@ import type {
 } from "@nestrix-js/protocol";
 
 import type { ChartSeries } from "@/components/kit/line-chart";
+import { categoryColor, percentileColor } from "@/components/kit/series-colors";
 import { formatDuration } from "@/lib/format";
 import { formatMemoryAxis } from "@/views/runtime/runtime-format";
 
@@ -88,7 +89,8 @@ export function unitLabel(valueUnit: string): string {
     case "By":
       return "bytes";
     case "s":
-      return "seconds";
+      // The axis shows milliseconds, and seconds from one second.
+      return "duration (ms, s from 1 s)";
     case "s/s":
       return "share of one core (100% = one core)";
     case "1":
@@ -153,20 +155,12 @@ export interface ShapedSeries {
   cappedAt: { shown: number; total: number } | null;
 }
 
-const COLORS = [
-  "--chart-1",
-  "--chart-2",
-  "--chart-3",
-  "--chart-4",
-  "--chart-5",
-];
-
 /** Columns for a chart from a series response; `null` stays `null` so the line breaks. */
 export function shapeSeries(response: MetricSeriesResponse): ShapedSeries {
   const xs = response.timestamps.map((t) => t / 1000);
   const series: ChartSeries[] = response.series.map((s, i) => ({
     label: s.label,
-    color: COLORS[i % COLORS.length] as string,
+    color: percentileColor(s.label) ?? categoryColor(i),
     values: s.values.map((v) => (v === null || !Number.isFinite(v) ? null : v)),
   }));
   const present = response.timestamps.map((_, i) =>
