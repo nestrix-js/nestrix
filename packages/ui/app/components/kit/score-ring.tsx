@@ -1,4 +1,5 @@
 import { ringDasharray } from "@/components/kit/format";
+import { cn } from "@/lib/utils";
 
 /**
  * A score as a ring that is `score` percent full with the number inside (the Overview's health
@@ -10,12 +11,18 @@ export function ScoreRing({
   label,
   caption = "health",
   valueTestId,
+  text,
+  valueClassName,
 }: {
   score: number;
   color: string;
   label: string;
   caption?: string;
   valueTestId?: string;
+  /** What to write inside instead of `score` ("50%", "−150%"). */
+  text?: string;
+  /** Extra classes of the number, e.g. a danger colour. */
+  valueClassName?: string;
 }) {
   const r = 48;
   return (
@@ -49,9 +56,14 @@ export function ScoreRing({
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span
           data-testid={valueTestId}
-          className="text-3xl font-bold leading-none"
+          className={cn(
+            "font-bold leading-none",
+            // "−150%" is wider than the ring's hole at the larger size.
+            (text ?? String(score)).length > 4 ? "text-2xl" : "text-3xl",
+            valueClassName,
+          )}
         >
-          {score}
+          {text ?? score}
         </span>
         <span className="text-xs text-muted-foreground">{caption}</span>
       </div>

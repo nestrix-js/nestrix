@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { getMeta, setActiveEnvironment, signOut } from "@/lib/api";
 import { readConfig } from "@/lib/config";
 import { useEnvironment } from "@/lib/environment";
-import { samplingNotice } from "@/lib/format";
+import { samplingNotice, showsSamplingNotice } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
 import { useService } from "@/lib/service";
 import { cn } from "@/lib/utils";
@@ -72,7 +72,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         ? "paused"
         : "live";
   const serviceName = meta.data?.service.name ?? readConfig().service;
-  const notice = meta.data ? samplingNotice(meta.data.sampling) : null;
   const standalone = meta.data?.mode === "standalone";
   const profilerOn =
     meta.data?.profiler?.available === true ||
@@ -101,6 +100,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // The route detail page belongs to Routes: that tab stays marked while it is open.
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const onRouteDetail = pathname === "/route";
+  const notice = meta.data ? samplingNotice(meta.data.sampling) : null;
   const keepParams = new URLSearchParams();
   if (selected) keepParams.set("service", selected);
   if (selectedEnvironment) keepParams.set("environment", selectedEnvironment);
@@ -141,9 +141,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               standalone server
             </Chip>
           )}
-          {notice && (
-            <Chip data-testid="sampling-notice" tone="neutral">
-              {notice}
+          {notice && showsSamplingNotice(pathname) && (
+            <Chip
+              data-testid="sampling-notice"
+              tone="neutral"
+              title={notice.title}
+            >
+              {notice.text}
             </Chip>
           )}
           <div className="ml-auto flex flex-wrap items-center gap-2 sm:gap-3">

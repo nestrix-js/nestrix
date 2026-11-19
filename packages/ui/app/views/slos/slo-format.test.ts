@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   budgetBarPercent,
+  budgetCaption,
   budgetState,
   describeBudget,
   emptyForm,
+  formatBudgetPercent,
   formatBurnRate,
   formatPercent,
   toRequest,
@@ -53,6 +55,27 @@ describe("burn rate and budget text", () => {
     expect(describeBudget(0.984)).toBe("98.4% of the budget left");
     expect(describeBudget(-0.4)).toBe("budget overspent by 40%");
     expect(describeBudget(null)).toBe("no requests in the window");
+  });
+});
+
+describe("budget ring text", () => {
+  it("shows the remaining budget as a whole percentage", () => {
+    expect(formatBudgetPercent(0.5)).toBe("50%");
+    expect(formatBudgetPercent(0.004)).toBe("0%");
+    expect(formatBudgetPercent(1)).toBe("100%");
+    expect(budgetCaption(0.5)).toBe("budget left");
+    expect(budgetCaption(0)).toBe("budget spent");
+  });
+
+  it("shows an overspent budget as the overspend, never as 0%", () => {
+    expect(formatBudgetPercent(-1.5)).toBe("\u2212150%");
+    expect(formatBudgetPercent(-0.4)).toBe("\u221240%");
+    expect(budgetCaption(-1.5)).toBe("over budget");
+  });
+
+  it("shows no data without requests", () => {
+    expect(formatBudgetPercent(null)).toBe("\u2014");
+    expect(budgetCaption(null)).toBe("no data");
   });
 });
 

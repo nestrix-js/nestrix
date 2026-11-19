@@ -29,6 +29,7 @@ import {
 import { donutSlices } from "@/components/kit/format";
 import { Heatmap } from "@/components/kit/heatmap";
 import { PageHeader } from "@/components/kit/page-header";
+import { PageNote } from "@/components/kit/page-note";
 import { Section } from "@/components/kit/section";
 import { SegmentedControl } from "@/components/kit/segmented-control";
 import { SkeletonChart, SkeletonKpiStrip } from "@/components/kit/skeletons";
@@ -633,14 +634,11 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
           </>
         }
       />
-      <p
-        data-testid="groups-note"
-        className="-mt-3 text-xs text-muted-foreground"
-      >
+      <PageNote testId="groups-note">
         Grouped from the stored traces, which are sampled: counts cover the
         errors in stored traces, last {shownWindow} minutes, not every error
         that happened.
-      </p>
+      </PageNote>
 
       {groups.isPending && (
         <>

@@ -45,10 +45,10 @@ for (const scheme of ["dark", "light"] as const) {
     await expect(
       page.getByTestId("kpi-requests").getByTestId("kpi-value"),
     ).not.toHaveText("");
-    // The API gives no previous window here, so the change is an honest dash.
+    // The API gives no previous window here, so no change is drawn.
     await expect(
       page.getByTestId("kpi-requests").getByTestId("delta"),
-    ).toHaveAttribute("data-tone", "unknown");
+    ).toHaveCount(0);
     // The slowest request links to its trace.
     await expect(page.getByTestId("kpi-slowest-link")).toHaveAttribute(
       "href",

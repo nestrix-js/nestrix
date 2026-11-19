@@ -147,9 +147,9 @@ test("lists rules with their condition, state, no-data and sampling notes", asyn
   await expect(page.getByTestId("alerts-note")).toContainText(
     "fewer requests than the rule's minimum",
   );
-  await expect(page.getByTestId("alerts-sampling")).toContainText(
-    "reflect the sampling of the services",
-  );
+  // Alerts read rollups, not sampled traces: the page says nothing about sampling.
+  await expect(page.getByTestId("alerts-note")).not.toContainText("sampl");
+  await expect(page.getByTestId("alerts-sampling")).toHaveCount(0);
   expect(problems).toEqual([]);
   expect(await violations(page)).toEqual([]);
 });

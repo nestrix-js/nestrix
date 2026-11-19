@@ -291,11 +291,11 @@ test("connection state follows the server", async ({ page }) => {
 test("the sampling notice follows meta.sampling", async ({ page }) => {
   const notice = page.getByTestId("sampling-notice");
   await open(page);
-  await expect(notice).toHaveText("lists are sampled");
+  await expect(notice).toHaveText("traces sampled at 25%");
 
   mock.sampling = { owner: "host", rate: null };
   await page.reload();
-  await expect(notice).toHaveText("lists may be sampled");
+  await expect(notice).toHaveText("traces may be sampled");
 
   mock.sampling = { owner: "nestrix", rate: 1 };
   await page.reload();

@@ -348,9 +348,11 @@ export function RouteDetailPage() {
                     </span>
                     <Delta text={k.delta} tone={k.tone} />
                   </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    was {k.was}
-                  </div>
+                  {k.was !== "—" && (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      was {k.was}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

@@ -9,7 +9,6 @@ import {
   ErrorState,
   KpiStrip,
   PageHeader,
-  ScoreRing,
   SkeletonKpiStrip,
   SkeletonList,
   StatTile,
@@ -19,14 +18,15 @@ import { Input } from "@/components/ui/input";
 import { createSlo, deleteSlo, getMeta, getSlos, updateSlo } from "@/lib/api";
 import { pollInterval, usePaused } from "@/lib/live";
 import { cn } from "@/lib/utils";
+import { BudgetRing } from "@/views/slos/budget-ring";
 import {
   budgetBarPercent,
-  budgetColor,
   budgetState,
   burnBarPercent,
   describeBudget,
   describeIndicator,
   emptyForm,
+  formatBudgetPercent,
   formatBurnRate,
   formatPercent,
   formFromSlo,
@@ -206,16 +206,27 @@ function SloFormPanel({
 
 const BURN_SCALE_MIN = 2;
 
+/** The end of the burn-rate scale shared by every card: at least the largest rate shown. */
+function burnScaleMax(slos: readonly Slo[]): number {
+  return Math.max(
+    BURN_SCALE_MIN,
+    ...slos.flatMap((s) => [
+      s.status.burnRate["1h"] ?? 0,
+      s.status.burnRate["6h"] ?? 0,
+    ]),
+  );
+}
+
 /**
- * Burn rate of the last 1 h and 6 h as two bars on one scale. 1x is the pace that spends the
- * budget exactly over the window (the marker); the API gives these two windows, not a series.
+ * Burn rate of the last 1 h and 6 h as two bars on one scale, the same on every card so bars
+ * compare across SLOs. 1x is the pace that spends the budget exactly over the window (the
+ * marker, explained once under the list); the API gives these two windows, not a series.
  */
-function BurnBars({ slo }: { slo: Slo }) {
+function BurnBars({ slo, max }: { slo: Slo; max: number }) {
   const rates = [
     { id: "1h", label: "1 h", rate: slo.status.burnRate["1h"] },
     { id: "6h", label: "6 h", rate: slo.status.burnRate["6h"] },
   ] as const;
-  const max = Math.max(BURN_SCALE_MIN, ...rates.map((r) => r.rate ?? 0));
   const marker = burnBarPercent(1, max);
   const takeaway = rates
     .map((r) => `${r.label} ${formatBurnRate(r.rate)}`)
@@ -259,14 +270,19 @@ function BurnBars({ slo }: { slo: Slo }) {
           );
         })}
       </div>
-      <p className="text-xs text-muted-foreground">
-        Marker: 1x, the pace that spends the budget over the window.
-      </p>
     </div>
   );
 }
 
-function SloCard({ slo, onEdit }: { slo: Slo; onEdit: () => void }) {
+function SloCard({
+  slo,
+  burnMax,
+  onEdit,
+}: {
+  slo: Slo;
+  burnMax: number;
+  onEdit: () => void;
+}) {
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState(false);
   const remove = useMutation({
@@ -324,8 +340,9 @@ function SloCard({ slo, onEdit }: { slo: Slo; onEdit: () => void }) {
             </>
           ) : (
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
+              className="border-destructive/40 text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
               onClick={() => setConfirming(true)}
             >
               Delete
@@ -343,11 +360,9 @@ function SloCard({ slo, onEdit }: { slo: Slo; onEdit: () => void }) {
           data-testid="budget-bar"
           className="mx-auto md:mx-0"
         >
-          <ScoreRing
-            score={width}
-            color={budgetColor(state)}
-            label={describeBudget(status.errorBudget.remainingFraction)}
-            caption={state === "none" ? "no data" : "budget left"}
+          <BudgetRing
+            remainingFraction={status.errorBudget.remainingFraction}
+            name={slo.name}
           />
         </div>
         <div className="min-w-0 space-y-3">
@@ -380,7 +395,7 @@ function SloCard({ slo, onEdit }: { slo: Slo; onEdit: () => void }) {
               ` (${Math.round(status.badRequests)} bad of ${status.totalRequests} requests)`}
           </p>
         </div>
-        <BurnBars slo={slo} />
+        <BurnBars slo={slo} max={burnMax} />
       </div>
     </li>
   );
@@ -456,14 +471,7 @@ export function SlosPage() {
           <StatTile
             testId="kpi-budget"
             label="Lowest budget left"
-            value={
-              lowest === null
-                ? "—"
-                : lowest < 0
-                  ? `-${Math.round(-lowest * 100)}`
-                  : String(Math.round(lowest * 100))
-            }
-            unit={lowest === null ? undefined : "%"}
+            value={formatBudgetPercent(lowest)}
             source="the SLO closest to spending it"
           />
           <StatTile
@@ -502,11 +510,25 @@ export function SlosPage() {
       )}
       {slos.data !== undefined &&
         (list.length > 0 ? (
-          <ul className="space-y-4" data-testid="slos">
-            {list.map((slo) => (
-              <SloCard key={slo.id} slo={slo} onEdit={() => setPanel(slo)} />
-            ))}
-          </ul>
+          <>
+            <ul className="space-y-4" data-testid="slos">
+              {list.map((slo) => (
+                <SloCard
+                  key={slo.id}
+                  slo={slo}
+                  burnMax={burnScaleMax(list)}
+                  onEdit={() => setPanel(slo)}
+                />
+              ))}
+            </ul>
+            <p
+              data-testid="burn-note"
+              className="text-xs text-muted-foreground"
+            >
+              Burn rate: the thin marker on each bar is 1x, the pace that spends
+              the budget exactly over the window. All bars share one scale.
+            </p>
+          </>
         ) : (
           <EmptyState testId="slos-empty" title="No SLOs yet">
             Use New SLO above to track an objective, such as 99.9% of checkout

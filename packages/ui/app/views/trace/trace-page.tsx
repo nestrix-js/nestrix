@@ -65,6 +65,15 @@ function Fact({
   );
 }
 
+/** Why a trace can be missing, by where the dashboard runs: they keep traces differently. */
+export function notFoundText(mode: "embedded" | "standalone" | undefined) {
+  if (mode === "standalone")
+    return "The server has no trace with this id. It keeps traces for its retention period, so this one may have been removed, or the id belongs to another server.";
+  if (mode === "embedded")
+    return "This trace is no longer in memory. Nestrix keeps a bounded number of recent traces in this process, and older ones are evicted.";
+  return "This trace is not available. It may have expired, or the id may be wrong.";
+}
+
 export function TracePage({ traceId }: { traceId: string }) {
   const [service] = useService();
   const [environment] = useEnvironment();
@@ -104,19 +113,19 @@ export function TracePage({ traceId }: { traceId: string }) {
             testId="trace-evicted"
             title="Trace not found"
             action={
-              <p className="text-sm">
+              <div className="flex flex-col items-center gap-2">
+                <TraceId id={traceId} />
                 <Link
                   to="/requests"
-                  className="underline underline-offset-4"
+                  className="text-sm underline underline-offset-4"
                   data-testid="back-to-list"
                 >
                   Back to the request list
                 </Link>
-              </p>
+              </div>
             }
           >
-            This trace is no longer in memory. Nestrix keeps a bounded number of
-            recent traces, and older ones are evicted.
+            {notFoundText(meta.data?.mode)}
           </EmptyState>
         ) : (
           <ErrorState
@@ -127,9 +136,9 @@ export function TracePage({ traceId }: { traceId: string }) {
             retryLabel="Retry"
           />
         )}
-        <div className="flex flex-wrap items-center gap-3">
-          <TraceId id={traceId} />
-          {evicted ? null : (
+        {!evicted && (
+          <div className="flex flex-wrap items-center gap-3">
+            <TraceId id={traceId} />
             <Link
               to="/requests"
               className="text-sm underline underline-offset-4"
@@ -137,8 +146,8 @@ export function TracePage({ traceId }: { traceId: string }) {
             >
               Back to the request list
             </Link>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     );
   }

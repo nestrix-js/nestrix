@@ -18,9 +18,10 @@ import { useMemo, useState } from "react";
 import { DataTableSkeleton } from "@/components/data-table/data-table-skeleton";
 import { BarCell } from "@/components/kit/bar-cell";
 import { Chip } from "@/components/kit/chip";
-import { Delta } from "@/components/kit/delta";
+import { Delta, isUnknownDelta } from "@/components/kit/delta";
 import type { ChipTone } from "@/components/kit/format";
 import { PageHeader } from "@/components/kit/page-header";
+import { PageNote } from "@/components/kit/page-note";
 import { Section } from "@/components/kit/section";
 import { SegmentedControl } from "@/components/kit/segmented-control";
 import { SkeletonChart, SkeletonKpiStrip } from "@/components/kit/skeletons";
@@ -290,6 +291,10 @@ export function MapPage() {
     () => layoutMap(map.data?.nodes ?? [], map.data?.edges ?? []),
     [map.data],
   );
+  // The change column is dropped when no edge has a previous window to compare with.
+  const showChange = layout.edges.some(
+    (e) => !isUnknownDelta(edgeP95Change(e, map.data).text),
+  );
   const names = useMemo(
     () => new Map(layout.nodes.map((n) => [n.id, n.name])),
     [layout],
@@ -350,14 +355,11 @@ export function MapPage() {
           </>
         }
       />
-      <p
-        data-testid="map-note"
-        className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
-      >
+      <PageNote testId="map-note">
         The map is built from sampled traces: calls, error rates and percentiles
         describe the traces in the store, not every call.
         {standalone && ` ${STANDALONE_STATISTICS_NOTE}`}
-      </p>
+      </PageNote>
 
       {map.isPending && (
         <>
@@ -699,7 +701,9 @@ export function MapPage() {
                     <TableHead className="text-right">Error rate</TableHead>
                     <TableHead className="text-right">p50</TableHead>
                     <TableHead className="text-right">p95</TableHead>
-                    <TableHead className="text-right">p95 change</TableHead>
+                    {showChange && (
+                      <TableHead className="text-right">p95 change</TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -748,18 +752,20 @@ export function MapPage() {
                           color="--chart-2"
                         />
                       </TableCell>
-                      <TableCell className="text-right">
-                        {(() => {
-                          const change = edgeP95Change(e, map.data);
-                          return (
-                            <Delta
-                              text={change.text}
-                              tone={change.tone}
-                              title={change.title}
-                            />
-                          );
-                        })()}
-                      </TableCell>
+                      {showChange && (
+                        <TableCell className="text-right">
+                          {(() => {
+                            const change = edgeP95Change(e, map.data);
+                            return (
+                              <Delta
+                                text={change.text}
+                                tone={change.tone}
+                                title={change.title}
+                              />
+                            );
+                          })()}
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>

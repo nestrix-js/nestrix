@@ -1,7 +1,11 @@
 import type * as React from "react";
 
-import { Delta } from "@/components/kit/delta";
+import { Delta, isUnknownDelta } from "@/components/kit/delta";
 import type { Tone } from "@/components/kit/format";
+import {
+  usePageSourceKind,
+  withoutPageSource,
+} from "@/components/kit/page-source";
 import { TrendLine } from "@/components/kit/trend-line";
 import { cn } from "@/lib/utils";
 
@@ -13,8 +17,9 @@ const tileColor: Record<Tone, string> = {
 
 /**
  * One headline number: label, the change against the previous window (omit `delta` when the
- * API gives none; pass "—" for unknown), value with its unit, a trend line when a series exists,
- * and the source line. Never invent a change; "—" is the honest answer.
+ * API gives none), value with its unit, a trend line when a series exists, and the source line.
+ * Never invent a change. "—" means unknown: no change is drawn, and `deltaTitle` (why there is
+ * none) becomes the tooltip of the label.
  */
 export function StatTile({
   testId,
@@ -34,7 +39,7 @@ export function StatTile({
   label: string;
   value: string;
   unit?: string;
-  /** Formatted change ("+12%"); "—" for unknown; omit for no change row. */
+  /** Formatted change ("+12%"); omit (or "—") for no change shown. */
   delta?: string;
   deltaTone?: Tone;
   /** Tooltip of an unknown change (why there is none). */
@@ -49,14 +54,24 @@ export function StatTile({
   /** Anything extra under the trend (a link, a second line). */
   footer?: React.ReactNode;
 }) {
+  const page = usePageSourceKind();
+  const shownSource =
+    source === undefined ? undefined : withoutPageSource(source, page);
+  const unknown = delta !== undefined && isUnknownDelta(delta);
   return (
     <div
       data-testid={testId}
+      data-delta={unknown ? "unknown" : undefined}
       className="flex min-w-0 flex-col gap-1 rounded-lg border border-border p-4"
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-xs text-muted-foreground">{label}</span>
-        {delta !== undefined && (
+        <span
+          title={unknown ? deltaTitle : undefined}
+          className="truncate text-xs text-muted-foreground"
+        >
+          {label}
+        </span>
+        {delta !== undefined && !unknown && (
           <Delta text={delta} tone={deltaTone} title={deltaTitle} />
         )}
       </div>
@@ -78,9 +93,9 @@ export function StatTile({
         />
       )}
       {footer}
-      {source && (
+      {shownSource && (
         <span className="break-words text-xs text-muted-foreground">
-          {source}
+          {shownSource}
         </span>
       )}
     </div>
