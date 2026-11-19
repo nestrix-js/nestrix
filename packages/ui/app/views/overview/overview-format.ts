@@ -201,28 +201,45 @@ export function apdexShares(totals: OverviewTotals): {
 export const STATUS_PARTS: readonly {
   key: keyof OverviewStatusMix;
   label: string;
+  /** What the legend shows; `label` is its tooltip. */
+  short: string;
   color: string;
 }[] = [
-  { key: "ok", label: "Success (1xx, 2xx)", color: "--success" },
-  { key: "redirect", label: "Redirect (3xx)", color: "--chart-5" },
-  { key: "clientError", label: "Client error (4xx)", color: "--warning" },
+  { key: "ok", label: "Success (1xx, 2xx)", short: "2xx", color: "--success" },
+  {
+    key: "redirect",
+    label: "Redirect (3xx)",
+    short: "3xx",
+    color: "--chart-5",
+  },
+  {
+    key: "clientError",
+    label: "Client error (4xx)",
+    short: "4xx",
+    color: "--warning",
+  },
   {
     key: "serverError",
     label: "Server error (5xx, thrown)",
+    short: "5xx",
     color: "--destructive",
   },
 ];
 
 export const TIME_KINDS: Record<
   OverviewTimeShare["key"],
-  { label: string; color: string }
+  {
+    label: string /** The legend's wording; `label` is its tooltip. */;
+    short: string;
+    color: string;
+  }
 > = {
-  db: { label: "Database", color: "--chart-1" },
-  "http-out": { label: "Outgoing HTTP", color: "--chart-3" },
-  redis: { label: "Redis", color: "--chart-5" },
-  messaging: { label: "Messaging", color: "--chart-4" },
-  app: { label: "App code (Nest)", color: "--chart-2" },
-  other: { label: "Other", color: "--muted-foreground" },
+  db: { label: "Database", short: "Database", color: "--chart-1" },
+  "http-out": { label: "Outgoing HTTP", short: "HTTP out", color: "--chart-3" },
+  redis: { label: "Redis", short: "Redis", color: "--chart-5" },
+  messaging: { label: "Messaging", short: "Messaging", color: "--chart-4" },
+  app: { label: "App code (Nest)", short: "App code", color: "--chart-2" },
+  other: { label: "Other", short: "Other", color: "--muted-foreground" },
 };
 
 /** Change of a time share against the previous window, in points: "+12 pt"; "—" without one. */

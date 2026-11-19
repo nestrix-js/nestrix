@@ -82,6 +82,8 @@ export function Swatch({ color }: { color: string }) {
 export interface LegendItem {
   key: string;
   label: string;
+  /** Tooltip with the full wording when `label` is a short one. */
+  title?: string;
   /** A CSS custom property. */
   color: string;
   /** The formatted value shown at the right ("42%", "1.2k"). */
@@ -108,7 +110,10 @@ export function DonutLegend({
           className="flex items-center gap-2"
         >
           <Swatch color={item.color} />
-          <span className="min-w-0 flex-1 truncate" title={item.label}>
+          <span
+            className="min-w-0 flex-1 truncate"
+            title={item.title ?? item.label}
+          >
             {item.label}
           </span>
           {item.value !== undefined && (

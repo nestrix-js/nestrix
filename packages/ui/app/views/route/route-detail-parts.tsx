@@ -296,12 +296,56 @@ export function KindsCard({
   );
 }
 
-function HeadRow({ cols }: { cols: { label: string; right?: boolean }[] }) {
+/** Hidden below `sm`: the figures of these columns move under the name in a phone's width. */
+const WIDE = "hidden sm:table-cell";
+
+/** The figures a phone's width takes out of the table, stacked under the row's name. */
+function Stacked({ children }: { children: ReactNode }) {
+  return (
+    <div className="mt-1 space-y-0.5 text-xs text-muted-foreground sm:hidden">
+      {children}
+    </div>
+  );
+}
+
+function StackedPair({
+  label,
+  before,
+  after,
+  delta,
+  tone,
+}: {
+  label: string;
+  before: string;
+  after: string;
+  delta: string;
+  tone: Parameters<typeof Delta>[0]["tone"];
+}) {
+  if (before === "—" && after === "—") return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-1.5">
+      <span>{label}</span>
+      <span className="font-mono">
+        {before} → <span className="text-foreground">{after}</span>
+      </span>
+      <Delta text={delta} tone={tone} />
+    </div>
+  );
+}
+
+function HeadRow({
+  cols,
+}: {
+  cols: { label: string; right?: boolean; wide?: boolean }[];
+}) {
   return (
     <TableHeader>
       <TableRow className="hover:bg-transparent">
         {cols.map((c) => (
-          <TableHead key={c.label} className={cn(c.right && "text-right")}>
+          <TableHead
+            key={c.label}
+            className={cn(c.right && "text-right", c.wide && WIDE)}
+          >
             {c.label}
           </TableHead>
         ))}
@@ -324,9 +368,9 @@ export function StatementsCard({ rows }: { rows: ExplainStatementRow[] }) {
           <HeadRow
             cols={[
               { label: "Statement" },
-              { label: "Calls per request", right: true },
+              { label: "Calls per request", right: true, wide: true },
               { label: "Time per request", right: true },
-              { label: "Each (after)", right: true },
+              { label: "Each (after)", right: true, wide: true },
             ]}
           />
           <TableBody>
@@ -335,7 +379,7 @@ export function StatementsCard({ rows }: { rows: ExplainStatementRow[] }) {
                 key={`${r.system}\u0000${r.statement}`}
                 data-testid="statement-row"
               >
-                <TableCell className="max-w-[28rem]">
+                <TableCell className="max-w-[9rem] sm:max-w-[28rem]">
                   <div
                     className="truncate font-mono text-xs"
                     title={r.statement}
@@ -345,8 +389,27 @@ export function StatementsCard({ rows }: { rows: ExplainStatementRow[] }) {
                   <Badge variant="outline" className="mt-1">
                     {r.system}
                   </Badge>
+                  <Stacked>
+                    <StackedPair
+                      label="Calls"
+                      before={formatCalls(r.beforeCalls)}
+                      after={formatCalls(r.afterCalls)}
+                      delta={formatCallsDelta(r.beforeCalls, r.afterCalls)}
+                      tone={callsTone(r.beforeCalls, r.afterCalls)}
+                    />
+                    {r.afterEachMs !== null && (
+                      <div>
+                        Each{" "}
+                        <span className="font-mono text-foreground">
+                          {formatDuration(r.afterEachMs)}
+                        </span>
+                        {r.beforeEachMs !== null &&
+                          `, was ${formatDuration(r.beforeEachMs)}`}
+                      </div>
+                    )}
+                  </Stacked>
                 </TableCell>
-                <TableCell>
+                <TableCell className={WIDE}>
                   <Pair
                     before={formatCalls(r.beforeCalls)}
                     after={formatCalls(r.afterCalls)}
@@ -362,7 +425,7 @@ export function StatementsCard({ rows }: { rows: ExplainStatementRow[] }) {
                     tone={msTone(r.beforeMs, r.afterMs)}
                   />
                 </TableCell>
-                <TableCell className="text-right font-mono">
+                <TableCell className={cn("text-right font-mono", WIDE)}>
                   {r.afterEachMs === null ? "—" : formatDuration(r.afterEachMs)}
                   {r.beforeEachMs !== null && (
                     <div className="text-xs text-muted-foreground">
@@ -393,15 +456,26 @@ export function MethodsCard({ rows }: { rows: ExplainMethodRow[] }) {
           <HeadRow
             cols={[
               { label: "Method" },
-              { label: "Calls per request", right: true },
+              { label: "Calls per request", right: true, wide: true },
               { label: "Own time per request", right: true },
             ]}
           />
           <TableBody>
             {rows.map((r) => (
               <TableRow key={r.name} data-testid="method-row">
-                <TableCell className="font-mono text-xs">{r.name}</TableCell>
-                <TableCell>
+                <TableCell className="max-w-[9rem] whitespace-normal break-all font-mono text-xs sm:max-w-none sm:whitespace-nowrap">
+                  {r.name}
+                  <Stacked>
+                    <StackedPair
+                      label="Calls"
+                      before={formatCalls(r.beforeCalls)}
+                      after={formatCalls(r.afterCalls)}
+                      delta={formatCallsDelta(r.beforeCalls, r.afterCalls)}
+                      tone={callsTone(r.beforeCalls, r.afterCalls)}
+                    />
+                  </Stacked>
+                </TableCell>
+                <TableCell className={WIDE}>
                   <Pair
                     before={formatCalls(r.beforeCalls)}
                     after={formatCalls(r.afterCalls)}
@@ -440,9 +514,9 @@ export function DependenciesCard({ rows }: { rows: ExplainDependencyRow[] }) {
           <HeadRow
             cols={[
               { label: "Dependency" },
-              { label: "Calls per request", right: true },
+              { label: "Calls per request", right: true, wide: true },
               { label: "Time per request", right: true },
-              { label: "Failed calls", right: true },
+              { label: "Failed calls", right: true, wide: true },
             ]}
           />
           <TableBody>
@@ -451,13 +525,34 @@ export function DependenciesCard({ rows }: { rows: ExplainDependencyRow[] }) {
                 key={`${r.kind}:${r.name}`}
                 data-testid="dependency-row"
               >
-                <TableCell>
-                  <span className="font-mono text-xs">{r.name}</span>
+                <TableCell className="max-w-[9rem] whitespace-normal sm:max-w-none sm:whitespace-nowrap">
+                  <span className="break-words font-mono text-xs">
+                    {r.name}
+                  </span>
                   <Badge variant="outline" className="ml-2">
                     {r.kind}
                   </Badge>
+                  <Stacked>
+                    <StackedPair
+                      label="Calls"
+                      before={formatCalls(r.beforeCalls)}
+                      after={formatCalls(r.afterCalls)}
+                      delta={formatCallsDelta(r.beforeCalls, r.afterCalls)}
+                      tone={callsTone(r.beforeCalls, r.afterCalls)}
+                    />
+                    <StackedPair
+                      label="Failed"
+                      before={formatRateOrDash(r.beforeErrorRate)}
+                      after={formatRateOrDash(r.afterErrorRate)}
+                      delta={formatRateDelta(
+                        r.beforeErrorRate,
+                        r.afterErrorRate,
+                      )}
+                      tone={rateTone(r.beforeErrorRate, r.afterErrorRate)}
+                    />
+                  </Stacked>
                 </TableCell>
-                <TableCell>
+                <TableCell className={WIDE}>
                   <Pair
                     before={formatCalls(r.beforeCalls)}
                     after={formatCalls(r.afterCalls)}
@@ -473,7 +568,7 @@ export function DependenciesCard({ rows }: { rows: ExplainDependencyRow[] }) {
                     tone={msTone(r.beforeMs, r.afterMs)}
                   />
                 </TableCell>
-                <TableCell>
+                <TableCell className={WIDE}>
                   <Pair
                     before={formatRateOrDash(r.beforeErrorRate)}
                     after={formatRateOrDash(r.afterErrorRate)}
@@ -519,15 +614,20 @@ export function ErrorsCard({
           <HeadRow
             cols={[
               { label: "Type" },
-              { label: "Example message" },
+              { label: "Example message", wide: true },
               { label: "Traces", right: true },
             ]}
           />
           <TableBody>
             {rows.map((r) => (
               <TableRow key={r.type} data-testid="error-row">
-                <TableCell className="font-mono text-xs">{r.type}</TableCell>
-                <TableCell className="max-w-[24rem]">
+                <TableCell className="max-w-[9rem] whitespace-normal break-all font-mono text-xs sm:max-w-none sm:whitespace-nowrap">
+                  {r.type}
+                  <div className="mt-1 break-words font-sans text-muted-foreground sm:hidden">
+                    {r.message}
+                  </div>
+                </TableCell>
+                <TableCell className={cn("max-w-[24rem]", WIDE)}>
                   <div className="truncate text-xs" title={r.message}>
                     {r.message}
                   </div>
@@ -563,7 +663,7 @@ export function SlowestCard({
     <Section
       title="Slowest traces"
       testId="card-slowest"
-      source={`${afterName}: the slowest sampled traces, each bar shows its time by kind`}
+      source={`${afterName}: slowest traces, each bar shows its time by kind`}
     >
       {traces.length === 0 ? (
         <Empty>No traces on the later side.</Empty>
