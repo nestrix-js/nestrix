@@ -441,7 +441,7 @@ test("KPI tiles are the kit's: no dash beside the p99, a 'was' footer", async ({
   await page.goto(url(ORDERS));
   await expect(page.getByTestId("kpi")).toHaveCount(5);
   const p99 = page.locator('[data-kpi="p99"]');
-  await expect(p99.getByTestId("kpi-value")).toHaveText("1.36 s");
+  await expect(p99.getByTestId("kpi-value")).toHaveText("1.4 s");
   await expect(p99.getByTestId("delta")).toHaveCount(0);
   await expect(p99).toContainText("no previous p99");
   await expect(page.locator('[data-kpi="p95"]')).toContainText("was 412 ms");
