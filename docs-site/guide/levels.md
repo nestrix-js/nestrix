@@ -85,7 +85,7 @@ A database span is a child of the method or request that ran the query. Spans us
 ```ts
 NestrixModule.forRoot({
   integrations: {
-    pg: true, // the default; false turns it off
+    pg: { rootSpans: false }, // on by default; false turns it off
     mysql2: true, // opt-in
     ioredis: { rootSpans: false }, // opt-in
   },
@@ -100,7 +100,7 @@ NestrixModule.forRoot({
 
 **`pg` and nested copies.** An ORM may bring its own copy of `pg`. Nestrix wraps copies loaded when it starts and again at `onApplicationBootstrap`. A copy first loaded during a request is not traced.
 
-**`ioredis` and root commands.** A command with no active span (the connection handshake, commands queued before the connection was ready) is dropped by default. `ioredis: { rootSpans: true }` keeps them as root spans.
+**Queries and commands outside a trace.** A query or command with no active span is dropped by default: for `pg` and `mysql2`, start-up migrations, a scheduler's or workflow engine's poll and anything else outside a request, job or traced method; for `ioredis`, the connection handshake and commands queued before the connection was ready. Each would otherwise be a one-span trace of its own. `rootSpans: true` keeps them as root spans: `pg: { rootSpans: true }`, `mysql2: { rootSpans: true }`, `ioredis: { rootSpans: true }`. Before 0.9.0, `pg` and `mysql2` kept them (decision D-115).
 
 ## Mail and other outgoing channels
 

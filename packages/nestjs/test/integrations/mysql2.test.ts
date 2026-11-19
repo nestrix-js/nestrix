@@ -2,10 +2,11 @@
 // Global state: a host-style provider with an in-memory exporter, the ALS context manager and W3C
 // (outbound-helpers.ts); the mysql2 integration subscribed for the whole file.
 import { createRequire } from "node:module";
-import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
+import { context, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { setIntegrationFaultForTests } from "../../src/integrations/db-span.js";
 import { installIntegrations } from "../../src/integrations/index.js";
+import { SUPPRESS_TRACING_KEY } from "../../src/outbound/rules.js";
 import { recordingDiagnostics } from "../otel-helpers.js";
 import { inParent, resolved, setupTestTracing } from "../outbound-helpers.js";
 import {
@@ -187,5 +188,112 @@ describe.skipIf(reason !== undefined)("mysql2 against MySQL 8.4", () => {
     expect(sites).toContain("integrations.mysql2.query.start");
     expect(sites).toContain("integrations.mysql2.execute.start");
     expect(sites).toContain("integrations.mysql2.pool.start");
+  });
+
+  describe("no active span (D-115)", () => {
+    it("query and execute, connection and pool: no span; results unchanged", async () => {
+      const pool = mysql.createPool(config({ connectionLimit: 1 }));
+      try {
+        const a = await new Promise((res, rej) =>
+          conn.query("SELECT 1 AS a", cb(res, rej)),
+        );
+        const [b] = await conn.promise().execute("SELECT ? AS b", [2]);
+        const [c] = await pool.promise().query("SELECT 3 AS c");
+        expect(a).toEqual([{ a: 1 }]);
+        expect(b).toEqual([{ b: 2 }]);
+        expect(c).toEqual([{ c: 3 }]);
+      } finally {
+        await pool.promise().end();
+      }
+      expect(spans()).toEqual([]);
+    });
+
+    it("the same query inside a request span is still its child", async () => {
+      await conn.promise().query("SELECT 1 AS same");
+      const { parent } = await inParent(() =>
+        conn.promise().query("SELECT 1 AS same"),
+      );
+      const [span, ...rest] = spans();
+      expect(rest).toEqual([]);
+      expect(span && parentId(span)).toBe(parent.spanContext().spanId);
+    });
+
+    it("an untraced pool caller served from a traced caller's release is not parented to it", async () => {
+      const pool = mysql.createPool(config({ connectionLimit: 1 }));
+      try {
+        const held = await new Promise<{
+          release(): void;
+          query: (...args: unknown[]) => unknown;
+        }>((res, rej) => pool.getConnection(cb(res, rej)));
+        const untraced = new Promise((res, rej) =>
+          pool.query("SELECT 2 AS untraced", cb(res, rej)),
+        );
+        const { parent } = await inParent(async () => {
+          await new Promise((res, rej) =>
+            held.query("SELECT 1 AS traced", cb(res, rej)),
+          );
+          held.release();
+        });
+        expect(await untraced).toEqual([{ untraced: 2 }]);
+        const found = spans();
+        expect(found.map((x) => x.attributes["db.query.text"])).toEqual([
+          "SELECT ? AS traced",
+        ]);
+        expect(found[0] && parentId(found[0])).toBe(
+          parent.spanContext().spanId,
+        );
+      } finally {
+        await pool.promise().end();
+      }
+    });
+
+    it("a context whose lookup throws: the query runs unchanged, the failure is counted", async () => {
+      const before = diagnostics.failures.length;
+      const hostile = {
+        getValue: (key: symbol) => {
+          if (key === SUPPRESS_TRACING_KEY) return undefined;
+          throw new Error("hostile context");
+        },
+        setValue: () => hostile,
+        deleteValue: () => hostile,
+      };
+      const rows = await context.with(
+        hostile as never,
+        () =>
+          new Promise((res, rej) => conn.query("SELECT 9 AS h", cb(res, rej))),
+      );
+      expect(rows).toEqual([{ h: 9 }]);
+      expect(spans()).toEqual([]);
+      expect(diagnostics.failures.slice(before).map((f) => f.where)).toContain(
+        "integrations.mysql2.query.start",
+      );
+    });
+
+    describe("rootSpans: true", () => {
+      beforeAll(() => {
+        dispose();
+        dispose = installIntegrations(
+          resolved({
+            integrations: { pg: false, mysql2: { rootSpans: true } },
+          }),
+          diagnostics,
+        );
+      });
+      afterAll(() => {
+        dispose();
+        dispose = installIntegrations(
+          resolved({ integrations: { pg: false, mysql2: true } }),
+          diagnostics,
+        );
+      });
+
+      it("keeps a query with no active span, as a root span", async () => {
+        await conn.promise().query("SELECT 1 AS rooted");
+        const [span, ...rest] = spans();
+        expect(rest).toEqual([]);
+        expect(span?.name).toBe("SELECT");
+        expect(span?.parentSpanContext).toBeUndefined();
+      });
+    });
   });
 });

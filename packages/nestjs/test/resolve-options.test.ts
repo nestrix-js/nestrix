@@ -58,7 +58,7 @@ describe("resolveOptions defaults", () => {
       methods: { enabled: true, include: [], exclude: [], enhancers: [] },
       metrics: { runtime: true, export: false },
       integrations: {
-        pg: { poolWaitThresholdMillis: 5 },
+        pg: { poolWaitThresholdMillis: 5, rootSpans: false },
         mysql2: false,
         ioredis: false,
       },

@@ -17,6 +17,9 @@
  * A query the callback starts on a later tick is still misparented; the fuller fix needs Nestrix
  * to own the context manager's AsyncLocalStorage (§4.4) and is not used.
  *
+ * mysql2: a query with no active span (after the pool fix above) gets no span unless `rootSpans`
+ * is on (D-115), as for ioredis and pg.
+ *
  * ioredis: a command with no active span (connection handshakes, commands queued before the
  * connection was ready) gets no span unless `rootSpans` is on (D-60). `ioredis:batch` (MULTI) and
  * `ioredis:connect` are not subscribed. The recorded text is the command and its first argument
@@ -172,6 +175,7 @@ interface Lent {
 
 function mysql2Subscriptions(
   diagnostics: Diagnostics,
+  rootSpans: boolean,
 ): Array<[string, Handlers]> {
   const callers = new WeakMap<object, Context>();
   const lent: Lent[] = [];
@@ -209,7 +213,9 @@ function mysql2Subscriptions(
     const active = context.active();
     const top = lent[lent.length - 1];
     const parent = top !== undefined && active === top.at ? top.caller : active;
-    return isSuppressed(parent) ? undefined : parent;
+    if (isSuppressed(parent)) return undefined;
+    if (!rootSpans && !hasActiveSpan(parent)) return undefined;
+    return parent;
   };
 
   const callOf = (m: Message): DbCall => {
@@ -367,8 +373,13 @@ function install(
   }
 }
 
-export function subscribeMysql2(diagnostics: Diagnostics): () => void {
-  return install("mysql2", diagnostics, () => mysql2Subscriptions(diagnostics));
+export function subscribeMysql2(
+  diagnostics: Diagnostics,
+  options: { rootSpans: boolean },
+): () => void {
+  return install("mysql2", diagnostics, () =>
+    mysql2Subscriptions(diagnostics, options.rootSpans),
+  );
 }
 
 export function subscribeIoredis(

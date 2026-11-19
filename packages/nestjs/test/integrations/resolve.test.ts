@@ -8,7 +8,7 @@ import {
 describe("integrations defaults and values", () => {
   it("pg on, mysql2 and ioredis off by default (D-49)", () => {
     expect(resolveOptions({}, {}).integrations).toEqual({
-      pg: { poolWaitThresholdMillis: 5 },
+      pg: { poolWaitThresholdMillis: 5, rootSpans: false },
       mysql2: false,
       ioredis: false,
     });
@@ -19,7 +19,7 @@ describe("integrations defaults and values", () => {
       resolveIntegrations({ pg: false, mysql2: true, ioredis: true }),
     ).toEqual({
       pg: false,
-      mysql2: true,
+      mysql2: { rootSpans: false },
       ioredis: { rootSpans: false },
     });
     expect(
@@ -36,20 +36,44 @@ describe("integrations defaults and values", () => {
   it("pg takes true or { poolWaitThresholdMillis } (D-98)", () => {
     expect(resolveIntegrations({ pg: true }).pg).toEqual({
       poolWaitThresholdMillis: 5,
+      rootSpans: false,
     });
     expect(resolveIntegrations({ pg: {} }).pg).toEqual({
       poolWaitThresholdMillis: 5,
+      rootSpans: false,
     });
     expect(
       resolveIntegrations({ pg: { poolWaitThresholdMillis: 0 } }).pg,
-    ).toEqual({ poolWaitThresholdMillis: 0 });
+    ).toEqual({ poolWaitThresholdMillis: 0, rootSpans: false });
     expect(
       resolveIntegrations({ pg: { poolWaitThresholdMillis: 12.5 } }).pg,
-    ).toEqual({ poolWaitThresholdMillis: 12.5 });
+    ).toEqual({ poolWaitThresholdMillis: 12.5, rootSpans: false });
     expect(
       resolveIntegrations({ pg: { poolWaitThresholdMillis: false } }).pg,
-    ).toEqual({ poolWaitThresholdMillis: false });
+    ).toEqual({ poolWaitThresholdMillis: false, rootSpans: false });
     expect(Object.isFrozen(resolveIntegrations({}).pg)).toBe(true);
+  });
+
+  it("pg and mysql2 take { rootSpans }, default false (D-115)", () => {
+    expect(resolveIntegrations({ pg: { rootSpans: true } }).pg).toEqual({
+      poolWaitThresholdMillis: 5,
+      rootSpans: true,
+    });
+    expect(
+      resolveIntegrations({
+        pg: { rootSpans: false, poolWaitThresholdMillis: 9 },
+      }).pg,
+    ).toEqual({ poolWaitThresholdMillis: 9, rootSpans: false });
+    expect(resolveIntegrations({ mysql2: { rootSpans: true } }).mysql2).toEqual(
+      { rootSpans: true },
+    );
+    expect(resolveIntegrations({ mysql2: {} }).mysql2).toEqual({
+      rootSpans: false,
+    });
+    expect(resolveIntegrations({ mysql2: false }).mysql2).toBe(false);
+    expect(Object.isFrozen(resolveIntegrations({ mysql2: true }).mysql2)).toBe(
+      true,
+    );
   });
 
   it("is frozen", () => {
@@ -62,7 +86,7 @@ describe("integrations defaults and values", () => {
     [{ pg: "yes" }, "integrations.pg must be a boolean"],
     [
       { pg: null },
-      "integrations.pg must be a boolean or { poolWaitThresholdMillis?: number | false }",
+      "integrations.pg must be a boolean or { poolWaitThresholdMillis?: number | false, rootSpans?: boolean }",
     ],
     [
       { pg: { poolWaitThresholdMillis: null } },
@@ -84,7 +108,26 @@ describe("integrations defaults and values", () => {
       { pg: { poolWaitThresholdMillis: true } },
       "integrations.pg.poolWaitThresholdMillis must be false or a finite number of at least 0",
     ],
-    [{ mysql2: 1 }, "integrations.mysql2 must be a boolean"],
+    [
+      { mysql2: 1 },
+      "integrations.mysql2 must be a boolean or { rootSpans?: boolean }",
+    ],
+    [
+      { mysql2: [] },
+      "integrations.mysql2 must be a boolean or { rootSpans?: boolean }",
+    ],
+    [
+      { mysql2: { rootSpans: 1 } },
+      "integrations.mysql2.rootSpans must be a boolean",
+    ],
+    [
+      { pg: { rootSpans: "true" } },
+      "integrations.pg.rootSpans must be a boolean",
+    ],
+    [
+      { pg: { rootSpans: null } },
+      "integrations.pg.rootSpans must be a boolean",
+    ],
     [
       { ioredis: "on" },
       "integrations.ioredis must be a boolean or { rootSpans?: boolean }",

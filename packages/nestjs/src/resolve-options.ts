@@ -202,10 +202,15 @@ export interface ResolvedMetricExport {
   readonly intervalMillis: number;
 }
 
-/** `integrations`, defaults applied. `pg` and `ioredis` are `false` or their options. */
+/** `integrations`, defaults applied. Each is `false` or its options. */
 export interface ResolvedIntegrations {
-  readonly pg: false | { readonly poolWaitThresholdMillis: number | false };
-  readonly mysql2: boolean;
+  readonly pg:
+    | false
+    | {
+        readonly poolWaitThresholdMillis: number | false;
+        readonly rootSpans: boolean;
+      };
+  readonly mysql2: false | { readonly rootSpans: boolean };
   readonly ioredis: false | { readonly rootSpans: boolean };
 }
 
@@ -729,8 +734,10 @@ function checkBoolean(name: string, value: unknown): void {
 
 /**
  * `integrations` (P3-01): `pg` defaults to `true` (on when installed), `mysql2` and `ioredis` to
- * `false` (D-49). `pg` takes `true` or `{ poolWaitThresholdMillis }` (D-98, default 5). `ioredis` takes `true` or `{ rootSpans }` (D-60: root commands dropped unless
- * `rootSpans` is `true`). Anything else throws at `forRoot()`.
+ * `false` (D-49). `pg` takes `true` or `{ poolWaitThresholdMillis, rootSpans }` (D-98, default 5;
+ * D-115), `mysql2` and `ioredis` take `true` or `{ rootSpans }` (D-60, D-115). `rootSpans`
+ * defaults to `false`: a query or command with no active span gets no span. Anything else throws
+ * at `forRoot()`.
  */
 export function resolveIntegrations(
   integrations: NestrixIntegrationsOptions | undefined,
@@ -745,9 +752,9 @@ export function resolveIntegrations(
   let pg: ResolvedIntegrations["pg"] = false;
   const p: unknown = i.pg;
   const pgShape =
-    "integrations.pg must be a boolean or { poolWaitThresholdMillis?: number | false }";
+    "integrations.pg must be a boolean or { poolWaitThresholdMillis?: number | false, rootSpans?: boolean }";
   if (p === true || p === undefined) {
-    pg = Object.freeze({ poolWaitThresholdMillis: 5 });
+    pg = Object.freeze({ poolWaitThresholdMillis: 5, rootSpans: false });
   } else if (p !== false) {
     if (p === null || typeof p !== "object" || Array.isArray(p))
       invalid(pgShape);
@@ -764,30 +771,35 @@ export function resolveIntegrations(
         `integrations.pg.poolWaitThresholdMillis must be false or a finite number of at least 0, got ${String(threshold)}`,
       );
     }
+    const rootSpans = (p as { rootSpans?: unknown }).rootSpans;
+    checkBoolean("integrations.pg.rootSpans", rootSpans);
     pg = Object.freeze({
       poolWaitThresholdMillis: threshold as number | false,
+      rootSpans: rootSpans === true,
     });
-  }
-  checkBoolean("integrations.mysql2", i.mysql2);
-  let ioredis: ResolvedIntegrations["ioredis"] = false;
-  const r: unknown = i.ioredis;
-  if (r === true) {
-    ioredis = Object.freeze({ rootSpans: false });
-  } else if (r !== undefined && r !== false) {
-    if (r === null || typeof r !== "object" || Array.isArray(r)) {
-      invalid(
-        "integrations.ioredis must be a boolean or { rootSpans?: boolean }",
-      );
-    }
-    const rootSpans = (r as { rootSpans?: unknown }).rootSpans;
-    checkBoolean("integrations.ioredis.rootSpans", rootSpans);
-    ioredis = Object.freeze({ rootSpans: rootSpans === true });
   }
   return Object.freeze({
     pg,
-    mysql2: i.mysql2 ?? false,
-    ioredis,
+    mysql2: rootSpansOption("mysql2", i.mysql2),
+    ioredis: rootSpansOption("ioredis", i.ioredis),
   });
+}
+
+/** `mysql2` and `ioredis`: off by default; `true` or `{ rootSpans?: boolean }` (D-60, D-115). */
+function rootSpansOption(
+  name: "mysql2" | "ioredis",
+  value: unknown,
+): false | { readonly rootSpans: boolean } {
+  if (value === undefined || value === false) return false;
+  if (value === true) return Object.freeze({ rootSpans: false });
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    invalid(
+      `integrations.${name} must be a boolean or { rootSpans?: boolean }`,
+    );
+  }
+  const rootSpans = (value as { rootSpans?: unknown }).rootSpans;
+  checkBoolean(`integrations.${name}.rootSpans`, rootSpans);
+  return Object.freeze({ rootSpans: rootSpans === true });
 }
 
 const DECIMAL = /^(?:\d+(?:\.\d*)?|\.\d+)$/;

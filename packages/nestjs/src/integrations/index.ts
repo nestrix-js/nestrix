@@ -27,10 +27,16 @@ export function installIntegrations(
       waitThresholdMillis: integrations.pg.poolWaitThresholdMillis,
       metrics: options.metrics !== false,
     };
-    steps.push(["pg", () => enablePg(diagnostics, internals.pg, pool)]);
+    const { rootSpans } = integrations.pg;
+    steps.push([
+      "pg",
+      () => enablePg(diagnostics, internals.pg, pool, { rootSpans }),
+    ]);
   }
-  if (integrations.mysql2)
-    steps.push(["mysql2", () => subscribeMysql2(diagnostics)]);
+  if (integrations.mysql2 !== false) {
+    const { rootSpans } = integrations.mysql2;
+    steps.push(["mysql2", () => subscribeMysql2(diagnostics, { rootSpans })]);
+  }
   if (integrations.ioredis !== false) {
     const { rootSpans } = integrations.ioredis;
     steps.push(["ioredis", () => subscribeIoredis(diagnostics, { rootSpans })]);

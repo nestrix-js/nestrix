@@ -11,6 +11,7 @@ import {
 } from "../../src/integrations/db-span.js";
 import { installIntegrations } from "../../src/integrations/index.js";
 import { pgStatus } from "../../src/integrations/pg.js";
+import { SUPPRESS_TRACING_KEY } from "../../src/outbound/rules.js";
 import { recordingDiagnostics } from "../otel-helpers.js";
 import {
   closedPort,
@@ -18,6 +19,7 @@ import {
   resolved,
   setupTestTracing,
   suppressed,
+  unsampledParent,
 } from "../outbound-helpers.js";
 import {
   address,
@@ -390,10 +392,306 @@ describe.skipIf(reason !== undefined)("pg against PostgreSQL 18", () => {
     expect(spans()).toEqual([]);
   });
 
-  it("a query with no active span is a root span", async () => {
-    await client.query("SELECT 1 AS rooted");
-    const [span] = spans();
-    expect(span?.parentSpanContext).toBeUndefined();
+  describe("no active span (D-115)", () => {
+    it("client and pool queries in every form get no span; results unchanged", async () => {
+      const pool = new pg.Pool(config({ max: 1 }));
+      try {
+        const a = await client.query("SELECT 1 AS a");
+        const b = await new Promise<{ rows: unknown[] }>((resolve, reject) =>
+          client.query("SELECT $1::int AS b", [2], (e: unknown, r: never) =>
+            e ? reject(e) : resolve(r),
+          ),
+        );
+        const rows: unknown[] = [];
+        for await (const row of client.query(new QueryStream("SELECT 3 AS c")))
+          rows.push(row);
+        const d = await pool.query("SELECT 4 AS d");
+        const e = await new Promise<{ rows: unknown[] }>((resolve, reject) =>
+          pool.query("SELECT 5 AS e", (err: unknown, r: never) =>
+            err ? reject(err) : resolve(r),
+          ),
+        );
+        expect(a.rows).toEqual([{ a: 1 }]);
+        expect(b.rows).toEqual([{ b: 2 }]);
+        expect(rows).toEqual([{ c: 3 }]);
+        expect(d.rows).toEqual([{ d: 4 }]);
+        expect(e.rows).toEqual([{ e: 5 }]);
+      } finally {
+        await pool.end();
+      }
+      expect(spans()).toEqual([]);
+    });
+
+    it("the same query inside a request span is still its child", async () => {
+      await client.query("SELECT 1 AS outside");
+      const { parent } = await inParent(() =>
+        client.query("SELECT 1 AS inside"),
+      );
+      const [span, ...rest] = spans();
+      expect(rest).toEqual([]);
+      expect(span && parentId(span)).toBe(parent.spanContext().spanId);
+    });
+
+    it("a pool that cannot connect, outside a trace: no span, the rejection unchanged", async () => {
+      const pool = new pg.Pool({
+        ...config(),
+        port: await closedPort(),
+        max: 1,
+      });
+      let caught: unknown;
+      try {
+        await pool.query("SELECT 1");
+      } catch (error) {
+        caught = error;
+      }
+      await pool.end();
+      expect((caught as { code?: string }).code).toBe("ECONNREFUSED");
+      expect(spans()).toEqual([]);
+    });
+
+    it("an untraced pool call served from a traced caller's release is not parented to it", async () => {
+      const pool = new pg.Pool(config({ max: 1 }));
+      try {
+        const held = await pool.connect();
+        // Queued with no active span; served when the traced caller below releases.
+        const untraced = pool.query("SELECT 2 AS untraced");
+        const { parent } = await inParent(async () => {
+          await held.query("SELECT 1 AS traced");
+          held.release();
+        });
+        expect((await untraced).rows).toEqual([{ untraced: 2 }]);
+        const found = spans();
+        expect(found.map((s) => s.attributes["db.query.text"])).toEqual([
+          "SELECT ? AS traced",
+        ]);
+        expect(found[0] && parentId(found[0])).toBe(
+          parent.spanContext().spanId,
+        );
+      } finally {
+        await pool.end();
+      }
+    });
+
+    it("a queued pool.connect(cb) from an untraced caller runs in its own context, not the releaser's", async () => {
+      const pool = new pg.Pool(config({ max: 1 }));
+      try {
+        const held = await pool.connect();
+        const untraced = new Promise<unknown[]>((resolve, reject) =>
+          pool.connect(
+            (
+              e: unknown,
+              c: { query: (q: string) => Promise<{ rows: unknown[] }> },
+              release: () => void,
+            ) => {
+              if (e) return reject(e);
+              c.query("SELECT 2 AS untraced").then((r: { rows: unknown[] }) => {
+                release();
+                resolve(r.rows);
+              }, reject);
+            },
+          ),
+        );
+        const { parent } = await inParent(async () => {
+          await held.query("SELECT 1 AS traced");
+          held.release();
+        });
+        expect(await untraced).toEqual([{ untraced: 2 }]);
+        const found = spans();
+        expect(found.map((s) => s.attributes["db.query.text"])).toEqual([
+          "SELECT ? AS traced",
+        ]);
+        expect(found[0] && parentId(found[0])).toBe(
+          parent.spanContext().spanId,
+        );
+      } finally {
+        await pool.end();
+      }
+    });
+
+    it("a queued pool.connect(cb) from a traced caller: its query is a child of its own caller's span", async () => {
+      const pool = new pg.Pool(config({ max: 1 }));
+      try {
+        const held = await pool.connect();
+        const own = trace.getTracer("test").startSpan("own-caller");
+        const ownContext = trace.setSpan(context.active(), own);
+        const queued = context.with(
+          ownContext,
+          () =>
+            new Promise<unknown[]>((resolve, reject) =>
+              pool.connect(function (
+                this: unknown,
+                e: unknown,
+                c: { query: (q: string) => Promise<{ rows: unknown[] }> },
+                release: () => void,
+              ) {
+                if (e) return reject(e);
+                c.query("SELECT 3 AS queued").then((r: { rows: unknown[] }) => {
+                  release();
+                  resolve(r.rows);
+                }, reject);
+              }),
+            ),
+        );
+        const { parent } = await inParent(async () => {
+          await held.query("SELECT 1 AS releaser");
+          held.release();
+        });
+        expect(await queued).toEqual([{ queued: 3 }]);
+        own.end();
+        const byText = new Map(
+          spans().map((s) => [s.attributes["db.query.text"], s]),
+        );
+        const releaser = byText.get("SELECT ? AS releaser");
+        const mine = byText.get("SELECT ? AS queued");
+        expect(releaser && parentId(releaser)).toBe(
+          parent.spanContext().spanId,
+        );
+        expect(mine && parentId(mine)).toBe(own.spanContext().spanId);
+      } finally {
+        await pool.end();
+      }
+    });
+
+    it("a client callback outside a trace runs in the caller's context, not the socket's", async () => {
+      // Connected inside a span, so pg's socket events run in that span's async context.
+      const traced = new pg.Client(config());
+      await inParent(() => traced.connect());
+      exporter.reset();
+      try {
+        const rows = await new Promise((resolve, reject) =>
+          traced.query("SELECT 1 AS outer", (e: unknown) => {
+            if (e) return reject(e);
+            traced.query("SELECT 2 AS inner", (e2: unknown, r: never) =>
+              e2 ? reject(e2) : resolve((r as { rows: unknown[] }).rows),
+            );
+          }),
+        );
+        expect(rows).toEqual([{ inner: 2 }]);
+      } finally {
+        await traced.end();
+      }
+      expect(spans()).toEqual([]);
+    });
+
+    it("a context whose lookup throws: the query runs unchanged, the failure is counted", async () => {
+      const before = diagnostics.failures.length;
+      const root = context.active();
+      // Answers the suppress-tracing lookup, throws on the active-span lookup (the D-115 check).
+      const hostile = {
+        getValue: (key: symbol) => {
+          if (key === SUPPRESS_TRACING_KEY) return undefined;
+          throw new Error("hostile context");
+        },
+        setValue: () => hostile,
+        deleteValue: () => hostile,
+      };
+      const pool = new pg.Pool(config({ max: 1 }));
+      try {
+        const r = await context.with(hostile as never, () =>
+          client.query("SELECT 7 AS h"),
+        );
+        const p = await context.with(hostile as never, () =>
+          pool.query("SELECT 8 AS h"),
+        );
+        expect(r.rows).toEqual([{ h: 7 }]);
+        expect(p.rows).toEqual([{ h: 8 }]);
+      } finally {
+        await pool.end();
+      }
+      expect(context.active()).toBe(root);
+      expect(spans()).toEqual([]);
+      expect(diagnostics.failures.slice(before).map((f) => f.where)).toContain(
+        "integrations.pg.client.query",
+      );
+    });
+
+    describe("rootSpans: true", () => {
+      beforeAll(() => {
+        dispose();
+        dispose = installIntegrations(
+          resolved({ integrations: { pg: { rootSpans: true } } }),
+          diagnostics,
+        );
+      });
+      afterAll(() => {
+        dispose();
+        dispose = installIntegrations(resolved(), diagnostics);
+      });
+
+      it("keeps a query with no active span, as a root span", async () => {
+        await client.query("SELECT 1 AS rooted");
+        const [span, ...rest] = spans();
+        expect(rest).toEqual([]);
+        expect(span?.name).toBe("SELECT");
+        expect(span?.parentSpanContext).toBeUndefined();
+      });
+
+      it("an unsampled parent: the query exports nothing", async () => {
+        await context.with(unsampledParent(), () =>
+          client.query("SELECT 1 AS unsampled"),
+        );
+        expect(spans()).toEqual([]);
+      });
+
+      it("keeps the failure span of a pool that cannot connect, as a root", async () => {
+        const pool = new pg.Pool({
+          ...config(),
+          port: await closedPort(),
+          max: 1,
+        });
+        await pool.query("SELECT 1").catch(() => undefined);
+        await pool.end();
+        const [span, ...rest] = spans();
+        expect(rest).toEqual([]);
+        expect(span?.parentSpanContext).toBeUndefined();
+        expect(span?.status.code).toBe(SpanStatusCode.ERROR);
+      });
+    });
+
+    describe("rootSpans: true with poolWaitThresholdMillis", () => {
+      let restore: () => void;
+      beforeAll(() => {
+        dispose();
+        dispose = () => undefined;
+      });
+      afterAll(() => {
+        dispose = installIntegrations(resolved(), diagnostics);
+      });
+
+      async function waitSpans(threshold: number, waitMillis: number) {
+        restore = installIntegrations(
+          resolved({
+            integrations: {
+              pg: { rootSpans: true, poolWaitThresholdMillis: threshold },
+            },
+          }),
+          diagnostics,
+        );
+        const pool = new pg.Pool(config({ max: 1 }));
+        try {
+          const held = await pool.connect();
+          setTimeout(() => held.release(), waitMillis);
+          await inParent(async () => {
+            const c = await pool.connect();
+            c.release();
+          });
+        } finally {
+          await pool.end();
+          restore();
+        }
+        return exporter
+          .getFinishedSpans()
+          .filter((s) => s.name === "pg.pool.connect");
+      }
+
+      it("the wait span appears inside a trace above the threshold", async () => {
+        expect(await waitSpans(20, 100)).toHaveLength(1);
+      });
+
+      it("and not below it", async () => {
+        expect(await waitSpans(5000, 100)).toEqual([]);
+      });
+    });
   });
 
   it("a fault in every guarded body: results unchanged, failures counted, no span", async () => {
@@ -430,6 +728,9 @@ describe.skipIf(reason !== undefined)("pg against PostgreSQL 18", () => {
   });
 
   it("a throwing tracer does not change query results", async () => {
+    // Inside a trace (a parent from the working provider), so the integration calls the tracer.
+    const parent = trace.getTracer("test").startSpan("parent");
+    const inTrace = trace.setSpan(context.active(), parent);
     trace.disable();
     const throwing = {
       getTracer: () => ({
@@ -445,13 +746,15 @@ describe.skipIf(reason !== undefined)("pg against PostgreSQL 18", () => {
     const before = diagnostics.failures.length;
     const pool = new pg.Pool(config({ max: 1 }));
     try {
-      const a = await client.query("SELECT $1::int AS x", [5]);
-      const b = await pool.query("SELECT 6 AS y");
-      const c = await new Promise((resolve, reject) =>
-        client.query("SELECT 7 AS z", (e: unknown, r: unknown) =>
-          e ? reject(e) : resolve(r),
+      const { a, b, c } = await context.with(inTrace, async () => ({
+        a: await client.query("SELECT $1::int AS x", [5]),
+        b: await pool.query("SELECT 6 AS y"),
+        c: await new Promise((resolve, reject) =>
+          client.query("SELECT 7 AS z", (e: unknown, r: unknown) =>
+            e ? reject(e) : resolve(r),
+          ),
         ),
-      );
+      }));
       expect(a.rows).toEqual([{ x: 5 }]);
       expect(b.rows).toEqual([{ y: 6 }]);
       expect((c as { rows: unknown[] }).rows).toEqual([{ z: 7 }]);

@@ -27,7 +27,7 @@
  *
  * The wrapper changes nothing observable: it calls the original once, with the same arguments,
  * except that a callback is replaced by one that measures first and then calls it with the same
- * `this` and arguments (no OpenTelemetry context change), and a returned promise is followed by a
+ * `this` and arguments (run in the caller's OpenTelemetry context, as pg-pool may run a queued one inside another caller's `release()`), and a returned promise is followed by a
  * derived promise with the same outcome. Every Nestrix body is guarded (AGENTS.md rule 1).
  * Imports `@opentelemetry/api` only (rule 5).
  */
@@ -492,20 +492,42 @@ function followConnect(
 }
 
 /**
+ * `args` with a callback first argument replaced by one that runs in the caller's context (same
+ * `this`, arguments, return value and exceptions). Other arguments pass through untouched.
+ */
+function bindConnectCallback(args: unknown[]): unknown[] {
+  const [cb] = args;
+  if (typeof cb !== "function") return args;
+  const original = cb as Fn;
+  const parent = context.active();
+  const bound = function (this: unknown, ...cbArgs: unknown[]) {
+    return context.with(parent, original, this, ...cbArgs);
+  } as Fn;
+  copyShape(bound, original);
+  return [bound, ...args.slice(1)];
+}
+
+/**
  * Wraps `Pool.prototype.connect`. `isActive` says whether an installation is active; while none
  * is, the wrapper passes straight through (wrapping is permanent, as in pg.ts).
  */
 export function wrapPoolConnect(original: Fn, isActive: () => boolean): Fn {
   const wrapper = function connect(this: unknown, ...args: unknown[]) {
     let plan: ConnectPlan | undefined;
+    let callArgs = args;
     try {
       fault("pg.pool.connect");
-      plan = isActive() ? planConnect(this, args) : undefined;
+      if (isActive()) {
+        // pg-pool serves a queued callback synchronously inside the releasing caller's
+        // `release()`: run it in this caller's context, not the releaser's.
+        callArgs = bindConnectCallback(args);
+        plan = planConnect(this, callArgs);
+      }
     } catch (error) {
       countFailure("integrations.pg.pool.connect", error);
       plan = undefined;
     }
-    if (plan === undefined) return original.apply(this, args);
+    if (plan === undefined) return original.apply(this, callArgs);
     let result: unknown;
     try {
       result = original.apply(this, plan.args);
