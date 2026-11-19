@@ -56,6 +56,8 @@ interface Server {
   json<T>(path: string): Promise<T>;
   sync: ErrorGroupSync;
   evaluator: AlertEvaluator;
+  /** What the evaluator reported (its logger is off), and runs that were skipped. */
+  evalErrors: string[];
   close(): Promise<void>;
 }
 
@@ -94,6 +96,13 @@ async function start(databaseUrl: string): Promise<Server> {
   lastServer.port = port;
   const baseUrl = `http://127.0.0.1:${port}`;
   const cookie = signedCookie(undefined, undefined, undefined, port);
+  // The evaluator reports through the Nest logger, which is off here: keep what it says.
+  const evalErrors: string[] = [];
+  (
+    app.get(AlertEvaluator) as unknown as { onError: (m: string) => void }
+  ).onError = (m) => {
+    evalErrors.push(m);
+  };
   const call: Server["call"] = (method, path, body, headers = {}) =>
     fetch(`${baseUrl}${path}`, {
       method,
@@ -114,6 +123,7 @@ async function start(databaseUrl: string): Promise<Server> {
     json: async <T>(path: string) => (await call("GET", path)).json() as T,
     sync: app.get(ErrorGroupSync),
     evaluator: app.get(AlertEvaluator),
+    evalErrors,
     close: async () => {
       app.getHttpServer().closeAllConnections();
       await app.close();
@@ -203,8 +213,12 @@ describe.skipIf(noDatabase)(`error triage ${skipReason}`, () => {
     receiver.requests.map((r) => JSON.parse(r.body) as AlertWebhookPayload);
   /** Sync, then evaluate; waits for the deliveries. */
   async function settle(): Promise<void> {
-    await server.sync.runOnce();
+    const synced = await server.sync.runOnce();
+    if (synced.skipped !== undefined)
+      server.evalErrors.push(`sync skipped: ${synced.skipped}`);
     const run = await server.evaluator.runOnce();
+    if (run.skipped !== undefined)
+      server.evalErrors.push(`evaluator skipped: ${run.skipped}`);
     await Promise.all(run.deliveries);
   }
 
@@ -417,17 +431,45 @@ describe.skipIf(noDatabase)(`error triage ${skipReason}`, () => {
     expect(other.status).toBe(201);
     await sleep(50);
     const sent = receiver.requests.length;
+    server.evalErrors.length = 0;
     await fail("shop only error", "1.1.0", "/shop-only");
     await fail("billing error", "3.0.0", "/invoices", "billing");
     await settle();
-    // Rule 1 (every service) gets both, the billing rule only the billing one.
-    const got = payloads().slice(sent);
-    const ofRule = (id: string) =>
-      got.filter((p) => p.rule.id === id).map((p) => p.errorGroup?.pattern);
-    expect(ofRule(ruleId).sort()).toEqual(["billing error", "shop only error"]);
-    const billingRule = got.find((p) => p.rule.name === "billing only");
-    expect(billingRule?.errorGroup?.pattern).toBe("billing error");
-    expect(got.filter((p) => p.rule.name === "billing only")).toHaveLength(1);
+    // An intermittent failure (about 1 in 10 full runs, second rule without a webhook): say
+    // what the evaluator reported and what the tables held.
+    const dump = async (): Promise<string> => {
+      const q = async (sql: string) =>
+        JSON.stringify((await db.pool.query(sql)).rows);
+      return [
+        `evaluator reported: ${JSON.stringify(server.evalErrors)}`,
+        `alert_rules: ${await q("SELECT id, name, metric, service_name, route, enabled, created_at FROM alert_rules ORDER BY id")}`,
+        `error_groups: ${await q("SELECT service_name, environment, route, pattern, created_at FROM error_groups ORDER BY created_at")}`,
+        `error_group_alerts: ${await q("SELECT * FROM error_group_alerts ORDER BY 1, 2")}`,
+        `webhooks since: ${JSON.stringify(
+          payloads()
+            .slice(sent)
+            .map((p) => [p.rule.name, p.errorGroup?.pattern]),
+        )}`,
+      ].join("\n");
+    };
+    try {
+      expect(server.evalErrors, "evaluation errors").toEqual([]);
+      // Rule 1 (every service) gets both, the billing rule only the billing one.
+      const got = payloads().slice(sent);
+      const ofRule = (id: string) =>
+        got.filter((p) => p.rule.id === id).map((p) => p.errorGroup?.pattern);
+      expect(ofRule(ruleId).sort()).toEqual([
+        "billing error",
+        "shop only error",
+      ]);
+      const billingRule = got.find((p) => p.rule.name === "billing only");
+      expect(billingRule?.errorGroup?.pattern).toBe("billing error");
+      expect(got.filter((p) => p.rule.name === "billing only")).toHaveLength(1);
+    } catch (error) {
+      throw new Error(`${(error as Error).message}\n${await dump()}`, {
+        cause: error,
+      });
+    }
   });
 
   it("keeps groups, their triage and new_error_group alerts apart per environment (D-101)", async () => {

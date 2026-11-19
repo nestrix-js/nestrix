@@ -386,14 +386,15 @@ export class ErrorGroupSync {
       if (state === undefined || state.seqWatermark === null) {
         state = await this.switchToIngestOrder(client, state, nowMs);
       }
-      add(await this.syncLegacy(client, state, nowMs));
-      add(await this.syncBySeq(client, state, nowMs));
       // A previous-release replica still running reads `watermark`: keep it ahead of its clock
-      // so it counts nothing this release counts (D-114).
+      // so it counts nothing this release counts (D-114). Before the reads, so a run that dies
+      // part-way leaves it parked (the switch parks it in its own transaction too).
       await client.query(
         "UPDATE error_group_sync SET watermark = greatest(watermark, $1) WHERE id = 1",
         [new Date(nowMs + PARK_MS)],
       );
+      add(await this.syncLegacy(client, state, nowMs));
+      add(await this.syncBySeq(client, state, nowMs));
       await this.prune(client, nowMs);
     } catch (error) {
       broken = error as Error;
@@ -526,9 +527,15 @@ export class ErrorGroupSync {
         newestMs === undefined ? legacyFrom : newestMs + this.o.overlapMs + 1;
       await client.query(
         `UPDATE error_group_sync
-            SET seq_watermark = $1, legacy_seq = $1, legacy_watermark = $2, legacy_until = $3
+            SET seq_watermark = $1, legacy_seq = $1, legacy_watermark = $2, legacy_until = $3,
+                watermark = greatest(watermark, $4)
           WHERE id = 1`,
-        [seq, new Date(legacyFrom), new Date(untilMs)],
+        [
+          seq,
+          new Date(legacyFrom),
+          new Date(untilMs),
+          new Date(nowMs + PARK_MS),
+        ],
       );
       await client.query("COMMIT");
       return {

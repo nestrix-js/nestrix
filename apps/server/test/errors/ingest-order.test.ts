@@ -422,6 +422,42 @@ describe.skipIf(noDatabase)(`ingest order (D-114) ${skipReason}`, () => {
     expect(await occurrences("/after-switch")).toEqual([1]);
   });
 
+  it("a first run that commits the switch and then dies leaves the previous watermark parked", async () => {
+    // The previous release's state; a lock released by a dying run must not let a replica of that
+    // release read from an un-parked watermark and count what the switch hands to this release.
+    const now = Date.now();
+    await db.pool.query(
+      "INSERT INTO error_group_sync (id, watermark) VALUES (1, $1)",
+      [new Date(now - 5 * MIN)],
+    );
+    await write("/before-switch", now - 3 * MIN);
+    const errors: string[] = [];
+    const real = app.get(QueryService);
+    const faulty = new ErrorGroupSync(
+      db.pool,
+      {
+        errorOccurrences: () => Promise.reject(new Error("injected legacy")),
+        errorOccurrencesBySeq: real.errorOccurrencesBySeq.bind(real),
+      },
+      { schedule: false, lagMs: 0, onError: (m) => errors.push(m) },
+    );
+    const run = await faulty.runOnce();
+    expect(run.counted).toBe(0);
+    expect(errors.join()).toContain("injected legacy");
+    const state = await db.pool.query<{
+      watermark: Date;
+      seq_watermark: string | null;
+    }>("SELECT watermark, seq_watermark::text FROM error_group_sync");
+    // The switch is committed (it is what the dying run did) ...
+    expect(state.rows[0]?.seq_watermark).not.toBeNull();
+    // ... and so is the park: an old-release sync reads `start_time > watermark` while the
+    // watermark is behind its clock, and finds the loop's condition false.
+    expect(state.rows[0]?.watermark.getTime()).toBeGreaterThanOrEqual(
+      now + PARK_MS - MIN,
+    );
+    expect(await occurrences("/before-switch")).toEqual([]);
+  });
+
   it("rows stored before migration 0023 (NULL ingest_seq): first page yes, live poll never; the sync reads them by start", async () => {
     const recent = await write("/pre-recent", Date.now() - 1 * MIN);
     const lateOld = await write("/pre-late", Date.now() - 50 * MIN);
