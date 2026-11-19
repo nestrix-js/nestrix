@@ -37,6 +37,11 @@ config:
   # connection from one of them may name the visitor in X-Forwarded-For, which the login limit keys
   # on. Empty: the limit keys on the connection, so everyone behind the ingress shares one limit.
   trustedProxies: []
+  # -- NESTRIX_INGEST_MEMORY_BUDGET_MB: memory for ingest requests in flight, in MiB (32 to 1024).
+  # Empty: the server's default, 320. Below 320 the per-request limits shrink with it (the body
+  # limit is the budget / 16). Set resources.limits.memory to at least 200Mi + 1.6 x the budget
+  # (for 128: 416Mi; apps/server/README.md, "Choosing a budget").
+  ingestMemoryBudgetMb: ""
   # -- Anything else, as name: value (for example NESTRIX_MAX_SPANS_PER_TRACE: "20000").
   extraEnv: {}
 
@@ -92,6 +97,7 @@ ingress:
 # -- Requests and limits come from the sizing table in production.md: about 0.03 core per 1 000
 # spans/s, about 135 MiB idle and a peak near 632 MiB under load at the default 320 MiB ingest budget
 # (plan on about 650 MiB; keep the 768Mi limit). These suit roughly 10 000 spans/s across both replicas.
+# With a smaller config.ingestMemoryBudgetMb, the limit can go down to 200Mi + 1.6 x the budget.
 resources:
   requests: { cpu: 250m, memory: 256Mi }
   limits: { cpu: "1", memory: 768Mi }

@@ -127,7 +127,14 @@ function build(kind, format, target) {
     return enc.length / n;
   };
   let count = Math.floor(target / per(64));
-  if (kind === "small") count = Math.min(count, 55_000); // 7 messages per span: under 400 000
+  // 7 messages per span: under 400 000 at the default 20 MiB body, and under the scaled caps of
+  // a smaller budget (D-117: the caps shrink with the body limit).
+  if (kind === "small") {
+    count = Math.min(
+      count,
+      Math.floor(55_000 * Math.min(1, target / 0.95 / (20 * MIB))),
+    );
+  }
   for (let i = 0; i < count; i++) spans.push(make(i));
   const json = request(spans);
   return format === "json"

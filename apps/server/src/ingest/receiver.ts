@@ -20,7 +20,7 @@ import {
   Logger,
   type OnApplicationBootstrap,
 } from "@nestjs/common";
-import type { ServerConfig } from "../config.js";
+import { DEFAULT_INGEST, MIB, type ServerConfig } from "../config.js";
 import { SERVER_CONFIG } from "../config.module.js";
 import { StatusSchema } from "../proto/gen/google/rpc/status_pb.js";
 import { ExportLogsServiceResponseSchema } from "../proto/gen/opentelemetry/proto/collector/logs/v1/logs_service_pb.js";
@@ -175,6 +175,18 @@ export class IngestReceiver implements OnApplicationBootstrap {
   }
 
   onApplicationBootstrap(): void {
+    try {
+      const ingest = this.config.ingest;
+      if (ingest.inflightBudgetBytes !== DEFAULT_INGEST.inflightBudgetBytes) {
+        const mib = (bytes: number) =>
+          `${Math.round((bytes / MIB) * 100) / 100} MiB`;
+        this.logger.log(
+          `NESTRIX_INGEST_MEMORY_BUDGET_MB: ${mib(ingest.inflightBudgetBytes)} for requests in flight; per request at most ${mib(ingest.maxBodyBytes)} of body (${ingest.maxBodyBytes} bytes), ${ingest.maxSpans} spans, ${ingest.maxMessages} messages, ${ingest.maxJsonTokens} JSON values. Give the process at least 200 MiB + 1.6 x the budget (${Math.ceil(200 + (1.6 * ingest.inflightBudgetBytes) / MIB)} MiB; apps/server/README.md, "Memory budget").`,
+        );
+      }
+    } catch {
+      // A log line must not stop the server.
+    }
     if (this.config.metrics.enabled) {
       this.logger.log(
         `NESTRIX_METRICS=on: POST /v1/metrics stores Nestrix's runtime metrics (at most ${this.config.metrics.maxSeriesPerService} series per service, ${this.config.metrics.maxSeries} in all); other metrics are counted and dropped.`,

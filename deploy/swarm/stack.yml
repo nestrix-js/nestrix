@@ -73,6 +73,9 @@ services:
       # From the sizing table in production.md: about 0.03 core per 1 000 spans/s, about 135 MiB idle,
       # a peak near 632 MiB under load at the default ingest budget (plan on about 650 MiB; keep
       # the 768M limit). These suit up to roughly 10 000 spans/s across both replicas.
+      # To run in less memory, add NESTRIX_INGEST_MEMORY_BUDGET_MB (32 to 1024, default 320) to the
+      # environment above and set the limit to at least 200M + 1.6 x the budget (for 128: 416M);
+      # see "Choosing a budget" in apps/server/README.md.
       resources:
         reservations:
           cpus: "0.25"
