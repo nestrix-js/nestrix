@@ -5,7 +5,7 @@ import { NestrixModule } from "../../src/index.js";
   imports: [
     NestrixModule.forRoot({
       integrations: {
-        pg: true, // the default; false turns it off
+        pg: { rootSpans: false }, // on by default; rootSpans: true keeps queries outside any trace
         mysql2: true, // opt-in: mysql2 then swallows unhandled query errors
         ioredis: { rootSpans: false }, // opt-in; true keeps commands outside any trace
       },

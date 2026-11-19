@@ -488,8 +488,8 @@ Method spans need `instrument: NestrixInstrument` in `main.ts`; see [Method span
 | Option | Default | |
 |---|---|---|
 | `integrations` | an object | Database and cache spans. See [Database and cache spans](#database-and-cache-spans-level-3). |
-| `integrations.pg` | `true` | On when `pg` is installed. `false` turns it off. `{ poolWaitThresholdMillis }` sets when a pool wait gets a `pg.pool.connect` span (default `5` ms; `false` for none). See [`pg` pool wait](#database-and-cache-spans-level-3). |
-| `integrations.mysql2` | `false` | Opt-in. Once on, mysql2 swallows an unhandled query error instead of crashing. |
+| `integrations.pg` | `true` | On when `pg` is installed. `false` turns it off. `{ poolWaitThresholdMillis }` sets when a pool wait gets a `pg.pool.connect` span (default `5` ms; `false` for none). `{ rootSpans: true }` also keeps queries that run outside any trace (dropped by default since 0.9.0). See [Database and cache spans](#database-and-cache-spans-level-3). |
+| `integrations.mysql2` | `false` | Opt-in. Once on, mysql2 swallows an unhandled query error instead of crashing. `true`, or `{ rootSpans: true }` to also keep queries that run outside any trace (dropped by default). |
 | `integrations.ioredis` | `false` | Opt-in, with the same kind of swallowed error. `true`, or `{ rootSpans: true }` to also keep commands that run outside any trace (dropped by default). |
 
 An invalid `methods` or `integrations` value throws, like the other options.
@@ -779,7 +779,7 @@ import { NestrixModule } from "@nestrix-js/nestjs";
   imports: [
     NestrixModule.forRoot({
       integrations: {
-        pg: true, // the default; false turns it off
+        pg: { rootSpans: false }, // on by default; rootSpans: true keeps queries outside any trace
         mysql2: true, // opt-in: mysql2 then swallows unhandled query errors
         ioredis: { rootSpans: false }, // opt-in; true keeps commands outside any trace
       },
@@ -799,7 +799,7 @@ export class AppModule {}
 
 **Why `mysql2` and `ioredis` are opt-in.** Both libraries change behaviour once anything subscribes to their tracing channels, and no way of subscribing avoids it. With `mysql2`, an event-emitter query that fails with no `'error'` listener raises `uncaughtException` and closes the connection when nothing is subscribed, and is **silently swallowed** when Nestrix subscribes. With `ioredis`, a failing command that nobody awaits raises `unhandledRejection` normally, and nothing when Nestrix subscribes. In a default app that is a crash turned into silence. Enable them only if you accept that: a bug that would have crashed in development will not.
 
-**`ioredis` and root commands.** A command that runs with no active span (the connection handshake, or commands queued before the connection was ready) is dropped by default, because it belongs to no request. `integrations.ioredis: { rootSpans: true }` keeps them as root spans.
+**Queries and commands outside a trace.** A query or command that runs with no active span is dropped by default, because it belongs to no request, job or traced method and would otherwise be a trace of its own: for `pg` and `mysql2`, start-up migrations, a scheduler's or workflow engine's poll, a health check outside HTTP; for `ioredis`, the connection handshake and commands queued before the connection was ready. One app's first minute of migrations can otherwise be hundreds of one-span traces that crowd the trace list. `rootSpans: true` keeps them, each as a root span: `integrations: { pg: { rootSpans: true } }`, `mysql2: { rootSpans: true }`, `ioredis: { rootSpans: true }`. A query issued inside a request, a job's span or a traced method is unaffected, and so is a pool call that waits for a client released by another request: it still gets no span of that request's. Before 0.9.0, `pg` and `mysql2` kept these queries as root spans (D-115); `ioredis` has always dropped them (D-60). Dropped queries are not counted anywhere. The `pg.pool.connect` span was already recorded only inside a trace and is unchanged.
 
 **What a span records.** The statement with literals replaced by `?` (strings, numbers, hex and boolean literals; `IN (...)` lists collapsed; comments dropped; cut to 2,048 characters). If Nestrix cannot parse a statement safely, it records a fixed placeholder, never the raw text. **Bind parameters are never recorded**, and there is no option to. For Redis the span records the command and its first argument (`GET user:1`), never values. A database span **covers the query only**: time spent waiting for a pooled connection is not in it, so a saturated pool shows as a gap before the span, not as a slow query. For `pg` that gap is measured and, above a threshold, labelled (below).
 

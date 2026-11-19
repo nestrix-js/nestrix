@@ -246,13 +246,21 @@ export interface NestrixIntegrationsOptions {
    * `pg.pool.connect` span when an acquisition inside a trace found no free client and waited at
    * least `poolWaitThresholdMillis` (default 5; `false` adds no such span, `0` one for every
    * acquisition that had to wait).
+   *
+   * A query with no active span (start-up migrations, a scheduler's poll, anything outside a
+   * request, job or traced method) gets no span by default, so it does not become a trace of its
+   * own (D-115). `rootSpans: true` keeps those queries, each as a root span (the behaviour before
+   * 0.9.0).
    */
-  pg?: boolean | { poolWaitThresholdMillis?: number | false };
+  pg?:
+    | boolean
+    | { poolWaitThresholdMillis?: number | false; rootSpans?: boolean };
   /**
    * `mysql2` query spans. Default `false` (D-49): once on, mysql2 swallows an error from an
    * event-emitter query that has no `'error'` listener, where it would otherwise crash the process.
+   * As for `pg`, a query with no active span gets no span unless `rootSpans` is `true` (D-115).
    */
-  mysql2?: boolean;
+  mysql2?: boolean | { rootSpans?: boolean };
   /**
    * `ioredis` command spans. Default `false` (D-49): once on, ioredis swallows the rejection of a
    * failing command nobody awaits, where it would otherwise raise `unhandledRejection`.

@@ -137,6 +137,16 @@ New export: `getExportStatus()`, a read-only snapshot per signal (state, last su
 
 New in 0.7 (#61). `?state=` values are recorded as `REDACTED`, like `code`: OAuth and OpenID Connect callbacks carry both, and `state` binds the callback to the session that started it. A route that uses `state` as an ordinary filter records it as `REDACTED` too.
 
+### `pg` and `mysql2` queries outside a trace get no span
+
+New in 0.9 (D-115). A query that runs with no active span (start-up migrations, a scheduler's or workflow engine's poll, anything outside a request, job or traced method) no longer becomes a one-span trace of its own; `ioredis` already worked this way (D-60). Queries inside a request, job or traced method are unchanged. To keep the old behaviour:
+
+```ts
+NestrixModule.forRoot({
+  integrations: { pg: { rootSpans: true } }, // and mysql2: { rootSpans: true } if you use it
+});
+```
+
 ## Added
 
 ### `export.onFailure`: a callback per failed export

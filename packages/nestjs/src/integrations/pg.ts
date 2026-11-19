@@ -35,6 +35,12 @@
  *
  * Every wrapper decides inside a guard and calls the original exactly once, outside it (§4.2).
  *
+ * Root queries (D-115): a query whose parent context (the token's, for a pooled client) has no
+ * active span gets no span unless `rootSpans` is on, and neither does a pool call that failed
+ * before reaching a client; the same rule as ioredis (D-60). The pool → client token is still
+ * taken and consumed, so a queued call served from another caller's release is never parented to
+ * that caller; a callback is still run in the caller's context, as when it had a span.
+ *
  * Pool wait (issue #38, D-98) is measured by a third wrapper, on `Pool.prototype.connect`
  * (pg-pool.ts): a histogram and connection-count metrics, and a `pg.pool.connect` span above a
  * threshold. It never changes the query spans above.
@@ -46,6 +52,7 @@ import {
   type DbCall,
   endDbSpan,
   fault,
+  hasActiveSpan,
   isSuppressed,
   startDbSpan,
   toPort,
@@ -92,6 +99,13 @@ export interface PgStatus {
 
 let references = 0;
 let diagnostics: Diagnostics | undefined;
+/** `integrations.pg.rootSpans` of the first installation (D-115). */
+let rootSpans = false;
+
+/** Whether a query under `parent` gets a span: inside a trace, or anywhere with `rootSpans`. */
+function traced(parent: Context): boolean {
+  return rootSpans || hasActiveSpan(parent);
+}
 let resolveReason: string | undefined;
 let resolvedPath: string | undefined;
 const modules = new Map<string, PgModuleRecord>();
@@ -300,6 +314,7 @@ function planClientQuery(client: unknown, args: unknown[]): Plan | undefined {
   // pg-pool's own callback (token present) keeps pg-pool's context; the pool wrapper binds the
   // caller's callback.
   const caller = token === undefined ? parent : context.active();
+  if (!traced(parent)) return unspanned(token, args, caller);
   const span = startDbSpan(pgCall(config, client), parent);
   const state = { span, ended: false };
   const settle = (error: unknown) => endOnce(state, error);
@@ -336,6 +351,46 @@ function planClientQuery(client: unknown, args: unknown[]): Plan | undefined {
     endOnce(state);
     throw error;
   }
+}
+
+const NO_SETTLE = (): void => undefined;
+
+/**
+ * A query outside any trace with `rootSpans` off (D-115): no span. A direct client callback is
+ * still bound to the caller's context, as it is with a span, so a query issued inside it is not
+ * parented to whatever context pg's socket events run in. Everything else runs unchanged.
+ */
+function unspanned(
+  token: Token | undefined,
+  args: unknown[],
+  caller: Context,
+): Plan | undefined {
+  if (token !== undefined) return undefined; // the pool wrapper binds the caller's callback
+  const [config, values, callback] = args;
+  if (typeof (config as { submit?: unknown }).submit === "function")
+    return undefined;
+  if (typeof values === "function")
+    return {
+      args: [
+        config,
+        settleThen(NO_SETTLE, values as Fn, caller),
+        ...args.slice(2),
+      ],
+      promise: false,
+      settle: NO_SETTLE,
+    };
+  if (typeof callback === "function")
+    return {
+      args: [
+        config,
+        values,
+        settleThen(NO_SETTLE, callback as Fn, caller),
+        ...args.slice(3),
+      ],
+      promise: false,
+      settle: NO_SETTLE,
+    };
+  return undefined;
 }
 
 function wrapClientQuery(original: Fn): Fn {
@@ -398,7 +453,12 @@ function planPoolQuery(pool: unknown, args: unknown[]): Plan | undefined {
       if (token.consumed) return;
       dropToken(config, token);
       // Failed before the query reached a client: a span for the attempt, with the error.
-      if (error === undefined || error === null || isSuppressed(token.parent))
+      if (
+        error === undefined ||
+        error === null ||
+        isSuppressed(token.parent) ||
+        !traced(token.parent)
+      )
         return;
       const options = (pool as { options?: unknown } | null)?.options;
       const span = startDbSpan(
@@ -553,10 +613,13 @@ export function enablePg(
     waitThresholdMillis: DEFAULT_POOL_WAIT_THRESHOLD_MILLIS,
     metrics: true,
   },
+  queries: { readonly rootSpans: boolean } = { rootSpans: false },
 ): () => void {
   references++;
   if (references === 1) {
     diagnostics = diag;
+    // The first installation's settings apply while any is active (like its pool settings).
+    rootSpans = queries.rootSpans === true;
     try {
       // The first installation's pool settings apply while any is active (like its diagnostics).
       configurePgPool(pool, diag);

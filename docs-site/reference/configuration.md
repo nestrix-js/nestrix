@@ -56,8 +56,8 @@ Method spans need `instrument: NestrixInstrument` in `main.ts`; without it these
 
 | Option | Default | Description |
 |---|---|---|
-| `integrations.pg` | `true` | `pg` query spans and pool-wait metrics; on when `pg` is installed. `{ poolWaitThresholdMillis }`: a pool wait of at least this many milliseconds (default `5`) gets a `pg.pool.connect` span when no client was free; `false` for none, `0` for every acquisition that had to wait. |
-| `integrations.mysql2` | `false` | `mysql2` query spans. Opt-in: once on, mysql2 swallows an error from an event-emitter query that has no `'error'` listener. |
+| `integrations.pg` | `true` | `pg` query spans and pool-wait metrics; on when `pg` is installed. `{ poolWaitThresholdMillis }`: a pool wait of at least this many milliseconds (default `5`) gets a `pg.pool.connect` span when no client was free; `false` for none, `0` for every acquisition that had to wait. `{ rootSpans: true }` also keeps queries that run outside any trace, as root spans (dropped by default since 0.9.0, D-115). |
+| `integrations.mysql2` | `false` | `mysql2` query spans. Opt-in: once on, mysql2 swallows an error from an event-emitter query that has no `'error'` listener. `{ rootSpans: true }` also keeps queries that run outside any trace (dropped by default since 0.9.0, D-115). |
 | `integrations.ioredis` | `false` | `ioredis` command spans. Opt-in: once on, ioredis swallows the rejection of a failing command nobody awaits. `{ rootSpans: true }` also keeps commands that run outside any trace (dropped by default). |
 
 ## `export`
