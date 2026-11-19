@@ -203,6 +203,35 @@ export interface AlertForm {
   enabled: boolean;
 }
 
+/** The threshold a metric starts with, in its own unit (percent, ms, burn-rate multiple). */
+export const DEFAULT_THRESHOLD: Partial<Record<AlertMetric, string>> = {
+  error_rate: "5",
+  p95_ms: "500",
+  slo_burn_rate: "14.4",
+};
+
+/**
+ * What changing the metric does to the threshold. The three metrics measure in different units, so
+ * a value the person typed for the old metric does not fit the new one: it is replaced by the new
+ * default and `note` says so. An empty threshold, or one still at the old metric's default, is
+ * filled without a note. A metric without a threshold keeps the text and says nothing.
+ */
+export function thresholdForMetric(
+  previous: AlertMetric,
+  next: AlertMetric,
+  threshold: string,
+): { threshold: string; note: string | null } {
+  const fallback = DEFAULT_THRESHOLD[next];
+  if (fallback === undefined || previous === next)
+    return { threshold, note: null };
+  const typed = threshold.trim();
+  const untouched = typed === "" || typed === DEFAULT_THRESHOLD[previous];
+  return {
+    threshold: fallback,
+    note: untouched ? null : `Reset to the default for ${METRIC_LABEL[next]}`,
+  };
+}
+
 export function emptyForm(service = ""): AlertForm {
   return {
     name: "",

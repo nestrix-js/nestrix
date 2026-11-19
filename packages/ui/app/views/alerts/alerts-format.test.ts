@@ -8,8 +8,10 @@ import {
   formatMetricValue,
   formFromRule,
   isKnownMetric,
+  METRIC_LABEL,
   ruleState,
   summarizeRules,
+  thresholdForMetric,
   toRequest,
   webhookOrigin,
 } from "@/views/alerts/alerts-format";
@@ -365,5 +367,35 @@ describe("toRequest", () => {
         threshold: "1001",
       }).ok,
     ).toBe(false);
+  });
+});
+
+describe("thresholdForMetric", () => {
+  it("fills the new default silently when the threshold is empty or still the old default", () => {
+    expect(thresholdForMetric("error_rate", "p95_ms", "5")).toEqual({
+      threshold: "500",
+      note: null,
+    });
+    expect(thresholdForMetric("error_rate", "p95_ms", " ")).toEqual({
+      threshold: "500",
+      note: null,
+    });
+  });
+
+  it("resets a typed value to the new default and says so", () => {
+    const r = thresholdForMetric("error_rate", "p95_ms", "2.5");
+    expect(r.threshold).toBe("500");
+    expect(r.note).toBe(`Reset to the default for ${METRIC_LABEL.p95_ms}`);
+  });
+
+  it("keeps the text, with no note, for a metric without a threshold or an unchanged metric", () => {
+    expect(thresholdForMetric("p95_ms", "new_error_group", "300")).toEqual({
+      threshold: "300",
+      note: null,
+    });
+    expect(thresholdForMetric("p95_ms", "p95_ms", "300")).toEqual({
+      threshold: "300",
+      note: null,
+    });
   });
 });

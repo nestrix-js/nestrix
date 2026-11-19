@@ -9,8 +9,8 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { parseAsStringLiteral, useQueryStates } from "nuqs";
 import { useEffect, useMemo, useState } from "react";
-
 import { Chip } from "@/components/kit/chip";
+import { Checkbox } from "@/components/kit/form";
 import { Chart } from "@/components/kit/line-chart";
 import { PageHeader } from "@/components/kit/page-header";
 import { Section } from "@/components/kit/section";
@@ -240,18 +240,17 @@ export function MetricsPage() {
             </option>
           ))}
         </Select>
-        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <input
-            data-testid="metrics-split"
-            type="checkbox"
-            checked={splitByInstance}
-            disabled={instanceChosen !== undefined}
-            onChange={(e) =>
-              void setUrl({ by: e.target.checked ? "instance" : null })
-            }
-          />
+        <Checkbox
+          className="gap-1.5 text-muted-foreground"
+          data-testid="metrics-split"
+          checked={splitByInstance}
+          disabled={instanceChosen !== undefined}
+          onChange={(e) =>
+            void setUrl({ by: e.target.checked ? "instance" : null })
+          }
+        >
           One line per instance
-        </label>
+        </Checkbox>
         <IngestNotes data={data} />
       </div>
 

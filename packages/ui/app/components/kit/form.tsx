@@ -24,6 +24,7 @@ export function FormField({
   label,
   required,
   hint,
+  hintLive,
   error,
   children,
   className,
@@ -32,15 +33,19 @@ export function FormField({
   label: string;
   required?: boolean;
   hint?: string;
+  /** A note that appears after something the person did; announced (`role="status"`). */
+  hintLive?: string | null;
   error?: string | null;
   children: (props: FieldControlProps) => React.ReactNode;
   className?: string;
 }) {
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
+  const liveId = `${id}-note`;
   const describedBy =
-    [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(" ") ||
-    undefined;
+    [hint ? hintId : null, hintLive ? liveId : null, error ? errorId : null]
+      .filter(Boolean)
+      .join(" ") || undefined;
   return (
     <div className={cn("space-y-1 text-sm", className)}>
       <label
@@ -63,6 +68,16 @@ export function FormField({
       {hint && (
         <p id={hintId} className="text-xs text-muted-foreground">
           {hint}
+        </p>
+      )}
+      {hintLive && (
+        <p
+          id={liveId}
+          role="status"
+          data-testid={liveId}
+          className="text-xs text-muted-foreground"
+        >
+          {hintLive}
         </p>
       )}
       {error && (
@@ -270,5 +285,47 @@ export function ConfirmAction({
         Keep
       </Button>
     </fieldset>
+  );
+}
+
+/**
+ * A native checkbox with its label: `<Checkbox checked={on} onChange={...}>Enabled</Checkbox>`.
+ * The input stays a real `<input type="checkbox">` (keyboard, forms and screen readers work as
+ * usual); `appearance-none` swaps the browser look for the theme's border, fill and tick. Extra
+ * props (`id`, `data-testid`, `disabled`, `aria-*`) go to the input; `className` to the label.
+ */
+export function Checkbox({
+  children,
+  className,
+  ...props
+}: Omit<React.ComponentProps<"input">, "type" | "children"> & {
+  children: React.ReactNode;
+}) {
+  return (
+    <label
+      className={cn(
+        "flex items-center gap-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50",
+        !props.disabled && "cursor-pointer",
+        className,
+      )}
+    >
+      <span className="relative inline-flex size-4 shrink-0">
+        <input
+          type="checkbox"
+          {...props}
+          className="peer size-4 cursor-[inherit] appearance-none rounded-[4px] border border-input bg-background outline-none transition-colors checked:border-primary checked:bg-primary focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive"
+        />
+        <svg
+          aria-hidden
+          viewBox="0 0 16 16"
+          className="pointer-events-none absolute inset-0 hidden size-4 fill-none stroke-primary-foreground stroke-2 peer-checked:block"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M4 8.5l2.5 2.5L12 5.5" />
+        </svg>
+      </span>
+      {children}
+    </label>
   );
 }

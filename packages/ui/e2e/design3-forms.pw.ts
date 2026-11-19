@@ -321,3 +321,51 @@ test("a profiler capture button names its instance", async ({ page }) => {
     page.getByRole("button", { name: "Capture 7f3c2a91" }),
   ).toBeVisible();
 });
+
+test("changing an alert's metric says what happened to a typed threshold", async ({
+  page,
+}) => {
+  await page.goto(url("alerts"));
+  await page.getByRole("button", { name: "New rule" }).click();
+  const form = page.getByTestId("alert-form");
+  const threshold = form.locator("#alert-threshold");
+  const note = form.getByTestId("alert-threshold-note");
+
+  // Still the default: the new default is filled and nothing needs saying.
+  await form.getByLabel("Metric").selectOption("p95_ms");
+  await expect(threshold).toHaveValue("500");
+  await expect(note).toHaveCount(0);
+
+  // A typed value does not fit another metric's unit: it is replaced, and the field says so.
+  await threshold.fill("750");
+  await form.getByLabel("Metric").selectOption("error_rate");
+  await expect(threshold).toHaveValue("5");
+  await expect(note).toHaveText("Reset to the default for Error rate");
+  await expect(note).toHaveAttribute("role", "status");
+  await expect(threshold).toHaveAttribute(
+    "aria-describedby",
+    /alert-threshold-note/,
+  );
+
+  // Typing again clears the note.
+  await threshold.fill("7");
+  await expect(note).toHaveCount(0);
+});
+
+test("a checkbox is a styled native input that toggles by label and keyboard", async ({
+  page,
+}) => {
+  await page.goto(url("alerts"));
+  await page.getByRole("button", { name: "New rule" }).click();
+  const box = page.getByLabel("Enabled");
+  await expect(box).toHaveAttribute("type", "checkbox");
+  expect(await box.evaluate((el) => getComputedStyle(el).appearance)).toBe(
+    "none",
+  );
+  await expect(box).toBeChecked();
+  await page.getByText("Enabled", { exact: true }).click();
+  await expect(box).not.toBeChecked();
+  await box.focus();
+  await page.keyboard.press("Space");
+  await expect(box).toBeChecked();
+});

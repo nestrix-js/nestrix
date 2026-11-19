@@ -13,6 +13,7 @@ export {
   Swatch,
 } from "./donut";
 export {
+  Checkbox,
   ConfirmAction,
   type FieldControlProps,
   FormActions,

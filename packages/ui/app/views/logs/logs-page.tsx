@@ -3,8 +3,8 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { RefreshCw } from "lucide-react";
 import { useState } from "react";
-
 import { Chip } from "@/components/kit/chip";
+import { Checkbox } from "@/components/kit/form";
 import { PageHeader } from "@/components/kit/page-header";
 import { SegmentedControl } from "@/components/kit/segmented-control";
 import { SkeletonList } from "@/components/kit/skeletons";
@@ -116,20 +116,19 @@ export function LogsPage() {
           onChange={(e) => setDraft({ ...draft, text: e.target.value })}
           className={cn(FIELD, "w-64")}
         />
-        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <input
-            data-testid="logs-match"
-            type="checkbox"
-            checked={draft.match === "substring"}
-            onChange={(e) =>
-              setDraft({
-                ...draft,
-                match: e.target.checked ? "substring" : "words",
-              })
-            }
-          />
+        <Checkbox
+          className="gap-1.5 text-muted-foreground"
+          data-testid="logs-match"
+          checked={draft.match === "substring"}
+          onChange={(e) =>
+            setDraft({
+              ...draft,
+              match: e.target.checked ? "substring" : "words",
+            })
+          }
+        >
           Substring
-        </label>
+        </Checkbox>
         <Select
           data-testid="logs-severity"
           aria-label="Minimum level"

@@ -11,6 +11,7 @@ import { Copy, Plus, TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";
 
 import {
+  Checkbox,
   Chip,
   ConfirmAction,
   EmptyState,
@@ -56,6 +57,7 @@ import {
   METRIC_LABEL,
   ruleState,
   summarizeRules,
+  thresholdForMetric,
   toRequest,
   webhookOrigin,
 } from "@/views/alerts/alerts-format";
@@ -184,6 +186,8 @@ function RuleFormPanel({
   };
   const errorOf = (key: keyof AlertForm) =>
     invalid?.field === key ? invalid.message : null;
+  // Said under the threshold when changing the metric replaced a value the person had typed.
+  const [thresholdNote, setThresholdNote] = useState<string | null>(null);
   const burn = form.metric === "slo_burn_rate";
   // D-103 (6): a new-error-group rule has no threshold, window, pending duration or minimum.
   const newGroup = form.metric === "new_error_group";
@@ -251,18 +255,13 @@ function RuleFormPanel({
               onChange={(e) => {
                 const metric = e.target.value as AlertForm["metric"];
                 setInvalid(null);
-                setForm((f) => ({
-                  ...f,
+                const next = thresholdForMetric(
+                  form.metric,
                   metric,
-                  threshold:
-                    metric === "error_rate"
-                      ? "5"
-                      : metric === "p95_ms"
-                        ? "500"
-                        : metric === "slo_burn_rate"
-                          ? "14.4"
-                          : f.threshold,
-                }));
+                  form.threshold,
+                );
+                setThresholdNote(next.note);
+                setForm((f) => ({ ...f, metric, threshold: next.threshold }));
               }}
             >
               {(Object.keys(METRIC_LABEL) as (keyof typeof METRIC_LABEL)[]).map(
@@ -385,6 +384,7 @@ function RuleFormPanel({
               id="alert-threshold"
               label={THRESHOLD_UNIT[form.metric] ?? ""}
               required
+              hintLive={thresholdNote}
               error={errorOf("threshold")}
             >
               {(p) => (
@@ -392,7 +392,10 @@ function RuleFormPanel({
                   {...p}
                   inputMode="decimal"
                   value={form.threshold}
-                  onChange={(e) => set("threshold", e.target.value)}
+                  onChange={(e) => {
+                    setThresholdNote(null);
+                    set("threshold", e.target.value);
+                  }}
                 />
               )}
             </FormField>
@@ -466,15 +469,13 @@ function RuleFormPanel({
             />
           )}
         </FormField>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            id="alert-enabled"
-            type="checkbox"
-            checked={form.enabled}
-            onChange={(e) => set("enabled", e.target.checked)}
-          />
+        <Checkbox
+          id="alert-enabled"
+          checked={form.enabled}
+          onChange={(e) => set("enabled", e.target.checked)}
+        >
           Enabled
-        </label>
+        </Checkbox>
       </div>
       {problem && <FormProblem>{problem}</FormProblem>}
       <FormActions
