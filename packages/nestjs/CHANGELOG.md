@@ -1,5 +1,17 @@
 # @nestrix-js/nestjs
 
+## 0.10.0
+
+### Minor Changes
+
+- [#85](https://github.com/nestrix-js/nestrix/pull/85) [`cfb9446`](https://github.com/nestrix-js/nestrix/commit/cfb94460d669042d95dd46f47c3bc78341d65854) Thanks [@lamberto15](https://github.com/lamberto15)! - Standalone server: `NESTRIX_INGEST_MEMORY_BUDGET_MB` (32 to 1024, default 320) sets the memory budget for ingest requests in flight, so the container can run in less memory (at least 200 MiB + 1.6 x the budget). Below the default, the per-request limits (body size, spans, messages, JSON values) shrink in proportion so a request at every limit still fits; unset, nothing changes.
+
+### Patch Changes
+
+- [#85](https://github.com/nestrix-js/nestrix/pull/85) [`cfb9446`](https://github.com/nestrix-js/nestrix/commit/cfb94460d669042d95dd46f47c3bc78341d65854) Thanks [@lamberto15](https://github.com/lamberto15)! - Standalone server: the ingest memory budget now also charges the joined copy of a body that arrived in several chunks, and the strings a body decodes into, so peak memory stays closer to the budget under bursts of large exports. A join that cannot be allocated answers 503 instead of escaping as an uncaught exception.
+- Updated dependencies []:
+  - @nestrix-js/ui@0.10.0
+
 ## 0.9.2
 
 ### Patch Changes
