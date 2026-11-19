@@ -822,7 +822,9 @@ function SlosCard() {
     <Section
       title="Error budgets"
       testId="card-slos"
-      source={`SLOs of the standalone server · ${SOURCE_TRACES}`}
+      // SLOs are computed from the route rollups (apps/server/src/slos/compute.ts), so they
+      // share the page's "counted before sampling" and need no source of their own.
+      source="SLOs of the standalone server"
       actions={
         <Link to="/slos" className="text-xs underline">
           All SLOs
