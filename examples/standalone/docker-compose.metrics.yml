@@ -1,0 +1,26 @@
+# Adds historical metrics to the standalone example: the server stores the runtime metrics the two
+# services export and the dashboard gets a Metrics page.
+#   export NESTRIX_ADMIN_PASSWORD='at-least-12-characters'
+#   docker compose -f docker-compose.yml -f docker-compose.metrics.yml up --build
+#
+# The server is built from this checkout because the image pinned in docker-compose.yml is a
+# release from before the metrics receiver. Once the pin in docker-compose.yml is a release that
+# has it (`NESTRIX_METRICS` in its apps/server/README.md), delete the `build` and `image` lines
+# below and keep only the environment.
+services:
+  nestrix-server:
+    build:
+      context: ../..
+      dockerfile: apps/server/Dockerfile
+    image: nestrix-server:metrics-example
+    environment:
+      NESTRIX_METRICS: "on"
+
+  # The services already export metrics (Nestrix records them by default and sends them to the same
+  # endpoint as the traces). The default interval is 60 seconds; a shorter one fills the charts sooner.
+  service-a:
+    environment:
+      OTEL_METRIC_EXPORT_INTERVAL: "15000"
+  service-b:
+    environment:
+      OTEL_METRIC_EXPORT_INTERVAL: "15000"

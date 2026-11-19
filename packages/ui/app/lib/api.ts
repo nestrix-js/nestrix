@@ -21,6 +21,8 @@ import type {
   InstanceListResponse,
   LogSearchResponse,
   MetaResponse,
+  MetricCatalogResponse,
+  MetricSeriesResponse,
   OverviewResponse,
   ProfileDetail,
   ProfileListResponse,
@@ -131,6 +133,8 @@ const ENVIRONMENT_ENDPOINTS = new Set([
   "instances",
   "remote-profiles",
   "logs",
+  "metrics/catalog",
+  "metrics/series",
 ]);
 
 async function getJson<T>(endpoint: string, params?: QueryParams): Promise<T> {
@@ -249,6 +253,11 @@ export const getTraceLogs = (id: string) =>
 /** Issue #17: search over the standalone server's stored log lines. */
 export const getLogs = (params: QueryParams) =>
   getJson<LogSearchResponse>("logs", params);
+/** Issue #18: the standalone server's stored runtime metrics (`meta.metrics.available`). */
+export const getMetricCatalog = (params: QueryParams) =>
+  getJson<MetricCatalogResponse>("metrics/catalog", params);
+export const getMetricSeries = (params: QueryParams) =>
+  getJson<MetricSeriesResponse>("metrics/series", params);
 export const getClasses = (params: QueryParams = {}) =>
   getJson<ClassStatsResponse>("classes", params);
 export const getMap = (params: QueryParams = {}) =>

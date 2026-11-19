@@ -25,6 +25,34 @@ The `latest` tag follows the newest stable release and is published by the relea
 your own checkout instead, replace the `image:` line with
 `build: { context: ../.., dockerfile: apps/server/Dockerfile }`.
 
+## Historical metrics
+
+The services record runtime metrics (CPU, RSS, heap, event-loop delay, request duration) and send them
+to the same endpoint as their traces. The server stores them only with `NESTRIX_METRICS=on`;
+`docker-compose.metrics.yml` turns that on:
+
+```bash
+export NESTRIX_ADMIN_PASSWORD=...   # at least 12 characters
+docker compose -f examples/standalone/docker-compose.yml -f examples/standalone/docker-compose.metrics.yml up --build
+for i in $(seq 1 60); do curl -s localhost:3001/call/$i > /dev/null; done
+```
+
+Open <http://localhost:4318>, sign in and open **Metrics**. The first points arrive after the first
+export (15 seconds in this example; 60 seconds by default) and the charts fill one point per minute.
+Both replicas of `service-b` are there: pick the service, then one instance, "One line per
+instance", or an aggregation across replicas. Click a chart (or drag across it) to open the requests
+from those minutes, and open a trace to follow its "Metrics around this time" link.
+
+The override builds the server from this checkout, because the image pinned in `docker-compose.yml`
+is from before the metrics receiver (remove the `build` and `image` lines from the override once the
+pin moves to a release that has it). Without the override the server answers `404` for
+`/v1/metrics`, the services log one line saying so and keep sending traces, and the dashboard has no
+Metrics page. The services export metrics because `@opentelemetry/sdk-metrics` and
+`@opentelemetry/exporter-metrics-otlp-http` are installed next to `@nestrix-js/nestjs` (they are optional
+peer dependencies of it; see [Exporting metrics](../../docs-site/guide/logs-and-metrics.md#exporting-metrics)).
+What the server stores, retention, series limits and backpressure are in
+[`apps/server/README.md`](../../apps/server/README.md#historical-metrics-optional).
+
 ## Add the server to an existing compose project
 
 Add the server next to your services and point it at a PostgreSQL database (the one in your project

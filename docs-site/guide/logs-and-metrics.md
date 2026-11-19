@@ -149,6 +149,19 @@ NestrixModule.forRoot({
 
 Options: `metrics: false`, `metrics.runtime` and `metrics.export`; see the [reference](/reference/configuration#metrics).
 
+### Charts in the standalone server
+
+The [standalone server](/guide/standalone-server) can keep Nestrix's runtime metrics and chart them, without a Collector. Start it with `NESTRIX_METRICS=on` and point the app's export endpoint at it, as for traces. The dashboard then has a **Metrics** page: CPU, memory (RSS), heap, event-loop delay and request duration over the same time windows as the other pages, narrowed by service, environment and instance, with the aggregation across replicas (sum, average, busiest or quietest instance) or one line per instance. A click or a drag on a chart opens the requests from those minutes, and a trace page links to the metrics around it. Missing minutes show as gaps and a metric with no data says so.
+
+What the server accepts and keeps, so you can decide before turning it on:
+
+- **Metric types:** Gauge, monotonic Sum (cumulative or delta), non-monotonic cumulative Sum (stored as a level) and explicit-bucket Histogram, for Nestrix's own runtime metrics and `http.server.request.duration` only. Other names, exponential histograms and summaries are counted and discarded; the export still succeeds, so exporters do not retry.
+- **Retention:** one point per series and minute, kept for `NESTRIX_RETENTION_DAYS` like the traces.
+- **Cardinality limits:** at most 2,000 active series per service and 20,000 in all (`NESTRIX_METRICS_MAX_SERIES_PER_SERVICE`, `NESTRIX_METRICS_MAX_SERIES`). Further points are dropped and counted, and the Metrics page shows the count.
+- **Backpressure:** at most 50,000 points are written at once; beyond that the export gets `503` with `Retry-After` and retries, as for spans.
+
+It is off by default, so a tracing-only install changes nothing. It is not a general metrics backend: use a Collector for anything beyond this catalog. The [server README](https://github.com/nestrix-js/nestrix/blob/main/apps/server/README.md#historical-metrics-optional) has the details, and `examples/standalone` runs it with Docker Compose.
+
 An endpoint that answers 404, 405 or 501 on its metrics URL does not accept metrics (the [standalone server](/guide/standalone-server) ingests traces and logs only unless started with `NESTRIX_METRICS=on`, and Jaeger never takes metrics). Nestrix then logs one line and stops exporting metrics until the app restarts; traces and logs carry on.
 
 ## Export health

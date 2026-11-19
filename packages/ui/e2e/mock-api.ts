@@ -35,6 +35,12 @@ import type {
 } from "@nestrix-js/protocol";
 import { generatedClasses, generatedMap } from "./mock-classes-map.ts";
 import { generatedDependencies, generatedTimeline } from "./mock-insights.ts";
+import {
+  catalogAnswer,
+  defaultMetrics,
+  type MetricsFixture,
+  seriesAnswer,
+} from "./mock-metrics.ts";
 import { empty as emptyOverview } from "./mock-overview.ts";
 import { generatedQueries } from "./mock-queries.ts";
 import { emptyExplain } from "./mock-route-explain.ts";
@@ -227,6 +233,10 @@ export class MockApi {
   /** The standalone server's extras: `mode` and `services` in meta; `mode` defaults to embedded. */
   mode: MetaResponse["mode"] = "embedded";
   services: string[] | undefined = undefined;
+  /** `meta.metrics.available` (issue #18): the standalone server with `NESTRIX_METRICS=on`. */
+  metricsAvailable = false;
+  /** What `metrics/catalog` and `metrics/series` answer from. */
+  metrics: MetricsFixture = defaultMetrics();
   /** `meta.environments`; with two or more the environment selector shows. */
   environments: EnvironmentInfo[] | undefined = undefined;
   /** `meta.access` (issue #34); absent unless set, as from an embedded dashboard. */
@@ -331,6 +341,8 @@ export class MockApi {
     this.mode = "embedded";
     this.services = undefined;
     this.environments = undefined;
+    this.metricsAvailable = false;
+    this.metrics = defaultMetrics();
     this.access = undefined;
     this.unauthorized = false;
     this.logouts = 0;
@@ -514,6 +526,20 @@ export class MockApi {
           status: 200,
           body: { traceId: query.get("id"), items: [], truncated: false },
         };
+      case "metrics/catalog":
+        return this.metricsAvailable
+          ? { status: 200, body: catalogAnswer(query, this.metrics) }
+          : {
+              status: 404,
+              body: { error: { code: "not_found", message: "Not found" } },
+            };
+      case "metrics/series":
+        return this.metricsAvailable
+          ? seriesAnswer(query, this.metrics)
+          : {
+              status: 404,
+              body: { error: { code: "not_found", message: "Not found" } },
+            };
       case "errors":
         return this.errors.answer(query);
       case "errors/groups": {
@@ -1045,6 +1071,7 @@ export class MockApi {
       mode: this.mode,
       ...(this.services ? { services: this.services } : {}),
       ...(this.environments ? { environments: this.environments } : {}),
+      ...(this.metricsAvailable ? { metrics: { available: true } } : {}),
       ...(this.access ? { access: this.access } : {}),
       runtime: { available: this.mode === "embedded" && this.runtimeAvailable },
       profiler: {

@@ -5,6 +5,8 @@ import {
   baseUrl,
   getInstances,
   getLogs,
+  getMetricCatalog,
+  getMetricSeries,
   getRemoteProfiles,
   setActiveEnvironment,
   shouldLogin,
@@ -108,6 +110,20 @@ describe("the selected environment (D-101)", () => {
     });
     // A call that names one keeps it.
     expect(calls[2]?.body).toEqual({ key: "k", environment: "unset" });
+  });
+
+  it("sends the environment with the metric catalog and series", async () => {
+    const calls = recordFetch();
+    setActiveEnvironment("staging");
+    await getMetricCatalog({ service: "shop" });
+    await getMetricSeries({ metric: "process.cpu.time" });
+    expect(calls.map((c) => c.url.pathname)).toEqual([
+      "/api/v1/metrics/catalog",
+      "/api/v1/metrics/series",
+    ]);
+    for (const c of calls) {
+      expect(c.url.searchParams.get("environment")).toBe("staging");
+    }
   });
 
   it("sends the environment with the profiler's instance and capture lists", async () => {
