@@ -207,7 +207,7 @@ function GroupRow({
             value={group.count}
             max={max}
             label={countText(group.count)}
-            color="--destructive"
+            tone="worse"
           />
         </TableCell>
         <TableCell>
@@ -353,6 +353,7 @@ function Charts({ data }: { data: ErrorGroupsResponse }) {
               values: t.series,
             }))}
             stacked
+            integer
             fromUnixMs={data.fromUnixMs}
             toUnixMs={data.toUnixMs}
             heightClass="h-48"

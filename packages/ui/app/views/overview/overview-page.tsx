@@ -26,6 +26,7 @@ import {
 } from "@/components/kit/donut";
 import { ScoreRing } from "@/components/kit/score-ring";
 import { Section } from "@/components/kit/section";
+import { PERCENTILE_COLOR } from "@/components/kit/series-colors";
 import { KpiStrip, StatTile } from "@/components/kit/stat-tile";
 import { TrendLine } from "@/components/kit/trend-line";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -352,20 +353,23 @@ function LatencyCard({ data }: { data: OverviewResponse }) {
       actions={
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           <Legend
-            color="--chart-1"
+            color={PERCENTILE_COLOR.p50}
             text={`p50 ${formatDuration(data.totals.p50Ms)}`}
           />
           <Legend
-            color="--warning"
+            color={PERCENTILE_COLOR.p95}
             text={`p95 ${formatDuration(data.totals.p95Ms)}`}
           />
           <Legend
-            color="--destructive"
-            dashed
+            color={PERCENTILE_COLOR.p99}
             text={`p99 ${formatDuration(data.totals.p99Ms)}`}
           />
           {data.previousCovered && (
-            <Legend color="--muted-foreground" text="p95 previous window" />
+            <Legend
+              color="--muted-foreground"
+              dashed
+              text="p95 previous window"
+            />
           )}
         </div>
       }
@@ -534,11 +538,7 @@ function ThroughputCard({ data }: { data: OverviewResponse }) {
       <ThroughputBars series={data.series} />
       <div className="flex gap-4 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
-          <span
-            aria-hidden
-            className="size-2.5 rounded-sm"
-            style={{ background: "var(--chart-1)", opacity: 0.55 }}
-          />
+          <Swatch color="--chart-1" />
           Requests
         </span>
         <span className="inline-flex items-center gap-1.5">
@@ -741,7 +741,8 @@ function RoutesCard({
                             className="h-1.5 rounded-full"
                             style={{
                               width: `${Math.max(2, (row.after.p95Ms / maxP95) * 100)}%`,
-                              background: `var(${toneColor[tone === "neutral" ? "neutral" : tone]})`,
+                              // An amount, not a verdict: the change beside it carries the tone.
+                              background: "var(--chart-1)",
                             }}
                           />
                         </div>

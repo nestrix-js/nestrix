@@ -6,6 +6,7 @@ import type {
 
 import { AreaChart } from "@/components/kit/area-chart";
 import { BarChart } from "@/components/kit/bar-chart";
+import { PERCENTILE_COLOR } from "@/components/kit/series-colors";
 import { formatDuration } from "@/lib/format";
 
 /**
@@ -51,13 +52,12 @@ export function LatencyChart({
         {
           id: "p99",
           label: "p99",
-          color: "--destructive",
+          color: PERCENTILE_COLOR.p99,
           values: p99,
           width: 1.5,
-          dash: "5 4",
         },
-        { id: "p95", label: "p95", color: "--warning", values: p95 },
-        { id: "p50", label: "p50", color: "--chart-1", values: p50 },
+        { id: "p95", label: "p95", color: PERCENTILE_COLOR.p95, values: p95 },
+        { id: "p50", label: "p50", color: PERCENTILE_COLOR.p50, values: p50 },
       ]}
       markers={releases.map((r) => ({
         id: r.version,
@@ -95,7 +95,7 @@ export function ThroughputBars({
           title: `${p.count} requests, ${p.errors} errors`,
           attrs: { "data-count": p.count, "data-errors": p.errors },
           segments: [
-            { value: p.count - errors, color: "--chart-1", opacity: 0.55 },
+            { value: p.count - errors, color: "--chart-1" },
             { value: errors, color: "--destructive" },
           ],
         };

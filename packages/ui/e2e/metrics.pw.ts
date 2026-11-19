@@ -107,7 +107,7 @@ test("draws a chart per catalog metric with its unit, shows gaps, and an empty s
   ).toContainText("average of instances");
   await expect(
     panel(page, "nodejs.eventloop.delay.p99").getByTestId("metric-meaning"),
-  ).toContainText("seconds");
+  ).toContainText("duration (ms, s from 1 s)");
 
   // A null in the answer is a gap in the data the chart is given, and is said in words.
   await expect(

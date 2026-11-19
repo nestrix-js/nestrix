@@ -228,7 +228,6 @@ function InstanceRow({
         value={sample?.eventLoopP99Ms}
         max={loopMax}
         label={formatMs}
-        color="--chart-2"
       />
       <TableCell className="text-right font-mono tabular-nums">
         <span className="flex flex-col items-end leading-tight">

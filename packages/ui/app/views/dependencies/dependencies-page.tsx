@@ -430,6 +430,7 @@ export function DependenciesPage() {
                 <AreaChart
                   testId="calls-area"
                   stacked
+                  integer
                   heightClass="h-48"
                   fromUnixMs={deps.data.fromUnixMs}
                   toUnixMs={deps.data.toUnixMs}

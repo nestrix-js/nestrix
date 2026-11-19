@@ -60,12 +60,18 @@
   --focus: oklch(0.55 0.2 260);
   --border: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
-  /* Chart series colours, read by components/chart.tsx. */
-  --chart-1: oklch(0.55 0.2 260);
-  --chart-2: oklch(0.65 0.17 150);
-  --chart-3: oklch(0.577 0.245 27.325);
-  --chart-4: oklch(0.55 0.19 295);
-  --chart-5: oklch(0.6 0.11 195);
+  /* Chart series colours, read by the charts in components/kit. A categorical palette: none of
+     them is red or green, which are kept for good and bad (--destructive, --success). Fixed
+     meanings: p50 --chart-1, p95 --chart-4, p99 --chart-5. Each is at least 3:1 against the page
+     in both modes, and the three percentile colours stay apart (colour distance 8 or more in
+     oklab x100) under simulated red-green and blue-yellow colour blindness. --chart-neutral is a
+     backdrop (a histogram's bars), 3:1 as well. */
+  --chart-1: oklch(0.52 0.2 260);
+  --chart-2: oklch(0.66 0.16 55);
+  --chart-3: oklch(0.5 0.11 115);
+  --chart-4: oklch(0.5 0.2 330);
+  --chart-5: oklch(0.63 0.1 185);
+  --chart-neutral: oklch(0.66 0 0);
   /* Flame graph: where the code lives (app, node_modules, Node.js and V8). The dataviz reference
      palette's first three slots, validated all-pairs in both modes. */
   --flame-app: #2a78d6;
@@ -93,24 +99,17 @@
     --focus: oklch(0.72 0.15 255);
     --border: oklch(1 0 0 / 10%);
     --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.72 0.15 255);
-    --chart-2: oklch(0.75 0.16 150);
-    --chart-3: oklch(0.7 0.19 25);
-    --chart-4: oklch(0.74 0.14 295);
-    --chart-5: oklch(0.78 0.11 195);
+    --chart-1: oklch(0.62 0.18 255);
+    --chart-2: oklch(0.78 0.15 65);
+    --chart-3: oklch(0.62 0.11 120);
+    --chart-4: oklch(0.72 0.17 340);
+    --chart-5: oklch(0.88 0.09 185);
+    --chart-neutral: oklch(0.6 0 0);
     --flame-app: #3987e5;
     --flame-deps: #d95926;
     --flame-runtime: #199e70;
     --flame-v8: #9a9aa4;
   }
-}
-
-/* uPlot's legend at the dashboard's small-print size, not its 14px bold default. */
-.uplot .u-legend {
-  font-size: 12px;
-}
-.uplot .u-legend th {
-  font-weight: 500;
 }
 
 body {

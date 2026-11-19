@@ -198,12 +198,12 @@ export function bucketTotals(groups: readonly ErrorGroup[]): number[] {
 
 export const NO_TYPE = "No type";
 export const OTHER_TYPES = "Other";
-/** Chart colours of the most frequent types, then the grey of "Other". */
+/** Chart colours of the most frequent types, then the grey of "Other". Never red or amber: those are the states and statuses beside them. */
 export const TYPE_COLORS = [
-  "--chart-3",
-  "--warning",
-  "--chart-4",
   "--chart-1",
+  "--chart-2",
+  "--chart-3",
+  "--chart-4",
   "--chart-5",
 ] as const;
 export const OTHER_COLOR = "--muted-foreground";

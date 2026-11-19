@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
 
+import { hhmm } from "./chart-axis";
+import { Swatch } from "./donut";
+import { cssColor, NO_LEGEND, timeAxis, valueAxis } from "./uplot-preset";
+
 export interface ChartSeries {
   label: string;
   /** A CSS custom property holding the colour, e.g. `--chart-1`; read at draw time. */
@@ -30,10 +34,6 @@ interface ChartProps {
    */
   onRange?: (fromSeconds: number, toSeconds: number) => void;
 }
-
-const cssColor = (name: string) =>
-  getComputedStyle(document.documentElement).getPropertyValue(name).trim() ||
-  "currentColor";
 
 /** True when a value has no non-null neighbour, so a line would not draw it. */
 function hasIsolatedPoint(
@@ -82,6 +82,8 @@ export function Chart({
   const ref = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
   const scheme = useColorScheme();
+  // The point under the cursor, for the legend's readout; null when the pointer is away.
+  const [hover, setHover] = useState<number | null>(null);
   const latest = useRef({ xs, series, format, onRange });
   latest.current = { xs, series, format, onRange };
   const selectable = onRange !== undefined;
@@ -93,35 +95,25 @@ export function Chart({
     const el = ref.current;
     if (!el) return;
     const { xs: x0, series: s0 } = latest.current;
-    const fmt = (v: number | null | undefined) =>
-      v === null || v === undefined ? "-" : latest.current.format(v);
-    const axis = {
-      stroke: cssColor("--muted-foreground"),
-      grid: { stroke: cssColor("--border"), width: 1 },
-      ticks: { stroke: cssColor("--border"), width: 1 },
-    };
     let dragged = false;
     const plot = new uPlot(
       {
         width: el.clientWidth || 480,
         height,
-        axes: [
-          axis,
-          {
-            ...axis,
-            size: 64,
-            values: (_u, vals) => vals.map((v) => fmt(v)),
-          },
-        ],
+        legend: NO_LEGEND,
+        axes: [timeAxis(), valueAxis((v) => latest.current.format(v))],
         scales: {
           y: {
             range: (_u, _min, max) => [0, Math.max(max, minMax) * 1.1],
           },
         },
         ...(selectable
-          ? {
-              cursor: { drag: { x: true, y: false, setScale: false } },
-              hooks: {
+          ? { cursor: { drag: { x: true, y: false, setScale: false } } }
+          : {}),
+        hooks: {
+          setCursor: [(u: uPlot) => setHover(u.cursor.idx ?? null)],
+          ...(selectable
+            ? {
                 setSelect: [
                   (u: uPlot) => {
                     if (u.select.width < 3) return;
@@ -153,9 +145,9 @@ export function Chart({
                     });
                   },
                 ],
-              },
-            }
-          : {}),
+              }
+            : {}),
+        },
         series: [
           {},
           ...s0.map((s) => ({
@@ -164,7 +156,6 @@ export function Chart({
             width: 2,
             // A line needs two neighbouring values; markers keep a lone minute visible.
             points: { show: hasIsolatedPoint },
-            value: (_u: uPlot, v: number | null) => fmt(v),
           })),
         ],
       },
@@ -188,14 +179,68 @@ export function Chart({
     plotRef.current?.setData([xs, ...series.map((s) => s.values)]);
   }, [xs, series]);
 
+  const id = testId ?? "chart";
   return (
-    <div
-      ref={ref}
-      role="img"
-      aria-label={label}
-      data-testid={testId ?? "chart"}
-      data-points={xs.length}
-      className="w-full"
-    />
+    <div className="w-full space-y-1.5">
+      <div
+        ref={ref}
+        role="img"
+        aria-label={label}
+        data-testid={id}
+        data-points={xs.length}
+        className="w-full"
+      />
+      <ChartLegend
+        testId={`${id}-legend`}
+        series={series}
+        xs={xs}
+        format={format}
+        hover={hover}
+      />
+    </div>
+  );
+}
+
+/**
+ * The kit's legend for a uPlot chart: a swatch and the name of each series. While the pointer is
+ * over the plot it also reads out the time and each series' value at that point.
+ */
+function ChartLegend({
+  testId,
+  series,
+  xs,
+  format,
+  hover,
+}: {
+  testId: string;
+  series: ChartSeries[];
+  xs: number[];
+  format: (value: number) => string;
+  hover: number | null;
+}) {
+  const at = hover !== null ? xs[hover] : undefined;
+  return (
+    <ul
+      data-testid={testId}
+      className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground"
+    >
+      {series.map((s) => {
+        const value = hover !== null ? s.values[hover] : undefined;
+        return (
+          <li key={s.label} className="flex items-center gap-1.5">
+            <Swatch color={s.color} />
+            {s.label}
+            {value !== null && value !== undefined && (
+              <span className="font-mono tabular-nums text-foreground">
+                {format(value)}
+              </span>
+            )}
+          </li>
+        );
+      })}
+      {at !== undefined && (
+        <li className="ml-auto font-mono tabular-nums">{hhmm(at * 1000)}</li>
+      )}
+    </ul>
   );
 }

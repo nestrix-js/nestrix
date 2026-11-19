@@ -4,6 +4,9 @@ import type * as React from "react";
 import { type StackSegment, stackHeights } from "@/components/kit/format";
 import { cn } from "@/lib/utils";
 
+/** An amount's colour. Red and green are for explicit bad and good segments only. */
+const DEFAULT_COLOR = "--chart-1";
+
 export interface BarItem {
   key: string;
   label: string;
@@ -53,7 +56,7 @@ export function BarChart({
   const fill = (
     s: StackSegment & { percent: number },
   ): React.CSSProperties => ({
-    background: `var(${s.color})`,
+    background: `var(${s.color ?? DEFAULT_COLOR})`,
     opacity: s.opacity,
   });
 
@@ -77,7 +80,7 @@ export function BarChart({
             >
               {[...parts].reverse().map((p, i) => (
                 <div
-                  key={p.label ?? p.color}
+                  key={p.label ?? `${p.color ?? DEFAULT_COLOR}-${i}`}
                   className={cn(i === 0 && "rounded-t-sm")}
                   style={{ ...fill(p), height: `${p.percent}%`, minHeight: 2 }}
                 />
@@ -121,9 +124,9 @@ export function BarChart({
               aria-hidden
               className="flex h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
             >
-              {parts.map((p) => (
+              {parts.map((p, i) => (
                 <span
-                  key={p.label ?? p.color}
+                  key={p.label ?? `${p.color ?? DEFAULT_COLOR}-${i}`}
                   className="h-full"
                   style={{ ...fill(p), width: `${p.percent}%` }}
                 />

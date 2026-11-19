@@ -4,6 +4,12 @@ import uPlot from "uplot";
 
 import { Swatch } from "@/components/kit/donut";
 import { Section } from "@/components/kit/section";
+import {
+  cssColor,
+  NO_LEGEND,
+  timeAxis,
+  valueAxis,
+} from "@/components/kit/uplot-preset";
 import { Button } from "@/components/ui/button";
 import { bucketTotal as total } from "@/views/requests/requests-stats";
 import {
@@ -17,14 +23,10 @@ const MIN_DRAG_PX = 4;
 const HEIGHT = 140;
 
 const LEGEND = [
-  { label: "ok", color: "--chart-2" },
+  { label: "ok", color: "--success" },
   { label: "4xx", color: "--warning" },
-  { label: "5xx or error", color: "--chart-3" },
+  { label: "5xx or error", color: "--destructive" },
 ] as const;
-
-const cssColor = (name: string) =>
-  getComputedStyle(document.documentElement).getPropertyValue(name).trim() ||
-  "currentColor";
 
 /** Stacked series for uPlot: each is a running total, drawn largest first so the smaller ones overlay it. */
 function stack(data: TraceTimelineResponse): (number | null)[][] {
@@ -72,30 +74,23 @@ export function RequestTimeline({
     const first = latest.current.data;
     if (!el || !first) return;
     const bars = uPlot.paths.bars?.({ size: [0.9, 64], align: 0 });
-    const axis = {
-      stroke: cssColor("--muted-foreground"),
-      grid: { stroke: cssColor("--border"), width: 1 },
-      ticks: { stroke: cssColor("--border"), width: 1 },
-    };
     const fill = (name: string) => cssColor(name);
     const plot = new uPlot(
       {
         width: el.clientWidth || 480,
         height: HEIGHT,
-        legend: { show: false },
+        legend: NO_LEGEND,
         cursor: {
           drag: { x: true, y: false, setScale: false },
           points: { show: false },
         },
         select: { show: true, left: 0, top: 0, width: 0, height: 0 },
         axes: [
-          { ...axis, size: 24, grid: { show: false } },
+          { ...timeAxis(), grid: { show: false } },
           {
-            ...axis,
-            size: 36,
+            ...valueAxis((v) => String(Math.round(v)), 36),
             ticks: { show: false },
             splits: (_u, _a, _min, max) => [0, max / 2, max],
-            values: (_u, vals) => vals.map((v) => String(Math.round(v))),
           },
         ],
         scales: {
@@ -118,20 +113,23 @@ export function RequestTimeline({
           {},
           {
             label: "ok",
-            stroke: fill("--chart-2"),
-            fill: fill("--chart-2"),
+            stroke: fill("--success"),
+            fill: fill("--success"),
+            points: { show: false },
             paths: bars,
           },
           {
             label: "4xx",
             stroke: fill("--warning"),
             fill: fill("--warning"),
+            points: { show: false },
             paths: bars,
           },
           {
             label: "5xx or error",
-            stroke: fill("--chart-3"),
-            fill: fill("--chart-3"),
+            stroke: fill("--destructive"),
+            fill: fill("--destructive"),
+            points: { show: false },
             paths: bars,
           },
         ],
