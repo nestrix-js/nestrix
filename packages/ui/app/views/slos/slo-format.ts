@@ -100,6 +100,24 @@ export function describeBudget(remainingFraction: number | null): string {
   return `${trim((remainingFraction * 100).toFixed(1))}% of the budget left`;
 }
 
+/**
+ * The number inside a budget ring: the remaining budget as a whole percentage ("50%"), or the
+ * overspend as a negative one ("−150%", with a real minus sign); "—" without requests.
+ */
+export function formatBudgetPercent(remainingFraction: number | null): string {
+  if (remainingFraction === null || !Number.isFinite(remainingFraction))
+    return "—";
+  const percent = Math.round(remainingFraction * 100);
+  return percent < 0 ? `−${-percent}%` : `${percent}%`;
+}
+
+/** The small word under the ring's number. */
+export function budgetCaption(remainingFraction: number | null): string {
+  if (remainingFraction === null) return "no data";
+  if (remainingFraction < 0) return "over budget";
+  return remainingFraction === 0 ? "budget spent" : "budget left";
+}
+
 /** What counts as a good request, in words. */
 export function describeIndicator(
   slo: Pick<Slo, "kind" | "latencyThresholdMs">,

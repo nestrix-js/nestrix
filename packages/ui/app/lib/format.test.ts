@@ -1,23 +1,49 @@
 import { describe, expect, it } from "vitest";
 
-import { formatDuration, formatRelative, samplingNotice } from "@/lib/format";
+import {
+  formatDuration,
+  formatRelative,
+  samplingNotice,
+  showsSamplingNotice,
+} from "@/lib/format";
 
 describe("sampling notice", () => {
-  it("says lists are sampled when the rate is below 1", () => {
-    expect(samplingNotice({ owner: "nestrix", rate: 0.25 })).toBe(
-      "lists are sampled",
+  it("states the rate when it is below 1, with a tooltip", () => {
+    const notice = samplingNotice({ owner: "nestrix", rate: 0.25 });
+    expect(notice?.text).toBe("traces sampled at 25%");
+    expect(notice?.title).toContain("25%");
+    expect(samplingNotice({ owner: "nestrix", rate: 0.125 })?.text).toBe(
+      "traces sampled at 12.5%",
     );
-    expect(samplingNotice({ owner: "nestrix", rate: 0 })).toBe(
-      "lists are sampled",
+    expect(samplingNotice({ owner: "nestrix", rate: 0 })?.text).toBe(
+      "traces sampled at 0%",
     );
   });
-  it("says lists may be sampled when the host owns the sampler", () => {
-    expect(samplingNotice({ owner: "host", rate: null })).toBe(
-      "lists may be sampled",
+  it("says traces may be sampled when the host owns the sampler", () => {
+    expect(samplingNotice({ owner: "host", rate: null })?.text).toBe(
+      "traces may be sampled",
     );
   });
   it("says nothing at a rate of 1", () => {
     expect(samplingNotice({ owner: "nestrix", rate: 1 })).toBeNull();
+  });
+});
+
+describe("where the sampling notice shows", () => {
+  it("is hidden on pages that do not show sampled traces", () => {
+    for (const p of [
+      "/logs",
+      "/runtime",
+      "/metrics",
+      "/slos",
+      "/alerts",
+      "/settings",
+    ])
+      expect(showsSamplingNotice(p)).toBe(false);
+  });
+  it("shows on the trace pages", () => {
+    for (const p of ["/", "/requests", "/routes", "/route", "/traces/abc"])
+      expect(showsSamplingNotice(p)).toBe(true);
   });
 });
 

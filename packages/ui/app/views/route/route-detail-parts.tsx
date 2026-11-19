@@ -57,6 +57,17 @@ function Pair({
   tone: Parameters<typeof Delta>[0]["tone"];
   testId?: string;
 }) {
+  // "— → —" says nothing: when neither side has a figure, say so in words.
+  if (before === "—" && after === "—") {
+    return (
+      <div
+        className="text-right text-xs text-muted-foreground"
+        data-testid={testId}
+      >
+        no data
+      </div>
+    );
+  }
   return (
     <div className="text-right font-mono" data-testid={testId}>
       <div>

@@ -29,8 +29,8 @@ Every page is built from the kit in `app/components/kit/` (import from `@/compon
 
 ### The rules
 
-1. **One page header**: `PageHeader` with the title, one line saying what the page answers (no trailing period), the source ("counted before sampling" or "from sampled traces"), and on the right the page's controls.
-2. **A KPI strip first** where the page has numbers: three to five `StatTile`s in a `KpiStrip`. Never invent a change the API does not give: pass `delta="—"`.
+1. **One page header**: `PageHeader` with the title, one line saying what the page answers (no trailing period), the source ("counted before sampling" or "from sampled traces"), and on the right the page's controls. The header says the source once: a card or tile whose source line is the same words leaves them out (`withoutPageSource`), and one that differs ("estimated from sampled traces" on a counted page) keeps its line. The one explanatory paragraph under a header is `PageNote`, never a bordered box.
+2. **A KPI strip first** where the page has numbers: three to five `StatTile`s in a `KpiStrip`. Never invent a change the API does not give: omit `delta` (or pass `"—"`: nothing is drawn, and `deltaTitle` becomes the tooltip of the label). A bare dash in a tile corner or a "change" column says nothing, so a table drops the column when no row has a change.
 3. **Charts before tables.** Answer the page's main question with a chart; put the table below for detail.
 4. **Tables**: `BarCell` for a value with a proportional bar, `Chip` for statuses (with words), monospace for numbers, routes, statements and ids, numbers right-aligned, sticky header (`containerClassName="max-h-[70vh]"` on `DataTable`), row hover, and the whole row clickable (`onRowClick`) when it opens something, with a real link kept inside the row.
 5. **Colour** only from the tokens in `app/styles.css` (add a token there with light and dark values when needed). Worse is destructive or warning, better is success, neutral is muted. An arrow follows the sign and the colour says good or bad. Text must keep 4.5:1 contrast on its background in both themes: use `text-destructive-text`, `text-warning-text` and `text-info` for text, not `--destructive` or `--warning`.
@@ -47,7 +47,8 @@ Every page is built from the kit in `app/components/kit/` (import from `@/compon
 | `PageHeader` | `<PageHeader title="Requests" description="Every request, newest first" source="traces" controls={<SegmentedControl .../>} />` |
 | `Section` | `<Section title="Latency" description="p50, p95, p99" source="from sampled traces" testId="card-latency" actions={...}>...</Section>`; `flush` lets a table touch the edges |
 | `StatTile`, `KpiStrip` | `<KpiStrip columns={4}><StatTile testId="kpi-p95" label="p95" value="286" unit="ms" delta="+12%" deltaTone="worse" series={[...]} source="..." /></KpiStrip>` |
-| `Delta` | `<Delta text="+12%" tone="worse" />` (the text carries the sign; "—" is unknown) |
+| `Delta` | `<Delta text="+12%" tone="worse" />` (the text carries the sign; "—" is unknown and draws nothing) |
+| `PageNote` | `<PageNote testId="map-note">The map is built from sampled traces ...</PageNote>`: the one explanatory paragraph of a page |
 | `Chip` | `<Chip tone="warn" icon={<Icon />}>404</Chip>`; tones `worse`, `better`, `neutral`, `info`, `warn`; always put words in it |
 | `SourceLabel` | `<SourceLabel kind="traces" />` or `<SourceLabel>5xx or thrown</SourceLabel>`; `SOURCE_TEXT` has the standard wording |
 | `Sparkline` | `<Sparkline values={[...]} label="Errors per bucket" />`: red bars, scaled to the largest |
@@ -56,7 +57,8 @@ Every page is built from the kit in `app/components/kit/` (import from `@/compon
 | `BarChart` | `<BarChart items={[{ key, label, segments: [{ value, color: "--chart-1" }, { value: errors, color: "--destructive" }] }]} orientation="horizontal" label="..." />`; vertical for buckets over time, horizontal for rankings |
 | `Donut`, `DonutLegend` | `<Donut slices={donutSlices(items, DONUT_RADIUS)} testId="donut-x" label="...">centre text</Donut>` and `<DonutLegend items={[{ key, label, color, value }]} />` |
 | `Heatmap` | `<Heatmap rows={days} columns={hours} values={grid} label="..." />` (intensity from `heatLevel`) |
-| `ScoreRing` | `<ScoreRing score={72} color="--warning" label="Health score 72 of 100" />` |
+| `ScoreRing` | `<ScoreRing score={72} color="--warning" label="Health score 72 of 100" />`; `text` replaces the number inside |
+| `BudgetRing` | `views/slos/budget-ring.tsx`: an SLO's error-budget ring on the Overview and SLOs pages; an overspent budget reads "−150%" and "over budget" in the danger colour |
 | `BarCell` | `<BarCell value={ms} max={slowest} label="245 ms" />` in a table cell |
 | `SegmentedControl` | `<SegmentedControl label="Window" options={[{ value: 15, label: "15 min" }]} value={w} onChange={setW} />` |
 | `EmptyState`, `ErrorState` | `<EmptyState title="No requests yet.">They appear here as the app handles them.</EmptyState>`, `<ErrorState title="Could not load requests." message={e.message} onRetry={reload} />` |
@@ -65,7 +67,7 @@ Every page is built from the kit in `app/components/kit/` (import from `@/compon
 
 Pure helpers (all unit tested in `format.test.ts`): `barPercent`, `niceMax`, `compactNumber`, `stackHeights`, `heatLevel`, `heatOpacity`, `donutSlices`, `ringDasharray`, `linePath`, `areaPath`, `cumulativeSeries`.
 
-The shell (`app/components/app-shell.tsx`) is the same everywhere: brand and service, the live state, the sampling notice, "Pause live", and the section menu. `PAGE_COLUMN` is the page width and gutters (`max-w-7xl`); pages render inside `main` and use `space-y-6` between their blocks.
+The shell (`app/components/app-shell.tsx`) is the same everywhere: brand and service, the live state, the sampling chip ("traces sampled at 25%", with a tooltip; hidden on Logs, Runtime, Metrics, SLOs, Alerts and Settings), "Pause live", and the section menu. `PAGE_COLUMN` is the page width and gutters (`max-w-7xl`); pages render inside `main` and use `space-y-6` between their blocks.
 
 ## Third-party notices
 

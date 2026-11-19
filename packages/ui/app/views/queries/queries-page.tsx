@@ -9,6 +9,7 @@ import { BarCell } from "@/components/kit/bar-cell";
 import { BarChart } from "@/components/kit/bar-chart";
 import { Chip } from "@/components/kit/chip";
 import { PageHeader } from "@/components/kit/page-header";
+import { PageNote } from "@/components/kit/page-note";
 import { Section } from "@/components/kit/section";
 import { SegmentedControl } from "@/components/kit/segmented-control";
 import { SkeletonChart, SkeletonKpiStrip } from "@/components/kit/skeletons";
@@ -205,16 +206,13 @@ export function QueriesPage() {
 
       {stats.data !== undefined && (
         <>
-          <p
-            data-testid="sampled-note"
-            className="-mt-3 text-xs text-muted-foreground"
-          >
+          <PageNote testId="sampled-note">
             {standalone
               ? "Built from the traces stored by the server, which hold only what was sampled."
               : "Built from the sampled traces in the store, not from every query."}{" "}
             Statements are as the instrumentation sanitised them. N+1 counts the
             traces where a statement ran 3 or more times.
-          </p>
+          </PageNote>
           {stats.data.truncated && (
             <p
               data-testid="truncated-note"

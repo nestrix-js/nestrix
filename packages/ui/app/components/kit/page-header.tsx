@@ -1,5 +1,6 @@
 import type * as React from "react";
 
+import { useRegisterPageSource } from "@/components/kit/page-source";
 import { SourceLabel } from "@/components/kit/source-label";
 
 /**
@@ -18,6 +19,7 @@ export function PageHeader({
   source?: string;
   controls?: React.ReactNode;
 }) {
+  useRegisterPageSource(source);
   return (
     <header
       data-testid="page-header"
@@ -32,9 +34,11 @@ export function PageHeader({
               {" "}
               <span aria-hidden>·</span>{" "}
               {source === "stats" || source === "traces" ? (
-                <SourceLabel kind={source} className="text-sm" />
+                <SourceLabel kind={source} className="text-sm" pageLevel />
               ) : (
-                <SourceLabel className="text-sm">{source}</SourceLabel>
+                <SourceLabel className="text-sm" pageLevel>
+                  {source}
+                </SourceLabel>
               )}
             </>
           )}

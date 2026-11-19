@@ -7,7 +7,7 @@ import { Fragment, useMemo, useState } from "react";
 import { DataTableSkeleton } from "@/components/data-table/data-table-skeleton";
 import { BarCell } from "@/components/kit/bar-cell";
 import { Chip } from "@/components/kit/chip";
-import { Delta } from "@/components/kit/delta";
+import { Delta, isUnknownDelta } from "@/components/kit/delta";
 import { DONUT_RADIUS, Donut, DonutLegend } from "@/components/kit/donut";
 import { donutSlices } from "@/components/kit/format";
 import { PageHeader } from "@/components/kit/page-header";
@@ -144,6 +144,10 @@ export function ClassesPage() {
     [all, sort, dir, query.class],
   );
   const summary = useMemo(() => summarizeClasses(all), [all]);
+  // The change column is dropped when no row has a previous window to compare with.
+  const showChange = classes.some(
+    (c) => !isUnknownDelta(rowAvgChange(c, stats.data).text),
+  );
   const changes = classChanges(stats.data, summary);
   const breakdown = useMemo(() => kindBreakdown(all), [all]);
   const maxOwn = Math.max(
@@ -446,7 +450,9 @@ export function ClassesPage() {
                         </TableHead>
                       );
                     })}
-                    <TableHead className="text-right">Avg change</TableHead>
+                    {showChange && (
+                      <TableHead className="text-right">Avg change</TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -495,18 +501,20 @@ export function ClassesPage() {
                             {formatDuration(c.totalMs)}
                           </TableCell>
                           <TableCell>{ownCell(c.ownMs, maxOwn)}</TableCell>
-                          <TableCell className="text-right">
-                            {(() => {
-                              const change = rowAvgChange(c, stats.data);
-                              return (
-                                <Delta
-                                  text={change.text}
-                                  tone={change.tone}
-                                  title={change.title}
-                                />
-                              );
-                            })()}
-                          </TableCell>
+                          {showChange && (
+                            <TableCell className="text-right">
+                              {(() => {
+                                const change = rowAvgChange(c, stats.data);
+                                return (
+                                  <Delta
+                                    text={change.text}
+                                    tone={change.tone}
+                                    title={change.title}
+                                  />
+                                );
+                              })()}
+                            </TableCell>
+                          )}
                         </TableRow>
                         {expanded &&
                           sortMethods(c.methods, sort, dir).map((m) => (

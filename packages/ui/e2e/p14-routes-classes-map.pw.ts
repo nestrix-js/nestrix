@@ -149,14 +149,14 @@ test("routes: the table shows the change against the previous window, and a row 
   await page.goto(url("routes"));
   const rows = page.getByTestId("route-row");
   await expect(rows.first()).toBeVisible();
-  // The mock has no previous window for routes: the change is an honest dash.
-  await expect(rows.first().getByTestId("delta")).toHaveAttribute(
-    "data-tone",
-    "unknown",
-  );
+  // The mock has no previous window for routes: no change is drawn, and the column is gone.
+  await expect(rows.first().getByTestId("delta")).toHaveCount(0);
   await expect(
-    page.getByTestId("kpi-rate").getByTestId("delta"),
-  ).toHaveAttribute("data-tone", "unknown");
+    page.getByRole("columnheader", { name: "p95 change" }),
+  ).toHaveCount(0);
+  await expect(page.getByTestId("kpi-rate").getByTestId("delta")).toHaveCount(
+    0,
+  );
   // The p95 bars are scaled to the slowest route.
   const pcts = await rows
     .locator("td:nth-child(6) [data-pct]")

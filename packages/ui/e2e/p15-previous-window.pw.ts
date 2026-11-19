@@ -226,8 +226,9 @@ test("a previous window that is not covered shows a dash with the reason", async
     await page.goto(url(route));
     const tile = page.getByTestId("kpi-calls");
     await expect(tile).toBeVisible();
-    await expect(tile.getByTestId("delta")).toHaveText("—");
-    await expect(tile.getByTestId("delta")).toHaveAttribute("title", NOTE);
+    // No dash is drawn; the reason is the tile label's tooltip.
+    await expect(tile.getByTestId("delta")).toHaveCount(0);
+    await expect(tile.getByTitle(NOTE)).toHaveCount(1);
   }
 });
 
@@ -238,10 +239,8 @@ test("an older server without the fields keeps the dashes", async ({
     await page.goto(url(route));
     const tile = page.getByTestId("kpi-calls");
     await expect(tile).toBeVisible();
-    await expect(tile.getByTestId("delta")).toHaveAttribute(
-      "data-tone",
-      "unknown",
-    );
+    await expect(tile.getByTestId("delta")).toHaveCount(0);
+    await expect(tile).toHaveAttribute("data-delta", "unknown");
   }
 });
 

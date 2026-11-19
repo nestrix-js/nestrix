@@ -14,6 +14,7 @@ import {
   ErrorState,
   KpiStrip,
   PageHeader,
+  PageNote,
   SkeletonKpiStrip,
   SkeletonList,
   StatTile,
@@ -31,7 +32,7 @@ import {
   updateAlert,
 } from "@/lib/api";
 import { useCanAdmin } from "@/lib/can-admin";
-import { formatRelative, STANDALONE_STATISTICS_NOTE } from "@/lib/format";
+import { formatRelative } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
 import { useNow } from "@/lib/use-now";
 import {
@@ -758,20 +759,14 @@ export function AlertsPage() {
           ) : undefined
         }
       />
-      <div
-        data-testid="alerts-note"
-        className="space-y-1 rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground"
-      >
-        <p>
-          <strong className="font-medium text-foreground">No data</strong> means
-          the window held fewer requests than the rule's minimum. It changes
-          nothing: a firing rule stays firing, so a service that stopped sending
-          does not resolve its own alert.
-        </p>
-        {/* Sampling: alert values come from the per-minute rollups, the same numbers as the
-            statistics pages. When the protocol marks them "estimated" (#43/#30), show it here. */}
-        <p data-testid="alerts-sampling">{STANDALONE_STATISTICS_NOTE}</p>
-      </div>
+      {/* Alert values come from the per-minute rollups (counted, not sampled), so the page says
+          nothing about sampling. When the protocol marks them "estimated" (#43/#30), say it here. */}
+      <PageNote testId="alerts-note">
+        <strong className="font-medium text-foreground">No data</strong> means
+        the window held fewer requests than the rule's minimum. It changes
+        nothing: a firing rule stays firing, so a service that stopped sending
+        does not resolve its own alert.
+      </PageNote>
       {created && (
         <NewSecret created={created} onDone={() => setCreated(null)} />
       )}

@@ -4,7 +4,7 @@ export { AreaChart, type AreaSeries, type ChartMarker } from "./area-chart";
 export { BarCell } from "./bar-cell";
 export { BarChart, type BarItem } from "./bar-chart";
 export { Chip } from "./chip";
-export { chipTone, Delta, toneText } from "./delta";
+export { chipTone, Delta, isUnknownDelta, toneText } from "./delta";
 export {
   DONUT_RADIUS,
   Donut,
@@ -29,6 +29,8 @@ export {
 export { Heatmap } from "./heatmap";
 export { Chart, type ChartSeries } from "./line-chart";
 export { PageHeader } from "./page-header";
+export { PageNote } from "./page-note";
+export { useRegisterPageSource } from "./page-source";
 export { ScoreRing } from "./score-ring";
 export { Section } from "./section";
 export { SegmentedControl } from "./segmented-control";

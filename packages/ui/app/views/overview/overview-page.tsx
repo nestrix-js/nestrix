@@ -77,11 +77,8 @@ import {
   formatMemory,
   formatUptime,
 } from "@/views/runtime/runtime-format";
-import {
-  budgetBarPercent,
-  budgetState,
-  formatPercent,
-} from "@/views/slos/slo-format";
+import { BudgetRing } from "@/views/slos/budget-ring";
+import { budgetState } from "@/views/slos/slo-format";
 
 const DEFAULT_WINDOW = 15;
 
@@ -693,7 +690,9 @@ function RoutesCard({
                 <th className="px-2 font-medium">p95</th>
                 <th className="px-2 font-medium">Errors</th>
                 <th className="px-2 font-medium">Trend</th>
-                <th className="pl-2 text-right font-medium">vs previous</th>
+                {covered && (
+                  <th className="pl-2 text-right font-medium">vs previous</th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -773,12 +772,11 @@ function RoutesCard({
                         height={24}
                       />
                     </td>
-                    <td className="pl-2 text-right">
-                      <Delta
-                        text={covered ? formatChange(change) : "—"}
-                        tone={tone}
-                      />
-                    </td>
+                    {covered && (
+                      <td className="pl-2 text-right">
+                        <Delta text={formatChange(change)} tone={tone} />
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -800,8 +798,6 @@ function SlosCard() {
   });
   const list: Slo[] = (slos.data?.slos ?? []).slice(0, 3);
   if (!slos.data || list.length === 0) return null;
-  const r = 38;
-  const circumference = 2 * Math.PI * r;
   return (
     <Section
       title="Error budgets"
@@ -816,59 +812,15 @@ function SlosCard() {
       <div className="grid grid-cols-3 gap-3">
         {list.map((slo) => {
           const left = slo.status.errorBudget.remainingFraction;
-          const state = budgetState(left);
-          const color =
-            state === "spent"
-              ? "--destructive"
-              : state === "low"
-                ? "--warning"
-                : "--success";
-          const filled = (budgetBarPercent(left) / 100) * circumference;
           return (
             <div
               key={slo.id}
               data-testid="slo-ring"
-              data-state={state}
+              data-state={budgetState(left)}
               className="flex flex-col items-center gap-1 text-center"
             >
-              <div className="relative size-24">
-                <svg
-                  viewBox="0 0 96 96"
-                  className="size-24 -rotate-90"
-                  role="img"
-                  aria-label={`${slo.name}: ${left === null ? "no requests" : `${formatPercent(Math.max(0, left))} of the error budget left`}`}
-                >
-                  <circle
-                    cx="48"
-                    cy="48"
-                    r={r}
-                    fill="none"
-                    stroke="var(--muted)"
-                    strokeWidth="9"
-                  />
-                  <circle
-                    cx="48"
-                    cy="48"
-                    r={r}
-                    fill="none"
-                    stroke={`var(${color})`}
-                    strokeWidth="9"
-                    strokeLinecap="round"
-                    strokeDasharray={`${filled.toFixed(2)} ${(circumference - filled).toFixed(2)}`}
-                  />
-                </svg>
-                <span className="absolute inset-0 flex items-center justify-center text-sm font-semibold">
-                  {left === null ? "—" : formatPercent(Math.max(0, left))}
-                </span>
-              </div>
+              <BudgetRing remainingFraction={left} name={slo.name} />
               <span className="text-xs font-medium">{slo.name}</span>
-              <span className="text-xs text-muted-foreground">
-                {state === "spent"
-                  ? "budget spent"
-                  : state === "none"
-                    ? "no requests"
-                    : "budget left"}
-              </span>
             </div>
           );
         })}
