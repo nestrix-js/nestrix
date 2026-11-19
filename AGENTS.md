@@ -63,7 +63,7 @@ pnpm check:tla      # scripts/check-no-tla.mjs: require() every published entry 
 pnpm verify         # build, check:packages, check:tla, test, lint, typecheck in that order, stopping at the first failure
 pnpm changeset      # add a changeset (needed for changes to a published package; @nestrix-js/nestjs, @nestrix-js/ui and @nestrix-js/mcp share one version)
 pnpm changeset status --since=origin/main  # what the PR check runs; exits non-zero if a published package changed without a changeset
-pnpm version-packages # changeset version: CI runs it for the version PR; do not run it locally and commit the result
+pnpm version-packages # changeset version, then scripts/sync-agents-version.mjs updates the version in AGENTS.md: CI runs it for the version PR; do not run it locally and commit the result
 pnpm release        # refuses to run outside .github/workflows/release.yml on main; never publish from a laptop (RELEASING.md)
 ```
 
