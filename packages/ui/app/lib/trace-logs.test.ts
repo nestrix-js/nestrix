@@ -31,8 +31,8 @@ describe("trace logs helpers", () => {
       "unknown",
       "unknown",
     ]);
-    expect(toneClass("error")).toBe("text-destructive");
-    expect(toneClass("warn")).toBe("text-warning");
+    expect(toneClass("error")).toBe("text-destructive-text");
+    expect(toneClass("warn")).toBe("text-warning-text");
     expect(toneClass("info")).toBe("");
   });
 

@@ -2,7 +2,7 @@ import type { RouteCompareRow } from "@nestrix-js/protocol";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { useMemo, useState } from "react";
-
+import { ErrorState } from "@/components/kit/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -56,7 +56,7 @@ const COLUMNS: { key: CompareSortKey; label: string; right: boolean }[] = [
 const MUTED = "text-muted-foreground";
 /** A larger delta is worse for latency and error rate: only a rise is coloured. */
 const toneOf = (n: number | null) =>
-  n !== null && n > 0 ? "text-destructive" : MUTED;
+  n !== null && n > 0 ? "text-destructive-text" : MUTED;
 
 function Delta({
   before,
@@ -264,9 +264,13 @@ export function ComparePanel({
         </p>
       )}
       {active.isError && data === undefined && (
-        <p role="alert" className="text-sm text-muted-foreground">
-          Could not load the comparison: {active.error?.message}
-        </p>
+        <ErrorState
+          testId="compare-error"
+          title="Could not load the comparison."
+          message={active.error?.message}
+          onRetry={() => void active.refetch()}
+          className="py-4"
+        />
       )}
       {data !== undefined && (
         <>

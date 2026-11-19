@@ -32,7 +32,7 @@ import {
   type Row,
   scaleTicks,
 } from "@/lib/trace-tree";
-import { cn } from "@/lib/utils";
+import { cn, SELECTED_ROW } from "@/lib/utils";
 import { CATEGORY_BG } from "@/views/trace/category-style";
 import { LogsPanel } from "@/views/trace/logs-panel";
 import { QueriesPanel } from "@/views/trace/queries-panel";
@@ -472,7 +472,7 @@ function WaterfallRow({
         error && "bg-destructive/5",
         highlighted && "bg-warning/15",
         critical && "bg-primary/10 shadow-[inset_3px_0_0_var(--primary)]",
-        selected && "bg-muted",
+        selected && SELECTED_ROW,
       )}
       style={{ top, height: ROW_HEIGHT }}
     >
@@ -529,7 +529,7 @@ function WaterfallRow({
         ) : null}
         <span
           data-testid="span-name"
-          className={cn("truncate", error && "text-destructive")}
+          className={cn("truncate", error && "text-destructive-text")}
           title={span.name}
         >
           {span.name}

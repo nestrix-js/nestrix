@@ -31,9 +31,9 @@ export function toneClass(tone: LogTone): string {
   switch (tone) {
     case "error":
     case "fatal":
-      return "text-destructive";
+      return "text-destructive-text";
     case "warn":
-      return "text-warning";
+      return "text-warning-text";
     case "trace":
     case "debug":
     case "unknown":

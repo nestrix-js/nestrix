@@ -510,7 +510,7 @@ export function RequestsPage() {
           footer={
             <div className="flex flex-col items-center gap-2">
               {list.olderError && (
-                <p role="alert" className="text-sm text-destructive">
+                <p role="alert" className="text-sm text-destructive-text">
                   Could not load older requests: {list.olderError.message}
                 </p>
               )}

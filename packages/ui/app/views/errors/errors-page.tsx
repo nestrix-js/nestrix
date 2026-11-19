@@ -374,7 +374,7 @@ function AllErrors({ viewToggle }: { viewToggle: React.ReactNode }) {
           )}
           <div className="flex flex-col items-center gap-2">
             {list.olderError && (
-              <p role="alert" className="text-sm text-destructive">
+              <p role="alert" className="text-sm text-destructive-text">
                 Could not load older errors: {list.olderError.message}
               </p>
             )}

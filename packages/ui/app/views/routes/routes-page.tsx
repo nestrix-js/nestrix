@@ -33,7 +33,7 @@ import { formatDuration } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser, stringParser } from "@/lib/params";
 import { useService } from "@/lib/service";
-import { cn } from "@/lib/utils";
+import { cn, SELECTED_ROW } from "@/lib/utils";
 import { windowChoices, windowLabel } from "@/lib/windows";
 import {
   type RouteDetailScope,
@@ -165,7 +165,7 @@ function RouteRow({
         if ((e.target as Element).closest("a, button")) return;
         onSelect();
       }}
-      className={cn("cursor-pointer", active && "bg-muted")}
+      className={cn("cursor-pointer", active && SELECTED_ROW)}
     >
       <TableCell>
         <Chip className="font-mono">{describeMethod(r.method)}</Chip>

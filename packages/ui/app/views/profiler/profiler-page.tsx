@@ -7,7 +7,7 @@ import { Chip } from "@/components/kit/chip";
 import { PageHeader } from "@/components/kit/page-header";
 import { Section } from "@/components/kit/section";
 import { SkeletonChart, SkeletonList } from "@/components/kit/skeletons";
-import { EmptyState } from "@/components/kit/states";
+import { EmptyState, ErrorState } from "@/components/kit/states";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -26,7 +26,7 @@ import {
 } from "@/lib/api";
 import { formatRelative } from "@/lib/format";
 import { useNow } from "@/lib/use-now";
-import { cn } from "@/lib/utils";
+import { cn, SELECTED_ROW } from "@/lib/utils";
 import {
   DURATION_OPTIONS,
   formatBytes,
@@ -53,7 +53,14 @@ function ProfileView({ summary }: { summary: ProfileSummary }) {
     queryFn: () => getProfile(summary.id),
     staleTime: Number.POSITIVE_INFINITY,
   });
-  if (detail.isError) return <Problem>{detail.error.message}</Problem>;
+  if (detail.isError)
+    return (
+      <ErrorState
+        title="Could not load this capture."
+        message={detail.error.message}
+        onRetry={() => void detail.refetch()}
+      />
+    );
   if (!detail.data) {
     return (
       <div className="space-y-4" aria-busy="true">
@@ -105,7 +112,7 @@ function EmbeddedProfilerPage() {
     return (
       <section aria-label="Profiler" className="space-y-6">
         <PageHeader
-          title="CPU profiler"
+          title="Profiler"
           description={DESCRIPTION}
           source={SOURCE_PROCESS}
         />
@@ -133,7 +140,7 @@ function EmbeddedProfilerPage() {
   return (
     <section className="space-y-6" aria-label="Profiler">
       <PageHeader
-        title="CPU profiler"
+        title="Profiler"
         description={DESCRIPTION}
         source={SOURCE_PROCESS}
       />
@@ -201,7 +208,11 @@ function EmbeddedProfilerPage() {
       </Section>
 
       {profiles.isError && !data && (
-        <Problem>Could not load captures: {profiles.error.message}</Problem>
+        <ErrorState
+          title="Could not load captures."
+          message={profiles.error.message}
+          onRetry={() => void profiles.refetch()}
+        />
       )}
 
       {data && data.profiles.length === 0 && !running && (
@@ -240,7 +251,10 @@ function EmbeddedProfilerPage() {
                   key={p.id}
                   data-testid="profile-row"
                   data-selected={p.id === shown}
-                  className={cn("border-border", p.id === shown && "bg-muted")}
+                  className={cn(
+                    "border-border",
+                    p.id === shown && SELECTED_ROW,
+                  )}
                 >
                   <TableCell>
                     {formatRelative(p.startedAtUnixMs, now)}
@@ -262,12 +276,12 @@ function EmbeddedProfilerPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <Button
-                      variant="outline"
+                      variant={p.id === shown ? "default" : "outline"}
                       size="sm"
                       aria-pressed={p.id === shown}
                       onClick={() => setSelected(p.id)}
                     >
-                      View
+                      {p.id === shown ? "Viewing" : "View"}
                     </Button>
                   </TableCell>
                 </TableRow>

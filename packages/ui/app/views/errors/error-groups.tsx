@@ -712,7 +712,7 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
             </KpiStrip>
           )}
           {canTriage && triage.isError && (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-sm text-destructive-text">
               Could not change the group: {triage.error?.message}
             </p>
           )}

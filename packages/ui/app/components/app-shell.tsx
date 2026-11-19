@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, LogOut, Pause, Play } from "lucide-react";
+import { Activity, LogOut, Pause, Play, TriangleAlert } from "lucide-react";
 import type * as React from "react";
 import { Fragment, useEffect, useRef } from "react";
 
@@ -8,6 +8,7 @@ import { Chip } from "@/components/kit/chip";
 import { Button } from "@/components/ui/button";
 import { getMeta, setActiveEnvironment, signOut } from "@/lib/api";
 import { readConfig } from "@/lib/config";
+import { lostConnectionText } from "@/lib/connection";
 import { useEnvironment } from "@/lib/environment";
 import { samplingNotice, showsSamplingNotice } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
@@ -195,7 +196,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   "bg-warning/15 text-warning-text",
                 connection === "paused" && "bg-secondary text-muted-foreground",
                 connection === "disconnected" &&
-                  "bg-destructive/10 text-destructive",
+                  "bg-destructive/10 text-destructive-text",
               )}
             >
               <span
@@ -211,6 +212,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               variant="outline"
               size="sm"
               aria-pressed={paused}
+              // A paused page makes no request, so a failure shown now is old; Resume stays
+              // available then. Otherwise there is nothing to pause: the polling is failing anyway.
+              disabled={connection === "disconnected" && !paused}
+              title={
+                connection === "disconnected" && !paused
+                  ? "Not available while disconnected"
+                  : undefined
+              }
               onClick={() => setPaused(!paused)}
             >
               {paused ? <Play /> : <Pause />}
@@ -268,6 +277,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
       </header>
       <main className={cn(PAGE_COLUMN, "space-y-6 py-6")}>
+        {/* While `meta` fails, TanStack keeps the last good answer, so the tabs, the service picker and the mode chip stay. */}
+        {meta.isError && (
+          <div
+            role="alert"
+            data-testid="connection-banner"
+            className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive-text"
+          >
+            <TriangleAlert aria-hidden className="size-4 shrink-0" />
+            {lostConnectionText(meta.dataUpdatedAt)}
+          </div>
+        )}
         {/* A switch of environment remounts the page: no list, store or cached answer of the old one stays. */}
         <Fragment key={selectedEnvironment ?? ""}>{children}</Fragment>
       </main>
