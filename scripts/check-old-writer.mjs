@@ -15,7 +15,8 @@
  *     and a valid, non-partial unique index whose columns equal the conflict target exists (that is
  *     what PostgreSQL needs to infer the arbiter).
  *  4. A break is allowed only when a migration newer than the old release's last one is listed in
- *     coordinated-stop.json, mentions the broken table, and has an upgrade note in a changeset and in
+ *     coordinated-stop.json, mentions the broken table, and has an upgrade note in a changeset (or,
+ *     on the version PR, a package CHANGELOG.md) and in
  *     apps/server/README.md. Any other break exits 1.
  *
  * Not checked: UPDATE/DELETE statements, column types, and statements assembled at run time. The
@@ -309,6 +310,13 @@ const changesets = existsSync(join(root, ".changeset"))
       .map((f) => readFileSync(join(root, ".changeset", f), "utf8"))
       .join("\n")
   : "";
+// The version PR (`changeset version`) moves changeset text into each package's CHANGELOG.md and
+// deletes the changeset files, so a note there counts too.
+const changelogs = readdirSync(join(root, "packages"))
+  .map((d) => join(root, "packages", d, "CHANGELOG.md"))
+  .filter((f) => existsSync(f))
+  .map((f) => readFileSync(f, "utf8"))
+  .join("\n");
 const serverReadme = readFileSync(join(root, "apps/server/README.md"), "utf8");
 const activeStops = [];
 for (const [name, reason] of Object.entries(stops)) {
@@ -322,9 +330,9 @@ for (const [name, reason] of Object.entries(stops)) {
     problems.push(`coordinated-stop.json: ${name} has no reason`);
   if (name <= oldLast) continue; // already released: history, nothing to enforce
   const number = name.slice(0, 4);
-  if (!changesets.includes(number))
+  if (!changesets.includes(number) && !changelogs.includes(number))
     problems.push(
-      `${name} is a coordinated stop but no changeset mentions ${number}`,
+      `${name} is a coordinated stop but no changeset or package CHANGELOG mentions ${number}`,
     );
   if (!serverReadme.includes(number))
     problems.push(
