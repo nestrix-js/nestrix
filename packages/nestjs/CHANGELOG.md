@@ -1,5 +1,12 @@
 # @nestrix-js/nestjs
 
+## 0.9.1
+
+### Patch Changes
+
+- Updated dependencies [[`b0cee98`](https://github.com/nestrix-js/nestrix/commit/b0cee98dbf6d3b8d8f8d8126d9cb5b9ac31614e6), [`b0cee98`](https://github.com/nestrix-js/nestrix/commit/b0cee98dbf6d3b8d8f8d8126d9cb5b9ac31614e6), [`b0cee98`](https://github.com/nestrix-js/nestrix/commit/b0cee98dbf6d3b8d8f8d8126d9cb5b9ac31614e6), [`b0cee98`](https://github.com/nestrix-js/nestrix/commit/b0cee98dbf6d3b8d8f8d8126d9cb5b9ac31614e6), [`4bb2e8a`](https://github.com/nestrix-js/nestrix/commit/4bb2e8a1158c7e9469b2eba45520ef48baba7ba5), [`4bb2e8a`](https://github.com/nestrix-js/nestrix/commit/4bb2e8a1158c7e9469b2eba45520ef48baba7ba5), [`4bb2e8a`](https://github.com/nestrix-js/nestrix/commit/4bb2e8a1158c7e9469b2eba45520ef48baba7ba5)]:
+  - @nestrix-js/ui@0.9.1
+
 ## 0.9.0
 
 ### Minor Changes
