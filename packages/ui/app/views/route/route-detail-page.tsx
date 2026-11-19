@@ -2,13 +2,16 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { parseAsStringLiteral, useQueryStates } from "nuqs";
 import { useEffect, useMemo, useState } from "react";
-import { Delta } from "@/components/kit/delta";
+import { PageNote } from "@/components/kit/page-note";
+import { useRegisterPageSource } from "@/components/kit/page-source";
 import { Section } from "@/components/kit/section";
 import {
   SkeletonChart,
   SkeletonKpiStrip,
   SkeletonList,
 } from "@/components/kit/skeletons";
+import { SourceLabel } from "@/components/kit/source-label";
+import { KpiStrip, StatTile } from "@/components/kit/stat-tile";
 import { EmptyState, ErrorState } from "@/components/kit/states";
 import { Badge } from "@/components/ui/badge";
 import { getRouteCompare, getRouteExplain, getRoutes } from "@/lib/api";
@@ -120,6 +123,9 @@ export function RouteDetailPage() {
     placeholderData: keepPreviousData,
   });
   const data = explain.data;
+  // Six of the cards are sampled traces; the page says so once, and the exceptions (the counted
+  // statistics) say so themselves.
+  useRegisterPageSource(route === null ? undefined : "traces");
   const latestReleases = data?.releases;
   useEffect(() => {
     if (latestReleases) setSeen(latestReleases);
@@ -215,6 +221,7 @@ export function RouteDetailPage() {
                 {described.note}
               </span>
             )}
+            <SourceLabel kind="traces" pageLevel />
             {errorKpi && errorKpi.value !== "—" && errorKpi.value !== "0%" && (
               <Badge variant="destructive" data-testid="error-chip">
                 Errors {errorKpi.value}
@@ -322,44 +329,44 @@ export function RouteDetailPage() {
         <>
           <section
             aria-label="Key figures"
-            className="space-y-1"
+            className="space-y-2"
             data-testid="kpis"
           >
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+            <KpiStrip columns={5} className="md:grid-cols-3">
               {kpis.map((k) => (
                 <div
                   key={k.id}
-                  data-testid="kpi"
                   data-kpi={k.id}
                   data-source={k.source}
-                  className="rounded-lg border border-border p-3"
+                  className="contents"
                 >
-                  <div className="text-xs text-muted-foreground">{k.label}</div>
-                  <div className="mt-1 flex items-baseline gap-2">
-                    <span
-                      data-testid="kpi-value"
-                      className="text-2xl font-semibold"
-                    >
-                      {k.value}
-                    </span>
-                    <Delta text={k.delta} tone={k.tone} />
-                  </div>
-                  {k.was !== "—" && (
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      was {k.was}
-                    </div>
-                  )}
+                  <StatTile
+                    testId="kpi"
+                    label={k.label}
+                    value={k.value}
+                    delta={
+                      k.id === "p99" && k.delta === "—" ? undefined : k.delta
+                    }
+                    deltaTone={k.tone}
+                    footer={
+                      k.was === "—" ? undefined : (
+                        <span className="text-xs text-muted-foreground">
+                          {k.was === "not compared"
+                            ? "no previous p99"
+                            : `was ${k.was}`}
+                        </span>
+                      )
+                    }
+                  />
                 </div>
               ))}
-            </div>
-            <p
-              data-testid="kpi-source"
-              className="text-xs text-muted-foreground"
-            >
-              {data.mode === "release"
-                ? "Every figure is from sampled traces of the two releases."
-                : "Requests, p95, p99 and error rate: route statistics, counted before sampling. Queries per request: sampled traces."}
-            </p>
+            </KpiStrip>
+            {data.mode !== "release" && (
+              <PageNote testId="kpi-source" className="text-xs">
+                Requests, p95, p99 and error rate: route statistics, counted
+                before sampling.
+              </PageNote>
+            )}
           </section>
 
           <WhatChangedCard

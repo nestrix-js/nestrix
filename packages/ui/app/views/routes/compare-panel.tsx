@@ -2,6 +2,8 @@ import type { RouteCompareRow } from "@nestrix-js/protocol";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { useMemo, useState } from "react";
+import { PageNote } from "@/components/kit/page-note";
+import { usePageSourceKind } from "@/components/kit/page-source";
 import { ErrorState } from "@/components/kit/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -151,6 +153,7 @@ export function ComparePanel({
   service,
 }: Props) {
   const [paused] = usePaused();
+  const page = usePageSourceKind();
   const [sort, setSort] = useState<{
     key: CompareSortKey;
     dir: "asc" | "desc";
@@ -245,17 +248,16 @@ export function ComparePanel({
         )}
       </div>
 
-      <p
-        data-testid="compare-note"
-        className="rounded-lg bg-secondary px-3 py-2 text-sm text-secondary-foreground"
-      >
+      <PageNote testId="compare-note">
         {mode === "window"
-          ? `The last ${windowMinutes} minutes against the ${windowMinutes} minutes before, counted before sampling.`
+          ? `The last ${windowMinutes} minutes against the ${windowMinutes} minutes before${
+              page === "stats" ? "" : ", counted before sampling"
+            }.`
           : "Built from the stored traces, which are sampled: counts are of kept requests, not all requests."}
         {mode === "window" && data?.mode === "window" && data.note
           ? ` ${data.note}`
           : ""}
-      </p>
+      </PageNote>
 
       {mode === "release" && (a === null || b === null) && (
         <p className="text-sm text-muted-foreground">
