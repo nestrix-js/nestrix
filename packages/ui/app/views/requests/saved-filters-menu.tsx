@@ -129,15 +129,18 @@ export function SavedFiltersMenu({
               size="sm"
               data-testid="saved-filter-save"
               disabled={!canSave}
-              title={
-                Object.keys(current).length === 0
-                  ? "Set a filter first"
-                  : "Save the current filters"
-              }
             >
               Save
             </Button>
           </form>
+          {Object.keys(current).length === 0 && (
+            <p
+              data-testid="saved-filter-hint"
+              className="px-1 text-xs text-muted-foreground"
+            >
+              Set a filter first, then name the view to save it.
+            </p>
+          )}
           {saved.length === 0 ? (
             <p className="px-1 text-xs text-muted-foreground">
               Nothing saved yet.
@@ -153,7 +156,7 @@ export function SavedFiltersMenu({
                   <button
                     type="button"
                     data-testid="saved-filter-apply"
-                    className="min-w-0 flex-1 truncate rounded-md px-2 py-1 text-left text-sm hover:bg-muted"
+                    className="min-h-8 min-w-0 flex-1 truncate rounded-md px-2 py-1 text-left text-sm hover:bg-muted"
                     title={Object.entries(item.params)
                       .map(([k, v]) => `${k}=${v}`)
                       .join("  ")}
@@ -168,7 +171,7 @@ export function SavedFiltersMenu({
                     type="button"
                     data-testid="saved-filter-delete"
                     aria-label={`Delete ${item.name}`}
-                    className="rounded-md p-1 text-muted-foreground hover:bg-muted"
+                    className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-destructive-text"
                     onClick={() => setSaved(deleteSavedFilter(item.name))}
                   >
                     <Trash2 className="size-3.5" />

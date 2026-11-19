@@ -185,6 +185,21 @@ describe("toRequest", () => {
     webhookUrl: "https://hooks.example.com/x",
   });
 
+  it("names the field that is wrong, so the form can mark and focus it", () => {
+    const field = (over: Partial<ReturnType<typeof filled>>) => {
+      const r = toRequest({ ...filled(), ...over });
+      return r.ok ? null : r.field;
+    };
+    expect(field({ name: "" })).toBe("name");
+    expect(field({ threshold: "abc" })).toBe("threshold");
+    expect(field({ windowMinutes: "4" })).toBe("windowMinutes");
+    expect(field({ forMinutes: "61" })).toBe("forMinutes");
+    expect(field({ minRequests: "0" })).toBe("minRequests");
+    expect(field({ webhookUrl: "ftp://x" })).toBe("webhookUrl");
+    expect(field({ service: "" })).toBe("service");
+    expect(field({})).toBeNull();
+  });
+
   it("sends an error rate as a fraction with service and route, and no sloId", () => {
     const r = toRequest({ ...filled(), threshold: "7.5", route: " /pay " });
     expect(r).toEqual({
@@ -310,7 +325,11 @@ describe("toRequest", () => {
       metric: "slo_burn_rate",
       threshold: "2",
     });
-    expect(r).toEqual({ ok: false, message: "Choose an SLO." });
+    expect(r).toEqual({
+      ok: false,
+      message: "Choose an SLO.",
+      field: "sloId",
+    });
   });
 
   it.each([

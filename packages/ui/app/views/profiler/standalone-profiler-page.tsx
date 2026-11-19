@@ -15,6 +15,7 @@ import { Section } from "@/components/kit/section";
 import { SkeletonList } from "@/components/kit/skeletons";
 import { EmptyState, ErrorState } from "@/components/kit/states";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -276,6 +277,7 @@ function InstanceRow({
           <Button
             size="sm"
             disabled={active || starting}
+            aria-label={`Capture ${shortInstanceId(instance.instanceId)}`}
             aria-describedby={
               active ? `status-${instance.instanceId}` : undefined
             }
@@ -390,18 +392,17 @@ export function StandaloneProfilerPage() {
             <label htmlFor="remote-duration" className="font-medium">
               Duration
             </label>
-            <select
+            <Select
               id="remote-duration"
               value={seconds}
               onChange={(e) => setSeconds(Number(e.target.value))}
-              className="h-8 rounded-lg border border-input bg-background px-2 text-sm"
             >
               {REMOTE_DURATION_OPTIONS.map((s) => (
                 <option key={s} value={s}>
                   {durationLabel(s)}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
         }
       />

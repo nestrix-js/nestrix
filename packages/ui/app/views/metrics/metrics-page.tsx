@@ -18,6 +18,7 @@ import { SegmentedControl } from "@/components/kit/segmented-control";
 import { SkeletonChart } from "@/components/kit/skeletons";
 import { EmptyState, ErrorState } from "@/components/kit/states";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { getMeta, getMetricCatalog, getMetricSeries } from "@/lib/api";
 import { useEnvironment } from "@/lib/environment";
 import { usePaused } from "@/lib/live";
@@ -46,7 +47,6 @@ const DEFAULT_WINDOW = 60;
 /** Stored metrics have one point per minute: a faster refresh would only repeat the answer. */
 const REFRESH_MS = 30_000;
 const SOURCE = "stored runtime metrics, one point per minute";
-const FIELD = "h-8 rounded-lg border border-border bg-background px-2 text-sm";
 
 const urlParsers = {
   windowMinutes: numberParser({
@@ -197,7 +197,7 @@ export function MetricsPage() {
         }
       />
       <div className="flex flex-wrap items-center gap-2">
-        <select
+        <Select
           data-testid="metrics-instance"
           aria-label="Instance"
           value={
@@ -210,7 +210,6 @@ export function MetricsPage() {
               instanceService: pair?.service ?? null,
             });
           }}
-          className={FIELD}
         >
           <option value="">All instances</option>
           {instances.map((i) => (
@@ -222,8 +221,8 @@ export function MetricsPage() {
               {i.instanceId}
             </option>
           ))}
-        </select>
-        <select
+        </Select>
+        <Select
           data-testid="metrics-aggregation"
           aria-label="Across replicas"
           value={aggregation ?? ""}
@@ -233,7 +232,6 @@ export function MetricsPage() {
               aggregation: (e.target.value || null) as MetricAggregation | null,
             })
           }
-          className={FIELD}
         >
           <option value="">Default per metric</option>
           {AGGREGATIONS.map((a) => (
@@ -241,7 +239,7 @@ export function MetricsPage() {
               {a.label}
             </option>
           ))}
-        </select>
+        </Select>
         <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
           <input
             data-testid="metrics-split"

@@ -9,6 +9,7 @@ import { Section } from "@/components/kit/section";
 import { SkeletonChart, SkeletonList } from "@/components/kit/skeletons";
 import { EmptyState, ErrorState } from "@/components/kit/states";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -155,11 +156,10 @@ function EmbeddedProfilerPage() {
             <label htmlFor="profile-duration" className="block font-medium">
               Duration
             </label>
-            <select
+            <Select
               id="profile-duration"
               value={duration}
               onChange={(e) => setDuration(Number(e.target.value))}
-              className="h-8 rounded-lg border border-input bg-background px-2 text-sm"
             >
               {DURATION_OPTIONS.map((s) => (
                 <option key={s} value={s}>
@@ -168,7 +168,7 @@ function EmbeddedProfilerPage() {
                     : `${s / 60} minute${s > 60 ? "s" : ""}`}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           <Button
             disabled={running !== null || start.isPending || !data}

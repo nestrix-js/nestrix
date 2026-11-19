@@ -1,12 +1,18 @@
-import type { Slo } from "@nestrix-js/protocol";
+import type { Slo, SloCreate } from "@nestrix-js/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 
 import {
   Chip,
+  ConfirmAction,
   EmptyState,
   ErrorState,
+  FormActions,
+  FormField,
+  FormPanel,
+  FormProblem,
+  focusField,
   KpiStrip,
   PageHeader,
   SkeletonKpiStrip,
@@ -15,6 +21,7 @@ import {
 } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { createSlo, deleteSlo, getMeta, getSlos, updateSlo } from "@/lib/api";
 import { pollInterval, usePaused } from "@/lib/live";
 import { cn } from "@/lib/utils";
@@ -35,28 +42,6 @@ import {
   toRequest,
 } from "@/views/slos/slo-format";
 
-const selectClass =
-  "h-8 w-full rounded-lg border border-border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
-
-function Field({
-  id,
-  label,
-  children,
-}: {
-  id: string;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1 text-sm">
-      <label htmlFor={id} className="block text-xs font-medium">
-        {label}
-      </label>
-      {children}
-    </div>
-  );
-}
-
 /** Create (no `editing`) or edit form; saves with fetch (the page's CSP forbids form posts). */
 function SloFormPanel({
   editing,
@@ -71,138 +56,184 @@ function SloFormPanel({
   const [form, setForm] = useState<SloForm>(
     editing ? formFromSlo(editing) : emptyForm(services[0] ?? ""),
   );
+  // A problem with one field (shown under it) or with the request (shown above the buttons).
+  const [invalid, setInvalid] = useState<{
+    field: keyof SloForm;
+    message: string;
+  } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const set = <K extends keyof SloForm>(key: K, value: SloForm[K]) =>
+  const set = <K extends keyof SloForm>(key: K, value: SloForm[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
+    if (invalid?.field === key) setInvalid(null);
+  };
+  const errorOf = (key: keyof SloForm) =>
+    invalid?.field === key ? invalid.message : null;
 
   const save = useMutation({
-    mutationFn: async () => {
-      const request = toRequest(form);
-      if (!request.ok) throw new Error(request.message);
-      return editing
-        ? updateSlo(editing.id, request.body)
-        : createSlo(request.body);
-    },
+    mutationFn: async (body: SloCreate) =>
+      editing ? updateSlo(editing.id, body) : createSlo(body),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["slos"] });
       onDone();
     },
     onError: (error) => setProblem(error.message),
   });
+  const submit = () => {
+    setProblem(null);
+    const request = toRequest(form);
+    if (!request.ok) {
+      setInvalid({ field: request.field, message: request.message });
+      focusField(FIELD_ID[request.field]);
+      return;
+    }
+    setInvalid(null);
+    save.mutate(request.body);
+  };
 
   return (
-    <fieldset
-      data-testid="slo-form"
-      className="space-y-4 rounded-lg border border-border bg-muted/30 p-4"
+    <FormPanel
+      testId="slo-form"
+      returnFocusTo={editing ? undefined : "new-slo"}
+      title={editing ? `Edit ${editing.name}` : "New SLO"}
+      onSubmit={submit}
+      onCancel={onDone}
     >
-      <legend className="px-1 text-sm font-semibold">
-        {editing ? `Edit ${editing.name}` : "New SLO"}
-      </legend>
       <div className="grid gap-3 md:grid-cols-2">
-        <Field id="slo-name" label="Name">
-          <Input
-            id="slo-name"
-            value={form.name}
-            maxLength={200}
-            onChange={(e) => set("name", e.target.value)}
-          />
-        </Field>
-        <Field id="slo-service" label="Service">
-          <Input
-            id="slo-service"
-            list="slo-services"
-            value={form.service}
-            maxLength={256}
-            onChange={(e) => set("service", e.target.value)}
-          />
-          <datalist id="slo-services">
-            {services.map((s) => (
-              <option key={s} value={s} />
-            ))}
-          </datalist>
-        </Field>
-        <Field
+        <FormField id="slo-name" label="Name" required error={errorOf("name")}>
+          {(p) => (
+            <Input
+              {...p}
+              value={form.name}
+              maxLength={200}
+              onChange={(e) => set("name", e.target.value)}
+            />
+          )}
+        </FormField>
+        <FormField
+          id="slo-service"
+          label="Service"
+          required
+          error={errorOf("service")}
+        >
+          {(p) => (
+            <>
+              <Input
+                {...p}
+                list="slo-services"
+                value={form.service}
+                maxLength={256}
+                onChange={(e) => set("service", e.target.value)}
+              />
+              <datalist id="slo-services">
+                {services.map((s) => (
+                  <option key={s} value={s} />
+                ))}
+              </datalist>
+            </>
+          )}
+        </FormField>
+        <FormField
           id="slo-route"
           label="Route (optional, empty for the whole service)"
         >
-          <Input
-            id="slo-route"
-            value={form.route}
-            maxLength={512}
-            placeholder="/orders/:id"
-            onChange={(e) => set("route", e.target.value)}
-          />
-        </Field>
-        <Field id="slo-kind" label="Kind">
-          <select
-            id="slo-kind"
-            className={selectClass}
-            value={form.kind}
-            onChange={(e) =>
-              set(
-                "kind",
-                e.target.value === "latency" ? "latency" : "availability",
-              )
-            }
-          >
-            <option value="availability">Availability (no 5xx)</option>
-            <option value="latency">Latency (under a threshold)</option>
-          </select>
-        </Field>
-        {form.kind === "latency" && (
-          <Field id="slo-threshold" label="Threshold (ms)">
+          {(p) => (
             <Input
-              id="slo-threshold"
-              inputMode="decimal"
-              value={form.latencyThresholdMs}
-              onChange={(e) => set("latencyThresholdMs", e.target.value)}
+              {...p}
+              value={form.route}
+              maxLength={512}
+              placeholder="/orders/:id"
+              onChange={(e) => set("route", e.target.value)}
             />
-          </Field>
-        )}
-        <Field id="slo-objective" label="Objective (%)">
-          <Input
-            id="slo-objective"
-            inputMode="decimal"
-            value={form.objectivePercent}
-            onChange={(e) => set("objectivePercent", e.target.value)}
-          />
-        </Field>
-        <Field id="slo-window" label="Window">
-          <select
-            id="slo-window"
-            className={selectClass}
-            value={form.windowDays}
-            onChange={(e) =>
-              set("windowDays", e.target.value === "7" ? "7" : "30")
-            }
+          )}
+        </FormField>
+        <FormField id="slo-kind" label="Kind" required>
+          {(p) => (
+            <Select
+              {...p}
+              className="w-full"
+              value={form.kind}
+              onChange={(e) =>
+                set(
+                  "kind",
+                  e.target.value === "latency" ? "latency" : "availability",
+                )
+              }
+            >
+              <option value="availability">Availability (no 5xx)</option>
+              <option value="latency">Latency (under a threshold)</option>
+            </Select>
+          )}
+        </FormField>
+        {form.kind === "latency" && (
+          <FormField
+            id="slo-threshold"
+            label="Threshold (ms)"
+            required
+            hint="A request is good when it finishes faster than this."
+            error={errorOf("latencyThresholdMs")}
           >
-            <option value="7">7 days</option>
-            <option value="30">30 days</option>
-          </select>
-        </Field>
-      </div>
-      {problem && (
-        <p role="alert" className="text-sm text-[var(--destructive-text)]">
-          {problem}
-        </p>
-      )}
-      <div className="flex gap-2 border-t border-border pt-3">
-        <Button
-          disabled={save.isPending}
-          onClick={() => {
-            setProblem(null);
-            save.mutate();
-          }}
+            {(p) => (
+              <Input
+                {...p}
+                inputMode="decimal"
+                placeholder="300"
+                value={form.latencyThresholdMs}
+                onChange={(e) => set("latencyThresholdMs", e.target.value)}
+              />
+            )}
+          </FormField>
+        )}
+        <FormField
+          id="slo-objective"
+          label="Objective (%)"
+          required
+          hint="99.9 allows 0.1% of requests to be bad over the window."
+          error={errorOf("objectivePercent")}
         >
-          {editing ? "Save changes" : "Create SLO"}
-        </Button>
-        <Button variant="outline" onClick={onDone}>
-          Cancel
-        </Button>
+          {(p) => (
+            <Input
+              {...p}
+              inputMode="decimal"
+              value={form.objectivePercent}
+              onChange={(e) => set("objectivePercent", e.target.value)}
+            />
+          )}
+        </FormField>
+        <FormField id="slo-window" label="Window" required>
+          {(p) => (
+            <Select
+              {...p}
+              className="w-full"
+              value={form.windowDays}
+              onChange={(e) =>
+                set("windowDays", e.target.value === "7" ? "7" : "30")
+              }
+            >
+              <option value="7">7 days</option>
+              <option value="30">30 days</option>
+            </Select>
+          )}
+        </FormField>
       </div>
-    </fieldset>
+      {problem && <FormProblem>{problem}</FormProblem>}
+      <FormActions
+        submit={editing ? "Save changes" : "Create SLO"}
+        pending={save.isPending}
+        onCancel={onDone}
+      />
+    </FormPanel>
   );
 }
+
+const FIELD_ID: Record<keyof SloForm, string> = {
+  name: "slo-name",
+  service: "slo-service",
+  route: "slo-route",
+  kind: "slo-kind",
+  latencyThresholdMs: "slo-threshold",
+  objectivePercent: "slo-objective",
+  windowDays: "slo-window",
+};
 
 const BURN_SCALE_MIN = 2;
 
@@ -284,7 +315,6 @@ function SloCard({
   onEdit: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [confirming, setConfirming] = useState(false);
   const remove = useMutation({
     mutationFn: () => deleteSlo(slo.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["slos"] }),
@@ -320,36 +350,18 @@ function SloCard({
           <Button variant="outline" size="sm" onClick={onEdit}>
             Edit
           </Button>
-          {confirming ? (
-            <>
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={remove.isPending}
-                onClick={() => remove.mutate()}
-              >
-                Confirm delete
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setConfirming(false)}
-              >
-                Keep
-              </Button>
-            </>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-destructive/40 text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
-              onClick={() => setConfirming(true)}
-            >
-              Delete
-            </Button>
-          )}
+          <ConfirmAction
+            label="Delete"
+            confirmLabel="Confirm delete"
+            subject={slo.name}
+            pending={remove.isPending}
+            onConfirm={() => remove.mutate()}
+          />
         </div>
       </div>
+      {remove.isError && (
+        <FormProblem>Could not delete: {remove.error.message}</FormProblem>
+      )}
       <div className="grid items-center gap-5 md:grid-cols-[auto_1fr_1fr]">
         <div
           role="progressbar"
@@ -445,6 +457,7 @@ export function SlosPage() {
         source="computed from stored history"
         controls={
           <Button
+            id="new-slo"
             size="sm"
             disabled={panel !== null}
             onClick={() => setPanel("new")}

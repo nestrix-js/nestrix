@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Select } from "@/components/ui/select";
 import { getMeta } from "@/lib/api";
 
 import { DebouncedInput } from "@/views/requests/debounced-input";
@@ -30,9 +31,10 @@ export function AttributeFilter({
   const key = attrKey ?? keys[0] ?? null;
   return (
     <div className="flex items-center gap-1" data-testid="attribute-filter">
-      <select
+      <Select
         aria-label="Attribute"
-        className="h-7 max-w-40 rounded-lg border border-border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+        size="sm"
+        className="max-w-40"
         value={key ?? ""}
         onChange={(e) =>
           onChange({ attrKey: e.target.value || null, attrValue })
@@ -43,7 +45,7 @@ export function AttributeFilter({
             {k}
           </option>
         ))}
-      </select>
+      </Select>
       <DebouncedInput
         aria-label="Attribute value"
         placeholder="equals"

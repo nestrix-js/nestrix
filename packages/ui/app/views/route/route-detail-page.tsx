@@ -14,6 +14,7 @@ import { SourceLabel } from "@/components/kit/source-label";
 import { KpiStrip, StatTile } from "@/components/kit/stat-tile";
 import { EmptyState, ErrorState } from "@/components/kit/states";
 import { Badge } from "@/components/ui/badge";
+import { Select } from "@/components/ui/select";
 import { getRouteCompare, getRouteExplain, getRoutes } from "@/lib/api";
 import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser, stringParser } from "@/lib/params";
@@ -51,9 +52,6 @@ const parsers = {
   releaseA: stringParser({ maxLength: 255 }),
   releaseB: stringParser({ maxLength: 255 }),
 };
-
-const selectClass =
-  "h-8 rounded-lg border border-border bg-background px-2 text-sm";
 
 function Breadcrumb({ label }: { label: string }) {
   return (
@@ -233,10 +231,9 @@ export function RouteDetailPage() {
           <label htmlFor="route-compare" className="text-muted-foreground">
             Compare
           </label>
-          <select
+          <Select
             id="route-compare"
             data-testid="compare-picker"
-            className={selectClass}
             value={selection}
             onChange={(e) => {
               const v = e.target.value;
@@ -255,7 +252,7 @@ export function RouteDetailPage() {
             <option value="release" disabled={releases.length < 2}>
               Release against release
             </option>
-          </select>
+          </Select>
           {picked.mode === "release" &&
             releases.length >= 2 &&
             (
@@ -266,9 +263,8 @@ export function RouteDetailPage() {
             ).map(([name, testId, value, key]) => (
               <label key={key} className="flex items-center gap-1">
                 {name}
-                <select
+                <Select
                   data-testid={testId}
-                  className={selectClass}
                   value={value ?? ""}
                   onChange={(e) =>
                     void setQuery({
@@ -284,7 +280,7 @@ export function RouteDetailPage() {
                       {r}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
             ))}
         </div>

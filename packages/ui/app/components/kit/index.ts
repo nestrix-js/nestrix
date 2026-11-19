@@ -13,6 +13,15 @@ export {
   Swatch,
 } from "./donut";
 export {
+  ConfirmAction,
+  type FieldControlProps,
+  FormActions,
+  FormField,
+  FormPanel,
+  FormProblem,
+  focusField,
+} from "./form";
+export {
   barPercent,
   type ChipTone,
   compactNumber,

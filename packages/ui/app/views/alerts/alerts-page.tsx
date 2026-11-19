@@ -1,7 +1,9 @@
 import type {
   AlertEvent,
   AlertRule,
+  AlertRuleCreate,
   AlertRuleCreateResponse,
+  AlertRuleUpdate,
   Slo,
 } from "@nestrix-js/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,8 +12,14 @@ import { useRef, useState } from "react";
 
 import {
   Chip,
+  ConfirmAction,
   EmptyState,
   ErrorState,
+  FormActions,
+  FormField,
+  FormPanel,
+  FormProblem,
+  focusField,
   KpiStrip,
   PageHeader,
   PageNote,
@@ -21,6 +29,7 @@ import {
 } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import {
   createAlert,
   deleteAlert,
@@ -50,31 +59,6 @@ import {
   toRequest,
   webhookOrigin,
 } from "@/views/alerts/alerts-format";
-
-const selectClass =
-  "h-8 w-full rounded-lg border border-border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
-
-function Field({
-  id,
-  label,
-  hint,
-  children,
-}: {
-  id: string;
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1 text-sm">
-      <label htmlFor={id} className="block text-xs font-medium">
-        {label}
-      </label>
-      {children}
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
-    </div>
-  );
-}
 
 const THRESHOLD_UNIT: Record<string, string> = {
   error_rate: "Threshold (% of requests that fail)",
@@ -152,6 +136,21 @@ function NewSecret({
   );
 }
 
+const FIELD_ID: Record<keyof AlertForm, string> = {
+  name: "alert-name",
+  metric: "alert-metric",
+  service: "alert-service",
+  environment: "alert-environment",
+  route: "alert-route",
+  sloId: "alert-slo",
+  threshold: "alert-threshold",
+  windowMinutes: "alert-window",
+  forMinutes: "alert-for",
+  minRequests: "alert-min",
+  webhookUrl: "alert-webhook",
+  enabled: "alert-enabled",
+};
+
 /** Create (no `editing`) or edit form; saves with fetch (the page's CSP forbids form posts). */
 function RuleFormPanel({
   editing,
@@ -173,22 +172,29 @@ function RuleFormPanel({
   const [form, setForm] = useState<AlertForm>(
     editing ? formFromRule(editing) : emptyForm(services[0] ?? ""),
   );
+  // A problem with one field (shown under it) or with the request (shown above the buttons).
+  const [invalid, setInvalid] = useState<{
+    field: keyof AlertForm;
+    message: string;
+  } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const set = <K extends keyof AlertForm>(key: K, value: AlertForm[K]) =>
+  const set = <K extends keyof AlertForm>(key: K, value: AlertForm[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
+    if (invalid?.field === key) setInvalid(null);
+  };
+  const errorOf = (key: keyof AlertForm) =>
+    invalid?.field === key ? invalid.message : null;
   const burn = form.metric === "slo_burn_rate";
   // D-103 (6): a new-error-group rule has no threshold, window, pending duration or minimum.
   const newGroup = form.metric === "new_error_group";
 
   const save = useMutation({
-    mutationFn: async () => {
-      const request = toRequest(form);
-      if (!request.ok) throw new Error(request.message);
+    mutationFn: async (body: AlertRuleCreate & AlertRuleUpdate) => {
       if (editing) {
-        await updateAlert(editing.id, request.body);
+        await updateAlert(editing.id, body);
         return undefined;
       }
-      return createAlert(request.body);
+      return createAlert(body);
     },
     onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: ["alerts"] });
@@ -197,130 +203,172 @@ function RuleFormPanel({
     },
     onError: (error) => setProblem(error.message),
   });
+  const submit = () => {
+    setProblem(null);
+    const request = toRequest(form);
+    if (!request.ok) {
+      if (request.field === undefined) setProblem(request.message);
+      else {
+        setInvalid({ field: request.field, message: request.message });
+        focusField(FIELD_ID[request.field]);
+      }
+      return;
+    }
+    setInvalid(null);
+    save.mutate(request.body);
+  };
 
   return (
-    <fieldset
-      data-testid="alert-form"
-      className="space-y-4 rounded-lg border border-border bg-muted/30 p-4"
+    <FormPanel
+      testId="alert-form"
+      returnFocusTo={editing ? undefined : "new-rule"}
+      title={editing ? `Edit ${editing.name}` : "New alert rule"}
+      onSubmit={submit}
+      onCancel={onDone}
     >
-      <legend className="px-1 text-sm font-semibold">
-        {editing ? `Edit ${editing.name}` : "New alert rule"}
-      </legend>
       <div className="grid gap-3 md:grid-cols-2">
-        <Field id="alert-name" label="Name">
-          <Input
-            id="alert-name"
-            value={form.name}
-            maxLength={200}
-            onChange={(e) => set("name", e.target.value)}
-          />
-        </Field>
-        <Field id="alert-metric" label="Metric">
-          <select
-            id="alert-metric"
-            className={selectClass}
-            value={form.metric}
-            onChange={(e) => {
-              const metric = e.target.value as AlertForm["metric"];
-              setForm((f) => ({
-                ...f,
-                metric,
-                threshold:
-                  metric === "error_rate"
-                    ? "5"
-                    : metric === "p95_ms"
-                      ? "500"
-                      : metric === "slo_burn_rate"
-                        ? "14.4"
-                        : f.threshold,
-              }));
-            }}
-          >
-            {(Object.keys(METRIC_LABEL) as (keyof typeof METRIC_LABEL)[]).map(
-              (m) => (
-                <option key={m} value={m}>
-                  {METRIC_LABEL[m]}
-                </option>
-              ),
-            )}
-          </select>
-        </Field>
+        <FormField
+          id="alert-name"
+          label="Name"
+          required
+          error={errorOf("name")}
+        >
+          {(p) => (
+            <Input
+              {...p}
+              value={form.name}
+              maxLength={200}
+              onChange={(e) => set("name", e.target.value)}
+            />
+          )}
+        </FormField>
+        <FormField id="alert-metric" label="Metric" required>
+          {(p) => (
+            <Select
+              {...p}
+              className="w-full"
+              value={form.metric}
+              onChange={(e) => {
+                const metric = e.target.value as AlertForm["metric"];
+                setInvalid(null);
+                setForm((f) => ({
+                  ...f,
+                  metric,
+                  threshold:
+                    metric === "error_rate"
+                      ? "5"
+                      : metric === "p95_ms"
+                        ? "500"
+                        : metric === "slo_burn_rate"
+                          ? "14.4"
+                          : f.threshold,
+                }));
+              }}
+            >
+              {(Object.keys(METRIC_LABEL) as (keyof typeof METRIC_LABEL)[]).map(
+                (m) => (
+                  <option key={m} value={m}>
+                    {METRIC_LABEL[m]}
+                  </option>
+                ),
+              )}
+            </Select>
+          )}
+        </FormField>
         {burn ? (
-          <Field
+          <FormField
             id="alert-slo"
             label="SLO"
+            required
             hint="The rule takes its service, environment and route from the SLO."
+            error={errorOf("sloId")}
           >
-            <select
-              id="alert-slo"
-              className={selectClass}
-              value={form.sloId}
-              onChange={(e) => set("sloId", e.target.value)}
-            >
-              <option value="">Choose an SLO</option>
-              {slos.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} ({s.service}
-                  {s.route ? ` ${s.route}` : ""})
-                </option>
-              ))}
-            </select>
-          </Field>
+            {(p) => (
+              <Select
+                {...p}
+                className="w-full"
+                value={form.sloId}
+                onChange={(e) => set("sloId", e.target.value)}
+              >
+                <option value="">Choose an SLO</option>
+                {slos.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.service}
+                    {s.route ? ` ${s.route}` : ""})
+                  </option>
+                ))}
+              </Select>
+            )}
+          </FormField>
         ) : (
           <>
-            <Field
+            <FormField
               id="alert-service"
+              required={!newGroup}
+              error={errorOf("service")}
               label={
                 newGroup
                   ? "Service (optional, empty for every service)"
                   : "Service"
               }
             >
-              <Input
-                id="alert-service"
-                list="alert-services"
-                value={form.service}
-                maxLength={256}
-                onChange={(e) => set("service", e.target.value)}
-              />
-              <datalist id="alert-services">
-                {services.map((s) => (
-                  <option key={s} value={s} />
-                ))}
-              </datalist>
-            </Field>
-            <Field
+              {(p) => (
+                <>
+                  <Input
+                    {...p}
+                    list="alert-services"
+                    value={form.service}
+                    maxLength={256}
+                    onChange={(e) => set("service", e.target.value)}
+                  />
+                  <datalist id="alert-services">
+                    {services.map((s) => (
+                      <option key={s} value={s} />
+                    ))}
+                  </datalist>
+                </>
+              )}
+            </FormField>
+            <FormField
               id="alert-route"
               label="Route (optional, empty for the whole service)"
+              error={errorOf("route")}
             >
-              <Input
-                id="alert-route"
-                value={form.route}
-                maxLength={512}
-                placeholder="/orders/:id"
-                onChange={(e) => set("route", e.target.value)}
-              />
-            </Field>
-            <Field
+              {(p) => (
+                <Input
+                  {...p}
+                  value={form.route}
+                  maxLength={512}
+                  placeholder="/orders/:id"
+                  onChange={(e) => set("route", e.target.value)}
+                />
+              )}
+            </FormField>
+            <FormField
               id="alert-environment"
               label="Environment (optional, empty for every environment)"
               hint={
                 '"unset" watches only the data sent without an environment.'
               }
+              error={errorOf("environment")}
             >
-              <Input
-                id="alert-environment"
-                list="alert-environments"
-                value={form.environment}
-                maxLength={256}
-                onChange={(e) => set("environment", e.target.value)}
-              />
-              <datalist id="alert-environments">
-                {environments.map((name) => (
-                  <option key={name} value={name} />
-                ))}
-              </datalist>
-            </Field>
+              {(p) => (
+                <>
+                  <Input
+                    {...p}
+                    list="alert-environments"
+                    value={form.environment}
+                    maxLength={256}
+                    onChange={(e) => set("environment", e.target.value)}
+                  />
+                  <datalist id="alert-environments">
+                    {environments.map((name) => (
+                      <option key={name} value={name} />
+                    ))}
+                  </datalist>
+                </>
+              )}
+            </FormField>
           </>
         )}
         {newGroup ? (
@@ -333,59 +381,82 @@ function RuleFormPanel({
           </p>
         ) : (
           <>
-            <Field
+            <FormField
               id="alert-threshold"
               label={THRESHOLD_UNIT[form.metric] ?? ""}
+              required
+              error={errorOf("threshold")}
             >
-              <Input
-                id="alert-threshold"
-                inputMode="decimal"
-                value={form.threshold}
-                onChange={(e) => set("threshold", e.target.value)}
-              />
-            </Field>
-            <Field id="alert-window" label="Window (minutes, 5 to 60)">
-              <Input
-                id="alert-window"
-                inputMode="numeric"
-                value={form.windowMinutes}
-                onChange={(e) => set("windowMinutes", e.target.value)}
-              />
-            </Field>
-            <Field
+              {(p) => (
+                <Input
+                  {...p}
+                  inputMode="decimal"
+                  value={form.threshold}
+                  onChange={(e) => set("threshold", e.target.value)}
+                />
+              )}
+            </FormField>
+            <FormField
+              id="alert-window"
+              label="Window (minutes, 5 to 60)"
+              required
+              hint="The most recent minutes the value is measured over."
+              error={errorOf("windowMinutes")}
+            >
+              {(p) => (
+                <Input
+                  {...p}
+                  inputMode="numeric"
+                  value={form.windowMinutes}
+                  onChange={(e) => set("windowMinutes", e.target.value)}
+                />
+              )}
+            </FormField>
+            <FormField
               id="alert-for"
               label="Pending duration (minutes, 0 to 60)"
+              required
               hint="How long the condition must hold before the rule fires."
+              error={errorOf("forMinutes")}
             >
-              <Input
-                id="alert-for"
-                inputMode="numeric"
-                value={form.forMinutes}
-                onChange={(e) => set("forMinutes", e.target.value)}
-              />
-            </Field>
-            <Field
+              {(p) => (
+                <Input
+                  {...p}
+                  inputMode="numeric"
+                  value={form.forMinutes}
+                  onChange={(e) => set("forMinutes", e.target.value)}
+                />
+              )}
+            </FormField>
+            <FormField
               id="alert-min"
               label="Minimum requests"
+              required
               hint="Fewer requests in the window is no data: the state does not change."
+              error={errorOf("minRequests")}
             >
-              <Input
-                id="alert-min"
-                inputMode="numeric"
-                value={form.minRequests}
-                onChange={(e) => set("minRequests", e.target.value)}
-              />
-            </Field>
+              {(p) => (
+                <Input
+                  {...p}
+                  inputMode="numeric"
+                  value={form.minRequests}
+                  onChange={(e) => set("minRequests", e.target.value)}
+                />
+              )}
+            </FormField>
           </>
         )}
-        <div className="md:col-span-2">
-          <Field
-            id="alert-webhook"
-            label="Webhook URL"
-            hint="Notifications are signed JSON. Addresses that are not public are refused unless the server lists the host in NESTRIX_WEBHOOK_ALLOWED_HOSTS."
-          >
+        <FormField
+          id="alert-webhook"
+          className="md:col-span-2"
+          label="Webhook URL"
+          required
+          hint="Notifications are signed JSON. Addresses that are not public are refused unless the server lists the host in NESTRIX_WEBHOOK_ALLOWED_HOSTS."
+          error={errorOf("webhookUrl")}
+        >
+          {(p) => (
             <Input
-              id="alert-webhook"
+              {...p}
               type="url"
               autoComplete="off"
               value={form.webhookUrl}
@@ -393,10 +464,11 @@ function RuleFormPanel({
               placeholder="https://hooks.example.com/nestrix"
               onChange={(e) => set("webhookUrl", e.target.value)}
             />
-          </Field>
-        </div>
+          )}
+        </FormField>
         <label className="flex items-center gap-2 text-sm">
           <input
+            id="alert-enabled"
             type="checkbox"
             checked={form.enabled}
             onChange={(e) => set("enabled", e.target.checked)}
@@ -404,26 +476,13 @@ function RuleFormPanel({
           Enabled
         </label>
       </div>
-      {problem && (
-        <p role="alert" className="text-sm text-[var(--destructive-text)]">
-          {problem}
-        </p>
-      )}
-      <div className="flex gap-2 border-t border-border pt-3">
-        <Button
-          disabled={save.isPending}
-          onClick={() => {
-            setProblem(null);
-            save.mutate();
-          }}
-        >
-          {editing ? "Save changes" : "Create rule"}
-        </Button>
-        <Button variant="outline" onClick={onDone}>
-          Cancel
-        </Button>
-      </div>
-    </fieldset>
+      {problem && <FormProblem>{problem}</FormProblem>}
+      <FormActions
+        submit={editing ? "Save changes" : "Create rule"}
+        pending={save.isPending}
+        onCancel={onDone}
+      />
+    </FormPanel>
   );
 }
 
@@ -506,7 +565,6 @@ function RuleCard({
   onEdit: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [confirming, setConfirming] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const known = isKnownMetric(rule.metric);
   const remove = useMutation({
@@ -574,33 +632,13 @@ function RuleCard({
                   Edit
                 </Button>
               )}
-              {confirming ? (
-                <>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    disabled={remove.isPending}
-                    onClick={() => remove.mutate()}
-                  >
-                    Confirm delete
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setConfirming(false)}
-                  >
-                    Keep
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setConfirming(true)}
-                >
-                  Delete
-                </Button>
-              )}
+              <ConfirmAction
+                label="Delete"
+                confirmLabel="Confirm delete"
+                subject={rule.name}
+                pending={remove.isPending}
+                onConfirm={() => remove.mutate()}
+              />
             </>
           )}
         </div>
@@ -749,6 +787,7 @@ export function AlertsPage() {
         controls={
           canAdmin ? (
             <Button
+              id="new-rule"
               size="sm"
               disabled={panel !== null}
               onClick={() => setPanel("new")}

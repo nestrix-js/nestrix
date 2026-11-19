@@ -41,6 +41,16 @@ Every page is built from the kit in `app/components/kit/` (import from `@/compon
 9. **No new runtime dependency**, and the package stays under its 1.25 MB budget (`scripts/check-size.mjs`, D-79).
 10. **Tests**: keep unit and Playwright tests passing; add a screenshot pair per page, `p14-<page>-dark.png` and `p14-<page>-light.png` (and `p14-<page>-phone.png` where phone layout matters), written to `packages/ui/test-results/` by a Playwright test (see `e2e/p14-kit.pw.ts`); run `pnpm build && pnpm --filter e2e test` as well.
 
+### Forms, popovers and confirmations
+
+Built from `kit/form.tsx` and `components/ui/` (round 3):
+
+- **`FormPanel`** is the frame of a create or edit form: a real `<form noValidate>` (Enter submits, the page's CSP forbids posting, so the submit handler uses `fetch`), a title, "* required", focus on the first field when it opens, Esc cancels, and focus returns to the button that opened it (`returnFocusTo`). **`FormField`** is a label (a CSS `*` marks a required field; an optional one says "optional" in its label), a hint, and a validation message in `text-destructive-text` under the control, with `role="alert"`, `aria-invalid` and `aria-describedby`. A check that fails names the field (`toRequest` returns `field`), the message shows under it and the field takes focus; a server refusal shows in a **`FormProblem`** above the buttons. **`FormActions`**: one primary (submit) first, then Cancel.
+- Put units in the label ("Threshold (ms)") and what a value means in the hint ("99.9 allows 0.1% of requests to be bad").
+- **`ConfirmAction`** is every delete or revoke: the trigger names its target for a screen reader ("Delete Checkout availability"), turns into a labelled group with a red confirm button and Keep, focus goes to Keep, Esc backs out. There is no modal dialog in the dashboard.
+- **`Select`** (`components/ui/select.tsx`) is the one native select (`size="sm"` in toolbars); do not write a `<select>` with its own classes.
+- **Popovers** (`PopoverContent`) are at most the viewport wide and as tall as the space left, and scroll inside. A faceted filter marks the selected option (tick, `aria-selected`, a tinted row), takes Enter on the first match and closes on choosing.
+
 ### The components
 
 | Component | One line |

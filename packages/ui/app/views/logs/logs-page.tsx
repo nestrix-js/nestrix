@@ -10,6 +10,7 @@ import { SegmentedControl } from "@/components/kit/segmented-control";
 import { SkeletonList } from "@/components/kit/skeletons";
 import { EmptyState, ErrorState } from "@/components/kit/states";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { getLogs, getMeta } from "@/lib/api";
 import { useService } from "@/lib/service";
 import { logLevelLabel, logTone, toneClass } from "@/lib/trace-logs";
@@ -25,8 +26,6 @@ import {
   logQuery,
 } from "@/views/logs/logs-query";
 
-const FIELD = "h-8 rounded-lg border border-border bg-background px-2 text-sm";
-
 /**
  * Log search (issue #17, D-106), standalone server only. Filters apply with the Search button (or
  * Enter); the window ends at the moment of the search so "Load older" pages stay stable, and
@@ -37,6 +36,8 @@ const FIELD = "h-8 rounded-lg border border-border bg-background px-2 text-sm";
  * `data-tone`, `log-time`, `log-level`, `log-service`, `log-message`, `log-truncated`,
  * `log-trace-link`, `logs-older`, `logs-empty`.
  */
+const FIELD = "h-8 rounded-lg border border-border bg-background px-2 text-sm";
+
 export function LogsPage() {
   const meta = useQuery({ queryKey: ["meta"], queryFn: getMeta });
   const [service] = useService();
@@ -129,7 +130,7 @@ export function LogsPage() {
           />
           Substring
         </label>
-        <select
+        <Select
           data-testid="logs-severity"
           aria-label="Minimum level"
           value={draft.severity}
@@ -139,7 +140,6 @@ export function LogsPage() {
               severity: e.target.value as LogFilters["severity"],
             })
           }
-          className={FIELD}
         >
           <option value="">Any level</option>
           {LOG_SEVERITIES.map((s) => (
@@ -147,7 +147,7 @@ export function LogsPage() {
               {s} and above
             </option>
           ))}
-        </select>
+        </Select>
         <div data-testid="logs-window">
           <SegmentedControl
             label="Time range"

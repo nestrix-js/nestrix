@@ -17,6 +17,7 @@ import { KpiStrip, StatTile } from "@/components/kit/stat-tile";
 import { EmptyState, ErrorState } from "@/components/kit/states";
 import { RelativeTimeCard } from "@/components/relative-time-card";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -190,8 +191,8 @@ function AllErrors({ viewToggle }: { viewToggle: React.ReactNode }) {
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 p-2">
       <label className="flex items-center gap-2 text-sm">
         <span className="text-muted-foreground">Route</span>
-        <select
-          className="h-7 rounded-lg border border-border bg-background px-2 text-sm"
+        <Select
+          size="sm"
           value={filters.route ?? ""}
           onChange={(e) => void setFilters({ route: e.target.value || null })}
         >
@@ -201,7 +202,7 @@ function AllErrors({ viewToggle }: { viewToggle: React.ReactNode }) {
               {route}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       <AttributeFilter
         attrKey={filters.attrKey}
