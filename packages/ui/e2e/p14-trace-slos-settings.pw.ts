@@ -173,7 +173,7 @@ test("a trace that is gone shows the empty state, a failure the error state", as
   const error = page.getByTestId("trace-error");
   await expect(error).toContainText("Could not load the trace");
   await expect(error).toHaveAttribute("role", "alert");
-  await expect(error.getByRole("button", { name: "Retry" })).toBeVisible();
+  await expect(error.getByRole("button", { name: "Try again" })).toBeVisible();
 });
 
 const slo = (over: Partial<Slo> = {}): Slo => ({

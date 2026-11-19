@@ -26,9 +26,12 @@ import {
 } from "@/components/kit/donut";
 import { ScoreRing } from "@/components/kit/score-ring";
 import { Section } from "@/components/kit/section";
+import { SegmentedControl } from "@/components/kit/segmented-control";
+import { SkeletonChart, SkeletonKpiStrip } from "@/components/kit/skeletons";
 import { KpiStrip, StatTile } from "@/components/kit/stat-tile";
+import { EmptyState, ErrorState } from "@/components/kit/states";
 import { TrendLine } from "@/components/kit/trend-line";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import {
   getDependencies,
   getMeta,
@@ -754,7 +757,7 @@ function RoutesCard({
                       <span
                         className={cn(
                           "font-mono text-xs",
-                          errTone === "worse" && "text-destructive",
+                          errTone === "worse" && "text-destructive-text",
                         )}
                       >
                         {formatErrorRate(row.after.errors, row.after.count)}
@@ -954,22 +957,15 @@ function RuntimeCard() {
   );
 }
 
-function EmptyState({ windowMinutes }: { windowMinutes: number }) {
+function NoTraffic({ windowMinutes }: { windowMinutes: number }) {
   return (
-    <section
-      data-testid="overview-empty"
-      aria-label="No requests"
-      className="space-y-2 rounded-lg border border-dashed border-border p-10 text-center"
+    <EmptyState
+      testId="overview-empty"
+      title={`No requests in the last ${windowLabel(windowMinutes)}`}
     >
-      <p className="text-lg font-semibold">
-        No requests in the last {windowLabel(windowMinutes)}
-      </p>
-      <p className="text-sm text-muted-foreground">
-        Send some traffic to the application and the health score, what changed
-        and the charts appear here. Try a longer window if it was quiet just
-        now.
-      </p>
-    </section>
+      Send some traffic to the application and the health score, what changed
+      and the charts appear here. Try a longer window if it was quiet just now.
+    </EmptyState>
   );
 }
 
@@ -997,51 +993,36 @@ export function OverviewPage() {
     <section className="space-y-4" aria-label="Overview">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">Overview</h2>
-        <fieldset className="flex items-center gap-1" aria-label="Time window">
-          {windowChoices(meta.data?.statistics.windowMinutesOptions).map(
-            ({ value: minutes, label }) => (
-              <Button
-                key={minutes}
-                size="sm"
-                variant={windowMinutes === minutes ? "default" : "outline"}
-                aria-pressed={windowMinutes === minutes}
-                onClick={() =>
-                  void setQuery({
-                    windowMinutes: minutes === DEFAULT_WINDOW ? null : minutes,
-                  })
-                }
-              >
-                {label}
-              </Button>
-            ),
-          )}
-        </fieldset>
+        <SegmentedControl
+          label="Time window"
+          options={windowChoices(meta.data?.statistics.windowMinutesOptions)}
+          value={windowMinutes}
+          onChange={(minutes) =>
+            void setQuery({
+              windowMinutes: minutes === DEFAULT_WINDOW ? null : minutes,
+            })
+          }
+        />
       </div>
 
       {overview.isError && !data && (
-        <div
-          role="alert"
-          data-testid="overview-error"
-          className="space-y-2 rounded-lg border border-destructive/40 p-4 text-sm"
-        >
-          <p>The overview could not be loaded.</p>
-          <Button variant="outline" onClick={() => void overview.refetch()}>
-            Retry
-          </Button>
-        </div>
+        <ErrorState
+          testId="overview-error"
+          title="Could not load the overview."
+          message={overview.error?.message}
+          onRetry={() => void overview.refetch()}
+        />
       )}
 
       {!data && overview.isPending && (
-        <p
-          data-testid="overview-loading"
-          className="py-8 text-center text-sm text-muted-foreground"
-        >
-          Loading the overview...
-        </p>
+        <div data-testid="overview-loading" className="space-y-4">
+          <SkeletonKpiStrip />
+          <SkeletonChart heightClass="h-40" />
+        </div>
       )}
 
       {data && !hasTraffic(data) && (
-        <EmptyState windowMinutes={data.windowMinutes} />
+        <NoTraffic windowMinutes={data.windowMinutes} />
       )}
 
       {data && hasTraffic(data) && (

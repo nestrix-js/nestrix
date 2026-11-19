@@ -124,7 +124,6 @@ export function TracePage({ traceId }: { traceId: string }) {
             title="Could not load the trace"
             message={query.error.message}
             onRetry={() => query.refetch()}
-            retryLabel="Retry"
           />
         )}
         <div className="flex flex-wrap items-center gap-3">

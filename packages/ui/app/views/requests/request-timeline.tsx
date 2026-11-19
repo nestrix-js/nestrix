@@ -4,6 +4,7 @@ import uPlot from "uplot";
 
 import { Swatch } from "@/components/kit/donut";
 import { Section } from "@/components/kit/section";
+import { ErrorState } from "@/components/kit/states";
 import { Button } from "@/components/ui/button";
 import { bucketTotal as total } from "@/views/requests/requests-stats";
 import {
@@ -234,9 +235,12 @@ export function RequestTimeline({
         ))}
       </ul>
       {error && data === undefined && (
-        <p role="alert" className="text-sm text-destructive">
-          Could not load the timeline: {error.message}
-        </p>
+        <ErrorState
+          testId="timeline-error"
+          title="Could not load the timeline."
+          message={error.message}
+          className="py-4"
+        />
       )}
       <div
         ref={hostRef}

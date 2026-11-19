@@ -545,7 +545,6 @@ export function MapPage() {
                               height={NODE_H + 8}
                               rx={11}
                               strokeWidth={2}
-                              strokeDasharray="4 3"
                               className="fill-none stroke-foreground"
                             />
                           )}
@@ -556,7 +555,7 @@ export function MapPage() {
                             strokeWidth={2.5}
                             className={cn(
                               HEALTH_STROKE[health],
-                              isApp ? "fill-primary" : "fill-background",
+                              isApp ? "fill-muted" : "fill-background",
                             )}
                           />
                           <Icon
@@ -564,11 +563,7 @@ export function MapPage() {
                             y={NODE_H / 2 - 9}
                             width={18}
                             height={18}
-                            className={
-                              isApp
-                                ? "stroke-primary-foreground"
-                                : "stroke-foreground"
-                            }
+                            className={"stroke-foreground"}
                             aria-hidden="true"
                           />
                           <text
@@ -577,9 +572,7 @@ export function MapPage() {
                             dominantBaseline="central"
                             className={cn(
                               "font-mono text-[12px]",
-                              isApp
-                                ? "fill-primary-foreground"
-                                : "fill-foreground",
+                              "fill-foreground",
                             )}
                           >
                             {truncate(n.name, 17)}
@@ -590,9 +583,7 @@ export function MapPage() {
                             dominantBaseline="central"
                             className={cn(
                               "text-[10px]",
-                              isApp
-                                ? "fill-primary-foreground"
-                                : "fill-muted-foreground",
+                              "fill-muted-foreground",
                             )}
                           >
                             {HEALTH_LABEL[health]}
@@ -641,7 +632,8 @@ export function MapPage() {
                         onClick={() => toggle(n.id)}
                         className={cn(
                           "inline-flex h-7 items-center gap-1.5 rounded-md border border-border px-2 font-mono text-xs transition-colors hover:bg-muted",
-                          n.id === selectedId && "bg-muted",
+                          n.id === selectedId &&
+                            "border-foreground bg-muted font-medium",
                         )}
                       >
                         <span

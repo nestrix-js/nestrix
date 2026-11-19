@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ArrowDown, ChevronRight, RefreshCw } from "lucide-react";
+import { ArrowDown, Check, ChevronRight, RefreshCw } from "lucide-react";
 import { parseAsBoolean, parseAsStringLiteral, useQueryStates } from "nuqs";
 import { useState } from "react";
 
@@ -132,15 +132,6 @@ export function QueriesPage() {
         source="traces"
         controls={
           <>
-            <Button
-              size="sm"
-              variant={nplus ? "default" : "outline"}
-              aria-pressed={nplus}
-              data-testid="nplus-filter"
-              onClick={() => void setQuery({ nplus: nplus ? null : true })}
-            >
-              N+1 candidates
-            </Button>
             <SegmentedControl
               label="Time window"
               options={windowChoices(
@@ -166,25 +157,56 @@ export function QueriesPage() {
         }
       />
 
-      {query.q !== null && (
-        <div
-          data-testid="statement-filter"
-          className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 p-2 text-sm"
+      <div
+        role="toolbar"
+        aria-label="Filters"
+        className="flex flex-wrap items-center gap-2"
+      >
+        <button
+          type="button"
+          aria-pressed={nplus}
+          data-testid="nplus-filter"
+          onClick={() => void setQuery({ nplus: nplus ? null : true })}
+          className={cn(
+            "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[0.8rem] font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+            nplus
+              ? "border-primary bg-primary/10 text-foreground"
+              : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
+          )}
         >
-          <span className="text-muted-foreground">Filtered by statement</span>
-          <code className="max-w-full truncate rounded bg-secondary px-2 py-0.5 text-xs">
-            {query.q}
-          </code>
-          <Button
-            size="sm"
-            variant="outline"
-            data-testid="clear-statement-filter"
-            onClick={() => void setQuery({ q: null })}
+          <span
+            aria-hidden
+            className={cn(
+              "flex size-3.5 items-center justify-center rounded-[4px] border",
+              nplus
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-muted-foreground/60",
+            )}
           >
-            Clear
-          </Button>
-        </div>
-      )}
+            {nplus && <Check className="size-3" strokeWidth={3} />}
+          </span>
+          N+1 candidates
+        </button>
+        {query.q !== null && (
+          <div
+            data-testid="statement-filter"
+            className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 p-2 text-sm"
+          >
+            <span className="text-muted-foreground">Filtered by statement</span>
+            <code className="max-w-full truncate rounded bg-secondary px-2 py-0.5 text-xs">
+              {query.q}
+            </code>
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="clear-statement-filter"
+              onClick={() => void setQuery({ q: null })}
+            >
+              Clear
+            </Button>
+          </div>
+        )}
+      </div>
       {stats.isPending && (
         <>
           <SkeletonKpiStrip />

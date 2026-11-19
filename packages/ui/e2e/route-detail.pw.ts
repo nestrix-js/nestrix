@@ -59,7 +59,7 @@ test("a slower route: summary, ranked findings, KPIs and every card", async ({
     page.getByRole("navigation", { name: "Sections" }).getByRole("link", {
       name: "Routes",
     }),
-  ).toHaveClass(/border-primary/);
+  ).toHaveClass(/border-foreground/);
 
   // What changed: the summary, then the findings in the order the API ranked them.
   const card = page.getByTestId("card-what-changed");

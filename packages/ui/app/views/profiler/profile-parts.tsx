@@ -217,7 +217,7 @@ export function TopFunctions({
   const shown = functions.slice(0, 25);
   const maxSelf = Math.max(1, ...shown.map((f) => f.selfSamples));
   return (
-    <Table data-testid="top-functions" containerClassName="max-h-96">
+    <Table data-testid="top-functions">
       <TableHeader>
         <TableRow className="border-border">
           <TableHead>Function</TableHead>
