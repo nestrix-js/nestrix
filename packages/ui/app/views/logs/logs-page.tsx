@@ -6,6 +6,8 @@ import { useState } from "react";
 
 import { Chip } from "@/components/kit/chip";
 import { PageHeader } from "@/components/kit/page-header";
+import { SegmentedControl } from "@/components/kit/segmented-control";
+import { SkeletonList } from "@/components/kit/skeletons";
 import { EmptyState, ErrorState } from "@/components/kit/states";
 import { Button } from "@/components/ui/button";
 import { getLogs, getMeta } from "@/lib/api";
@@ -19,7 +21,6 @@ import {
   LOG_SEVERITIES,
   LOG_WINDOWS,
   type LogFilters,
-  type LogWindowId,
   logClock,
   logQuery,
 } from "@/views/logs/logs-query";
@@ -29,7 +30,7 @@ const FIELD = "h-8 rounded-lg border border-border bg-background px-2 text-sm";
 /**
  * Log search (issue #17, D-106), standalone server only. Filters apply with the Search button (or
  * Enter); the window ends at the moment of the search so "Load older" pages stay stable, and
- * Refresh moves it to now.
+ * Reload moves it to now.
  *
  * Markup for tests: `logs-page`, `logs-form` (`logs-text`, `logs-match`, `logs-severity`,
  * `logs-window`, `logs-trace`, `logs-search`), `logs-capture`, `logs-dropped`, `log-row` with
@@ -92,7 +93,7 @@ export function LogsPage() {
             }
           >
             <RefreshCw />
-            Refresh
+            Reload
           </Button>
         }
       />
@@ -146,21 +147,14 @@ export function LogsPage() {
             </option>
           ))}
         </select>
-        <select
-          data-testid="logs-window"
-          aria-label="Time range"
-          value={draft.window}
-          onChange={(e) =>
-            setDraft({ ...draft, window: e.target.value as LogWindowId })
-          }
-          className={FIELD}
-        >
-          {LOG_WINDOWS.map((w) => (
-            <option key={w.id} value={w.id}>
-              Last {w.label}
-            </option>
-          ))}
-        </select>
+        <div data-testid="logs-window">
+          <SegmentedControl
+            label="Time range"
+            options={LOG_WINDOWS.map((w) => ({ value: w.id, label: w.id }))}
+            value={draft.window}
+            onChange={(window) => setDraft({ ...draft, window })}
+          />
+        </div>
         <input
           data-testid="logs-trace"
           aria-label="Trace id"
@@ -171,7 +165,7 @@ export function LogsPage() {
           onChange={(e) => setDraft({ ...draft, traceId: e.target.value })}
           className={cn(
             FIELD,
-            "w-72 font-mono",
+            "w-full font-mono sm:w-72",
             !traceOk && "border-destructive",
           )}
         />
@@ -193,7 +187,7 @@ export function LogsPage() {
               : "storing lines with a trace id only"}
           </Chip>
           {dropped && (
-            <Chip data-testid="logs-dropped" tone="warn">
+            <Chip data-testid="logs-dropped" tone="warn" wrap>
               {dropped}
             </Chip>
           )}
@@ -207,7 +201,7 @@ export function LogsPage() {
           onRetry={() => void logs.refetch()}
         />
       ) : logs.isPending ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <SkeletonList rows={6} />
       ) : items.length === 0 ? (
         <EmptyState testId="logs-empty" title="No log lines match">
           {first?.capture === "trace"
@@ -266,7 +260,7 @@ function LogRow({ line }: { line: LogSearchRecord }) {
       </span>
       <span
         data-testid="log-message"
-        className="min-w-0 flex-1 whitespace-pre-wrap break-words"
+        className="min-w-0 basis-full whitespace-pre-wrap break-words sm:flex-1 sm:basis-0"
       >
         {line.message}
       </span>

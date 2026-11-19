@@ -18,9 +18,10 @@ import { useMemo, useState } from "react";
 import { DataTableSkeleton } from "@/components/data-table/data-table-skeleton";
 import { BarCell } from "@/components/kit/bar-cell";
 import { Chip } from "@/components/kit/chip";
-import { Delta } from "@/components/kit/delta";
+import { Delta, isUnknownDelta } from "@/components/kit/delta";
 import type { ChipTone } from "@/components/kit/format";
 import { PageHeader } from "@/components/kit/page-header";
+import { PageNote } from "@/components/kit/page-note";
 import { Section } from "@/components/kit/section";
 import { SegmentedControl } from "@/components/kit/segmented-control";
 import { SkeletonChart, SkeletonKpiStrip } from "@/components/kit/skeletons";
@@ -290,6 +291,10 @@ export function MapPage() {
     () => layoutMap(map.data?.nodes ?? [], map.data?.edges ?? []),
     [map.data],
   );
+  // The change column is dropped when no edge has a previous window to compare with.
+  const showChange = layout.edges.some(
+    (e) => !isUnknownDelta(edgeP95Change(e, map.data).text),
+  );
   const names = useMemo(
     () => new Map(layout.nodes.map((n) => [n.id, n.name])),
     [layout],
@@ -350,14 +355,11 @@ export function MapPage() {
           </>
         }
       />
-      <p
-        data-testid="map-note"
-        className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
-      >
+      <PageNote testId="map-note">
         The map is built from sampled traces: calls, error rates and percentiles
         describe the traces in the store, not every call.
         {standalone && ` ${STANDALONE_STATISTICS_NOTE}`}
-      </p>
+      </PageNote>
 
       {map.isPending && (
         <>
@@ -485,28 +487,49 @@ export function MapPage() {
                     })}
                     {layout.edges.map((e) => {
                       const level = errorLevel(e.errors, e.calls);
+                      const callsLine = `${e.calls} calls`;
+                      const detailLine = `p95 ${formatDuration(e.p95Ms)} · ${formatRate(e.errors, e.calls)} err`;
+                      // 11px text is about 6.2px a glyph, two lines are about 31px tall.
+                      const plateWidth =
+                        Math.max(callsLine.length, detailLine.length) * 6.2 +
+                        10;
+                      const half = edgeWidth(e.calls, maxCalls) / 2 + 4;
+                      // Beside the edge, not on it: above a mostly horizontal one, to the right of
+                      // a mostly vertical one. The plate (the page's colour) is a backstop for
+                      // the lines that still cross it.
+                      const horizontal =
+                        Math.abs(e.x2 - e.x1) >= Math.abs(e.y2 - e.y1);
+                      const cx = horizontal
+                        ? e.labelX
+                        : e.labelX + plateWidth / 2 + half;
+                      const cy = horizontal ? e.labelY - 15.5 - half : e.labelY;
                       return (
-                        <text
-                          key={`${e.from}>${e.to}`}
-                          data-testid="map-edge-label"
-                          x={e.labelX}
-                          y={e.labelY}
-                          textAnchor="middle"
-                          paintOrder="stroke"
-                          strokeWidth={4}
-                          className={cn(
-                            "stroke-background text-[11px]",
-                            EDGE_TEXT[level],
-                          )}
-                        >
-                          <tspan x={e.labelX} dy="-0.3em">
-                            {e.calls} calls
-                          </tspan>
-                          <tspan x={e.labelX} dy="1.3em">
-                            p95 {formatDuration(e.p95Ms)} ·{" "}
-                            {formatRate(e.errors, e.calls)} err
-                          </tspan>
-                        </text>
+                        <g key={`${e.from}>${e.to}`}>
+                          <rect
+                            data-testid="map-edge-plate"
+                            x={cx - plateWidth / 2}
+                            y={cy - 16}
+                            width={plateWidth}
+                            height={31}
+                            rx={4}
+                            className="fill-background"
+                            fillOpacity={0.94}
+                          />
+                          <text
+                            data-testid="map-edge-label"
+                            x={cx}
+                            y={cy}
+                            textAnchor="middle"
+                            className={cn("text-[11px]", EDGE_TEXT[level])}
+                          >
+                            <tspan x={cx} dy="-0.3em">
+                              {callsLine}
+                            </tspan>
+                            <tspan x={cx} dy="1.3em">
+                              {detailLine}
+                            </tspan>
+                          </text>
+                        </g>
                       );
                     })}
                     {layout.nodes.map((n) => {
@@ -545,7 +568,6 @@ export function MapPage() {
                               height={NODE_H + 8}
                               rx={11}
                               strokeWidth={2}
-                              strokeDasharray="4 3"
                               className="fill-none stroke-foreground"
                             />
                           )}
@@ -556,7 +578,7 @@ export function MapPage() {
                             strokeWidth={2.5}
                             className={cn(
                               HEALTH_STROKE[health],
-                              isApp ? "fill-primary" : "fill-background",
+                              isApp ? "fill-muted" : "fill-background",
                             )}
                           />
                           <Icon
@@ -564,11 +586,7 @@ export function MapPage() {
                             y={NODE_H / 2 - 9}
                             width={18}
                             height={18}
-                            className={
-                              isApp
-                                ? "stroke-primary-foreground"
-                                : "stroke-foreground"
-                            }
+                            className={"stroke-foreground"}
                             aria-hidden="true"
                           />
                           <text
@@ -577,9 +595,7 @@ export function MapPage() {
                             dominantBaseline="central"
                             className={cn(
                               "font-mono text-[12px]",
-                              isApp
-                                ? "fill-primary-foreground"
-                                : "fill-foreground",
+                              "fill-foreground",
                             )}
                           >
                             {truncate(n.name, 17)}
@@ -590,9 +606,7 @@ export function MapPage() {
                             dominantBaseline="central"
                             className={cn(
                               "text-[10px]",
-                              isApp
-                                ? "fill-primary-foreground"
-                                : "fill-muted-foreground",
+                              "fill-muted-foreground",
                             )}
                           >
                             {HEALTH_LABEL[health]}
@@ -641,7 +655,8 @@ export function MapPage() {
                         onClick={() => toggle(n.id)}
                         className={cn(
                           "inline-flex h-7 items-center gap-1.5 rounded-md border border-border px-2 font-mono text-xs transition-colors hover:bg-muted",
-                          n.id === selectedId && "bg-muted",
+                          n.id === selectedId &&
+                            "border-foreground bg-muted font-medium",
                         )}
                       >
                         <span
@@ -699,7 +714,9 @@ export function MapPage() {
                     <TableHead className="text-right">Error rate</TableHead>
                     <TableHead className="text-right">p50</TableHead>
                     <TableHead className="text-right">p95</TableHead>
-                    <TableHead className="text-right">p95 change</TableHead>
+                    {showChange && (
+                      <TableHead className="text-right">p95 change</TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -745,21 +762,22 @@ export function MapPage() {
                           value={e.p95Ms}
                           max={Math.max(1, ...layout.edges.map((x) => x.p95Ms))}
                           label={formatDuration(e.p95Ms)}
-                          color="--chart-2"
                         />
                       </TableCell>
-                      <TableCell className="text-right">
-                        {(() => {
-                          const change = edgeP95Change(e, map.data);
-                          return (
-                            <Delta
-                              text={change.text}
-                              tone={change.tone}
-                              title={change.title}
-                            />
-                          );
-                        })()}
-                      </TableCell>
+                      {showChange && (
+                        <TableCell className="text-right">
+                          {(() => {
+                            const change = edgeP95Change(e, map.data);
+                            return (
+                              <Delta
+                                text={change.text}
+                                tone={change.tone}
+                                title={change.title}
+                              />
+                            );
+                          })()}
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>

@@ -48,20 +48,18 @@ export function EmptyState({
 
 /**
  * Something failed. `title` says what ("Could not load requests."), `message` says why (the
- * error's own text), `onRetry` adds a "Try again" button.
+ * error's own text, as secondary text), `onRetry` adds the one "Try again" button every page uses.
  */
 export function ErrorState({
   title,
   message,
   onRetry,
-  retryLabel = "Try again",
   testId = "error-state",
   className,
 }: {
   title: string;
   message?: string;
   onRetry?: () => void;
-  retryLabel?: string;
   testId?: string;
   className?: string;
 }) {
@@ -84,7 +82,7 @@ export function ErrorState({
       {message && <p className="text-sm text-muted-foreground">{message}</p>}
       {onRetry && (
         <Button variant="outline" onClick={onRetry}>
-          {retryLabel}
+          Try again
         </Button>
       )}
     </div>

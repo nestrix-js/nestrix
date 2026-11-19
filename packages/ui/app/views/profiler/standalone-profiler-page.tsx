@@ -13,7 +13,7 @@ import type { ChipTone } from "@/components/kit/format";
 import { PageHeader } from "@/components/kit/page-header";
 import { Section } from "@/components/kit/section";
 import { SkeletonList } from "@/components/kit/skeletons";
-import { EmptyState } from "@/components/kit/states";
+import { EmptyState, ErrorState } from "@/components/kit/states";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -35,7 +35,7 @@ import { formatRelative } from "@/lib/format";
 import { POLL_INTERVAL_MS, pollInterval, usePaused } from "@/lib/live";
 import { useService } from "@/lib/service";
 import { useNow } from "@/lib/use-now";
-import { cn } from "@/lib/utils";
+import { cn, SELECTED_ROW } from "@/lib/utils";
 import {
   columnMax,
   formatCpu,
@@ -87,7 +87,7 @@ const stateTone: Record<RemoteProfileState, ChipTone> = {
   running: "info",
   done: "better",
   failed: "worse",
-  expired: "worse",
+  expired: "neutral",
 };
 
 /** A refused start, kept with when it arrived so a `429`'s countdown can run. */
@@ -104,7 +104,14 @@ function RemoteProfileView({ summary }: { summary: RemoteProfileSummary }) {
     queryFn: () => getRemoteProfile(summary.id),
     staleTime: Number.POSITIVE_INFINITY,
   });
-  if (detail.isError) return <Problem>{detail.error.message}</Problem>;
+  if (detail.isError)
+    return (
+      <ErrorState
+        title="Could not load this capture."
+        message={detail.error.message}
+        onRetry={() => void detail.refetch()}
+      />
+    );
   const data = detail.data;
   if (!data) return <SkeletonList rows={5} />;
   if (!data.flame || !data.topFunctions) {
@@ -228,7 +235,6 @@ function InstanceRow({
         value={sample?.eventLoopP99Ms}
         max={loopMax}
         label={formatMs}
-        color="--chart-2"
       />
       <TableCell className="text-right font-mono tabular-nums">
         <span className="flex flex-col items-end leading-tight">
@@ -376,7 +382,7 @@ export function StandaloneProfilerPage() {
   return (
     <section className="space-y-6" aria-label="Profiler">
       <PageHeader
-        title="CPU profiler"
+        title="Profiler"
         description="Instances that opted in with export.profiler check in every 15 s; pick one and capture where its main thread spends its time"
         source="captured on demand, per instance"
         controls={
@@ -409,7 +415,11 @@ export function StandaloneProfilerPage() {
 
       {instances.isPending && <SkeletonList rows={3} />}
       {instances.isError && !list && (
-        <Problem>Could not load instances: {instances.error.message}</Problem>
+        <ErrorState
+          title="Could not load instances."
+          message={instances.error.message}
+          onRetry={() => void instances.refetch()}
+        />
       )}
 
       {list && list.length === 0 && (
@@ -496,7 +506,11 @@ export function StandaloneProfilerPage() {
       )}
 
       {history.isError && !profiles && (
-        <Problem>Could not load captures: {history.error.message}</Problem>
+        <ErrorState
+          title="Could not load captures."
+          message={history.error.message}
+          onRetry={() => void history.refetch()}
+        />
       )}
       {profiles && profiles.length === 0 && (
         <EmptyState
@@ -535,7 +549,10 @@ export function StandaloneProfilerPage() {
                   data-testid="remote-profile-row"
                   data-state={p.state}
                   data-selected={p.id === shown}
-                  className={cn("border-border", p.id === shown && "bg-muted")}
+                  className={cn(
+                    "border-border",
+                    p.id === shown && SELECTED_ROW,
+                  )}
                 >
                   <TableCell>
                     <span className="flex items-center gap-2">
@@ -574,12 +591,12 @@ export function StandaloneProfilerPage() {
                   <TableCell className="text-right">
                     {p.state === "done" && (
                       <Button
-                        variant="outline"
+                        variant={p.id === shown ? "default" : "outline"}
                         size="sm"
                         aria-pressed={p.id === shown}
                         onClick={() => setSelected(p.id)}
                       >
-                        View
+                        {p.id === shown ? "Viewing" : "View"}
                       </Button>
                     )}
                   </TableCell>

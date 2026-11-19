@@ -15,10 +15,11 @@ import { useMemo } from "react";
 import { AreaChart } from "@/components/kit/area-chart";
 import { BarCell } from "@/components/kit/bar-cell";
 import { Chip } from "@/components/kit/chip";
-import { Delta } from "@/components/kit/delta";
+import { Delta, isUnknownDelta } from "@/components/kit/delta";
 import { Swatch } from "@/components/kit/donut";
 import { compactNumber } from "@/components/kit/format";
 import { PageHeader } from "@/components/kit/page-header";
+import { PageNote } from "@/components/kit/page-note";
 import { Section } from "@/components/kit/section";
 import { SegmentedControl } from "@/components/kit/segmented-control";
 import {
@@ -241,6 +242,10 @@ export function DependenciesPage() {
       ),
     [deps.data, query.name],
   );
+  // The change column is dropped when no row has a previous window to compare with.
+  const showChange = rows.some(
+    (d) => !isUnknownDelta(rowP95Change(d, deps.data).text),
+  );
   const shownWindow = deps.data?.windowMinutes ?? windowMinutes;
   const bucketMinutes = (deps.data?.bucketMs ?? 60_000) / 60_000;
 
@@ -293,15 +298,12 @@ export function DependenciesPage() {
           </>
         }
       />
-      <p
-        data-testid="dependencies-note"
-        className="text-xs text-muted-foreground"
-      >
+      <PageNote testId="dependencies-note">
         Built from sampled traces: calls, error rates and percentiles describe
         the traces in the store, not every call. Trends use {bucketMinutes}
         -minute buckets.
         {standalone && ` ${STANDALONE_STATISTICS_NOTE}`}
-      </p>
+      </PageNote>
 
       {query.name !== null && (
         <div
@@ -430,6 +432,7 @@ export function DependenciesPage() {
                 <AreaChart
                   testId="calls-area"
                   stacked
+                  integer
                   heightClass="h-48"
                   fromUnixMs={deps.data.fromUnixMs}
                   toUnixMs={deps.data.toUnixMs}
@@ -474,7 +477,9 @@ export function DependenciesPage() {
                     <TableHead className="text-right">Total time</TableHead>
                     <TableHead>Calls trend</TableHead>
                     <TableHead>p95 trend</TableHead>
-                    <TableHead className="text-right">p95 change</TableHead>
+                    {showChange && (
+                      <TableHead className="text-right">p95 change</TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -554,18 +559,20 @@ export function DependenciesPage() {
                             color="--warning"
                           />
                         </TableCell>
-                        <TableCell className="text-right">
-                          {(() => {
-                            const c = rowP95Change(d, deps.data);
-                            return (
-                              <Delta
-                                text={c.text}
-                                tone={c.tone}
-                                title={c.title}
-                              />
-                            );
-                          })()}
-                        </TableCell>
+                        {showChange && (
+                          <TableCell className="text-right">
+                            {(() => {
+                              const c = rowP95Change(d, deps.data);
+                              return (
+                                <Delta
+                                  text={c.text}
+                                  tone={c.tone}
+                                  title={c.title}
+                                />
+                              );
+                            })()}
+                          </TableCell>
+                        )}
                       </TableRow>
                     );
                   })}

@@ -67,7 +67,8 @@ describe("units", () => {
 
   it("describes the unit and gives small units a small axis floor", () => {
     expect(unitLabel("By")).toBe("bytes");
-    expect(unitLabel("s")).toBe("seconds");
+    // The axis shows ms (s from 1 s), so the caption says so rather than "seconds".
+    expect(unitLabel("s")).toBe("duration (ms, s from 1 s)");
     expect(unitLabel("s/s")).toContain("one core");
     expect(unitLabel("1")).toBe("ratio");
     expect(axisFloor("By")).toBe(1);
@@ -145,6 +146,38 @@ describe("shapeSeries", () => {
     expect(shaped.gapBuckets).toBe(2);
     expect(shaped.staleMinutes).toBeNull();
     expect(shaped.cappedAt).toBeNull();
+  });
+
+  it("colours percentiles as everywhere else and other lines from the category palette", () => {
+    const percentiles = shapeSeries(
+      response({
+        series: ["p50", "p95", "p99"].map((label) => ({
+          label,
+          values: [1, 2, 3, 4, 5, 6],
+        })),
+      }),
+    );
+    expect(percentiles.series.map((s) => s.color)).toEqual([
+      "--chart-1",
+      "--chart-4",
+      "--chart-5",
+    ]);
+    const instances = shapeSeries(
+      response({
+        series: ["pod-a", "pod-b", "pod-c"].map((label) => ({
+          label,
+          values: [1, 2, 3, 4, 5, 6],
+        })),
+      }),
+    );
+    expect(instances.series.map((s) => s.color)).toEqual([
+      "--chart-1",
+      "--chart-2",
+      "--chart-3",
+    ]);
+    for (const s of [...percentiles.series, ...instances.series]) {
+      expect(s.color).not.toMatch(/destructive|success/);
+    }
   });
 
   it("is empty when every value is null, and a non-finite number is a gap too", () => {

@@ -240,9 +240,11 @@ test("previous window not kept: changes are dashes with the note, lists say why"
     "Comparisons start once a full previous window is kept.",
   );
   for (const id of ["throughput", "errors", "p95", "apdex"]) {
-    const delta = page.getByTestId(`kpi-${id}`).getByTestId("delta");
-    await expect(delta).toHaveText("—");
-    await expect(delta).toHaveAttribute("title", UNCOVERED_NOTE);
+    // No change is drawn; the reason is the tile label's tooltip.
+    const tile = page.getByTestId(`kpi-${id}`);
+    await expect(tile.getByTestId("delta")).toHaveCount(0);
+    await expect(tile).toHaveAttribute("data-delta", "unknown");
+    await expect(tile.getByTitle(UNCOVERED_NOTE)).toHaveCount(1);
   }
   // A new error group needs no "before", so it is still listed.
   const attention = page.getByTestId("card-attention");
@@ -257,9 +259,12 @@ test("previous window not kept: changes are dashes with the note, lists say why"
   await expect(
     page.getByTestId("latency-chart").locator("[data-line=prev]"),
   ).toHaveCount(0);
+  // The routes table drops its "vs previous" column instead of filling it with dashes.
+  await expect(page.getByTestId("overview-route").first()).toBeVisible();
   await expect(
     page.getByTestId("overview-route").first().getByTestId("delta"),
-  ).toBeVisible();
+  ).toHaveCount(0);
+  await expect(page.getByText("vs previous")).toHaveCount(0);
 });
 
 test("the window toggle asks for 60 minutes and keeps it in the URL", async ({
@@ -438,6 +443,8 @@ test("standalone: the service is sent and the SLO budget rings show", async ({
   await expect(rings.nth(0)).toHaveAttribute("data-state", "ok");
   await expect(rings.nth(1)).toHaveAttribute("data-state", "low");
   await expect(rings.nth(2)).toHaveAttribute("data-state", "spent");
-  await expect(rings.nth(2)).toContainText("budget spent");
+  // An overspent budget shows the overspend, not a clamped 0%.
+  await expect(rings.nth(2)).toContainText("\u221240%");
+  await expect(rings.nth(2)).toContainText("over budget");
   await expect(page.getByTestId("card-runtime")).toHaveCount(0);
 });

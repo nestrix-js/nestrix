@@ -26,9 +26,13 @@ import {
 } from "@/components/kit/donut";
 import { ScoreRing } from "@/components/kit/score-ring";
 import { Section } from "@/components/kit/section";
+import { SegmentedControl } from "@/components/kit/segmented-control";
+import { PERCENTILE_COLOR } from "@/components/kit/series-colors";
+import { SkeletonChart, SkeletonKpiStrip } from "@/components/kit/skeletons";
 import { KpiStrip, StatTile } from "@/components/kit/stat-tile";
+import { EmptyState, ErrorState } from "@/components/kit/states";
 import { TrendLine } from "@/components/kit/trend-line";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import {
   getDependencies,
   getMeta,
@@ -77,11 +81,8 @@ import {
   formatMemory,
   formatUptime,
 } from "@/views/runtime/runtime-format";
-import {
-  budgetBarPercent,
-  budgetState,
-  formatPercent,
-} from "@/views/slos/slo-format";
+import { BudgetRing } from "@/views/slos/budget-ring";
+import { budgetState } from "@/views/slos/slo-format";
 
 const DEFAULT_WINDOW = 15;
 
@@ -173,13 +174,13 @@ function InsightRow({
     <li data-testid="insight" data-kind={insight.kind}>
       <Link
         to={insightHref(insight.link) as "/"}
-        className="flex items-center gap-3 border-t border-border py-3 hover:bg-muted/50"
+        className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border py-3 hover:bg-muted/50 sm:flex-nowrap"
       >
         <span
           data-testid="severity"
           data-severity={insight.severity}
           className={cn(
-            "inline-flex h-5 w-16 shrink-0 items-center justify-center gap-0.5 rounded-full text-xs font-medium",
+            "order-1 inline-flex h-5 w-16 shrink-0 items-center justify-center gap-0.5 rounded-full text-xs font-medium sm:order-none",
             // Words and an arrow carry the severity; the tint only adds to it.
             "text-foreground",
             insight.severity === "high" && "bg-destructive/20",
@@ -194,22 +195,24 @@ function InsightRow({
           )}
           {SEVERITY_LABEL[insight.severity]}
         </span>
-        <span className="min-w-0 flex-1">
+        <span className="order-3 min-w-0 basis-full break-words sm:order-none sm:flex-1 sm:basis-0">
           <span className="block text-sm font-medium">{insight.title}</span>
           <span className="block text-xs text-muted-foreground">
             {insight.detail}
             {showSource && ` · ${SOURCE_LABEL[insight.source]}`}
           </span>
         </span>
-        <TrendLine
-          values={insight.series}
-          color={toneColor[tone]}
-          label={`${insight.title}, trend over the window`}
-        />
+        <span className="hidden sm:contents">
+          <TrendLine
+            values={insight.series}
+            color={toneColor[tone]}
+            label={`${insight.title}, trend over the window`}
+          />
+        </span>
         <span
           data-testid="insight-change"
           className={cn(
-            "w-16 shrink-0 text-right font-mono text-sm",
+            "order-2 ml-auto w-16 shrink-0 text-right font-mono text-sm sm:order-none sm:ml-0",
             toneText[tone],
           )}
         >
@@ -352,20 +355,23 @@ function LatencyCard({ data }: { data: OverviewResponse }) {
       actions={
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           <Legend
-            color="--chart-1"
+            color={PERCENTILE_COLOR.p50}
             text={`p50 ${formatDuration(data.totals.p50Ms)}`}
           />
           <Legend
-            color="--warning"
+            color={PERCENTILE_COLOR.p95}
             text={`p95 ${formatDuration(data.totals.p95Ms)}`}
           />
           <Legend
-            color="--destructive"
-            dashed
+            color={PERCENTILE_COLOR.p99}
             text={`p99 ${formatDuration(data.totals.p99Ms)}`}
           />
           {data.previousCovered && (
-            <Legend color="--muted-foreground" text="p95 previous window" />
+            <Legend
+              color="--muted-foreground"
+              dashed
+              text="p95 previous window"
+            />
           )}
         </div>
       }
@@ -534,11 +540,7 @@ function ThroughputCard({ data }: { data: OverviewResponse }) {
       <ThroughputBars series={data.series} />
       <div className="flex gap-4 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
-          <span
-            aria-hidden
-            className="size-2.5 rounded-sm"
-            style={{ background: "var(--chart-1)", opacity: 0.55 }}
-          />
+          <Swatch color="--chart-1" />
           Requests
         </span>
         <span className="inline-flex items-center gap-1.5">
@@ -691,7 +693,9 @@ function RoutesCard({
                 <th className="px-2 font-medium">p95</th>
                 <th className="px-2 font-medium">Errors</th>
                 <th className="px-2 font-medium">Trend</th>
-                <th className="pl-2 text-right font-medium">vs previous</th>
+                {covered && (
+                  <th className="pl-2 text-right font-medium">vs previous</th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -741,7 +745,8 @@ function RoutesCard({
                             className="h-1.5 rounded-full"
                             style={{
                               width: `${Math.max(2, (row.after.p95Ms / maxP95) * 100)}%`,
-                              background: `var(${toneColor[tone === "neutral" ? "neutral" : tone]})`,
+                              // An amount, not a verdict: the change beside it carries the tone.
+                              background: "var(--chart-1)",
                             }}
                           />
                         </div>
@@ -754,7 +759,7 @@ function RoutesCard({
                       <span
                         className={cn(
                           "font-mono text-xs",
-                          errTone === "worse" && "text-destructive",
+                          errTone === "worse" && "text-destructive-text",
                         )}
                       >
                         {formatErrorRate(row.after.errors, row.after.count)}
@@ -771,12 +776,11 @@ function RoutesCard({
                         height={24}
                       />
                     </td>
-                    <td className="pl-2 text-right">
-                      <Delta
-                        text={covered ? formatChange(change) : "—"}
-                        tone={tone}
-                      />
-                    </td>
+                    {covered && (
+                      <td className="pl-2 text-right">
+                        <Delta text={formatChange(change)} tone={tone} />
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -798,8 +802,6 @@ function SlosCard() {
   });
   const list: Slo[] = (slos.data?.slos ?? []).slice(0, 3);
   if (!slos.data || list.length === 0) return null;
-  const r = 38;
-  const circumference = 2 * Math.PI * r;
   return (
     <Section
       title="Error budgets"
@@ -814,59 +816,15 @@ function SlosCard() {
       <div className="grid grid-cols-3 gap-3">
         {list.map((slo) => {
           const left = slo.status.errorBudget.remainingFraction;
-          const state = budgetState(left);
-          const color =
-            state === "spent"
-              ? "--destructive"
-              : state === "low"
-                ? "--warning"
-                : "--success";
-          const filled = (budgetBarPercent(left) / 100) * circumference;
           return (
             <div
               key={slo.id}
               data-testid="slo-ring"
-              data-state={state}
+              data-state={budgetState(left)}
               className="flex flex-col items-center gap-1 text-center"
             >
-              <div className="relative size-24">
-                <svg
-                  viewBox="0 0 96 96"
-                  className="size-24 -rotate-90"
-                  role="img"
-                  aria-label={`${slo.name}: ${left === null ? "no requests" : `${formatPercent(Math.max(0, left))} of the error budget left`}`}
-                >
-                  <circle
-                    cx="48"
-                    cy="48"
-                    r={r}
-                    fill="none"
-                    stroke="var(--muted)"
-                    strokeWidth="9"
-                  />
-                  <circle
-                    cx="48"
-                    cy="48"
-                    r={r}
-                    fill="none"
-                    stroke={`var(${color})`}
-                    strokeWidth="9"
-                    strokeLinecap="round"
-                    strokeDasharray={`${filled.toFixed(2)} ${(circumference - filled).toFixed(2)}`}
-                  />
-                </svg>
-                <span className="absolute inset-0 flex items-center justify-center text-sm font-semibold">
-                  {left === null ? "—" : formatPercent(Math.max(0, left))}
-                </span>
-              </div>
+              <BudgetRing remainingFraction={left} name={slo.name} />
               <span className="text-xs font-medium">{slo.name}</span>
-              <span className="text-xs text-muted-foreground">
-                {state === "spent"
-                  ? "budget spent"
-                  : state === "none"
-                    ? "no requests"
-                    : "budget left"}
-              </span>
             </div>
           );
         })}
@@ -954,22 +912,15 @@ function RuntimeCard() {
   );
 }
 
-function EmptyState({ windowMinutes }: { windowMinutes: number }) {
+function NoTraffic({ windowMinutes }: { windowMinutes: number }) {
   return (
-    <section
-      data-testid="overview-empty"
-      aria-label="No requests"
-      className="space-y-2 rounded-lg border border-dashed border-border p-10 text-center"
+    <EmptyState
+      testId="overview-empty"
+      title={`No requests in the last ${windowLabel(windowMinutes)}`}
     >
-      <p className="text-lg font-semibold">
-        No requests in the last {windowLabel(windowMinutes)}
-      </p>
-      <p className="text-sm text-muted-foreground">
-        Send some traffic to the application and the health score, what changed
-        and the charts appear here. Try a longer window if it was quiet just
-        now.
-      </p>
-    </section>
+      Send some traffic to the application and the health score, what changed
+      and the charts appear here. Try a longer window if it was quiet just now.
+    </EmptyState>
   );
 }
 
@@ -997,51 +948,36 @@ export function OverviewPage() {
     <section className="space-y-4" aria-label="Overview">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">Overview</h2>
-        <fieldset className="flex items-center gap-1" aria-label="Time window">
-          {windowChoices(meta.data?.statistics.windowMinutesOptions).map(
-            ({ value: minutes, label }) => (
-              <Button
-                key={minutes}
-                size="sm"
-                variant={windowMinutes === minutes ? "default" : "outline"}
-                aria-pressed={windowMinutes === minutes}
-                onClick={() =>
-                  void setQuery({
-                    windowMinutes: minutes === DEFAULT_WINDOW ? null : minutes,
-                  })
-                }
-              >
-                {label}
-              </Button>
-            ),
-          )}
-        </fieldset>
+        <SegmentedControl
+          label="Time window"
+          options={windowChoices(meta.data?.statistics.windowMinutesOptions)}
+          value={windowMinutes}
+          onChange={(minutes) =>
+            void setQuery({
+              windowMinutes: minutes === DEFAULT_WINDOW ? null : minutes,
+            })
+          }
+        />
       </div>
 
       {overview.isError && !data && (
-        <div
-          role="alert"
-          data-testid="overview-error"
-          className="space-y-2 rounded-lg border border-destructive/40 p-4 text-sm"
-        >
-          <p>The overview could not be loaded.</p>
-          <Button variant="outline" onClick={() => void overview.refetch()}>
-            Retry
-          </Button>
-        </div>
+        <ErrorState
+          testId="overview-error"
+          title="Could not load the overview."
+          message={overview.error?.message}
+          onRetry={() => void overview.refetch()}
+        />
       )}
 
       {!data && overview.isPending && (
-        <p
-          data-testid="overview-loading"
-          className="py-8 text-center text-sm text-muted-foreground"
-        >
-          Loading the overview...
-        </p>
+        <div data-testid="overview-loading" className="space-y-4">
+          <SkeletonKpiStrip />
+          <SkeletonChart heightClass="h-40" />
+        </div>
       )}
 
       {data && !hasTraffic(data) && (
-        <EmptyState windowMinutes={data.windowMinutes} />
+        <NoTraffic windowMinutes={data.windowMinutes} />
       )}
 
       {data && hasTraffic(data) && (

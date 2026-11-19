@@ -86,8 +86,8 @@ export function compactNumber(value: number): string {
 
 export interface StackSegment {
   value: number;
-  /** A CSS custom property, e.g. `--chart-1`. */
-  color: string;
+  /** A CSS custom property, e.g. `--chart-1`; `--chart-1` when absent. Red or green only for bad or good. */
+  color?: string;
   label?: string;
   /** 0 to 1; a softer fill for the "normal" part under a stronger "problem" part. */
   opacity?: number;

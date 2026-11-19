@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 export function Chip({
   tone = "neutral",
   icon,
+  wrap = false,
   className,
   children,
   ...props
@@ -18,6 +19,8 @@ export function Chip({
   tone?: ChipTone;
   /** An optional leading icon (decorative). */
   icon?: React.ReactNode;
+  /** Let a long notice wrap onto several lines instead of widening the page. */
+  wrap?: boolean;
 } & React.ComponentProps<"span">) {
   return (
     <span
@@ -26,6 +29,7 @@ export function Chip({
       className={cn(
         "inline-flex h-5 w-fit shrink-0 items-center gap-1 rounded-full px-2 text-xs font-medium whitespace-nowrap",
         chipTone[tone],
+        wrap && "h-auto max-w-full whitespace-normal py-0.5",
         className,
       )}
       {...props}

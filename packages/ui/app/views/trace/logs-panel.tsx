@@ -76,7 +76,7 @@ export function LogsPanel({
               ) : null}
               <span
                 data-testid="log-message"
-                className="min-w-0 flex-1 whitespace-pre-wrap break-words"
+                className="min-w-0 basis-full whitespace-pre-wrap break-words sm:flex-1 sm:basis-0"
               >
                 {line.message}
               </span>
@@ -88,7 +88,7 @@ export function LogsPanel({
             "data-tone": tone,
             "data-selected": selected ? "true" : undefined,
             className: cn(
-              "flex w-full items-baseline gap-2 rounded px-2 py-0.5 text-left",
+              "flex w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded px-2 py-0.5 text-left sm:flex-nowrap",
               (tone === "error" || tone === "fatal") && "bg-destructive/5",
               selected && "bg-muted",
             ),

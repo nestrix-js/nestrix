@@ -167,7 +167,10 @@ test("sends the filters to the API", async ({ page }) => {
   await page.getByTestId("logs-text").fill("refused");
   await page.getByTestId("logs-match").check();
   await page.getByTestId("logs-severity").selectOption("warn");
-  await page.getByTestId("logs-window").selectOption("7d");
+  await page
+    .getByTestId("logs-window")
+    .getByRole("button", { name: "7d", exact: true })
+    .click();
   await page.getByTestId("logs-trace").fill(TRACE);
   await page.getByTestId("logs-search").click();
   await expect

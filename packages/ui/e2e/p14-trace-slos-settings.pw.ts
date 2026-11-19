@@ -173,7 +173,7 @@ test("a trace that is gone shows the empty state, a failure the error state", as
   const error = page.getByTestId("trace-error");
   await expect(error).toContainText("Could not load the trace");
   await expect(error).toHaveAttribute("role", "alert");
-  await expect(error.getByRole("button", { name: "Retry" })).toBeVisible();
+  await expect(error.getByRole("button", { name: "Try again" })).toBeVisible();
 });
 
 const slo = (over: Partial<Slo> = {}): Slo => ({
@@ -259,7 +259,7 @@ for (const scheme of SCHEMES) {
     await expect(page.getByTestId("slo")).toHaveCount(3);
     await expect(
       page.getByTestId("kpi-strip").getByTestId("kpi-value"),
-    ).toHaveText(["3", "1", "-150", "14.4x"]);
+    ).toHaveText(["3", "1", "\u2212150%", "14.4x"]);
     await expect(page.getByTestId("kpi-breached")).toBeVisible();
     // The ring and the burn bars say their takeaway to a screen reader.
     await expect(

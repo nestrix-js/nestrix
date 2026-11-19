@@ -134,10 +134,10 @@ for (const scheme of ["dark", "light"] as const) {
     await expect(
       page.getByTestId("kpi-strip").getByTestId("kpi-value"),
     ).toHaveCount(5);
-    // The API gives no previous window: the change is an honest dash.
+    // The API gives no previous window: no change is drawn.
     await expect(
       page.getByTestId("kpi-events").getByTestId("delta"),
-    ).toHaveAttribute("data-tone", "unknown");
+    ).toHaveCount(0);
     await expect(
       page.getByTestId("kpi-new").getByTestId("kpi-value"),
     ).toHaveText("2");

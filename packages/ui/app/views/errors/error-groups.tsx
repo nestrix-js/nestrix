@@ -29,6 +29,7 @@ import {
 import { donutSlices } from "@/components/kit/format";
 import { Heatmap } from "@/components/kit/heatmap";
 import { PageHeader } from "@/components/kit/page-header";
+import { PageNote } from "@/components/kit/page-note";
 import { Section } from "@/components/kit/section";
 import { SegmentedControl } from "@/components/kit/segmented-control";
 import { SkeletonChart, SkeletonKpiStrip } from "@/components/kit/skeletons";
@@ -207,7 +208,7 @@ function GroupRow({
             value={group.count}
             max={max}
             label={countText(group.count)}
-            color="--destructive"
+            tone="worse"
           />
         </TableCell>
         <TableCell>
@@ -353,6 +354,7 @@ function Charts({ data }: { data: ErrorGroupsResponse }) {
               values: t.series,
             }))}
             stacked
+            integer
             fromUnixMs={data.fromUnixMs}
             toUnixMs={data.toUnixMs}
             heightClass="h-48"
@@ -633,14 +635,11 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
           </>
         }
       />
-      <p
-        data-testid="groups-note"
-        className="-mt-3 text-xs text-muted-foreground"
-      >
+      <PageNote testId="groups-note">
         Grouped from the stored traces, which are sampled: counts cover the
         errors in stored traces, last {shownWindow} minutes, not every error
         that happened.
-      </p>
+      </PageNote>
 
       {groups.isPending && (
         <>
@@ -714,7 +713,7 @@ export function ErrorGroups({ viewToggle }: { viewToggle: React.ReactNode }) {
             </KpiStrip>
           )}
           {canTriage && triage.isError && (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-sm text-destructive-text">
               Could not change the group: {triage.error?.message}
             </p>
           )}

@@ -2,6 +2,13 @@ import type { HistogramBucket } from "@nestrix-js/protocol";
 import { useEffect, useRef } from "react";
 import uPlot from "uplot";
 
+import { assignLabelRows } from "@/components/kit/chart-axis";
+import {
+  axisBase,
+  cssColor,
+  NO_LEGEND,
+  valueAxis,
+} from "@/components/kit/uplot-preset";
 import { formatDuration } from "@/lib/format";
 
 export interface Marker {
@@ -21,9 +28,10 @@ interface Props {
   height?: number;
 }
 
-const cssColor = (name: string) =>
-  getComputedStyle(document.documentElement).getPropertyValue(name).trim() ||
-  "currentColor";
+/** Rows of percentile labels above the plot, and the height they take (CSS px). */
+const LABEL_ROWS = 2;
+const LABEL_ROW_PX = 15;
+const LABEL_PAD_PX = LABEL_ROWS * LABEL_ROW_PX + 4;
 
 const tickLabel = (b: HistogramBucket | undefined) =>
   b === undefined
@@ -53,17 +61,16 @@ export function HistogramChart({
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const axis = {
-      stroke: cssColor("--muted-foreground"),
-      grid: { stroke: cssColor("--border"), width: 1 },
-      ticks: { stroke: cssColor("--border"), width: 1 },
-    };
-    const fill = cssColor("--chart-1");
+    const axis = axisBase();
+    // A backdrop: the percentile lines carry the colour.
+    const fill = cssColor("--chart-neutral");
     const plot = new uPlot(
       {
         width: el.clientWidth || 480,
         height,
-        legend: { show: false },
+        legend: NO_LEGEND,
+        // Room above the plot for the percentile labels, so they never sit on their own line.
+        padding: [LABEL_PAD_PX, null, null, null],
         cursor: { drag: { x: false, y: false }, points: { show: false } },
         scales: {
           x: {
@@ -83,7 +90,7 @@ export function HistogramChart({
             values: (_u, vals) =>
               vals.map((v) => tickLabel(latest.current.buckets[v])),
           },
-          { ...axis, size: 48, values: (_u, vals) => vals.map(String) },
+          valueAxis(String, 48),
         ],
         series: [
           {},
@@ -100,27 +107,50 @@ export function HistogramChart({
           draw: [
             (u) => {
               const ctx = u.ctx;
-              const { top, height: h } = u.bbox;
+              const dpr = devicePixelRatio;
+              const { top, height: h, left, width } = u.bbox;
               ctx.save();
-              ctx.lineWidth = 2;
-              ctx.setLineDash([6, 4]);
-              ctx.font = `${12 * devicePixelRatio}px sans-serif`;
-              let row = 0;
-              for (const m of latest.current.markers) {
-                const x = Math.round(u.valToPos(m.x, "x", true));
-                ctx.strokeStyle = cssColor(m.color);
-                ctx.fillStyle = cssColor(m.color);
+              ctx.font = `600 ${12 * dpr}px system-ui, sans-serif`;
+              ctx.textAlign = "center";
+              const marks = latest.current.markers.map((m) => ({
+                ...m,
+                // valToPos is relative to the plot area; the canvas starts left of it.
+                x: Math.round(left + u.valToPos(m.x, "x", true)),
+              }));
+              const rows = assignLabelRows(
+                marks.map((m) => ({
+                  x: m.x / dpr,
+                  width: ctx.measureText(m.label).width / dpr,
+                })),
+                LABEL_ROWS,
+              );
+              const background = cssColor("--background");
+              marks.forEach((m, i) => {
+                const row = rows[i] ?? 0;
+                const color = cssColor(m.color);
+                // The label's baseline: row 0 is the one nearest the plot.
+                const base = top - (4 + row * LABEL_ROW_PX) * dpr;
+                ctx.setLineDash([6 * dpr, 4 * dpr]);
+                ctx.lineWidth = 2 * dpr;
+                ctx.strokeStyle = color;
                 ctx.beginPath();
-                ctx.moveTo(x, top);
-                ctx.lineTo(x, top + h);
+                ctx.moveTo(m.x, base + 2 * dpr);
+                ctx.lineTo(m.x, top + h);
                 ctx.stroke();
-                ctx.fillText(
-                  m.label,
-                  x + 4 * devicePixelRatio,
-                  top + (12 + row * 14) * devicePixelRatio,
+                // Centred on the line, kept inside the canvas, with a halo against the bars.
+                const half = ctx.measureText(m.label).width / 2 + 2 * dpr;
+                const x = Math.min(
+                  Math.max(m.x, half),
+                  left + width + 8 * dpr - half,
                 );
-                row++;
-              }
+                ctx.setLineDash([]);
+                ctx.lineJoin = "round";
+                ctx.lineWidth = 4 * dpr;
+                ctx.strokeStyle = background;
+                ctx.strokeText(m.label, x, base - 2 * dpr);
+                ctx.fillStyle = color;
+                ctx.fillText(m.label, x, base - 2 * dpr);
+              });
               ctx.restore();
             },
           ],

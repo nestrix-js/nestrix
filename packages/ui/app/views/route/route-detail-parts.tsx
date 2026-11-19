@@ -57,6 +57,17 @@ function Pair({
   tone: Parameters<typeof Delta>[0]["tone"];
   testId?: string;
 }) {
+  // "— → —" says nothing: when neither side has a figure, say so in words.
+  if (before === "—" && after === "—") {
+    return (
+      <div
+        className="text-right text-xs text-muted-foreground"
+        data-testid={testId}
+      >
+        no data
+      </div>
+    );
+  }
   return (
     <div className="text-right font-mono" data-testid={testId}>
       <div>
@@ -157,8 +168,8 @@ function FindingRow({
         )}
         {worse ? "Worse" : "Better"}
       </span>
-      <div className="min-w-0 flex-1 space-y-1">
-        <p className="text-sm" data-testid="finding-title">
+      <div className="min-w-0 basis-full space-y-1 sm:flex-1 sm:basis-0">
+        <p className="break-words text-sm" data-testid="finding-title">
           {f.title}
         </p>
         {f.shareOfChange !== null && (

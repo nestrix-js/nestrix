@@ -8,9 +8,10 @@ import { DataTableSkeleton } from "@/components/data-table/data-table-skeleton";
 import { BarCell } from "@/components/kit/bar-cell";
 import { BarChart } from "@/components/kit/bar-chart";
 import { Chip } from "@/components/kit/chip";
-import { Delta } from "@/components/kit/delta";
+import { Delta, isUnknownDelta } from "@/components/kit/delta";
 import { Chart } from "@/components/kit/line-chart";
 import { PageHeader } from "@/components/kit/page-header";
+import { PageNote } from "@/components/kit/page-note";
 import { Section } from "@/components/kit/section";
 import { SegmentedControl } from "@/components/kit/segmented-control";
 import { SkeletonChart, SkeletonKpiStrip } from "@/components/kit/skeletons";
@@ -32,7 +33,7 @@ import { formatDuration } from "@/lib/format";
 import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser, stringParser } from "@/lib/params";
 import { useService } from "@/lib/service";
-import { cn } from "@/lib/utils";
+import { cn, SELECTED_ROW } from "@/lib/utils";
 import { windowChoices, windowLabel } from "@/lib/windows";
 import {
   type RouteDetailScope,
@@ -140,6 +141,7 @@ function RouteRow({
   maxCount,
   maxP95,
   compareRow,
+  showChange,
   scope,
   onSelect,
 }: {
@@ -149,6 +151,7 @@ function RouteRow({
   maxCount: number;
   maxP95: number;
   compareRow: RouteCompareRow | undefined;
+  showChange: boolean;
   onSelect: () => void;
 }) {
   const { label, note } = describeRoute(r);
@@ -162,7 +165,7 @@ function RouteRow({
         if ((e.target as Element).closest("a, button")) return;
         onSelect();
       }}
-      className={cn("cursor-pointer", active && "bg-muted")}
+      className={cn("cursor-pointer", active && SELECTED_ROW)}
     >
       <TableCell>
         <Chip className="font-mono">{describeMethod(r.method)}</Chip>
@@ -198,12 +201,7 @@ function RouteRow({
         {formatDuration(r.p50Ms)}
       </TableCell>
       <TableCell>
-        <BarCell
-          value={r.p95Ms}
-          max={maxP95}
-          label={formatDuration(r.p95Ms)}
-          color="--chart-2"
-        />
+        <BarCell value={r.p95Ms} max={maxP95} label={formatDuration(r.p95Ms)} />
       </TableCell>
       <TableCell className="text-right font-mono">
         {formatDuration(r.p99Ms)}
@@ -220,9 +218,11 @@ function RouteRow({
           />
         </span>
       </TableCell>
-      <TableCell className="text-right">
-        <Delta text={change.text} tone={change.tone} title={change.title} />
-      </TableCell>
+      {showChange && (
+        <TableCell className="text-right">
+          <Delta text={change.text} tone={change.tone} title={change.title} />
+        </TableCell>
+      )}
       <TableCell className="text-right">
         <Link
           to={routeDetailHref(r.method, r.route, scope) as "/"}
@@ -278,6 +278,10 @@ export function RoutesPage() {
   );
   const changes = useMemo(() => windowChanges(compare.data), [compare.data]);
   const compareRows = useMemo(() => compareByKey(compare.data), [compare.data]);
+  // The change column is dropped when no route has a previous window to compare with.
+  const showChange = routes.some(
+    (r) => !isUnknownDelta(rowChange(compareRows.get(routeKey(r))).text),
+  );
   const top = useMemo(() => topByP95(routes), [routes]);
   const maxCount = Math.max(1, ...routes.map((r) => r.count));
   const maxP95 = Math.max(1, ...routes.map((r) => r.p95Ms));
@@ -333,14 +337,7 @@ export function RoutesPage() {
           </>
         }
       />
-      {note && (
-        <p
-          data-testid="statistics-note"
-          className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
-        >
-          {note}
-        </p>
-      )}
+      {note && <PageNote testId="statistics-note">{note}</PageNote>}
 
       <div
         role="tablist"
@@ -475,7 +472,7 @@ export function RoutesPage() {
                     label: `${describeMethod(r.method)} ${describeRoute(r).label}`,
                     title: routeKey(r),
                     valueLabel: formatDuration(r.p95Ms),
-                    segments: [{ value: r.p95Ms, color: "--chart-2" }],
+                    segments: [{ value: r.p95Ms }],
                   }))}
                 />
               </Section>
@@ -504,12 +501,14 @@ export function RoutesPage() {
                     <TableHead className="text-right">p95</TableHead>
                     <TableHead className="text-right">p99</TableHead>
                     <TableHead className="text-right">Trend</TableHead>
-                    <TableHead
-                      className="text-right"
-                      title="p95 against the previous window"
-                    >
-                      p95 change
-                    </TableHead>
+                    {showChange && (
+                      <TableHead
+                        className="text-right"
+                        title="p95 against the previous window"
+                      >
+                        p95 change
+                      </TableHead>
+                    )}
                     <TableHead className="text-right">
                       <span className="sr-only">Route detail</span>
                     </TableHead>
@@ -526,6 +525,7 @@ export function RoutesPage() {
                         maxCount={maxCount}
                         maxP95={maxP95}
                         compareRow={compareRows.get(routeKey(r))}
+                        showChange={showChange}
                         scope={{
                           service,
                           environment,

@@ -4,9 +4,13 @@ import { parseAsStringLiteral, useQueryStates } from "nuqs";
 import { useEffect, useMemo, useState } from "react";
 import { Delta } from "@/components/kit/delta";
 import { Section } from "@/components/kit/section";
+import {
+  SkeletonChart,
+  SkeletonKpiStrip,
+  SkeletonList,
+} from "@/components/kit/skeletons";
+import { EmptyState, ErrorState } from "@/components/kit/states";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { getRouteCompare, getRouteExplain, getRoutes } from "@/lib/api";
 import { pollInterval, usePaused } from "@/lib/live";
 import { routeWindowParser, stringParser } from "@/lib/params";
@@ -281,45 +285,37 @@ export function RouteDetailPage() {
 
       {explain.isPending && (
         <div className="space-y-4" data-testid="route-loading">
-          <Skeleton className="h-20 w-full" />
-          <Skeleton className="h-40 w-full" />
-          <Skeleton className="h-64 w-full" />
+          <SkeletonKpiStrip />
+          <SkeletonChart heightClass="h-40" />
+          <SkeletonList rows={4} />
         </div>
       )}
       {explain.isError && data === undefined && (
-        <div
-          role="alert"
-          data-testid="route-error"
-          className="space-y-3 rounded-lg border border-border p-6 text-center"
-        >
-          <p className="font-medium">Could not explain this route.</p>
-          <p className="text-sm text-muted-foreground">
-            {explain.error?.message}
-          </p>
-          <Button variant="outline" onClick={() => void explain.refetch()}>
-            Try again
-          </Button>
-        </div>
+        <ErrorState
+          testId="route-error"
+          title="Could not explain this route."
+          message={explain.error?.message}
+          onRetry={() => void explain.refetch()}
+        />
       )}
 
       {data !== undefined && noTraces(data) && (
-        <div
-          data-testid="no-traces"
-          className="space-y-2 rounded-lg border border-border p-6 text-center"
-        >
-          <p className="font-medium">No traces for this route.</p>
-          <p className="text-sm text-muted-foreground">
-            Nestrix has no sampled trace of {label} in{" "}
-            {data.mode === "release"
-              ? "these releases"
-              : `the last ${windowMinutes * 2} minutes`}
-            . The route may not exist, may be named differently, or may not have
-            been called since the traces were kept.{" "}
-            <Link to="/routes" className="underline">
+        <EmptyState
+          testId="no-traces"
+          title="No traces for this route."
+          action={
+            <Link to="/routes" className="text-sm underline">
               Back to Routes
             </Link>
-          </p>
-        </div>
+          }
+        >
+          Nestrix has no sampled trace of {label} in{" "}
+          {data.mode === "release"
+            ? "these releases"
+            : `the last ${windowMinutes * 2} minutes`}
+          . The route may not exist, may be named differently, or may not have
+          been called since the traces were kept.
+        </EmptyState>
       )}
 
       {data !== undefined && !noTraces(data) && (
@@ -348,9 +344,11 @@ export function RouteDetailPage() {
                     </span>
                     <Delta text={k.delta} tone={k.tone} />
                   </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    was {k.was}
-                  </div>
+                  {k.was !== "—" && (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      was {k.was}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

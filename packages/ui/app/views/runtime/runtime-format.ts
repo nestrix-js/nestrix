@@ -1,6 +1,7 @@
 import type { RuntimeSample } from "@nestrix-js/protocol";
 
 import type { ChartSeries } from "@/components/kit/line-chart";
+import { PERCENTILE_COLOR } from "@/components/kit/series-colors";
 
 export interface RuntimeCharts {
   /** Unix seconds. */
@@ -19,17 +20,17 @@ export function runtimeCharts(samples: RuntimeSample[]): RuntimeCharts {
     eventLoop: [
       {
         label: "p50",
-        color: "--chart-1",
+        color: PERCENTILE_COLOR.p50,
         values: col((s) => s.eventLoopP50Ms),
       },
       {
         label: "p99",
-        color: "--chart-2",
+        color: PERCENTILE_COLOR.p99,
         values: col((s) => s.eventLoopP99Ms),
       },
       {
         label: "max",
-        color: "--chart-3",
+        color: "--chart-2",
         values: col((s) => s.eventLoopMaxMs),
       },
     ],
@@ -44,7 +45,7 @@ export function runtimeCharts(samples: RuntimeSample[]): RuntimeCharts {
         color: "--chart-2",
         values: col((s) => s.heapTotalBytes),
       },
-      { label: "RSS", color: "--chart-3", values: col((s) => s.rssBytes) },
+      { label: "RSS", color: "--chart-4", values: col((s) => s.rssBytes) },
       {
         label: "external",
         color: "--muted-foreground",
@@ -59,7 +60,7 @@ export function runtimeCharts(samples: RuntimeSample[]): RuntimeCharts {
       },
       {
         label: "system",
-        color: "--chart-3",
+        color: "--chart-2",
         values: col((s) => s.cpuSystemPercent),
       },
     ],

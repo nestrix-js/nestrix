@@ -19,9 +19,14 @@ export const chipTone: Record<ChipTone, string> = {
   warn: "bg-warning/15 text-warning-text",
 };
 
+/** True for the "—" the change formatters give when there is nothing to compare with. */
+export const isUnknownDelta = (text: string): boolean => text === "—";
+
 /**
  * A formatted change ("+12%", "−3 pt", "—") with an arrow for its direction. The arrow follows
- * the sign; the colour says good or bad (never alone: the sign is in the text). "—" is unknown.
+ * the sign; the colour says good or bad (never alone: the sign is in the text). "—" is unknown:
+ * nothing is drawn then, because a bare dash in a corner or a column says nothing. Where the
+ * reason matters, say it once for the whole row or page.
  */
 export function Delta({
   text,
@@ -32,7 +37,7 @@ export function Delta({
   tone: Tone;
   title?: string;
 }) {
-  const unknown = text === "—";
+  if (isUnknownDelta(text)) return null;
   // The arrow shows which way the number moved; the colour says whether that is good or bad
   // (Apdex falling is worse and points down).
   const rising = /^\+/.test(text);
@@ -40,17 +45,17 @@ export function Delta({
   return (
     <span
       data-testid="delta"
-      data-tone={unknown ? "unknown" : tone}
+      data-tone={tone}
       title={title}
       className={cn(
         "inline-flex items-center gap-0.5 whitespace-nowrap font-mono text-xs",
-        unknown ? "text-muted-foreground" : toneText[tone],
+        toneText[tone],
       )}
     >
-      {!unknown && tone !== "neutral" && rising && (
+      {tone !== "neutral" && rising && (
         <ArrowUp className="size-3" aria-hidden />
       )}
-      {!unknown && tone !== "neutral" && falling && (
+      {tone !== "neutral" && falling && (
         <ArrowDown className="size-3" aria-hidden />
       )}
       {text}

@@ -32,7 +32,7 @@ import {
   type Row,
   scaleTicks,
 } from "@/lib/trace-tree";
-import { cn } from "@/lib/utils";
+import { cn, SELECTED_ROW } from "@/lib/utils";
 import { CATEGORY_BG } from "@/views/trace/category-style";
 import { LogsPanel } from "@/views/trace/logs-panel";
 import { QueriesPanel } from "@/views/trace/queries-panel";
@@ -294,13 +294,16 @@ export function Waterfall({
             className="overflow-auto border-t border-border outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
             style={{ height: viewport }}
           >
-            <div className="min-w-[640px]">
+            <div className="min-w-[420px] sm:min-w-[640px]">
               <div
                 role="row"
                 data-testid="waterfall-scale"
                 className="sticky top-0 z-10 flex h-7 border-b border-border bg-muted text-xs text-muted-foreground"
               >
-                <div role="columnheader" className="w-72 shrink-0 px-2 py-1.5">
+                <div
+                  role="columnheader"
+                  className="w-40 shrink-0 sm:w-72 px-2 py-1.5"
+                >
                   Span
                 </div>
                 <div role="columnheader" className="relative flex-1">
@@ -340,7 +343,7 @@ export function Waterfall({
                       >
                         <div
                           role="gridcell"
-                          className="w-72 shrink-0 truncate px-2"
+                          className="w-40 shrink-0 sm:w-72 truncate px-2"
                           style={{
                             paddingLeft:
                               8 +
@@ -469,13 +472,13 @@ function WaterfallRow({
         error && "bg-destructive/5",
         highlighted && "bg-warning/15",
         critical && "bg-primary/10 shadow-[inset_3px_0_0_var(--primary)]",
-        selected && "bg-muted",
+        selected && SELECTED_ROW,
       )}
       style={{ top, height: ROW_HEIGHT }}
     >
       <div
         role="gridcell"
-        className="relative flex w-72 shrink-0 items-center gap-1 overflow-hidden px-2"
+        className="relative flex w-40 shrink-0 sm:w-72 items-center gap-1 overflow-hidden px-2"
         style={{ paddingLeft: 8 + indent }}
       >
         {Array.from({ length: levels }, (_, level) => (
@@ -526,7 +529,7 @@ function WaterfallRow({
         ) : null}
         <span
           data-testid="span-name"
-          className={cn("truncate", error && "text-destructive")}
+          className={cn("truncate", error && "text-destructive-text")}
           title={span.name}
         >
           {span.name}
