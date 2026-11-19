@@ -1,5 +1,11 @@
 # @nestrix-js/ui
 
+## 0.9.0
+
+### Patch Changes
+
+- [#76](https://github.com/nestrix-js/nestrix/pull/76) [`d678093`](https://github.com/nestrix-js/nestrix/commit/d6780936c5c763859dac3cbbf8b953e36b8ff32e) Thanks [@lamberto15](https://github.com/lamberto15)! - The section menu underlines the current page again. The active style was added beside `border-transparent`, and the stylesheet order made the transparent border win, so no tab looked selected.
+
 ## 0.8.1
 
 No changes in this release.
