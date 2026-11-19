@@ -3,13 +3,14 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { RefreshCw } from "lucide-react";
 import { useState } from "react";
-
 import { Chip } from "@/components/kit/chip";
+import { Checkbox } from "@/components/kit/form";
 import { PageHeader } from "@/components/kit/page-header";
 import { SegmentedControl } from "@/components/kit/segmented-control";
 import { SkeletonList } from "@/components/kit/skeletons";
 import { EmptyState, ErrorState } from "@/components/kit/states";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { getLogs, getMeta } from "@/lib/api";
 import { useService } from "@/lib/service";
 import { logLevelLabel, logTone, toneClass } from "@/lib/trace-logs";
@@ -25,8 +26,6 @@ import {
   logQuery,
 } from "@/views/logs/logs-query";
 
-const FIELD = "h-8 rounded-lg border border-border bg-background px-2 text-sm";
-
 /**
  * Log search (issue #17, D-106), standalone server only. Filters apply with the Search button (or
  * Enter); the window ends at the moment of the search so "Load older" pages stay stable, and
@@ -37,6 +36,8 @@ const FIELD = "h-8 rounded-lg border border-border bg-background px-2 text-sm";
  * `data-tone`, `log-time`, `log-level`, `log-service`, `log-message`, `log-truncated`,
  * `log-trace-link`, `logs-older`, `logs-empty`.
  */
+const FIELD = "h-8 rounded-lg border border-border bg-background px-2 text-sm";
+
 export function LogsPage() {
   const meta = useQuery({ queryKey: ["meta"], queryFn: getMeta });
   const [service] = useService();
@@ -115,21 +116,20 @@ export function LogsPage() {
           onChange={(e) => setDraft({ ...draft, text: e.target.value })}
           className={cn(FIELD, "w-64")}
         />
-        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <input
-            data-testid="logs-match"
-            type="checkbox"
-            checked={draft.match === "substring"}
-            onChange={(e) =>
-              setDraft({
-                ...draft,
-                match: e.target.checked ? "substring" : "words",
-              })
-            }
-          />
+        <Checkbox
+          className="gap-1.5 text-muted-foreground"
+          data-testid="logs-match"
+          checked={draft.match === "substring"}
+          onChange={(e) =>
+            setDraft({
+              ...draft,
+              match: e.target.checked ? "substring" : "words",
+            })
+          }
+        >
           Substring
-        </label>
-        <select
+        </Checkbox>
+        <Select
           data-testid="logs-severity"
           aria-label="Minimum level"
           value={draft.severity}
@@ -139,7 +139,6 @@ export function LogsPage() {
               severity: e.target.value as LogFilters["severity"],
             })
           }
-          className={FIELD}
         >
           <option value="">Any level</option>
           {LOG_SEVERITIES.map((s) => (
@@ -147,7 +146,7 @@ export function LogsPage() {
               {s} and above
             </option>
           ))}
-        </select>
+        </Select>
         <div data-testid="logs-window">
           <SegmentedControl
             label="Time range"

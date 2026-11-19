@@ -1,12 +1,16 @@
 import type { ApiToken, ApiTokenCreateResponse } from "@nestrix-js/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, KeyRound, TriangleAlert } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   Chip,
+  ConfirmAction,
   EmptyState,
   ErrorState,
+  FormField,
+  FormProblem,
+  focusField,
   PageHeader,
   Section,
   SkeletonList,
@@ -35,6 +39,11 @@ function NewToken({
 }) {
   const field = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState<"yes" | "manual" | null>(null);
+  // The secret is shown once: put the keyboard on it, selected and ready to copy.
+  useEffect(() => {
+    field.current?.focus();
+    field.current?.select();
+  }, []);
   const copy = async () => {
     field.current?.select();
     try {
@@ -98,7 +107,6 @@ function NewToken({
 
 function TokenRow({ token, now }: { token: ApiToken; now: number }) {
   const queryClient = useQueryClient();
-  const [confirming, setConfirming] = useState(false);
   const revoke = useMutation({
     mutationFn: () => revokeToken(token.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tokens"] }),
@@ -122,28 +130,20 @@ function TokenRow({ token, now }: { token: ApiToken; now: number }) {
       <TableCell className="px-4 text-right">
         {revoked ? (
           <Chip tone="neutral">Revoked</Chip>
-        ) : confirming ? (
-          <span className="inline-flex gap-1">
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={revoke.isPending}
-              onClick={() => revoke.mutate()}
-            >
-              Confirm revoke
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setConfirming(false)}
-            >
-              Keep
-            </Button>
-          </span>
         ) : (
-          <Button variant="ghost" size="sm" onClick={() => setConfirming(true)}>
-            Revoke
-          </Button>
+          <ConfirmAction
+            label="Revoke"
+            confirmLabel="Confirm revoke"
+            subject={token.name}
+            consequence="Tools using it lose access at once."
+            pending={revoke.isPending}
+            onConfirm={() => revoke.mutate()}
+          />
+        )}
+        {revoke.isError && (
+          <p role="alert" className="mt-1 text-xs text-destructive-text">
+            Could not revoke: {revoke.error.message}
+          </p>
         )}
       </TableCell>
     </TableRow>
@@ -156,6 +156,7 @@ function ApiTokens() {
   const now = useNow();
   const tokens = useQuery({ queryKey: ["tokens"], queryFn: getTokens });
   const [name, setName] = useState("");
+  const [nameError, setNameError] = useState<string | null>(null);
   const [created, setCreated] = useState<ApiTokenCreateResponse | null>(null);
   const create = useMutation({
     mutationFn: () => createToken(name.trim()),
@@ -174,9 +175,6 @@ function ApiTokens() {
       description="Read-only access to the query API for tools such as the Nestrix MCP server"
       source="stored on this server; only a hash is kept"
       flush
-      actions={
-        <KeyRound aria-hidden className="size-5 text-muted-foreground" />
-      }
     >
       <div className="space-y-4 border-t border-border p-4">
         <p className="text-sm text-muted-foreground">
@@ -184,26 +182,46 @@ function ApiTokens() {
           with <code className="font-mono">Authorization: Bearer</code>. It
           cannot change anything, sign in to this page, or send traces.
         </p>
-        <div className="flex max-w-xl gap-2">
-          <Input
-            aria-label="Token name"
-            placeholder="Name, such as laptop MCP"
-            maxLength={100}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <Button
-            disabled={create.isPending || name.trim() === ""}
-            onClick={() => create.mutate()}
+        <form
+          noValidate
+          className="max-w-xl space-y-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (name.trim() === "") {
+              setNameError("Give the token a name.");
+              focusField("token-name");
+              return;
+            }
+            setNameError(null);
+            create.mutate();
+          }}
+        >
+          <FormField
+            id="token-name"
+            label="Token name"
+            required
+            hint="Shown in the list below, so you can tell tokens apart, such as laptop MCP."
+            error={nameError}
           >
-            Create token
-          </Button>
-        </div>
-        {create.isError && (
-          <p role="alert" className="text-sm text-[var(--destructive-text)]">
-            {create.error.message}
-          </p>
-        )}
+            {(p) => (
+              <div className="flex gap-2">
+                <Input
+                  {...p}
+                  maxLength={100}
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    setNameError(null);
+                  }}
+                />
+                <Button type="submit" disabled={create.isPending}>
+                  Create token
+                </Button>
+              </div>
+            )}
+          </FormField>
+        </form>
+        {create.isError && <FormProblem>{create.error.message}</FormProblem>}
         {created && (
           <NewToken created={created} onDone={() => setCreated(null)} />
         )}

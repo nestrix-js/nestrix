@@ -3,6 +3,7 @@ import type { ReactTable, RowData } from "@tanstack/react-table";
 import { Settings2 } from "lucide-react";
 
 import type { DataTableFeatures } from "@/components/data-table/features";
+import { Checkbox } from "@/components/kit/form";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -27,17 +28,14 @@ export function DataTableViewOptions<TData extends RowData>({
       </PopoverTrigger>
       <PopoverContent align="end" className="w-44">
         {columns.map((column) => (
-          <label
+          <Checkbox
             key={column.id}
-            className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted"
+            className="rounded-md px-2 py-1.5 hover:bg-muted"
+            checked={column.getIsVisible()}
+            onChange={(e) => column.toggleVisibility(e.target.checked)}
           >
-            <input
-              type="checkbox"
-              checked={column.getIsVisible()}
-              onChange={(e) => column.toggleVisibility(e.target.checked)}
-            />
             {labels[column.id] ?? column.id}
-          </label>
+          </Checkbox>
         ))}
       </PopoverContent>
     </Popover>

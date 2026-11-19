@@ -82,6 +82,20 @@ describe("budget ring text", () => {
 describe("form to request", () => {
   const form = { ...emptyForm("shop"), name: " Orders " };
 
+  it("names the field that is wrong, so the form can mark and focus it", () => {
+    const field = (over: Partial<typeof form>) => {
+      const r = toRequest({ ...form, ...over });
+      return r.ok ? null : r.field;
+    };
+    expect(field({ name: " " })).toBe("name");
+    expect(field({ service: "" })).toBe("service");
+    expect(field({ objectivePercent: "100" })).toBe("objectivePercent");
+    expect(field({ kind: "latency", latencyThresholdMs: "" })).toBe(
+      "latencyThresholdMs",
+    );
+    expect(field({})).toBeNull();
+  });
+
   it("builds an availability request from percentages", () => {
     expect(toRequest({ ...form, objectivePercent: "99.9" })).toEqual({
       ok: true,

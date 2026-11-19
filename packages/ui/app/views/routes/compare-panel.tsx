@@ -7,6 +7,7 @@ import { usePageSourceKind } from "@/components/kit/page-source";
 import { ErrorState } from "@/components/kit/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -228,10 +229,10 @@ export function ComparePanel({
             ).map(([name, value, set]) => (
               <label key={name} className="flex items-center gap-1">
                 {name}
-                <select
+                <Select
                   value={value ?? ""}
                   onChange={(e) => set(e.target.value)}
-                  className="h-7 rounded-lg border border-border bg-background px-2 text-sm"
+                  size="sm"
                 >
                   {value === null && <option value="">none seen</option>}
                   {[...new Set([...(value ? [value] : []), ...seen])].map(
@@ -241,7 +242,7 @@ export function ComparePanel({
                       </option>
                     ),
                   )}
-                </select>
+                </Select>
               </label>
             ))}
           </div>

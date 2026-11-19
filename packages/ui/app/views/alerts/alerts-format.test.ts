@@ -8,8 +8,10 @@ import {
   formatMetricValue,
   formFromRule,
   isKnownMetric,
+  METRIC_LABEL,
   ruleState,
   summarizeRules,
+  thresholdForMetric,
   toRequest,
   webhookOrigin,
 } from "@/views/alerts/alerts-format";
@@ -185,6 +187,21 @@ describe("toRequest", () => {
     webhookUrl: "https://hooks.example.com/x",
   });
 
+  it("names the field that is wrong, so the form can mark and focus it", () => {
+    const field = (over: Partial<ReturnType<typeof filled>>) => {
+      const r = toRequest({ ...filled(), ...over });
+      return r.ok ? null : r.field;
+    };
+    expect(field({ name: "" })).toBe("name");
+    expect(field({ threshold: "abc" })).toBe("threshold");
+    expect(field({ windowMinutes: "4" })).toBe("windowMinutes");
+    expect(field({ forMinutes: "61" })).toBe("forMinutes");
+    expect(field({ minRequests: "0" })).toBe("minRequests");
+    expect(field({ webhookUrl: "ftp://x" })).toBe("webhookUrl");
+    expect(field({ service: "" })).toBe("service");
+    expect(field({})).toBeNull();
+  });
+
   it("sends an error rate as a fraction with service and route, and no sloId", () => {
     const r = toRequest({ ...filled(), threshold: "7.5", route: " /pay " });
     expect(r).toEqual({
@@ -310,7 +327,11 @@ describe("toRequest", () => {
       metric: "slo_burn_rate",
       threshold: "2",
     });
-    expect(r).toEqual({ ok: false, message: "Choose an SLO." });
+    expect(r).toEqual({
+      ok: false,
+      message: "Choose an SLO.",
+      field: "sloId",
+    });
   });
 
   it.each([
@@ -346,5 +367,35 @@ describe("toRequest", () => {
         threshold: "1001",
       }).ok,
     ).toBe(false);
+  });
+});
+
+describe("thresholdForMetric", () => {
+  it("fills the new default silently when the threshold is empty or still the old default", () => {
+    expect(thresholdForMetric("error_rate", "p95_ms", "5")).toEqual({
+      threshold: "500",
+      note: null,
+    });
+    expect(thresholdForMetric("error_rate", "p95_ms", " ")).toEqual({
+      threshold: "500",
+      note: null,
+    });
+  });
+
+  it("resets a typed value to the new default and says so", () => {
+    const r = thresholdForMetric("error_rate", "p95_ms", "2.5");
+    expect(r.threshold).toBe("500");
+    expect(r.note).toBe(`Reset to the default for ${METRIC_LABEL.p95_ms}`);
+  });
+
+  it("keeps the text, with no note, for a metric without a threshold or an unchanged metric", () => {
+    expect(thresholdForMetric("p95_ms", "new_error_group", "300")).toEqual({
+      threshold: "300",
+      note: null,
+    });
+    expect(thresholdForMetric("p95_ms", "p95_ms", "300")).toEqual({
+      threshold: "300",
+      note: null,
+    });
   });
 });

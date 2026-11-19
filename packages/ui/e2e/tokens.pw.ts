@@ -52,7 +52,18 @@ test("creates a token, shows it once with a copy button, and lists it without th
   await expect(page.getByTestId("tokens-empty")).toBeVisible();
 
   const create = page.getByRole("button", { name: "Create token" });
-  await expect(create).toBeDisabled();
+  // An empty name is refused with a message under the field (it is no longer a dead button).
+  await expect(create).toBeEnabled();
+  await create.click();
+  await expect(page.getByTestId("token-name-error")).toHaveText(
+    "Give the token a name.",
+  );
+  await expect(page.getByLabel("Token name")).toBeFocused();
+  await expect(page.getByLabel("Token name")).toHaveAttribute(
+    "aria-invalid",
+    "true",
+  );
+  expect(mock.tokenWrites).toEqual([]);
   await page.getByLabel("Token name").fill("  laptop MCP ");
   await create.click();
 
