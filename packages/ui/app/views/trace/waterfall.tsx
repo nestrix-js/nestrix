@@ -256,6 +256,7 @@ export function Waterfall({
                   ["cache", "Cache"],
                   ["http", "HTTP out"],
                   ["messaging", "Messaging"],
+                  ["other", "Other"],
                 ] as const
               ).map(([category, label]) => (
                 <li key={category} className="flex items-center gap-1">

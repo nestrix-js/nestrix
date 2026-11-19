@@ -12,6 +12,7 @@ import { X } from "lucide-react";
 import { Chip } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { getTrace } from "@/lib/api";
+import { formatClockTime } from "@/lib/clock-time";
 import { formatDuration } from "@/lib/format";
 import { CopyButton } from "@/views/trace/copy-button";
 
@@ -222,7 +223,13 @@ export function SpanDetail({
           <dt className="text-muted-foreground">Start</dt>
           <dd className="tabular-nums">
             +{formatDuration(span.startTimeUnixMs - traceStartMs)} (
-            {new Date(span.startTimeUnixMs).toISOString()})
+            <time
+              dateTime={new Date(span.startTimeUnixMs).toISOString()}
+              title={new Date(span.startTimeUnixMs).toISOString()}
+            >
+              {formatClockTime(span.startTimeUnixMs)}
+            </time>
+            )
           </dd>
           <dt className="text-muted-foreground">Duration</dt>
           <dd className="tabular-nums">{formatDuration(span.durationMs)}</dd>

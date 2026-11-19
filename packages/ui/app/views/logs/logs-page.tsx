@@ -82,12 +82,13 @@ export function LogsPage() {
     <div data-testid="logs-page" className="space-y-4">
       <PageHeader
         title="Logs"
-        description="Search the log lines stored by the server, newest first."
+        description="Search the log lines stored by the server, newest first"
         source="from stored log lines"
         controls={
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
+            aria-label="Reload"
             onClick={() =>
               setApplied({ filters: applied.filters, at: Date.now() })
             }
