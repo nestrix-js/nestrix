@@ -1,4 +1,5 @@
 import type { ClassKind, ClassStats } from "@nestrix-js/protocol";
+import { formatFraction } from "@/components/kit/format";
 
 /** The groups the donut shows: the API's kinds, with guard, pipe, interceptor and filter together. */
 export type KindGroup =
@@ -114,6 +115,5 @@ export function summarizeClasses(classes: readonly ClassStats[]): ClassSummary {
 /** "34%" of a total, "<1%" for a sliver, "-" without a total. */
 export function formatShare(value: number, sum: number): string {
   if (sum <= 0) return "-";
-  const percent = (value / sum) * 100;
-  return percent > 0 && percent < 1 ? "<1%" : `${Math.round(percent)}%`;
+  return formatFraction(value / sum);
 }

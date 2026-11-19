@@ -73,6 +73,71 @@ export function niceMax(value: number): number {
   return step * base;
 }
 
+/** The sign of every negative number and change the dashboard writes: a minus, not a hyphen. */
+export const MINUS = "−";
+
+/**
+ * A magnitude with two significant digits: one decimal below 10 ("4.2"), whole from 10 up
+ * ("12"). Rounding that reaches 10 ("9.96") gives "10", never "10.0". The sign is dropped.
+ */
+export function twoDigits(value: number): string {
+  const abs = Math.abs(value);
+  const tenths = Number(abs.toFixed(1));
+  return tenths < 10 ? tenths.toFixed(1) : String(Math.round(abs));
+}
+
+/**
+ * `value` with an explicit sign and the magnitude written by `format` ("+12%", "−3.4 ms"). A
+ * value that `format` writes as zero has no sign: `zero` ("0%").
+ */
+export function withSign(
+  value: number,
+  format: (magnitude: number) => string,
+  zero: string,
+): string {
+  if (Number(twoDigits(value)) === 0) return zero;
+  return `${value > 0 ? "+" : MINUS}${format(Math.abs(value))}`;
+}
+
+/**
+ * "0 ms", "<0.1 ms", "4.2 ms", "38 ms", "1.5 s", "12 s", "2.0 min": one rule for every duration,
+ * two significant digits and a unit that follows the rounded value (999.7 ms is "1.0 s"). A
+ * negative duration (a difference) gets a true minus; anything not finite is "-".
+ */
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms)) return "-";
+  if (ms < 0) return `${MINUS}${formatDuration(-ms)}`;
+  if (ms === 0) return "0 ms";
+  if (ms < 0.05) return "<0.1 ms";
+  const asMs = twoDigits(ms);
+  if (Number(asMs) < 1000) return `${asMs} ms`;
+  const asSeconds = twoDigits(ms / 1000);
+  if (Number(asSeconds) < 60) return `${asSeconds} s`;
+  return `${twoDigits(ms / 60_000)} min`;
+}
+
+/**
+ * "0%", "<0.1%", "7.8%", "12%", "100%": a share given in percent, two significant digits, no
+ * space before the sign. Negative values (an overspent budget) get a true minus; anything not
+ * finite is "-".
+ */
+export function formatPercent(percent: number): string {
+  if (!Number.isFinite(percent)) return "-";
+  if (percent < 0) return `${MINUS}${formatPercent(-percent)}`;
+  if (percent === 0) return "0%";
+  if (percent < 0.05) return "<0.1%";
+  // Rounding must not claim a whole 100% for a share that is not (99.6% is not "100%"); from
+  // 99.95 the one decimal rounds to 100 itself.
+  if (percent < 99.95 && Number(twoDigits(percent)) >= 100)
+    return `${(Math.floor(percent * 10) / 10).toFixed(1)}%`;
+  return `${twoDigits(percent)}%`;
+}
+
+/** `formatPercent` of a fraction: 0.078 is "7.8%". */
+export function formatFraction(fraction: number): string {
+  return formatPercent(fraction * 100);
+}
+
 /** "950", "1.2k", "34k", "2.5M": a count short enough for an axis or a tile. */
 export function compactNumber(value: number): string {
   if (!Number.isFinite(value)) return "—";

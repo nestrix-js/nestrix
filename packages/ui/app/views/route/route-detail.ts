@@ -122,7 +122,7 @@ export function formatCallsDelta(before: number, after: number): string {
 export function formatMsDelta(before: number, after: number): string {
   const delta = after - before;
   if (Math.abs(delta) < 0.05) return "0 ms";
-  return formatDeltaMs(delta).replace("-", "−");
+  return formatDeltaMs(delta);
 }
 
 /** More time is worse; a change under half a millisecond is not news. */

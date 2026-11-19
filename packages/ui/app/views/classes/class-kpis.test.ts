@@ -99,9 +99,9 @@ describe("summarizeClasses", () => {
 });
 
 describe("formatShare", () => {
-  it("rounds, marks slivers and has no share without a total", () => {
+  it("rounds to two significant digits and has no share without a total", () => {
     expect(formatShare(1, 3)).toBe("33%");
-    expect(formatShare(1, 1000)).toBe("<1%");
+    expect(formatShare(1, 1000)).toBe("0.1%");
     expect(formatShare(0, 10)).toBe("0%");
     expect(formatShare(1, 0)).toBe("-");
   });

@@ -13,6 +13,14 @@ import {
 } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { createToken, getMeta, getTokens, revokeToken } from "@/lib/api";
 import { formatRelative } from "@/lib/format";
 import { useNow } from "@/lib/use-now";
@@ -97,24 +105,21 @@ function TokenRow({ token, now }: { token: ApiToken; now: number }) {
   });
   const revoked = token.revokedAtUnixMs !== null;
   return (
-    <tr
-      data-testid="token"
-      className="border-t border-border hover:bg-muted/40"
-    >
-      <td className="px-4 py-2.5 font-medium">{token.name}</td>
-      <td className="px-4 py-2.5 font-mono text-xs">{token.prefix}…</td>
-      <td className="px-4 py-2.5 text-xs text-muted-foreground">
+    <TableRow data-testid="token">
+      <TableCell className="px-4 font-medium">{token.name}</TableCell>
+      <TableCell className="px-4 font-mono text-xs">{token.prefix}…</TableCell>
+      <TableCell className="px-4 text-xs text-muted-foreground">
         {formatRelative(token.createdAtUnixMs, now)}
-      </td>
-      <td
+      </TableCell>
+      <TableCell
         data-testid="last-used"
-        className="px-4 py-2.5 text-xs text-muted-foreground"
+        className="px-4 text-xs text-muted-foreground"
       >
         {token.lastUsedAtUnixMs === null
           ? "never"
           : formatRelative(token.lastUsedAtUnixMs, now)}
-      </td>
-      <td className="px-4 py-2.5 text-right">
+      </TableCell>
+      <TableCell className="px-4 text-right">
         {revoked ? (
           <Chip tone="neutral">Revoked</Chip>
         ) : confirming ? (
@@ -140,8 +145,8 @@ function TokenRow({ token, now }: { token: ApiToken; now: number }) {
             Revoke
           </Button>
         )}
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -170,12 +175,7 @@ function ApiTokens() {
       source="stored on this server; only a hash is kept"
       flush
       actions={
-        <span
-          aria-hidden
-          className="flex size-8 items-center justify-center rounded-full bg-muted text-muted-foreground"
-        >
-          <KeyRound className="size-4" />
-        </span>
+        <KeyRound aria-hidden className="size-5 text-muted-foreground" />
       }
     >
       <div className="space-y-4 border-t border-border p-4">
@@ -228,25 +228,25 @@ function ApiTokens() {
       )}
       {tokens.data !== undefined &&
         (list.length > 0 ? (
-          <div className="overflow-x-auto border-t border-border">
-            <table data-testid="tokens" className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">Name</th>
-                  <th className="px-4 py-2 font-medium">Token</th>
-                  <th className="px-4 py-2 font-medium">Created</th>
-                  <th className="px-4 py-2 font-medium">Last used</th>
-                  <th className="px-4 py-2">
+          <div className="border-t border-border">
+            <Table data-testid="tokens">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="px-4">Name</TableHead>
+                  <TableHead className="px-4">Token</TableHead>
+                  <TableHead className="px-4">Created</TableHead>
+                  <TableHead className="px-4">Last used</TableHead>
+                  <TableHead className="px-4">
                     <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {list.map((t) => (
                   <TokenRow key={t.id} token={t} now={now} />
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         ) : (
           <div className="border-t border-border p-4">

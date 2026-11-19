@@ -78,7 +78,7 @@ test("the Queries panel lists repeated statements with count and total time", as
     REPEATED_SQL,
   );
   await expect(items.first().getByTestId("query-count")).toHaveText("3x");
-  await expect(items.first().getByTestId("query-total")).toHaveText("30.0 ms");
+  await expect(items.first().getByTestId("query-total")).toHaveText("30 ms");
   expect(OTHER_SQL).not.toBe(REPEATED_SQL);
 });
 

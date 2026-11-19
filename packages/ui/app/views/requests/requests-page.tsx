@@ -500,8 +500,8 @@ export function RequestsPage() {
           table={table}
           testId="requests"
           toolbar={toolbar}
-          // The header and 16 whole rows (2.375rem each), so the box never cuts a row in half.
-          containerClassName="max-h-[calc(2.25rem+16*2.375rem)]"
+          // The header and 16 whole rows (2.6875rem each: the duration cell has its bar under the number), so the box never cuts a row in half.
+          containerClassName="max-h-[calc(2.25rem+16*2.6875rem)]"
           onRowClick={(row) =>
             void navigate({
               to: "/traces/$traceId",

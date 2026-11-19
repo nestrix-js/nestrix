@@ -9,7 +9,7 @@ import { BarCell } from "@/components/kit/bar-cell";
 import { Chip } from "@/components/kit/chip";
 import { Delta, isUnknownDelta } from "@/components/kit/delta";
 import { DONUT_RADIUS, Donut, DonutLegend } from "@/components/kit/donut";
-import { donutSlices } from "@/components/kit/format";
+import { donutSlices, formatFraction } from "@/components/kit/format";
 import { PageHeader } from "@/components/kit/page-header";
 import { Section } from "@/components/kit/section";
 import { SegmentedControl } from "@/components/kit/segmented-control";
@@ -315,7 +315,7 @@ export function ClassesPage() {
                   value={
                     summary.errorRate === null
                       ? "—"
-                      : `${(summary.errorRate * 100).toFixed(summary.errorRate >= 0.1 ? 0 : 1)}%`
+                      : formatFraction(summary.errorRate)
                   }
                   unit={`${summary.errors.toLocaleString("en")} of ${summary.calls.toLocaleString("en")} calls`}
                   delta={changes.errorRate.text}

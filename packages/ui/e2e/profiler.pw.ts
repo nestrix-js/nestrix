@@ -89,7 +89,7 @@ test("starts a capture with a same-origin JSON fetch, shows progress, then the c
   const top = page.getByTestId("top-functions").locator("tbody tr");
   await expect(top.first()).toContainText("hotRouteWork");
   await expect(top.first()).toContainText("dist/hot.js:18");
-  await expect(top.first()).toContainText("83.0%");
+  await expect(top.first()).toContainText("83%");
 
   const graph = page.getByTestId("flame-graph");
   await expect(graph).toBeVisible();

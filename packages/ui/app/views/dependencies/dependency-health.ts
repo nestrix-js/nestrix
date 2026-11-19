@@ -1,6 +1,6 @@
 import type { DependencyStats } from "@nestrix-js/protocol";
-
 import type { ChipTone } from "@/components/kit/format";
+import { formatFraction } from "@/components/kit/format";
 
 export type Health = "healthy" | "degraded" | "failing";
 
@@ -40,9 +40,7 @@ export const healthTone: Record<Health, ChipTone> = {
 export function formatErrorRate(
   d: Pick<DependencyStats, "errors" | "errorRate">,
 ) {
-  return d.errors === 0
-    ? "0%"
-    : `${(d.errorRate * 100).toFixed(d.errorRate < 0.1 ? 1 : 0)}%`;
+  return d.errors === 0 ? "0%" : formatFraction(d.errorRate);
 }
 
 /** One series of the stacked calls chart. */

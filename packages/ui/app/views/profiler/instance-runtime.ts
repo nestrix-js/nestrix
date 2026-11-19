@@ -1,4 +1,5 @@
 import type { InstanceSummary } from "@nestrix-js/protocol";
+import { formatPercent } from "@/components/kit/format";
 
 import { formatBytes, formatMs } from "@/views/profiler/profile-format";
 
@@ -97,7 +98,7 @@ export function suggestInstances(
 
 /** `0.4%`, `37%`, `140%` (of one core). */
 export function formatCpu(percent: number): string {
-  return percent < 10 ? `${percent.toFixed(1)}%` : `${Math.round(percent)}%`;
+  return formatPercent(percent);
 }
 
 /** The chip's tooltip: why this instance. */

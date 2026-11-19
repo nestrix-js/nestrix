@@ -81,7 +81,7 @@ test("degraded: the verdict, both lists, the KPI changes and the donuts", async 
   const delta = (id: string) =>
     page.getByTestId(`kpi-${id}`).getByTestId("delta");
   await expect(page.getByTestId("kpi-throughput")).toContainText("1,284");
-  await expect(delta("throughput")).toHaveText("+7%");
+  await expect(delta("throughput")).toHaveText("+7.0%");
   await expect(page.getByTestId("kpi-errors")).toContainText("1.9");
   await expect(delta("errors")).toHaveText("+1.2 pt");
   await expect(delta("errors")).toHaveAttribute("data-tone", "worse");
@@ -106,17 +106,17 @@ test("degraded: the verdict, both lists, the KPI changes and the donuts", async 
   await expect(
     page.locator("[data-testid=donut-status-slice][data-slice=ok]"),
   ).toHaveAttribute("data-fraction", "0.9400");
-  await expect(page.getByTestId("donut-status")).toContainText("94.0%");
+  await expect(page.getByTestId("donut-status")).toContainText("94%");
   // A kind without time (messaging) has no slice; the others show their share change.
   await expect(page.getByTestId("donut-time-slice")).toHaveCount(5);
   const db = page.locator("[data-testid=time-row][data-key=db]");
-  await expect(db).toContainText("41.0%");
-  await expect(db.getByTestId("delta")).toHaveText("+12.0 pt");
+  await expect(db).toContainText("41%");
+  await expect(db.getByTestId("delta")).toHaveText("+12 pt");
   await expect(db.getByTestId("delta")).toHaveAttribute("data-tone", "worse");
 
   // Apdex bar: 16,564 / 1,926 / 770 of 19,260.
-  await expect(page.getByTestId("apdex-satisfied")).toContainText("86.0%");
-  await expect(page.getByTestId("apdex-tolerating")).toContainText("10.0%");
+  await expect(page.getByTestId("apdex-satisfied")).toContainText("86%");
+  await expect(page.getByTestId("apdex-tolerating")).toContainText("10%");
   await expect(page.getByTestId("apdex-frustrated")).toContainText("4.0%");
   await expect(page.getByTestId("card-apdex")).toContainText("Target 300 ms");
 

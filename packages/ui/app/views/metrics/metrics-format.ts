@@ -5,6 +5,7 @@ import type {
   MetricDefinition,
   MetricSeriesResponse,
 } from "@nestrix-js/protocol";
+import { formatFraction } from "@/components/kit/format";
 
 import type { ChartSeries } from "@/components/kit/line-chart";
 import { categoryColor, percentileColor } from "@/components/kit/series-colors";
@@ -79,8 +80,7 @@ export function valueFormatter(valueUnit: string): (value: number) => string {
 /** 0.4 as "40%", 1.5 as "150%"; one decimal below 10%. */
 export function formatShare(fraction: number): string {
   if (!Number.isFinite(fraction)) return "-";
-  const percent = fraction * 100;
-  return `${percent < 10 ? percent.toFixed(1) : percent.toFixed(0)}%`;
+  return formatFraction(fraction);
 }
 
 /** The unit in words, for the panel's description. */

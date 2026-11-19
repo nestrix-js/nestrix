@@ -36,8 +36,8 @@ test("dependencies: targets by total time with sparklines, a window switch and a
   await expect(rows.nth(3)).toContainText("queue emails");
   await expect(rows.nth(1)).toContainText("240");
   await expect(rows.nth(1)).toContainText("12 (5.0%)");
-  await expect(rows.nth(1)).toContainText("90.0 ms");
-  await expect(rows.nth(1)).toContainText("4.80 s");
+  await expect(rows.nth(1)).toContainText("90 ms");
+  await expect(rows.nth(1)).toContainText("4.8 s");
   await expect(rows.nth(0).getByTestId("sparkline")).toHaveCount(2);
   await expect(rows.nth(0).getByTestId("sparkline").first()).toHaveAttribute(
     "data-points",

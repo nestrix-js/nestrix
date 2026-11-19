@@ -8,7 +8,13 @@ import type {
   RouteCompareRow,
 } from "@nestrix-js/protocol";
 
-import type { Tone } from "@/components/kit/format";
+import {
+  formatFraction,
+  formatPercent,
+  type Tone,
+  twoDigits,
+  withSign,
+} from "@/components/kit/format";
 import { formatDuration } from "@/lib/format";
 
 // The tone type and the donut and ring helpers live in the kit; these re-exports keep old imports working.
@@ -25,12 +31,7 @@ const DASH = "—";
 /** "+41%", "−28%", "0%"; "—" when there is nothing to compare with. */
 export function formatChange(change: number | null): string {
   if (change === null || !Number.isFinite(change)) return DASH;
-  const percent = change * 100;
-  const abs = Math.abs(percent);
-  const text =
-    abs < 10 ? abs.toFixed(1).replace(/\.0$/, "") : String(Math.round(abs));
-  if (Number(text) === 0) return "0%";
-  return `${percent > 0 ? "+" : MINUS}${text}%`;
+  return withSign(change * 100, formatPercent, "0%");
 }
 
 /** `(after - before) / before`; `null` without a (non-zero) before. */
@@ -45,10 +46,7 @@ export function relativeChange(
 /** A difference of two fractions as percentage points: "+0.7 pt", "−1.2 pt"; "—" without both. */
 export function formatPoints(delta: number | null): string {
   if (delta === null || !Number.isFinite(delta)) return DASH;
-  const points = delta * 100;
-  const text = Math.abs(points).toFixed(1);
-  if (Number(text) === 0) return "0 pt";
-  return `${points > 0 ? "+" : MINUS}${text} pt`;
+  return withSign(delta * 100, (m) => `${twoDigits(m)} pt`, "0 pt");
 }
 
 /** "+0.03", "−0.12", "0.00"; "—" without both. */
@@ -61,9 +59,7 @@ export function formatApdexDelta(delta: number | null): string {
 
 /** A fraction as a percentage with one decimal below 10%: "96.4%", "0.9%", "100%". */
 export function formatShare(fraction: number): string {
-  const percent = fraction * 100;
-  if (percent >= 99.95) return "100%";
-  return `${percent.toFixed(1)}%`;
+  return formatFraction(fraction);
 }
 
 /**
@@ -179,7 +175,7 @@ export function formatRate(perMinute: number): string {
 export function formatErrorPercent(rate: number): string {
   const percent = rate * 100;
   if (percent === 0) return "0";
-  return percent < 10 ? percent.toFixed(1) : String(Math.round(percent));
+  return twoDigits(percent);
 }
 
 /** The unit of `formatDuration`'s answer: "ms", "s" or "min". */

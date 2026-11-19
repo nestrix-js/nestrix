@@ -44,8 +44,8 @@ test("renders the protocol fixture sorted by request count, with rates and perce
   await expect(first.nth(1)).toHaveText("/orders/:id");
   await expect(first.nth(2)).toHaveText("140");
   await expect(first.nth(3)).toHaveText("4.3%"); // 6 of 140
-  await expect(first.nth(4)).toHaveText("18.2 ms");
-  await expect(first.nth(5)).toHaveText("96.4 ms");
+  await expect(first.nth(4)).toHaveText("18 ms");
+  await expect(first.nth(5)).toHaveText("96 ms");
   await expect(first.nth(6)).toHaveText("182 ms");
   const second = rows(page).nth(1).locator("td");
   await expect(second.nth(1)).toHaveText("/orders");
