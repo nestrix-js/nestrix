@@ -149,6 +149,16 @@ function packedWeight(field: DescField | undefined): number {
   }
 }
 
+/** A `string` field, single or repeated: decoded into a JS string copied out of the body. */
+function stringField(field: DescField | undefined): boolean {
+  return (
+    field !== undefined &&
+    (field.fieldKind === "scalar" ||
+      (field.fieldKind === "list" && field.listKind === "scalar")) &&
+    field.scalar === ScalarType.STRING
+  );
+}
+
 function repeatedElement(field: DescField | undefined): boolean {
   return (
     field !== undefined &&
@@ -175,6 +185,12 @@ export interface DecodeCost {
    * for fixed64), several times its wire size. Absent for JSON, where each is a counted value.
    */
   packedBytes?: number;
+  /**
+   * Bytes decoded into JS strings, which the decoder copies out of the body (D-116): the wire
+   * bytes of every known `string` field (protobuf; a `bytes` field is a view of the body, and mapping encodes at most about 12 KiB of each), or
+   * twice the body (JSON: the text, then the strings parsed from it).
+   */
+  textBytes?: number;
 }
 
 /**
@@ -190,6 +206,7 @@ export function checkProtobuf(
   let messages = 0;
   let spans = 0;
   let packedBytes = 0;
+  let textBytes = 0;
   const items = new Set<DescMessage>([shape.item, ...(shape.alsoItems ?? [])]);
   const stack: Frame[] = [];
   let frame: Frame = { desc: shape.root, end: buf.length };
@@ -211,7 +228,7 @@ export function checkProtobuf(
     if (pos === frame.end) {
       const parent = stack.pop();
       if (parent === undefined) {
-        return { messages, spans, otherTokens: 0, packedBytes };
+        return { messages, spans, otherTokens: 0, packedBytes, textBytes };
       }
       frame = parent;
       continue;
@@ -259,6 +276,7 @@ export function checkProtobuf(
           continue; // pos stays at the child's first byte
         }
         if (packedNumeric(field)) packedBytes += length * packedWeight(field);
+        if (stringField(field)) textBytes += length;
         if (repeatedElement(field) && ++messages > limits.maxMessages) {
           throw new LimitError(
             `request has more than ${limits.maxMessages} protobuf messages`,
@@ -297,7 +315,12 @@ export function checkJson(buf: Uint8Array, limits: DecodeLimits): DecodeCost {
       `request has more than ${limits.maxJsonTokens} JSON values`,
     );
   }
-  return { messages: braces, spans: 0, otherTokens: tokens - braces };
+  return {
+    messages: braces,
+    spans: 0,
+    otherTokens: tokens - braces,
+    textBytes: 2 * buf.length,
+  };
 }
 
 /** Bytes charged per decoded message or span (measured: ~115-345 B for protobuf-es plus the mapped copy). */
@@ -315,13 +338,14 @@ export function decodeCharge(cost: DecodeCost): number {
   return (
     (cost.messages + cost.spans) * BYTES_PER_MESSAGE +
     cost.otherTokens * BYTES_PER_JSON_TOKEN +
-    (cost.packedBytes ?? 0) * BYTES_PER_PACKED_BYTE
+    (cost.packedBytes ?? 0) * BYTES_PER_PACKED_BYTE +
+    (cost.textBytes ?? 0)
   );
 }
 
 /**
- * Process-wide budget for request body bytes held in memory at once (compressed bytes read plus
- * inflated bytes buffered). A request that would overflow it is answered 503 with Retry-After.
+ * Process-wide budget for request bytes held in memory at once: the body (twice, for a body read
+ * in several chunks, D-116; inflated bytes for gzip) plus the decode estimate (`decodeCharge`). A request that would overflow it is answered 503 with Retry-After.
  */
 export class ByteBudget {
   private used = 0;

@@ -90,7 +90,8 @@ ingress:
   tls: []
 
 # -- Requests and limits come from the sizing table in production.md: about 0.03 core per 1 000
-# spans/s and 300 to 470 MiB under load. These suit roughly 10 000 spans/s across both replicas.
+# spans/s, about 135 MiB idle and a peak near 632 MiB under load at the default 320 MiB ingest budget
+# (plan on about 650 MiB; keep the 768Mi limit). These suit roughly 10 000 spans/s across both replicas.
 resources:
   requests: { cpu: 250m, memory: 256Mi }
   limits: { cpu: "1", memory: 768Mi }

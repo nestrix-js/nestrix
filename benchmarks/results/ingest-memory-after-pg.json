@@ -1,0 +1,268 @@
+{
+  "environment": {
+    "node": "v26.13.0",
+    "platform": "darwin-arm64",
+    "cpus": "10 logical",
+    "date": "2026-11-19T04:41:54.284Z"
+  },
+  "cfg": {
+    "sink": "postgres",
+    "databaseUrl": "postgres://postgres@127.0.0.1:34969/postgres",
+    "budgetBytes": 335544320,
+    "maxBodyBytes": 20971520,
+    "sinkDelayMs": 0
+  },
+  "opts": {
+    "concurrency": 16,
+    "duration": 10,
+    "writeBytes": 4096,
+    "execArgv": []
+  },
+  "results": [
+    {
+      "profile": "pb-strings",
+      "bodyBytes": 19911682,
+      "inflatedBytes": 19911682,
+      "statuses": {
+        "200": 52,
+        "503": 2
+      },
+      "capacity": 335544320,
+      "peakCharged": 330053018,
+      "inUseAfter": 0,
+      "base": {
+        "rss": 221396992,
+        "heapTotal": 106102784,
+        "heapUsed": 33741136,
+        "external": 6017833,
+        "arrayBuffers": 1480633
+      },
+      "peak": {
+        "rss": 746848256,
+        "heapUsed": 163657096,
+        "external": 391040134,
+        "arrayBuffers": 373278800,
+        "extPlusHeap": 505330938,
+        "workerRss": 746848256,
+        "charged": 330053018,
+        "concat": {
+          "count": 54,
+          "maxArrayBuffers": 373278800,
+          "maxCharged": 325851140
+        }
+      },
+      "deltas": {
+        "arrayBuffers": 371798167,
+        "external": 385022301,
+        "heapUsed": 129915960,
+        "extPlusHeap": 465571969,
+        "rss": 525451264,
+        "arrayBuffersAtConcat": 371798167
+      }
+    },
+    {
+      "profile": "pb-strings-gzip",
+      "bodyBytes": 10816762,
+      "inflatedBytes": 19911682,
+      "statuses": {
+        "200": 28,
+        "503": 4
+      },
+      "capacity": 335544320,
+      "peakCharged": 334049115,
+      "inUseAfter": 0,
+      "base": {
+        "rss": 215367680,
+        "heapTotal": 105840640,
+        "heapUsed": 33825336,
+        "external": 6083433,
+        "arrayBuffers": 1546233
+      },
+      "peak": {
+        "rss": 713572352,
+        "heapUsed": 144628816,
+        "external": 448052586,
+        "arrayBuffers": 442891701,
+        "extPlusHeap": 592044948,
+        "workerRss": 713572352,
+        "charged": 334049115,
+        "concat": {
+          "count": 32,
+          "maxArrayBuffers": 442891701,
+          "maxCharged": 334049115
+        }
+      },
+      "deltas": {
+        "arrayBuffers": 441345468,
+        "external": 441969153,
+        "heapUsed": 110803480,
+        "extPlusHeap": 552136179,
+        "rss": 498204672,
+        "arrayBuffersAtConcat": 441345468
+      }
+    },
+    {
+      "profile": "json-strings",
+      "bodyBytes": 19908704,
+      "inflatedBytes": 19908704,
+      "statuses": {
+        "200": 40
+      },
+      "capacity": 335544320,
+      "peakCharged": 328144688,
+      "inUseAfter": 0,
+      "base": {
+        "rss": 243810304,
+        "heapTotal": 105316352,
+        "heapUsed": 33810416,
+        "external": 6017833,
+        "arrayBuffers": 1480633
+      },
+      "peak": {
+        "rss": 722616320,
+        "heapUsed": 108309504,
+        "external": 349137108,
+        "arrayBuffers": 304794613,
+        "extPlusHeap": 436988348,
+        "workerRss": 722632704,
+        "charged": 328144688,
+        "concat": {
+          "count": 40,
+          "maxArrayBuffers": 304794613,
+          "maxCharged": 284639424
+        }
+      },
+      "deltas": {
+        "arrayBuffers": 303313980,
+        "external": 343119275,
+        "heapUsed": 74499088,
+        "extPlusHeap": 397160099,
+        "rss": 478822400,
+        "arrayBuffersAtConcat": 303313980
+      }
+    },
+    {
+      "profile": "json-strings-gzip",
+      "bodyBytes": 10657583,
+      "inflatedBytes": 19908704,
+      "statuses": {
+        "200": 96,
+        "503": 21
+      },
+      "capacity": 335544320,
+      "peakCharged": 335508098,
+      "inUseAfter": 0,
+      "base": {
+        "rss": 283181056,
+        "heapTotal": 81723392,
+        "heapUsed": 33910952,
+        "external": 6083433,
+        "arrayBuffers": 1546233
+      },
+      "peak": {
+        "rss": 985448448,
+        "heapUsed": 111426880,
+        "external": 487252888,
+        "arrayBuffers": 426236578,
+        "extPlusHeap": 595639616,
+        "workerRss": 985448448,
+        "charged": 335508098,
+        "concat": {
+          "count": 114,
+          "maxArrayBuffers": 426236578,
+          "maxCharged": 335508098
+        }
+      },
+      "deltas": {
+        "arrayBuffers": 424690345,
+        "external": 481169455,
+        "heapUsed": 77515928,
+        "extPlusHeap": 555645231,
+        "rss": 702267392,
+        "arrayBuffersAtConcat": 424690345
+      }
+    },
+    {
+      "profile": "pb-small",
+      "bodyBytes": 7199940,
+      "inflatedBytes": 7199940,
+      "statuses": {
+        "200": 80,
+        "503": 10
+      },
+      "capacity": 335544320,
+      "peakCharged": 334481844,
+      "inUseAfter": 0,
+      "base": {
+        "rss": 289914880,
+        "heapTotal": 106102784,
+        "heapUsed": 33691472,
+        "external": 6017833,
+        "arrayBuffers": 1480633
+      },
+      "peak": {
+        "rss": 848723968,
+        "heapUsed": 450213456,
+        "external": 142783806,
+        "arrayBuffers": 138258719,
+        "extPlusHeap": 570710830,
+        "workerRss": 848936960,
+        "charged": 334481844,
+        "concat": {
+          "count": 90,
+          "maxArrayBuffers": 138258719,
+          "maxCharged": 120641928
+        }
+      },
+      "deltas": {
+        "arrayBuffers": 136778086,
+        "external": 136765973,
+        "heapUsed": 416521984,
+        "extPlusHeap": 531001525,
+        "rss": 559022080,
+        "arrayBuffersAtConcat": 136778086
+      }
+    },
+    {
+      "profile": "pb-small-gzip",
+      "bodyBytes": 2306863,
+      "inflatedBytes": 7199940,
+      "statuses": {
+        "200": 31,
+        "503": 4
+      },
+      "capacity": 335544320,
+      "peakCharged": 333484876,
+      "inUseAfter": 0,
+      "base": {
+        "rss": 262094848,
+        "heapTotal": 107151360,
+        "heapUsed": 33804472,
+        "external": 6083433,
+        "arrayBuffers": 1546233
+      },
+      "peak": {
+        "rss": 659439616,
+        "heapUsed": 442436088,
+        "external": 165276362,
+        "arrayBuffers": 160751275,
+        "extPlusHeap": 594943562,
+        "workerRss": 659341312,
+        "charged": 333484876,
+        "concat": {
+          "count": 35,
+          "maxArrayBuffers": 160751275,
+          "maxCharged": 118658636
+        }
+      },
+      "deltas": {
+        "arrayBuffers": 159205042,
+        "external": 159192929,
+        "heapUsed": 408631616,
+        "extPlusHeap": 555055657,
+        "rss": 397344768,
+        "arrayBuffersAtConcat": 159205042
+      }
+    }
+  ]
+}

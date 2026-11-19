@@ -308,6 +308,22 @@ export function jsonText(value: AnyValue): string {
   return text(JSON.stringify(toJson(value, 0)));
 }
 
+/**
+ * Input bytes whose base64 is enough for the 16 KiB cut of the JSON text (`MAX_STRING_LENGTH`
+ * characters, one of them the opening quote), a multiple of 3 so the prefix has no padding.
+ */
+const BASE64_KEPT_BYTES = Math.ceil((MAX_STRING_LENGTH * 3) / 4) + 3;
+
+/**
+ * Base64 of `bytes`, encoding only the prefix that can survive the cut of `text`: the rest is
+ * never copied or encoded (a view, not a copy). The characters kept are the same as for the
+ * whole value, because the prefix length is a multiple of 3.
+ */
+function base64Prefix(bytes: Uint8Array): string {
+  const kept = Math.min(bytes.length, BASE64_KEPT_BYTES);
+  return Buffer.from(bytes.buffer, bytes.byteOffset, kept).toString("base64");
+}
+
 function toJson(value: AnyValue | undefined, depth: number): unknown {
   if (value === undefined || depth > MAX_JSON_DEPTH) return null;
   const v = value.value;
@@ -321,7 +337,7 @@ function toJson(value: AnyValue | undefined, depth: number): unknown {
     case "doubleValue":
       return double(v.value);
     case "bytesValue":
-      return Buffer.from(v.value).toString("base64");
+      return base64Prefix(v.value);
     case "arrayValue":
       return v.value.values.map((item) => toJson(item, depth + 1));
     case "kvlistValue": {

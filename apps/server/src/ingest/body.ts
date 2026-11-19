@@ -43,9 +43,14 @@ export function parseContentEncoding(
 }
 
 /**
- * `reserve(bytes)` is called before each chunk is buffered (inflated bytes for gzip); when it
- * returns false the read fails with 503 (the in-flight memory budget is full). The caller
- * releases what it reserved, whatever the outcome.
+ * `reserve(bytes)` is called before bytes are held (inflated bytes for gzip); when it returns
+ * false the read fails with 503 (the in-flight memory budget is full). The caller releases what
+ * it reserved, whatever the outcome.
+ *
+ * Chunks are charged as they arrive. A body that came in several chunks is then joined into one
+ * buffer, and that copy is reserved before it is made (D-116): the chunks stay in memory until a
+ * later garbage collection frees them, so such a body is charged twice its size until the caller
+ * releases. A body of one chunk is returned as it is, with no second charge.
  */
 export function readBody(
   req: IncomingMessage,
@@ -84,17 +89,39 @@ export function readBody(
       if (settled) return;
       settled = true;
       cleanup();
+      chunks.length = 0;
       // Stop reading; after answering, the caller discards the rest (`discardRest`).
       req.pause();
       reject(error);
     };
+    const busy = () =>
+      new BodyError(503, "the server is busy with other requests, retry later");
     const succeed = () => {
       if (settled) return;
+      if (chunks.length <= 1) {
+        settled = true;
+        cleanup();
+        resolve(chunks.length === 1 ? chunks[0] : Buffer.alloc(0));
+        return;
+      }
+      // The copy below, while the chunks are still live.
+      if (!reserve(inflated)) {
+        fail(busy());
+        return;
+      }
+      let body: Buffer;
+      try {
+        body = Buffer.concat(chunks, inflated);
+      } catch {
+        // Out of memory while joining. Called from a stream's event handler: a throw would be
+        // an uncaught exception. The reservation is released by the caller.
+        fail(busy());
+        return;
+      }
       settled = true;
       cleanup();
-      resolve(
-        chunks.length === 1 ? chunks[0] : Buffer.concat(chunks, inflated),
-      );
+      chunks.length = 0;
+      resolve(body);
     };
     const tooLarge = (what: string) =>
       new BodyError(
@@ -110,12 +137,7 @@ export function readBody(
         return;
       }
       if (!reserve(chunk.length)) {
-        fail(
-          new BodyError(
-            503,
-            "the server is busy with other requests, retry later",
-          ),
-        );
+        fail(busy());
         return;
       }
       chunks.push(chunk);
