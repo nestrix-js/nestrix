@@ -173,13 +173,13 @@ function InsightRow({
     <li data-testid="insight" data-kind={insight.kind}>
       <Link
         to={insightHref(insight.link) as "/"}
-        className="flex items-center gap-3 border-t border-border py-3 hover:bg-muted/50"
+        className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border py-3 hover:bg-muted/50 sm:flex-nowrap"
       >
         <span
           data-testid="severity"
           data-severity={insight.severity}
           className={cn(
-            "inline-flex h-5 w-16 shrink-0 items-center justify-center gap-0.5 rounded-full text-xs font-medium",
+            "order-1 inline-flex h-5 w-16 shrink-0 items-center justify-center gap-0.5 rounded-full text-xs font-medium sm:order-none",
             // Words and an arrow carry the severity; the tint only adds to it.
             "text-foreground",
             insight.severity === "high" && "bg-destructive/20",
@@ -194,22 +194,24 @@ function InsightRow({
           )}
           {SEVERITY_LABEL[insight.severity]}
         </span>
-        <span className="min-w-0 flex-1">
+        <span className="order-3 min-w-0 basis-full break-words sm:order-none sm:flex-1 sm:basis-0">
           <span className="block text-sm font-medium">{insight.title}</span>
           <span className="block text-xs text-muted-foreground">
             {insight.detail}
             {showSource && ` · ${SOURCE_LABEL[insight.source]}`}
           </span>
         </span>
-        <TrendLine
-          values={insight.series}
-          color={toneColor[tone]}
-          label={`${insight.title}, trend over the window`}
-        />
+        <span className="hidden sm:contents">
+          <TrendLine
+            values={insight.series}
+            color={toneColor[tone]}
+            label={`${insight.title}, trend over the window`}
+          />
+        </span>
         <span
           data-testid="insight-change"
           className={cn(
-            "w-16 shrink-0 text-right font-mono text-sm",
+            "order-2 ml-auto w-16 shrink-0 text-right font-mono text-sm sm:order-none sm:ml-0",
             toneText[tone],
           )}
         >

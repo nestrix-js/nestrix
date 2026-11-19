@@ -31,7 +31,7 @@ export function Heatmap({
       role="img"
       aria-label={label}
       data-testid={testId}
-      className="overflow-x-auto"
+      className="scroll-shadow-x overflow-x-auto"
     >
       <div
         className="grid min-w-max gap-0.5 text-xs text-muted-foreground"

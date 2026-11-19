@@ -124,3 +124,28 @@ body {
     outline-offset: 2px;
   }
 }
+
+/*
+ * A cue that a box scrolls sideways: a soft shadow on each edge that still has content behind it.
+ * Pure CSS: the covers scroll with the content (local) and hide the fixed shadows (scroll) at the
+ * ends. The covers use the page background, so use it on boxes that sit on the page or a card
+ * without its own fill.
+ */
+@layer utilities {
+  .scroll-shadow-x {
+    --scroll-shadow: color-mix(in oklab, var(--foreground) 22%, transparent);
+    background:
+      linear-gradient(to right, var(--background) 30%, transparent) left center
+      / 2rem 100% no-repeat local,
+      linear-gradient(to left, var(--background) 30%, transparent) right center
+      / 2rem 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, var(--scroll-shadow), transparent)
+      left center / 0.75rem 100% no-repeat scroll,
+      radial-gradient(
+        farthest-side at 100% 50%,
+        var(--scroll-shadow),
+        transparent
+      )
+      right center / 0.75rem 100% no-repeat scroll;
+  }
+}

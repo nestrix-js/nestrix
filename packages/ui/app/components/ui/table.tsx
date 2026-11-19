@@ -14,7 +14,10 @@ function Table({
   return (
     <div
       data-slot="table-container"
-      className={cn("relative w-full overflow-auto", containerClassName)}
+      className={cn(
+        "scroll-shadow-x relative w-full overflow-auto",
+        containerClassName,
+      )}
     >
       <table
         data-slot="table"
