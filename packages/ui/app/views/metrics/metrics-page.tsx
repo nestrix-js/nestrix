@@ -28,9 +28,12 @@ import {
   AGGREGATIONS,
   aggregationLabel,
   axisFloor,
+  decodeInstance,
+  encodeInstance,
   metricTitle,
   orderMetrics,
   requestsHref,
+  resolveInstance,
   selectedRange,
   shapeSeries,
   unitLabel,
@@ -55,6 +58,8 @@ const urlParsers = {
   fromUnixMs: numberParser({ ...metricSeriesParams.fromUnixMs, integer: true }),
   toUnixMs: numberParser({ ...metricSeriesParams.toUnixMs, integer: true }),
   instance: stringParser(metricSeriesParams.instance),
+  // The service of the chosen instance, so an id two services share is never mixed.
+  instanceService: stringParser(metricSeriesParams.service),
   aggregation: parseAsStringLiteral(metricSeriesParams.aggregation.values),
   by: parseAsStringLiteral(metricSeriesParams.by.values),
 };
@@ -137,11 +142,13 @@ export function MetricsPage() {
 
   const data = catalog.data;
   const instances = (data?.instances ?? []).filter((i) => i.instanceId !== "");
-  const instanceChosen =
-    url.instance !== null &&
-    instances.some((i) => i.instanceId === url.instance)
-      ? url.instance
-      : undefined;
+  const chosen = resolveInstance(
+    instances,
+    url.instance,
+    url.instanceService,
+    service,
+  );
+  const instanceChosen = chosen?.instanceId;
   const splitByInstance = url.by === "instance" && instanceChosen === undefined;
   const aggregation = url.aggregation ?? undefined;
   const scope = { service, environment };
@@ -193,13 +200,24 @@ export function MetricsPage() {
         <select
           data-testid="metrics-instance"
           aria-label="Instance"
-          value={instanceChosen ?? ""}
-          onChange={(e) => void setUrl({ instance: e.target.value || null })}
+          value={
+            chosen ? encodeInstance(chosen.service, chosen.instanceId) : ""
+          }
+          onChange={(e) => {
+            const pair = decodeInstance(e.target.value);
+            void setUrl({
+              instance: pair?.instanceId ?? null,
+              instanceService: pair?.service ?? null,
+            });
+          }}
           className={FIELD}
         >
           <option value="">All instances</option>
           {instances.map((i) => (
-            <option key={`${i.service}/${i.instanceId}`} value={i.instanceId}>
+            <option
+              key={`${i.service}/${i.instanceId}`}
+              value={encodeInstance(i.service, i.instanceId)}
+            >
               {service === undefined ? `${i.service} / ` : ""}
               {i.instanceId}
             </option>
@@ -267,7 +285,7 @@ export function MetricsPage() {
               key={definition.name}
               definition={definition}
               range={range}
-              service={service}
+              service={chosen?.service ?? service}
               instance={instanceChosen}
               aggregation={aggregation}
               splitByInstance={splitByInstance}
@@ -321,6 +339,7 @@ function MetricPanel({
   refetchInterval: number | false;
   onSelect: (range: { fromUnixMs: number; toUnixMs: number }) => void;
 }) {
+  const histogram = definition.kind === "histogram";
   const query = useQuery({
     queryKey: [
       "metrics",
@@ -328,8 +347,8 @@ function MetricPanel({
       definition.name,
       service,
       instance,
-      aggregation,
-      splitByInstance,
+      histogram ? undefined : aggregation,
+      splitByInstance && !histogram,
       range,
     ],
     queryFn: () =>
@@ -337,8 +356,8 @@ function MetricPanel({
         metric: definition.name,
         service,
         instance,
-        aggregation,
-        by: splitByInstance ? "instance" : undefined,
+        aggregation: histogram ? undefined : aggregation,
+        by: splitByInstance && !histogram ? "instance" : undefined,
         ...range,
       }),
     refetchInterval,

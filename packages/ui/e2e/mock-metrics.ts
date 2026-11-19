@@ -44,6 +44,14 @@ export const METRIC_DEFINITIONS: MetricDefinition[] = [
     defaultAggregation: "avg",
   },
   {
+    name: "http.server.request.duration",
+    kind: "histogram",
+    unit: "s",
+    valueUnit: "s",
+    description: "Request duration",
+    defaultAggregation: "sum",
+  },
+  {
     // Every point is missing: the panel shows its empty state.
     name: "nodejs.eventloop.delay.max",
     kind: "gauge",
@@ -56,9 +64,11 @@ export const METRIC_DEFINITIONS: MetricDefinition[] = [
 
 /** What the mock holds; tests replace it. */
 export interface MetricsFixture {
-  /** Services with data. */
+  /** The service with data. */
   service: string;
   instances: string[];
+  /** A second service that reuses these instance ids. */
+  otherService?: string;
   /** Points over the receiver's series limit. */
   overSeriesCap: number;
   /** Nothing stored at all. */
@@ -83,16 +93,21 @@ export function catalogAnswer(
 ): MetricCatalogResponse {
   const to = num(q, "toUnixMs", Date.now());
   const wanted = q.get("service");
-  const listed = wanted === null || wanted === fixture.service;
+  const listed = true;
+  const services = [fixture.service, fixture.otherService].filter(
+    (x): x is string => x !== undefined && (wanted === null || wanted === x),
+  );
   const instances: MetricInstance[] =
     fixture.empty || !listed
       ? []
-      : fixture.instances.map((instanceId) => ({
-          service: fixture.service,
-          instanceId,
-          firstSeenUnixMs: to - 3_600_000,
-          lastSeenUnixMs: to - MIN,
-        }));
+      : services.flatMap((service) =>
+          fixture.instances.map((instanceId) => ({
+            service,
+            instanceId,
+            firstSeenUnixMs: to - 3_600_000,
+            lastSeenUnixMs: to - MIN,
+          })),
+        );
   return {
     retentionDays: 7,
     minStepMs: MIN,
@@ -174,6 +189,33 @@ export function seriesAnswer(
   const aggregation =
     (q.get("aggregation") as MetricSeriesResponse["aggregation"] | null) ??
     definition.defaultAggregation;
+  if (definition.kind === "histogram") {
+    // Percentiles over every instance together: `aggregation` and `by` do not apply.
+    const quantiles: [string, number][] = [
+      ["p50", 0.02],
+      ["p95", 0.08],
+      ["p99", 0.2],
+    ];
+    return {
+      status: 200,
+      body: {
+        metric: name,
+        kind: definition.kind,
+        unit: definition.unit,
+        valueUnit: definition.valueUnit,
+        aggregation: definition.defaultAggregation,
+        stepMs,
+        fromUnixMs: start,
+        toUnixMs: to,
+        timestamps,
+        series: quantiles.map(([label, base]) => ({
+          label,
+          values: timestamps.map(() => (pool.length === 0 ? null : base)),
+        })),
+        instances: [...pool].sort(),
+      } satisfies MetricSeriesResponse,
+    };
+  }
   const column = (instanceIndex: number) =>
     timestamps.map((_, i) => valueAt(name, i, instanceIndex));
   let series: MetricSeriesResponse["series"];

@@ -90,7 +90,7 @@ test("draws a chart per catalog metric with its unit, shows gaps, and an empty s
     await expect(chart(page, name).locator("canvas").first()).toBeVisible();
   }
   // The catalog decides which panels exist, in a fixed order.
-  await expect(page.locator("[data-testid^=metric-panel-]")).toHaveCount(5);
+  await expect(page.locator("[data-testid^=metric-panel-]")).toHaveCount(6);
 
   // Units are read from the catalog.
   await expect(
@@ -123,6 +123,59 @@ test("draws a chart per catalog metric with its unit, shows gaps, and an empty s
   ).toBeVisible();
   await expect(chart(page, "nodejs.eventloop.delay.max")).toHaveCount(0);
   expect(await violations(page)).toEqual([]);
+});
+
+test("a histogram panel sends no aggregation and no split, and says what it computes", async ({
+  page,
+}) => {
+  await page.goto(url("metrics"));
+  const duration = "http.server.request.duration";
+  await expect(chart(page, duration)).toBeVisible();
+  await page.getByTestId("metrics-aggregation").selectOption("max");
+  await page.getByTestId("metrics-split").check();
+  await expect
+    .poll(() => lastSeries("process.memory.usage")?.get("by"))
+    .toBe("instance");
+  expect(seriesRequests(duration).length).toBeGreaterThan(0);
+  for (const q of seriesRequests(duration)) {
+    expect(q.has("aggregation")).toBe(false);
+    expect(q.has("by")).toBe(false);
+  }
+  await expect(
+    panel(page, duration).getByTestId("metric-meaning"),
+  ).toContainText("percentiles are computed over all instances");
+  // The other panels did receive both.
+  expect(lastSeries("process.memory.usage")?.get("aggregation")).toBe("max");
+});
+
+test("choosing an instance with all services selected sends its service too", async ({
+  page,
+}) => {
+  mock.metrics.otherService = "billing";
+  await page.goto(url("metrics"));
+  const select = page.getByTestId("metrics-instance");
+  await expect(select.locator("option")).toHaveText([
+    "All instances",
+    "orders / pod-a",
+    "orders / pod-b",
+    "billing / pod-a",
+    "billing / pod-b",
+  ]);
+  await select.selectOption({ label: "billing / pod-a" });
+  await expect
+    .poll(() => {
+      const q = lastSeries("process.memory.usage");
+      return `${q?.get("service")}/${q?.get("instance")}`;
+    })
+    .toBe("billing/pod-a");
+  await expect(page).toHaveURL(/instanceService=billing/);
+  await select.selectOption({ label: "orders / pod-a" });
+  await expect
+    .poll(() => {
+      const q = lastSeries("process.cpu.time");
+      return `${q?.get("service")}/${q?.get("instance")}`;
+    })
+    .toBe("orders/pod-a");
 });
 
 test("nothing stored yet explains how to get metrics", async ({ page }) => {
@@ -208,10 +261,13 @@ test("filters by instance, aggregates across replicas, and splits one line per i
 
   // A single instance.
   await page.getByTestId("metrics-split").uncheck();
-  await select.selectOption("pod-b");
+  await select.selectOption({ label: "orders / pod-b" });
   await expect
-    .poll(() => lastSeries("process.memory.usage")?.get("instance"))
-    .toBe("pod-b");
+    .poll(() => {
+      const q = lastSeries("process.memory.usage");
+      return `${q?.get("service")}/${q?.get("instance")}`;
+    })
+    .toBe("orders/pod-b");
   await expect(
     panel(page, "process.memory.usage").getByTestId("metric-meaning"),
   ).toContainText("instance pod-b");

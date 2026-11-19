@@ -110,6 +110,9 @@ export function axisFloor(valueUnit: string): number {
   }
 }
 
+/** Histograms are always percentiles of every instance together: no aggregation, no split. */
+export const HISTOGRAM_NOTE = "percentiles are computed over all instances";
+
 export const AGGREGATIONS: readonly {
   value: MetricAggregation;
   label: string;
@@ -128,8 +131,8 @@ export function aggregationLabel(
   instance: string | undefined,
 ): string {
   if (instance !== undefined) return `instance ${instance}`;
+  if (kind === "histogram") return HISTOGRAM_NOTE;
   if (splitByInstance) return "one line per instance";
-  if (kind === "histogram") return "all instances added together";
   return (
     AGGREGATIONS.find((a) => a.value === aggregation)?.label.toLowerCase() ??
     aggregation
@@ -257,4 +260,38 @@ export function metricsHrefAroundTrace(
       trace.startMs + trace.durationMs + TRACE_METRICS_MARGIN_MS,
     ),
   });
+}
+
+const PAIR_SEPARATOR = "\u001f";
+
+/** One option value for the instance select: the pair, so equal ids in two services stay apart. */
+export const encodeInstance = (service: string, instanceId: string): string =>
+  `${service}${PAIR_SEPARATOR}${instanceId}`;
+
+export function decodeInstance(
+  value: string,
+): { service: string; instanceId: string } | null {
+  const at = value.indexOf(PAIR_SEPARATOR);
+  return at === -1
+    ? null
+    : { service: value.slice(0, at), instanceId: value.slice(at + 1) };
+}
+
+/**
+ * The instance the URL names, when the catalog lists it (in the chosen service, when one is
+ * chosen). The returned pair is what the series request sends: `instance` always with its `service`.
+ */
+export function resolveInstance(
+  instances: readonly { service: string; instanceId: string }[],
+  instance: string | null,
+  instanceService: string | null,
+  selectedService: string | undefined,
+): { service: string; instanceId: string } | undefined {
+  if (instance === null) return undefined;
+  return instances.find(
+    (i) =>
+      i.instanceId === instance &&
+      (instanceService === null || i.service === instanceService) &&
+      (selectedService === undefined || i.service === selectedService),
+  );
 }

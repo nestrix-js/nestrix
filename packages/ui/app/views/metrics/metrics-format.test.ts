@@ -7,11 +7,14 @@ import { describe, expect, it } from "vitest";
 import {
   aggregationLabel,
   axisFloor,
+  decodeInstance,
+  encodeInstance,
   formatShare,
   metricsHrefAroundTrace,
   metricTitle,
   orderMetrics,
   requestsHref,
+  resolveInstance,
   selectedRange,
   shapeSeries,
   unitLabel,
@@ -120,8 +123,8 @@ describe("aggregation labels", () => {
     expect(aggregationLabel("gauge", "avg", false, "pod-1")).toBe(
       "instance pod-1",
     );
-    expect(aggregationLabel("histogram", "sum", false, undefined)).toBe(
-      "all instances added together",
+    expect(aggregationLabel("histogram", "sum", true, undefined)).toBe(
+      "percentiles are computed over all instances",
     );
   });
 });
@@ -270,5 +273,37 @@ describe("selectedRange and links", () => {
     ).toBe(
       `/metrics?service=shop&environment=staging&fromUnixMs=${-5 * MIN}&toUnixMs=${25 * MIN + 2500}`,
     );
+  });
+});
+
+describe("instance choice", () => {
+  const listed = [
+    { service: "orders", instanceId: "pod-a" },
+    { service: "billing", instanceId: "pod-a" },
+    { service: "billing", instanceId: "pod-b" },
+  ];
+  it("round-trips the service and instance pair", () => {
+    expect(decodeInstance(encodeInstance("billing", "pod-a"))).toEqual({
+      service: "billing",
+      instanceId: "pod-a",
+    });
+    expect(decodeInstance("")).toBeNull();
+  });
+  it("keeps equal ids of two services apart", () => {
+    expect(resolveInstance(listed, "pod-a", "billing", undefined)).toEqual({
+      service: "billing",
+      instanceId: "pod-a",
+    });
+    expect(resolveInstance(listed, "pod-a", "orders", undefined)?.service).toBe(
+      "orders",
+    );
+  });
+  it("only accepts an instance of the selected service, and an unknown one is none", () => {
+    expect(resolveInstance(listed, "pod-b", null, "orders")).toBeUndefined();
+    expect(resolveInstance(listed, "pod-b", null, "billing")?.service).toBe(
+      "billing",
+    );
+    expect(resolveInstance(listed, "pod-z", null, undefined)).toBeUndefined();
+    expect(resolveInstance(listed, null, null, undefined)).toBeUndefined();
   });
 });
