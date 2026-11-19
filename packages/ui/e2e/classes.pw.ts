@@ -55,8 +55,8 @@ test("renders classes with kind, counts, durations and own time, busiest total f
   await expect(first.nth(1)).toHaveText("controller");
   await expect(first.nth(2)).toHaveText("50");
   await expect(first.nth(3)).toHaveText("3");
-  await expect(first.nth(4)).toHaveText("25.6 ms");
-  await expect(first.nth(5)).toHaveText("1.28 s");
+  await expect(first.nth(4)).toHaveText("26 ms");
+  await expect(first.nth(5)).toHaveText("1.3 s");
   // Own: 40*2 + 10*5 = 130 ms.
   await expect(first.nth(6)).toHaveText("130 ms");
   // A class without any estimate shows a dash, not 0.

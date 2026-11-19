@@ -1,11 +1,6 @@
-/** "12.4 ms", "1.23 s": durations in fixed units, enough precision to compare rows. */
-export function formatDuration(ms: number): string {
-  if (!Number.isFinite(ms)) return "-";
-  if (ms < 1) return `${ms.toFixed(2)} ms`;
-  if (ms < 1000) return `${ms < 100 ? ms.toFixed(1) : ms.toFixed(0)} ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(2)} s`;
-  return `${(ms / 60_000).toFixed(1)} min`;
-}
+// Durations are formatted by the kit, with every other number format (components/kit/format.ts);
+// re-exported here for the call sites that already import them from this file.
+export { formatDuration } from "@/components/kit/format";
 
 const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 

@@ -4,6 +4,7 @@ import type {
   RouteHistogramResponse,
 } from "@nestrix-js/protocol";
 
+import { MINUS, twoDigits, withSign } from "@/components/kit/format";
 import { formatDuration } from "@/lib/format";
 
 /** The `route`/`method` and duration range of the request list that shows one histogram bucket. */
@@ -123,18 +124,16 @@ export function sortCompareRows(
   });
 }
 
-/** "+12 ms", "-3.4 ms", "-" when unknown. */
+/** "+12 ms", "−3.4 ms", "0 ms"; "-" when unknown. */
 export function formatDeltaMs(ms: number | null): string {
   if (ms === null) return "-";
-  if (ms === 0) return "0 ms";
-  return `${ms > 0 ? "+" : "-"}${formatDuration(Math.abs(ms))}`;
+  return withSign(ms, formatDuration, "0 ms");
 }
 
-/** "+2.0 pt", "-0.5 pt": percentage points of error rate. */
+/** "+2.0 pt", "−0.5 pt", "0 pt": percentage points of error rate. */
 export function formatDeltaRate(rate: number): string {
-  const points = rate * 100;
-  if (points === 0) return "0 pt";
-  return `${points > 0 ? "+" : "-"}${Math.abs(points).toFixed(1)} pt`;
+  return withSign(rate * 100, (m) => `${twoDigits(m)} pt`, "0 pt");
 }
 
-export const formatDeltaCount = (n: number) => (n > 0 ? `+${n}` : String(n));
+export const formatDeltaCount = (n: number) =>
+  n > 0 ? `+${n}` : n < 0 ? `${MINUS}${-n}` : "0";

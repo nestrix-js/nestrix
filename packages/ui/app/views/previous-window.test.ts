@@ -109,9 +109,9 @@ describe("dependencyChanges", () => {
       },
     });
     const c = dependencyChanges(data, rows, false);
-    expect(c.dependencies.text).toBe("-50%");
+    expect(c.dependencies.text).toBe("−50%");
     expect(c.calls.text).toBe("+50%");
-    expect(c.errorRate).toMatchObject({ text: "+10.0 pt", tone: "worse" });
+    expect(c.errorRate).toMatchObject({ text: "+10 pt", tone: "worse" });
     expect(c.slowest).toMatchObject({ tone: "worse" });
   });
 
@@ -205,7 +205,7 @@ describe("classChanges", () => {
     });
     const c = classChanges(data, summarizeClasses(classes));
     expect(c.calls.text).toBe("+100%");
-    expect(c.errorRate).toMatchObject({ text: "+10.0 pt", tone: "worse" });
+    expect(c.errorRate).toMatchObject({ text: "+10 pt", tone: "worse" });
     expect(c.own.tone).toBe("worse");
     expect(c.classes.text).toBe("0%");
   });
@@ -286,7 +286,7 @@ describe("mapChanges", () => {
       previousTotals: { targets: 2, calls: 20, errors: 2, slowestP95Ms: 40 },
     });
     const c = mapChanges(data, edges, 1);
-    expect(c.targets.text).toBe("-50%");
+    expect(c.targets.text).toBe("−50%");
     expect(c.calls.text).toBe("+50%");
     expect(c.errorRate).toMatchObject({ tone: "better" });
     expect(c.slowest).toMatchObject({ tone: "better" });

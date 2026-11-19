@@ -48,3 +48,35 @@ describe("an unknown change", () => {
     expect(html).toContain('data-testid="delta"');
   });
 });
+
+describe("the arrow of a change", () => {
+  it("follows the sign for every tone, a neutral one included", () => {
+    const html = (text: string, tone: "worse" | "better" | "neutral") =>
+      renderToStaticMarkup(createElement(Delta, { text, tone }));
+    expect(html("+7%", "neutral")).toContain("lucide-arrow-up");
+    expect(html("−7%", "neutral")).toContain("lucide-arrow-down");
+    expect(html("+7%", "worse")).toContain("lucide-arrow-up");
+    expect(html("−7%", "better")).toContain("lucide-arrow-down");
+  });
+  it("draws none for a change of zero", () => {
+    const html = renderToStaticMarkup(
+      createElement(Delta, { text: "0%", tone: "neutral" }),
+    );
+    expect(html).not.toContain("<svg");
+  });
+});
+
+describe("a percent unit", () => {
+  it("is written against the number, not as a unit of its own", () => {
+    const html = renderToStaticMarkup(
+      createElement(StatTile, {
+        testId: "kpi-x",
+        label: "Error rate",
+        value: "1.9",
+        unit: "%",
+      }),
+    );
+    expect(html).toContain("1.9%");
+    expect(html).not.toContain('text-xs text-muted-foreground">%');
+  });
+});

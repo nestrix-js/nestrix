@@ -70,7 +70,7 @@ test("shows the histogram with percentiles, and a bucket opens the request list 
     panel.getByTestId("chart-histogram").locator("canvas"),
   ).toBeVisible();
   await expect(panel).toContainText("45 requests counted before sampling");
-  await expect(panel.getByTestId("histogram-p50")).toHaveText("12.0 ms");
+  await expect(panel.getByTestId("histogram-p50")).toHaveText("12 ms");
   await expect(panel.getByTestId("histogram-p95")).toHaveText("180 ms");
   await expect(panel.getByTestId("histogram-p99")).toHaveText("900 ms");
   // Only buckets that hold requests are offered, with their counts.

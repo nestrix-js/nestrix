@@ -56,7 +56,7 @@ test("draws the app in the centre with its targets, labelled edges and a samplin
     "p95 900 ms · 20% err",
   );
   await expect(labels.filter({ hasText: /^120 calls/ })).toContainText(
-    "p95 21.0 ms · 0% err",
+    "p95 21 ms · 0% err",
   );
   expect(await violations(page)).toEqual([]);
   expect(problems).toEqual([]);

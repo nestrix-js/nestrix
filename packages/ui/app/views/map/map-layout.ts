@@ -1,4 +1,5 @@
 import type { MapEdge, MapNode } from "@nestrix-js/protocol";
+import { formatFraction } from "@/components/kit/format";
 
 export const MAP_WIDTH = 760;
 export const MAP_HEIGHT = 440;
@@ -93,9 +94,7 @@ export function errorLevel(errors: number, calls: number): ErrorLevel {
 /** "2.5%" like the routes view; "-" without calls. */
 export function formatRate(errors: number, calls: number): string {
   if (calls <= 0) return "-";
-  const percent = (errors / calls) * 100;
-  if (percent === 0) return "0%";
-  return `${percent < 10 ? percent.toFixed(1) : percent.toFixed(0)}%`;
+  return formatFraction(errors / calls);
 }
 
 /** A node label cut to fit its box. */

@@ -78,7 +78,7 @@ describe("formatters", () => {
   });
   it("formats a change in percent, and has none without a base", () => {
     expect(formatChangePercent(100, 112)).toBe("+12%");
-    expect(formatChangePercent(100, 96.5)).toBe("-3.5%");
+    expect(formatChangePercent(100, 96.5)).toBe("−3.5%");
     expect(formatChangePercent(50, 50)).toBe("0%");
     expect(formatChangePercent(0, 10)).toBeNull();
   });
@@ -135,7 +135,7 @@ describe("windowChanges", () => {
     // 2/200 = 1% before, 6/200 = 3% after: two points worse.
     expect(c.errorRate).toEqual({ text: "+2.0 pt", tone: "worse" });
     // The worst p95 went from 300 ms to 200 ms: better.
-    expect(c.worstP95).toEqual({ text: "-100 ms", tone: "better" });
+    expect(c.worstP95).toEqual({ text: "−100 ms", tone: "better" });
   });
   it("says why there is no change instead of inventing one", () => {
     const uncovered = windowChanges(windowCompare([], false));
@@ -168,7 +168,7 @@ describe("rowChange", () => {
     ).toMatchObject({ text: "+100 ms", tone: "worse" });
     expect(
       rowChange(compareRow("/a", side(10, 0, 200), side(10, 0, 100))),
-    ).toMatchObject({ text: "-100 ms", tone: "better" });
+    ).toMatchObject({ text: "−100 ms", tone: "better" });
     expect(
       rowChange(compareRow("/a", side(10, 0, 100), side(10, 0, 101))),
     ).toMatchObject({ text: "+1.0 ms", tone: "neutral" });

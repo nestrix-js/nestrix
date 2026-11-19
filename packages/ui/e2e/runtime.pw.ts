@@ -49,7 +49,7 @@ test("the runtime tab shows the tiles, four charts and the event loop note", asy
   await page.getByRole("link", { name: "Runtime" }).click();
   await expect(page).toHaveURL(/#\/runtime/);
 
-  await expect(page.getByTestId("tile-loop-p99")).toContainText("85.0 ms");
+  await expect(page.getByTestId("tile-loop-p99")).toContainText("85 ms");
   await expect(page.getByTestId("tile-rss")).toContainText("120.0 MB");
   await expect(page.getByTestId("tile-cpu")).toContainText("15%");
   await expect(page.getByTestId("tile-handles")).toContainText("6");

@@ -154,7 +154,7 @@ test("a slower route: summary, ranked findings, KPIs and every card", async ({
   expect(Number.parseFloat(dbWidth)).toBeCloseTo((318 / 436) * 100, 1);
   await expect(
     page.getByTestId("kind-legend").locator('[data-kind="db"]'),
-  ).toContainText("96.0 ms → 318 ms");
+  ).toContainText("96 ms → 318 ms");
 
   // Statements: the new one first, its calls and time before and after.
   const statements = page.getByTestId("statement-row");
@@ -162,7 +162,7 @@ test("a slower route: summary, ranked findings, KPIs and every card", async ({
   await expect(statements.nth(0)).toContainText(ORDERS_STATEMENT);
   await expect(statements.nth(0)).toContainText("0 → 6.4");
   await expect(statements.nth(0)).toContainText("+6.4");
-  await expect(statements.nth(0)).toContainText("0.00 ms → 214 ms");
+  await expect(statements.nth(0)).toContainText("0 ms → 214 ms");
   await expect(
     page.getByTestId("card-statements").getByTestId("source"),
   ).toContainText("from sampled traces");
@@ -182,7 +182,7 @@ test("a slower route: summary, ranked findings, KPIs and every card", async ({
   // Slowest traces link to the trace page.
   const slow = page.getByTestId("slow-trace");
   await expect(slow).toHaveCount(3);
-  await expect(slow.first()).toContainText("4.80 s");
+  await expect(slow.first()).toContainText("4.8 s");
   await expect(slow.first().locator("a")).toHaveAttribute(
     "href",
     /#\/traces\/a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1$/,

@@ -120,9 +120,7 @@ export function formatMemoryAxis(bytes: number): string {
     : formatMemory(bytes);
 }
 
-export function formatPercent(value: number): string {
-  return Number.isFinite(value) ? `${value.toFixed(value < 10 ? 1 : 0)}%` : "-";
-}
+export { formatPercent } from "@/components/kit/format";
 
 /** `45 s`, `12 min`, `3.5 h`, `2.1 d`. */
 export function formatUptime(seconds: number): string {
