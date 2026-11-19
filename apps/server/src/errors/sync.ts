@@ -9,24 +9,36 @@
  * one interval plus `lagMs` (30 s + 15 s by default).
  *
  * - One instance runs at a time (session advisory lock `ERROR_GROUPS_LOCK`); the others skip.
- * - A watermark (`error_group_sync`) marks the spans already counted. Each run reads the
- *   occurrences that started after the watermark minus `overlapMs`, up to `now - lagMs`, in
- *   chunks of an hour (the first run reads 7 days, like the lists' history). A chunk
- *   `(watermark, to]` counts the occurrences whose occurrence time it holds, plus those after
- *   `to` whose span started before the next chunk's read (`to - overlapMs`); the others after
- *   `to` are left to the next chunk, which reads them again (`countedInChunk`). Chunks meet, so
- *   each occurrence is counted once (audit: a span crossing `to` used to count on both runs).
- *   The overlap otherwise only repairs first/last seen and the releases, which are min/max and
- *   so idempotent. Pages: a chunk reads `rowCap` rows at a time, continuing on the total order
+ * - Ingest order (D-114). Spans are read in the order they were stored: `spans.ingest_seq`
+ *   (migration 0023) is taken from a sequence under `TRACES_LOCK` and committed in that order, so
+ *   a run reads the error occurrences with an `ingest_seq` after `seq_watermark`, up to the newest
+ *   error span visible now (at most the sequence's position `lagMs` ago), and counts each of them
+ *   once, in pages of `rowCap` rows. A span stored long after it started (a job that ends minutes
+ *   later, a late export, a slow clock) is counted, gets its group and its `new_error_group`
+ *   alert like any other. No overlap is needed: a value below a visible one is never committed
+ *   later.
+ * - The switch, on the first run of this release (`switchToIngestOrder`): under `TRACES_LOCK`,
+ *   the sequence's position is recorded as `legacy_seq` and as the first `seq_watermark`. Rows at
+ *   or below it, and rows with no `ingest_seq` (stored before migration 0023), stay on the
+ *   start-time read below, from the previous release's watermark, until it passes the newest of
+ *   them by `overlapMs` (`legacy_until`); then that read stops. The previous release's
+ *   `watermark` is parked an hour ahead of the clock on every run, so a replica of that release
+ *   still running during a rolling upgrade finds nothing to count (its loop runs while the
+ *   watermark is behind its clock) and nothing is counted twice; if this release is rolled back,
+ *   the previous one resumes within that hour and the occurrences in between are not counted.
+ * - The start-time read (rows stored before the switch only). Each run reads the occurrences
+ *   that started after `legacy_watermark` minus `overlapMs`, up to `now - lagMs`, in chunks of an
+ *   hour (a first run ever reads 7 days, like the lists' history). A chunk `(watermark, to]`
+ *   counts the occurrences whose occurrence time it holds, plus those after `to` whose span
+ *   started before the next chunk's read (`to - overlapMs`); the others after `to` are left to
+ *   the next chunk, which reads them again (`countedInChunk`). Chunks meet, so each occurrence is
+ *   counted once (audit: a span crossing `to` used to count on both runs). The overlap otherwise
+ *   only repairs first/last seen and the releases, which are min/max and so idempotent. Pages: a
+ *   chunk reads `rowCap` rows at a time, continuing on the total order
  *   `(start_time, trace_id, span_id)` until a short page, so a full page inside the overlap loses
  *   nothing; after `MAX_PAGES_PER_CHUNK` pages it stops at the last row's start (the watermark
- *   there, the rest next run).
- *   Known limit (D-103 (2), D-107 (9)): a span is read only while the watermark has not passed
- *   its start plus `overlapMs` (2 minutes by default, plus the lag). A span stored after that
- *   (a job that ends minutes after it started, a late export, a slow clock) is never read: it has
- *   no group, no `new_error_group` alert and no count, not just a low one. The fix is an
- *   ingest-order column on `spans` (D-107 (9)), which the sync would follow instead of the start
- *   time.
+ *   there, the rest next run). Known limit, for these rows only (D-103 (2)): one stored after the
+ *   watermark passed its start plus `overlapMs` was never read.
  * - One transaction per chunk: group rows locked, regressions decided, rows upserted, watermark
  *   moved. A crash repeats the chunk and counts nothing twice.
  * - Regression: a `resolved` group with an occurrence after `resolved_at` whose release differs
@@ -50,7 +62,11 @@ import {
 import { INSIGHTS_MS } from "../query/error-insights.js";
 import type { QueryService } from "../query/query.service.js";
 import { ALL } from "../query/scope.js";
-import { ADVISORY_CLASS, ERROR_GROUPS_LOCK } from "../storage/locks.js";
+import {
+  ADVISORY_CLASS,
+  ERROR_GROUPS_LOCK,
+  TRACES_LOCK,
+} from "../storage/locks.js";
 import { keyHashOf, storedEnvironment } from "./triage.js";
 
 export interface ErrorSyncOptions {
@@ -90,6 +106,23 @@ const MAX_CHUNKS = 200;
 const MAX_PAGES_PER_CHUNK = 10;
 const PRUNE_EVERY_MS = 3_600_000;
 const BATCH = 1000;
+/** How far ahead of the clock the previous release's `watermark` is kept (D-114). */
+export const PARK_MS = 3_600_000;
+
+interface Sample {
+  ms: number;
+  seq: string;
+}
+
+/** `error_group_sync` since migration 0023 (D-114). */
+interface SyncState {
+  /** The ingest-order watermark; `null` before the switch. */
+  seqWatermark: string | null;
+  /** Rows with an `ingest_seq` at most this, or none, are on the start-time read. */
+  legacySeq: string;
+  legacyWatermarkMs: number | undefined;
+  legacyUntilMs: number | undefined;
+}
 
 interface ReleaseAgg {
   firstMs: number;
@@ -245,10 +278,15 @@ export class ErrorGroupSync {
   private running: Promise<SyncRun> | undefined;
   private lastPruneMs = 0;
   private stopped = false;
+  /** Positions of `spans_ingest_seq` by run time, for the ingest-order read's lag. */
+  private readonly samples: Sample[] = [];
 
   constructor(
     private readonly pool: Pool,
-    private readonly query: Pick<QueryService, "errorOccurrences">,
+    private readonly query: Pick<
+      QueryService,
+      "errorOccurrences" | "errorOccurrencesBySeq"
+    >,
     options: ErrorSyncOptions = {},
   ) {
     this.o = {
@@ -323,6 +361,15 @@ export class ErrorGroupSync {
     let locked = false;
     let broken: Error | undefined;
     const total: SyncRun = { counted: 0, groups: 0, regressed: 0 };
+    const add = (done: {
+      counted: number;
+      groups: number;
+      regressed: number;
+    }) => {
+      total.counted += done.counted;
+      total.groups += done.groups;
+      total.regressed += done.regressed;
+    };
     try {
       const got = await client.query<{ locked: boolean }>(
         "SELECT pg_try_advisory_lock($1, $2) AS locked",
@@ -333,63 +380,20 @@ export class ErrorGroupSync {
         return { skipped: "locked", counted: 0, groups: 0, regressed: 0 };
 
       const nowMs = this.now();
-      const hiMs = Math.floor(nowMs - this.o.lagMs);
-      const mark = await client.query<{ watermark: Date }>(
-        "SELECT watermark FROM error_group_sync WHERE id = 1",
+      // The sequence's position now, for the ingest-order read `lagMs` from now (D-114).
+      await this.sample(client, nowMs);
+      let state = await this.readState(client);
+      if (state === undefined || state.seqWatermark === null) {
+        state = await this.switchToIngestOrder(client, state, nowMs);
+      }
+      add(await this.syncLegacy(client, state, nowMs));
+      add(await this.syncBySeq(client, state, nowMs));
+      // A previous-release replica still running reads `watermark`: keep it ahead of its clock
+      // so it counts nothing this release counts (D-114).
+      await client.query(
+        "UPDATE error_group_sync SET watermark = greatest(watermark, $1) WHERE id = 1",
+        [new Date(nowMs + PARK_MS)],
       );
-      let wm = mark.rows[0]?.watermark.getTime();
-      if (wm === undefined) {
-        wm = Math.floor(nowMs - this.o.backfillMs);
-        await client.query(
-          "INSERT INTO error_group_sync (id, watermark) VALUES (1, $1) ON CONFLICT (id) DO NOTHING",
-          [new Date(wm)],
-        );
-      }
-      for (let i = 0; i < MAX_CHUNKS && wm < hiMs; i++) {
-        let to = Math.min(hiMs, wm + CHUNK_MS);
-        // Pages of `rowCap` rows, ascending by (start, trace, span); a full page continues from
-        // its last row until a short one, so nothing between the pages is skipped, however many
-        // rows the overlap `[wm - overlapMs, wm]` alone holds (audit).
-        let rows: ErrorOccurrence[] = [];
-        let after:
-          | { startTime: string; traceId: string; spanId: string }
-          | undefined;
-        for (let pages = 1; ; pages++) {
-          const page: ErrorOccurrence[] = await this.query.errorOccurrences(
-            new Date(wm - this.o.overlapMs),
-            undefined,
-            ALL,
-            this.o.rowCap,
-            { until: new Date(to + 1), ascending: true, after },
-          );
-          rows = rows.concat(page);
-          const last = page[page.length - 1];
-          if (page.length < this.o.rowCap || last === undefined) break;
-          // Past the page budget, stop the chunk before the last row's start millisecond and read
-          // on from there next time; every row that started by then was read. Only when that
-          // moves the watermark: inside the overlap (`cut <= wm`) the run reads on, since the
-          // watermark cannot go back.
-          if (pages >= MAX_PAGES_PER_CHUNK) {
-            const cut = Math.floor(last.startUnixMs ?? last.timeUnixMs) - 1;
-            if (cut > wm) {
-              to = cut;
-              rows = rows.filter((r) => (r.startUnixMs ?? r.timeUnixMs) <= to);
-              break;
-            }
-          }
-          if (last.startTime === undefined) break;
-          after = {
-            startTime: last.startTime,
-            traceId: last.traceId,
-            spanId: last.spanId,
-          };
-        }
-        const done = await this.apply(client, rows, wm, to);
-        total.counted += done.counted;
-        total.groups += done.groups;
-        total.regressed += done.regressed;
-        wm = to;
-      }
       await this.prune(client, nowMs);
     } catch (error) {
       broken = error as Error;
@@ -410,6 +414,264 @@ export class ErrorGroupSync {
     return total;
   }
 
+  /**
+   * Records where `spans_ingest_seq` stands at `nowMs`. Values at or below it were handed out by
+   * then, so a read up to the newest sample at least `lagMs` old leaves the younger spans for the
+   * next run (they are read in full later; the lag gives a trace's other spans time to arrive).
+   */
+  private async sample(
+    client: import("pg").PoolClient,
+    nowMs: number,
+  ): Promise<void> {
+    const res = await client.query<{ seq: string }>(
+      "SELECT (CASE WHEN is_called THEN last_value ELSE 0 END)::text AS seq FROM spans_ingest_seq",
+    );
+    const seq = res.rows[0]?.seq ?? "0";
+    this.samples.push({ ms: nowMs, seq });
+    // Keep the newest sample old enough to be used, and the younger ones.
+    const ready = nowMs - this.o.lagMs;
+    let keepFrom = 0;
+    for (let i = 0; i < this.samples.length; i++) {
+      if ((this.samples[i] as Sample).ms <= ready) keepFrom = i;
+    }
+    if (keepFrom > 0) this.samples.splice(0, keepFrom);
+  }
+
+  /** The newest sample at least `lagMs` old, or undefined when there is none yet. */
+  private readySeq(nowMs: number): string | undefined {
+    const ready = nowMs - this.o.lagMs;
+    let found: string | undefined;
+    for (const s of this.samples) if (s.ms <= ready) found = s.seq;
+    return found;
+  }
+
+  private async readState(
+    client: import("pg").PoolClient,
+  ): Promise<SyncState | undefined> {
+    const res = await client.query<{
+      seq_watermark: string | null;
+      legacy_seq: string | null;
+      legacy_watermark: Date | null;
+      legacy_until: Date | null;
+    }>(
+      `SELECT seq_watermark::text AS seq_watermark, legacy_seq::text AS legacy_seq,
+              legacy_watermark, legacy_until
+         FROM error_group_sync WHERE id = 1`,
+    );
+    const r = res.rows[0];
+    if (r === undefined) return undefined;
+    return {
+      seqWatermark: r.seq_watermark,
+      legacySeq: r.legacy_seq ?? "0",
+      legacyWatermarkMs: r.legacy_watermark?.getTime(),
+      legacyUntilMs: r.legacy_until?.getTime(),
+    };
+  }
+
+  /**
+   * The first run of this release (D-114). Under `TRACES_LOCK`, so no span transaction is in
+   * flight: every `ingest_seq` at or below the sequence's position is committed or rolled back.
+   * Rows up to it (and the rows with none, stored before migration 0023) stay on the start-time
+   * read from the previous watermark, which ends once it passes the newest of them by `overlapMs`;
+   * rows above it are read in ingest order. The previous release counted by start time up to its
+   * watermark, so nothing above the position was counted yet and nothing below it is counted
+   * twice. A first run ever starts the start-time read `backfillMs` back.
+   */
+  private async switchToIngestOrder(
+    client: import("pg").PoolClient,
+    previous: SyncState | undefined,
+    nowMs: number,
+  ): Promise<SyncState> {
+    await client.query("BEGIN");
+    try {
+      await client.query(
+        "INSERT INTO error_group_sync (id, watermark) VALUES (1, $1) ON CONFLICT (id) DO NOTHING",
+        [new Date(Math.floor(nowMs - this.o.backfillMs))],
+      );
+      const row = await client.query<{
+        watermark: Date;
+        seq_watermark: string | null;
+      }>(
+        "SELECT watermark, seq_watermark::text AS seq_watermark FROM error_group_sync WHERE id = 1 FOR UPDATE",
+      );
+      const current = row.rows[0];
+      if (current !== undefined && current.seq_watermark !== null) {
+        // Switched meanwhile (a run that does not hold our session lock cannot, but a manual
+        // change can): use what is stored.
+        await client.query("COMMIT");
+        return (await this.readState(client)) ?? (previous as SyncState);
+      }
+      // The previous watermark, unless it is a parked one (ahead of the clock).
+      const stored = current?.watermark.getTime();
+      const legacyFrom =
+        stored === undefined || stored > nowMs
+          ? Math.floor(nowMs - this.o.backfillMs)
+          : stored;
+      await client.query("SELECT pg_advisory_xact_lock($1, $2)", [
+        ADVISORY_CLASS,
+        TRACES_LOCK,
+      ]);
+      const pos = await client.query<{ seq: string }>(
+        "SELECT (CASE WHEN is_called THEN last_value ELSE 0 END)::text AS seq FROM spans_ingest_seq",
+      );
+      const seq = pos.rows[0]?.seq ?? "0";
+      // The newest start among the error spans now stored (all at or below `seq`).
+      const newest = await client.query<{ ms: string | null }>(
+        "SELECT floor(extract(epoch FROM max(start_time)) * 1000)::text AS ms FROM spans WHERE is_error",
+      );
+      const newestMs =
+        newest.rows[0]?.ms == null ? undefined : Number(newest.rows[0].ms);
+      // Past it by the overlap (and a millisecond), the last start-time chunk counts every row.
+      const untilMs =
+        newestMs === undefined ? legacyFrom : newestMs + this.o.overlapMs + 1;
+      await client.query(
+        `UPDATE error_group_sync
+            SET seq_watermark = $1, legacy_seq = $1, legacy_watermark = $2, legacy_until = $3
+          WHERE id = 1`,
+        [seq, new Date(legacyFrom), new Date(untilMs)],
+      );
+      await client.query("COMMIT");
+      return {
+        seqWatermark: seq,
+        legacySeq: seq,
+        legacyWatermarkMs: legacyFrom,
+        legacyUntilMs: untilMs,
+      };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /**
+   * The start-time read (D-103 (2)) for the rows stored before the switch: unchanged rules
+   * (`countedInChunk`, pages), limited to those rows, from `legacy_watermark` up to
+   * `legacy_until`. Such a row stored after the watermark passed its start plus the overlap is
+   * still missed: the known limit stays for rows stored before this release, and only for them.
+   */
+  private async syncLegacy(
+    client: import("pg").PoolClient,
+    state: SyncState,
+    nowMs: number,
+  ): Promise<{ counted: number; groups: number; regressed: number }> {
+    const total = { counted: 0, groups: 0, regressed: 0 };
+    let wm = state.legacyWatermarkMs;
+    const until = state.legacyUntilMs;
+    if (wm === undefined || until === undefined) return total;
+    const hiMs = Math.min(Math.floor(nowMs - this.o.lagMs), until);
+    for (let i = 0; i < MAX_CHUNKS && wm < hiMs; i++) {
+      let to = Math.min(hiMs, wm + CHUNK_MS);
+      // Pages of `rowCap` rows, ascending by (start, trace, span); a full page continues from
+      // its last row until a short one, so nothing between the pages is skipped, however many
+      // rows the overlap `[wm - overlapMs, wm]` alone holds (audit).
+      let rows: ErrorOccurrence[] = [];
+      let after:
+        | { startTime: string; traceId: string; spanId: string }
+        | undefined;
+      for (let pages = 1; ; pages++) {
+        const page: ErrorOccurrence[] = await this.query.errorOccurrences(
+          new Date(wm - this.o.overlapMs),
+          undefined,
+          ALL,
+          this.o.rowCap,
+          {
+            until: new Date(to + 1),
+            ascending: true,
+            after,
+            legacySeqUpTo: state.legacySeq,
+          },
+        );
+        rows = rows.concat(page);
+        const last = page[page.length - 1];
+        if (page.length < this.o.rowCap || last === undefined) break;
+        // Past the page budget, stop the chunk before the last row's start millisecond and read
+        // on from there next time; every row that started by then was read. Only when that
+        // moves the watermark: inside the overlap (`cut <= wm`) the run reads on, since the
+        // watermark cannot go back.
+        if (pages >= MAX_PAGES_PER_CHUNK) {
+          const cut = Math.floor(last.startUnixMs ?? last.timeUnixMs) - 1;
+          if (cut > wm) {
+            to = cut;
+            rows = rows.filter((r) => (r.startUnixMs ?? r.timeUnixMs) <= to);
+            break;
+          }
+        }
+        if (last.startTime === undefined) break;
+        after = {
+          startTime: last.startTime,
+          traceId: last.traceId,
+          spanId: last.spanId,
+        };
+      }
+      const from = wm;
+      const done = await this.apply(
+        client,
+        rows,
+        (o) => countedInChunk(o, from, to, this.o.overlapMs),
+        "UPDATE error_group_sync SET legacy_watermark = $1 WHERE id = 1",
+        new Date(to),
+      );
+      total.counted += done.counted;
+      total.groups += done.groups;
+      total.regressed += done.regressed;
+      wm = to;
+      state.legacyWatermarkMs = to;
+    }
+    return total;
+  }
+
+  /**
+   * The ingest-order read (D-114): the error occurrences stored with an `ingest_seq` after
+   * `seq_watermark`, each counted once, whatever its start time. The frontier is the newest error
+   * span's `ingest_seq` visible now, at most the sample from `lagMs` ago: since values are taken
+   * under `TRACES_LOCK` and committed in order, every value below a visible one is committed or
+   * rolled back, so the pages read after it (later snapshots) see every row up to it. A full page
+   * moves the watermark to its last row; a short one to the frontier.
+   */
+  private async syncBySeq(
+    client: import("pg").PoolClient,
+    state: SyncState,
+    nowMs: number,
+  ): Promise<{ counted: number; groups: number; regressed: number }> {
+    const total = { counted: 0, groups: 0, regressed: 0 };
+    let wm = state.seqWatermark;
+    const ready = this.readySeq(nowMs);
+    if (wm === null || ready === undefined || BigInt(ready) <= BigInt(wm))
+      return total;
+    const front = await client.query<{ seq: string | null }>(
+      `SELECT max(ingest_seq)::text AS seq FROM spans
+        WHERE is_error AND ingest_seq > $1::bigint AND ingest_seq <= $2::bigint`,
+      [wm, ready],
+    );
+    const frontier = front.rows[0]?.seq ?? null;
+    if (frontier === null) return total;
+    for (let i = 0; i < MAX_CHUNKS && BigInt(wm) < BigInt(frontier); i++) {
+      const rows = await this.query.errorOccurrencesBySeq(
+        wm,
+        frontier,
+        this.o.rowCap,
+      );
+      const last = rows[rows.length - 1];
+      const to =
+        rows.length >= this.o.rowCap && last !== undefined
+          ? last.ingestSeq
+          : frontier;
+      const done = await this.apply(
+        client,
+        rows,
+        () => true,
+        "UPDATE error_group_sync SET seq_watermark = $1 WHERE id = 1",
+        to,
+      );
+      total.counted += done.counted;
+      total.groups += done.groups;
+      total.regressed += done.regressed;
+      wm = to;
+      state.seqWatermark = to;
+    }
+    return total;
+  }
+
   private async prune(
     client: import("pg").PoolClient,
     nowMs: number,
@@ -426,18 +688,15 @@ export class ErrorGroupSync {
     }
   }
 
-  /** One chunk in one transaction. */
+  /** One chunk in one transaction: the groups, then the watermark (`mark` with `markValue`). */
   private async apply(
     client: import("pg").PoolClient,
     rows: readonly ErrorOccurrence[],
-    wmMs: number,
-    toMs: number,
+    isCounted: (o: ErrorOccurrence) => boolean,
+    mark: string,
+    markValue: Date | string,
   ): Promise<{ counted: number; groups: number; regressed: number }> {
-    const aggs = [
-      ...aggregate(rows, (o) =>
-        countedInChunk(o, wmMs, toMs, this.o.overlapMs),
-      ).values(),
-    ];
+    const aggs = [...aggregate(rows, isCounted).values()];
     let counted = 0;
     for (const a of aggs) counted += a.counted;
     let regressed = 0;
@@ -553,10 +812,7 @@ export class ErrorGroupSync {
         );
         regressed += res.rowCount ?? 0;
       }
-      await client.query(
-        "UPDATE error_group_sync SET watermark = $1 WHERE id = 1",
-        [new Date(toMs)],
-      );
+      await client.query(mark, [markValue]);
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);

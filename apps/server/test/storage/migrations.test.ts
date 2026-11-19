@@ -57,6 +57,8 @@ describe.skipIf(noDatabase)(`migrations ${skipReason}`, () => {
       "0020_metric_minutes.sql",
       "0021_logs_search.sql",
       "0022_logs_search_indexes.sql",
+      "0023_spans_ingest_seq.sql",
+      "0024_spans_ingest_seq_index.sql",
     ];
     const applied = [...a.applied, ...b.applied];
     expect(applied).toEqual(all);
@@ -165,6 +167,9 @@ describe.skipIf(noDatabase)(
       const dir = await mkdtemp(join(tmpdir(), "nestrix-migrations-"));
       await cp(DEFAULT_MIGRATIONS_DIR, dir, { recursive: true });
       await rm(join(dir, "0022_logs_search_indexes.sql"));
+      // And the later files, so the run stops at 0021 as the upgrade note's install would.
+      await rm(join(dir, "0023_spans_ingest_seq.sql"));
+      await rm(join(dir, "0024_spans_ingest_seq_index.sql"));
       expect((await runMigrations(db.pool, dir)).applied.at(-1)).toBe(
         "0021_logs_search.sql",
       );
@@ -205,7 +210,11 @@ describe.skipIf(noDatabase)(
       expect((await runMigrations(db.pool, dir)).applied).toEqual([]);
       // The real directory now has 0022; it applies on top without adding a second index.
       const res = await runMigrations(db.pool);
-      expect(res.applied).toEqual(["0022_logs_search_indexes.sql"]);
+      expect(res.applied).toEqual([
+        "0022_logs_search_indexes.sql",
+        "0023_spans_ingest_seq.sql",
+        "0024_spans_ingest_seq_index.sql",
+      ]);
       const after = await db.pool.query(
         "SELECT indexname FROM pg_indexes WHERE tablename = $1 ORDER BY 1",
         [part],
@@ -229,6 +238,130 @@ describe.skipIf(noDatabase)(
       )) {
         expect(r.indisvalid, r.relname).toBe(true);
         expect(r.attached, r.relname).toBe(true);
+      }
+    });
+  },
+);
+
+describe.skipIf(noDatabase)(
+  `spans ingest_seq pre-build (README upgrade note, D-114) ${skipReason}`,
+  () => {
+    let db: TestDb;
+    beforeAll(async () => {
+      db = await createTestDb("migrateseq");
+    });
+    afterAll(async () => {
+      await db?.drop();
+    });
+
+    it("0023 and 0024 find the column and the indexes built per partition, and build nothing", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "nestrix-migrations-"));
+      await cp(DEFAULT_MIGRATIONS_DIR, dir, { recursive: true });
+      await rm(join(dir, "0023_spans_ingest_seq.sql"));
+      await rm(join(dir, "0024_spans_ingest_seq_index.sql"));
+      expect((await runMigrations(db.pool, dir)).applied.at(-1)).toBe(
+        "0022_logs_search_indexes.sql",
+      );
+      const now = Date.now();
+      const days = [utcDay(now - 86_400_000), utcDay(now)];
+      await ensurePartitions(db.pool, days);
+      const parts = days.map((d) => `spans_p${dayLabel(d)}`);
+      // The README's statements, one by one (CONCURRENTLY cannot run in a transaction).
+      await db.pool.query(
+        "CREATE SEQUENCE IF NOT EXISTS spans_ingest_seq AS bigint CACHE 1",
+      );
+      await db.pool.query(
+        "ALTER TABLE spans ADD COLUMN IF NOT EXISTS ingest_seq bigint",
+      );
+      await db.pool.query(
+        "ALTER TABLE spans ALTER COLUMN ingest_seq SET DEFAULT nextval('spans_ingest_seq')",
+      );
+      for (const part of parts) {
+        await db.pool.query(
+          `CREATE INDEX CONCURRENTLY ${part}_errors_ingest_seq_idx ON ${part} (ingest_seq) WHERE is_error`,
+        );
+      }
+      await db.pool.query(
+        "CREATE INDEX spans_errors_ingest_seq_idx ON ONLY spans (ingest_seq) WHERE is_error",
+      );
+      for (const part of parts) {
+        await db.pool.query(
+          `ALTER INDEX spans_errors_ingest_seq_idx ATTACH PARTITION ${part}_errors_ingest_seq_idx`,
+        );
+      }
+      const indexes = async () =>
+        (
+          await db.pool.query<{ indexname: string }>(
+            "SELECT indexname FROM pg_indexes WHERE tablename = ANY($1) AND indexname LIKE '%ingest_seq%' ORDER BY 1",
+            [[...parts, "spans"]],
+          )
+        ).rows.map((r) => r.indexname);
+      const before = await indexes();
+      const res = await runMigrations(db.pool);
+      expect(res.applied).toEqual([
+        "0023_spans_ingest_seq.sql",
+        "0024_spans_ingest_seq_index.sql",
+      ]);
+      expect(await indexes()).toEqual(before);
+      const parent = await db.pool.query<{ indisvalid: boolean }>(
+        `SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+          WHERE c.relname = 'spans_errors_ingest_seq_idx'`,
+      );
+      expect(parent.rows[0]?.indisvalid).toBe(true);
+      // A partition created later inherits the index and the default.
+      const later = utcDay(now + 86_400_000);
+      await ensurePartitions(db.pool, [later]);
+      const inherited = await db.pool.query<{ n: string; def: string }>(
+        `SELECT (SELECT count(*) FROM pg_indexes WHERE tablename = $1 AND indexname LIKE '%ingest_seq%')::text AS n,
+                (SELECT pg_get_expr(d.adbin, d.adrelid) FROM pg_attrdef d
+                   JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+                  WHERE d.adrelid = $1::regclass AND a.attname = 'ingest_seq') AS def`,
+        [`spans_p${dayLabel(later)}`],
+      );
+      expect(inherited.rows[0]).toEqual({
+        n: "1",
+        def: "nextval('spans_ingest_seq'::regclass)",
+      });
+    });
+
+    it("0023 rewrites no partition: existing rows keep their storage and get NULL", async () => {
+      const db2 = await createTestDb("migrateseqrw");
+      try {
+        const dir = await mkdtemp(join(tmpdir(), "nestrix-migrations-"));
+        await cp(DEFAULT_MIGRATIONS_DIR, dir, { recursive: true });
+        await rm(join(dir, "0023_spans_ingest_seq.sql"));
+        await rm(join(dir, "0024_spans_ingest_seq_index.sql"));
+        await runMigrations(db2.pool, dir);
+        const day = utcDay(Date.now());
+        await ensurePartitions(db2.pool, [day]);
+        const part = `spans_p${dayLabel(day)}`;
+        await db2.pool.query(
+          "INSERT INTO resources (hash, service_name, attributes) VALUES ('h', 'shop', '{}')",
+        );
+        await db2.pool.query(
+          `INSERT INTO spans (trace_id, span_id, resource_id, service_name, name, kind, start_time,
+                              start_ns, end_ns, duration_ns, status_code, attributes, events, links,
+                              is_root, is_error, trace_type)
+           SELECT md5(g::text), substr(md5(g::text), 1, 16), (SELECT id FROM resources), 'shop',
+                  'x', 'internal', now(), 0, 0, 0, 'error', '{}', '[]', '[]', true, true, 'other'
+             FROM generate_series(1, 2000) g`,
+        );
+        const node = async () =>
+          (
+            await db2.pool.query<{ f: string }>(
+              "SELECT relfilenode::text AS f FROM pg_class WHERE relname = $1",
+              [part],
+            )
+          ).rows[0]?.f;
+        const before = await node();
+        await runMigrations(db2.pool);
+        expect(await node()).toBe(before);
+        const n = await db2.pool.query<{ nulls: string }>(
+          "SELECT count(*) FILTER (WHERE ingest_seq IS NULL)::text AS nulls FROM spans",
+        );
+        expect(n.rows[0]?.nulls).toBe("2000");
+      } finally {
+        await db2.drop();
       }
     });
   },

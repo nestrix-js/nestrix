@@ -103,6 +103,11 @@ export const spans = pgTable(
     errorKey: text("error_key"),
     /** `deployment.environment.name` of the resource, or the ingest key's (migration 0016, D-101); `NULL` is unset. */
     environment: text("environment"),
+    /**
+     * Ingest order (migration 0023, D-114): `nextval('spans_ingest_seq')` by default, taken under
+     * `TRACES_LOCK`, so committed in order. `NULL` on rows stored before the migration.
+     */
+    ingestSeq: bigint("ingest_seq", { mode: "number" }),
   },
   (t) => [primaryKey({ columns: [t.traceId, t.spanId, t.startTime] })],
 );
@@ -372,7 +377,14 @@ export const errorGroupReleases = pgTable(
 
 export const errorGroupSync = pgTable("error_group_sync", {
   id: smallint("id").primaryKey(),
+  /** The previous release's start-time watermark; parked ahead of the clock since D-114. */
   watermark: timestamp("watermark", tz).notNull(),
+  /** Migration 0023 (D-114): the ingest-order watermark; `NULL` until the switch. */
+  seqWatermark: bigint("seq_watermark", { mode: "number" }),
+  /** Rows at or below it (or `NULL`) were stored before the switch, read by start time. */
+  legacySeq: bigint("legacy_seq", { mode: "number" }),
+  legacyWatermark: timestamp("legacy_watermark", tz),
+  legacyUntil: timestamp("legacy_until", tz),
 });
 
 export const errorGroupAlerts = pgTable(

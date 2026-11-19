@@ -243,6 +243,23 @@ function errorCursor(p: {
   return `e.${p.ts}.${p.trace_id}.${p.span_id}`;
 }
 
+/**
+ * The live head of `GET errors` (D-114): an `ingest_seq`, `es<base 36>`. Only `after` takes it;
+ * items and `older` keep the position cursor (`e.…`), which `before` takes.
+ */
+const ES_CURSOR = /^es([0-9a-z]{1,13})$/;
+
+function errorSeqCursor(seq: string): string {
+  return `es${Number(seq).toString(36)}`;
+}
+
+function decodeErrorSeqCursor(cursor: string): number | undefined {
+  const m = ES_CURSOR.exec(cursor);
+  if (m === null) return undefined;
+  const seq = Number.parseInt(m[1] as string, 36);
+  return Number.isSafeInteger(seq) && seq >= 0 ? seq : undefined;
+}
+
 function decodeErrorCursor(cursor: string): ErrorPosition | undefined {
   const m = E_CURSOR.exec(cursor);
   if (m === null) return undefined;
@@ -697,14 +714,27 @@ export class QueryService {
 
     let reset = false;
     let cursorCondition: string | undefined;
+    /** `after` is an ingest-order head (`es…`, D-114). */
+    let afterSeq = false;
     if (v.before !== undefined) {
       const at = decodeErrorCursor(String(v.before));
       if (at === undefined) reset = true;
       else cursorCondition = position(at, "<");
     } else if (v.after !== undefined) {
-      const at = decodeErrorCursor(String(v.after));
-      if (at === undefined) reset = true;
-      else cursorCondition = position(at, ">");
+      const after = String(v.after);
+      const seq = decodeErrorSeqCursor(after);
+      if (seq !== undefined) {
+        // Every error stored after the head, whatever its start: rows without an ingest order
+        // (stored before migration 0023) are older than every head and never match (D-114).
+        afterSeq = true;
+        cursorCondition = `s.ingest_seq > ${params.add(String(seq))}::bigint`;
+      } else {
+        // A position cursor (`e.…`): a head from a server before D-114, or a held item cursor.
+        // Read as before, by start; the response's head is an ingest-order one.
+        const at = decodeErrorCursor(after);
+        if (at === undefined) reset = true;
+        else cursorCondition = position(at, ">");
+      }
     }
     const conditions = cursorCondition ? [...where, cursorCondition] : where;
     const select = `SELECT s.trace_id, s.span_id, s.name, s.kind, s.status_message, s.events,
@@ -714,49 +744,54 @@ export class QueryService {
                       FROM spans s`;
     const order = "ORDER BY s.start_time DESC, s.trace_id DESC, s.span_id DESC";
     // The page and the head in one statement, so one snapshot (audit): an error committed while
-    // the list is read is on the page or after the head. Known limit (D-107): the cursor is the
-    // span's start, so an error stored after a newer one (a long span, a late export) sorts below
-    // the head and a live poll does not show it; a reload does.
+    // the list is read is on the page or after the head. The head is in ingest order (D-114): the
+    // newest `ingest_seq` among error occurrences, `0` when every stored one predates migration
+    // 0023, absent when there is none. `ingest_seq` is taken under `TRACES_LOCK` and committed in
+    // order, so a snapshot holds every committed value below its newest one: an error stored
+    // after the head, however long ago it started, is after the head on the next poll. (An error
+    // span can stop being an occurrence when a child with the same exception arrives, never the
+    // reverse, so the head cannot pass a row that becomes an occurrence later.)
     const joined = await this.rows<
       ErrorRow & {
-        head_trace_id: string | null;
-        head_span_id: string | null;
-        head_ts: string | null;
+        head_any: boolean | null;
+        head_seq: string | null;
         trace_id: string | null;
       }
     >(
       `WITH head AS (
-         SELECT s.trace_id, s.span_id, ${TS_SQL.replace("%s", "s.start_time")} AS ts
-           FROM spans s WHERE ${occurrenceSql("s")} ${order} LIMIT 1),
+         SELECT EXISTS (SELECT 1 FROM spans s WHERE ${occurrenceSql("s")}) AS head_any,
+                (SELECT s.ingest_seq FROM spans s
+                  WHERE ${occurrenceSql("s")} AND s.ingest_seq IS NOT NULL
+                  ORDER BY s.ingest_seq DESC LIMIT 1)::text AS head_seq),
        page AS (
          ${select}
           WHERE ${conditions.join(" AND ")} ${order} LIMIT ${params.add(limit + 1)})
-       SELECT h.trace_id AS head_trace_id, h.span_id AS head_span_id, h.ts AS head_ts, p.*
-         FROM (SELECT 1) one
-         LEFT JOIN head h ON true
+       SELECT h.head_any, h.head_seq, p.*
+         FROM head h
          LEFT JOIN page p ON true
         ORDER BY p.order_time DESC, p.trace_id DESC, p.span_id DESC`,
       params.values,
     );
     const rows = joined.filter((r) => r.trace_id !== null) as ErrorRow[];
     const first = joined[0];
-    const head =
-      first?.head_trace_id != null &&
-      first.head_span_id != null &&
-      first.head_ts != null
-        ? [
-            {
-              trace_id: first.head_trace_id,
-              span_id: first.head_span_id,
-              ts: first.head_ts,
-            },
-          ]
-        : [];
+    const headCursor =
+      first?.head_any === true ? errorSeqCursor(first.head_seq ?? "0") : null;
     if (
       v.after !== undefined &&
       cursorCondition !== undefined &&
       rows.length > limit
     ) {
+      // More new errors than one page: the poller cannot catch up without a gap. After a
+      // position cursor the rows after it are the newest by start, so they are the first page;
+      // after an ingest-order head they need not be, so answer the first page itself.
+      if (afterSeq) {
+        const fresh = await this.listErrors({
+          ...v,
+          after: undefined,
+          before: undefined,
+        });
+        return { ...fresh, reset: true };
+      }
       reset = true;
     }
     const page = rows.slice(0, limit);
@@ -782,10 +817,9 @@ export class QueryService {
     }
     const items = page.map((r) => errorItemOf(r, roots.get(r.trace_id)));
     const last = page[page.length - 1];
-    const newest = head[0];
     return {
       items,
-      head: newest ? errorCursor(newest) : null,
+      head: headCursor,
       older: rows.length > limit && last ? errorCursor(last) : null,
       reset,
     };
@@ -892,6 +926,11 @@ export class QueryService {
       ascending?: boolean;
       attributes?: string | undefined;
       after?: { startTime: string; traceId: string; spanId: string };
+      /**
+       * The sync's start-time read of rows stored before its switch to ingest order (D-114):
+       * only rows with no `ingest_seq` or one at most this.
+       */
+      legacySeqUpTo?: string;
     } = {},
   ): Promise<ErrorOccurrence[]> {
     const params = new Params();
@@ -900,6 +939,11 @@ export class QueryService {
       occurrenceSql("s", fromParam),
       `s.start_time >= ${fromParam}`,
     ];
+    if (options.legacySeqUpTo !== undefined) {
+      where.push(
+        `(s.ingest_seq IS NULL OR s.ingest_seq <= ${params.add(options.legacySeqUpTo)}::bigint)`,
+      );
+    }
     if (before !== undefined) {
       where.push(`s.start_time < ${params.add(before)}`);
     }
@@ -920,58 +964,39 @@ export class QueryService {
       );
     }
     const dir = options.ascending === true ? "ASC" : "DESC";
-    const rows = await this.rows<
-      ErrorRow & {
-        service_name: string | null;
-        environment: string | null;
-        root_route: string | null;
-        root_method: string | null;
-        root_status: number | null;
-        root_release: string | null;
-        start_text: string;
-      }
-    >(
-      `SELECT s.trace_id, s.span_id, s.name, s.kind, s.status_message, s.events,
-              s.start_ns::text AS start_ns, s.end_ns::text AS end_ns, s.start_time::text AS start_text,
-              s.http_route, s.http_method, s.http_status, s.service_name, s.environment,
-              t.http_route AS root_route, t.http_method AS root_method, t.http_status AS root_status,
-              t.release AS root_release
+    const rows = await this.rows<OccurrenceRow>(
+      `SELECT ${OCCURRENCE_COLUMNS}
          FROM spans s LEFT JOIN traces t ON t.trace_id = s.trace_id
         WHERE ${where.join(" AND ")}
         ORDER BY s.start_time ${dir}, s.trace_id ${dir}, s.span_id ${dir}
         LIMIT ${limit}`,
       params.values,
     );
-    return rows.map((r): ErrorOccurrence => {
-      const hasRoot =
-        r.root_route !== null ||
-        r.root_method !== null ||
-        r.root_status !== null;
-      const item = errorItemOf(
-        r,
-        hasRoot
-          ? {
-              http_route: r.root_route,
-              http_method: r.root_method,
-              http_status: r.root_status,
-            }
-          : undefined,
-      );
-      return {
-        traceId: item.traceId,
-        spanId: item.spanId,
-        timeUnixMs: item.timeUnixMs,
-        errorType: item.errorType,
-        message: item.message,
-        route: item.route,
-        service: r.service_name ?? undefined,
-        release: r.root_release ?? undefined,
-        environment: r.environment ?? undefined,
-        // The instant `s.start_time` holds (microseconds), which the bounds above compare.
-        startUnixMs: msOf(r.start_ns),
-        startTime: r.start_text,
-      };
-    });
+    return rows.map(occurrenceOf);
+  }
+
+  /**
+   * Error occurrences stored with an `ingest_seq` in `(after, upTo]`, in ingest order: the
+   * error-group sync's read (D-114). No start-time bound: a span stored long after it started is
+   * read like any other. `ingest_seq` is taken under `TRACES_LOCK` and committed in order, so when
+   * every value up to `upTo` was committed or rolled back before this statement's snapshot (the
+   * sync's frontier read guarantees it), the rows returned are all there are in that range.
+   */
+  async errorOccurrencesBySeq(
+    after: string,
+    upTo: string,
+    limit: number,
+  ): Promise<(ErrorOccurrence & { ingestSeq: string })[]> {
+    const rows = await this.rows<OccurrenceRow & { ingest_seq: string }>(
+      `SELECT ${OCCURRENCE_COLUMNS}, s.ingest_seq::text AS ingest_seq
+         FROM spans s LEFT JOIN traces t ON t.trace_id = s.trace_id
+        WHERE ${occurrenceSql("s")}
+          AND s.ingest_seq > $1::bigint AND s.ingest_seq <= $2::bigint
+        ORDER BY s.ingest_seq
+        LIMIT ${Math.max(1, Math.floor(limit))}`,
+      [after, upTo],
+    );
+    return rows.map((r) => ({ ...occurrenceOf(r), ingestSeq: r.ingest_seq }));
   }
 
   /**
@@ -2088,6 +2113,51 @@ interface ErrorRow {
   http_method: string | null;
   http_status: number | null;
   ts: string;
+}
+
+type OccurrenceRow = ErrorRow & {
+  service_name: string | null;
+  environment: string | null;
+  root_route: string | null;
+  root_method: string | null;
+  root_status: number | null;
+  root_release: string | null;
+  start_text: string;
+};
+
+const OCCURRENCE_COLUMNS = `s.trace_id, s.span_id, s.name, s.kind, s.status_message, s.events,
+              s.start_ns::text AS start_ns, s.end_ns::text AS end_ns, s.start_time::text AS start_text,
+              s.http_route, s.http_method, s.http_status, s.service_name, s.environment,
+              t.http_route AS root_route, t.http_method AS root_method, t.http_status AS root_status,
+              t.release AS root_release`;
+
+function occurrenceOf(r: OccurrenceRow): ErrorOccurrence {
+  const hasRoot =
+    r.root_route !== null || r.root_method !== null || r.root_status !== null;
+  const item = errorItemOf(
+    r,
+    hasRoot
+      ? {
+          http_route: r.root_route,
+          http_method: r.root_method,
+          http_status: r.root_status,
+        }
+      : undefined,
+  );
+  return {
+    traceId: item.traceId,
+    spanId: item.spanId,
+    timeUnixMs: item.timeUnixMs,
+    errorType: item.errorType,
+    message: item.message,
+    route: item.route,
+    service: r.service_name ?? undefined,
+    release: r.root_release ?? undefined,
+    environment: r.environment ?? undefined,
+    // The instant `s.start_time` holds (microseconds), which the bounds above compare.
+    startUnixMs: msOf(r.start_ns),
+    startTime: r.start_text,
+  };
 }
 
 function errorItemOf(

@@ -144,7 +144,11 @@ export interface EnvironmentInfo {
 
 /** Fields shared by every cursor-paged list response. */
 export interface PagedResponse {
-  /** Cursor of the newest item in the store, to pass as `after` on the next poll; `null` when the store is empty. */
+  /**
+   * Cursor for the next poll, to pass as `after`; `null` when the store is empty. Opaque: it need
+   * not equal any item's `cursor` (the standalone server's error list answers an ingest-order
+   * position, D-114, so an error stored late still comes after it).
+   */
   head: string | null;
   /** Cursor for "load older" (pass as `before`); `null` at the end of the store. */
   older: string | null;

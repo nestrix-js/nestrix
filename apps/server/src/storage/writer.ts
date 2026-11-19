@@ -10,7 +10,8 @@
  * 2. partitions: spans for a day with no partition but within retention get one created; spans
  *    older than retention or more than two days ahead are dropped and counted (`outOfRange`);
  * 3. one transaction: spans (one multi-row `INSERT … SELECT FROM unnest(…)`, `ON CONFLICT DO
- *    NOTHING` on the primary key, so a retried export does not duplicate), then the rollups and
+ *    NOTHING` on the primary key, so a retried export does not duplicate; each row's `ingest_seq`
+ *    comes from the column default, under `TRACES_LOCK`, D-114), then the rollups and
  *    trace summaries computed from the spans that were actually inserted (`RETURNING`), then
  *    `services`.
  *
@@ -584,7 +585,8 @@ export class PostgresIngestSink implements IngestSink {
 
   /**
    * Applies the per-trace cap inside the transaction. Takes the traces advisory lock first (the
-   * summary upsert takes it too, so every writer orders lock then insert), reads the stored span
+   * summary upsert takes it too, so every writer orders lock then insert; the span INSERT's
+   * `ingest_seq` relies on it, D-114), reads the stored span
    * count of the batch's traces, and splits `rows` into those that fit and those that do not.
    */
   private async applyTraceCap(
@@ -709,7 +711,16 @@ export class PostgresIngestSink implements IngestSink {
     return ids;
   }
 
-  /** Inserts the rows; returns those actually inserted (not already stored). */
+  /**
+   * Inserts the rows; returns those actually inserted (not already stored).
+   *
+   * Ingest order (D-114): the statement does not name `ingest_seq`; its default
+   * (`nextval('spans_ingest_seq')`, migration 0023) gives each row its value while the INSERT
+   * runs. The caller holds `TRACES_LOCK` from `applyTraceCap` until COMMIT, so values are taken
+   * and committed in one order across writers and server instances, which is what lets the
+   * error-group sync and the live `GET errors` cursor read by `ingest_seq` without skipping a row.
+   * Any new path that inserts spans must take that lock before its INSERT.
+   */
   private async insertSpans(
     client: PoolClient,
     rows: SpanRow[],
