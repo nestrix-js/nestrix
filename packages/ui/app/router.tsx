@@ -16,6 +16,7 @@ import { DependenciesPage } from "@/views/dependencies/dependencies-page";
 import { ErrorsPage } from "@/views/errors/errors-page";
 import { LogsPage } from "@/views/logs/logs-page";
 import { MapPage } from "@/views/map/map-page";
+import { MetricsPage } from "@/views/metrics/metrics-page";
 import { OverviewPage } from "@/views/overview/overview-page";
 import { ProfilerPage } from "@/views/profiler/profiler-page";
 import { QueriesPage } from "@/views/queries/queries-page";
@@ -108,6 +109,11 @@ const runtimeRoute = createRoute({
   path: "/runtime",
   component: RuntimePage,
 });
+const metricsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/metrics",
+  component: MetricsPage,
+});
 const slosRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/slos",
@@ -140,6 +146,7 @@ export const router = createRouter({
     routeDetailRoute,
     classesRoute,
     logsRoute,
+    metricsRoute,
     mapRoute,
     queriesRoute,
     dependenciesRoute,

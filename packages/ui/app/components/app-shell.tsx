@@ -29,6 +29,8 @@ const sloNav = { to: "/slos", label: "SLOs" } as const;
 const alertsNav = { to: "/alerts", label: "Alerts" } as const;
 // Needs the standalone server's stored log lines (issue #17).
 const logsNav = { to: "/logs", label: "Logs" } as const;
+// Needs the standalone server's stored metrics: `meta.metrics.available` (issue #18).
+const metricsNav = { to: "/metrics", label: "Metrics" } as const;
 // The standalone server's settings (API tokens).
 const settingsNav = { to: "/settings", label: "Settings" } as const;
 // Embedded dashboard when `meta.profiler.available`; standalone server when `meta.profiler.remote`.
@@ -76,6 +78,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     meta.data?.profiler?.available === true ||
     (standalone && meta.data?.profiler?.remote === true);
   const runtimeOn = meta.data?.runtime?.available === true;
+  const metricsOn = standalone && meta.data?.metrics?.available === true;
   const services = meta.data?.services ?? [];
   const [selected, setSelected] = useService();
   const environments = meta.data?.environments ?? [];
@@ -234,7 +237,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ...nav,
             ...(profilerOn ? [profilerNav] : []),
             ...(runtimeOn ? [runtimeNav] : []),
-            ...(standalone ? [logsNav, sloNav, alertsNav, settingsNav] : []),
+            ...(standalone ? [logsNav] : []),
+            ...(metricsOn ? [metricsNav] : []),
+            ...(standalone ? [sloNav, alertsNav, settingsNav] : []),
           ].map((item) => (
             <Link
               key={item.to}

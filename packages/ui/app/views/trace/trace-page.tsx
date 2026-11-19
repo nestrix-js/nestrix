@@ -10,11 +10,12 @@ import {
   SkeletonKpiStrip,
   SourceLabel,
 } from "@/components/kit";
-import { ApiRequestError, getTrace, getTraceLogs } from "@/lib/api";
+import { ApiRequestError, getMeta, getTrace, getTraceLogs } from "@/lib/api";
 import { useEnvironment } from "@/lib/environment";
 import { formatDuration } from "@/lib/format";
 import { useService } from "@/lib/service";
 import { summarizeDropped } from "@/lib/trace-omitted";
+import { metricsHrefAroundTrace } from "@/views/metrics/metrics-format";
 import { routeDetailHref } from "@/views/route/route-detail";
 import { CopyButton } from "@/views/trace/copy-button";
 import { OmittedBanner } from "@/views/trace/omitted-banner";
@@ -71,6 +72,10 @@ export function TracePage({ traceId }: { traceId: string }) {
     queryKey: ["trace", traceId],
     queryFn: () => getTrace(traceId),
   });
+  // Issue #18: a link to the stored metrics around the trace, when the server keeps them.
+  const meta = useQuery({ queryKey: ["meta"], queryFn: getMeta });
+  const metricsOn =
+    meta.data?.mode === "standalone" && meta.data.metrics?.available === true;
   // P9-07: the trace's log lines. Optional: a failure (or an older backend without the route)
   // leaves the trace view as it was, without the Logs panel.
   const logs = useQuery({
@@ -226,6 +231,20 @@ export function TracePage({ traceId }: { traceId: string }) {
               </Chip>
             ) : null}
             <TraceId id={trace.traceId} />
+            {metricsOn && (
+              <Link
+                to={
+                  metricsHrefAroundTrace(
+                    { service: summary.service ?? service, environment },
+                    summary,
+                  ) as "/"
+                }
+                data-testid="trace-metrics-link"
+                className="ml-auto text-sm underline underline-offset-4"
+              >
+                Metrics around this time
+              </Link>
+            )}
           </div>
         </div>
       </header>

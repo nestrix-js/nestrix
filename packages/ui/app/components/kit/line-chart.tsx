@@ -19,6 +19,16 @@ interface ChartProps {
   label: string;
   height?: number;
   testId?: string;
+  /**
+   * The y axis spans at least 0 to this value (default 1), so a chart of small numbers (CPU as a
+   * fraction of a core, seconds) is not drawn flat against a larger floor.
+   */
+  minMax?: number;
+  /**
+   * Makes the chart selectable: a click reports the time under the cursor (`fromSeconds` equals
+   * `toSeconds`), a drag reports the range it covers (Unix seconds, ascending).
+   */
+  onRange?: (fromSeconds: number, toSeconds: number) => void;
 }
 
 const cssColor = (name: string) =>
@@ -66,12 +76,15 @@ export function Chart({
   label,
   height = 160,
   testId,
+  minMax = 1,
+  onRange,
 }: ChartProps) {
   const ref = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
   const scheme = useColorScheme();
-  const latest = useRef({ xs, series, format });
-  latest.current = { xs, series, format };
+  const latest = useRef({ xs, series, format, onRange });
+  latest.current = { xs, series, format, onRange };
+  const selectable = onRange !== undefined;
   // The plot is rebuilt for these only.
   const shape = JSON.stringify(series.map((s) => [s.label, s.color]));
 
@@ -87,6 +100,7 @@ export function Chart({
       grid: { stroke: cssColor("--border"), width: 1 },
       ticks: { stroke: cssColor("--border"), width: 1 },
     };
+    let dragged = false;
     const plot = new uPlot(
       {
         width: el.clientWidth || 480,
@@ -100,8 +114,48 @@ export function Chart({
           },
         ],
         scales: {
-          y: { range: (_u, _min, max) => [0, Math.max(max, 1) * 1.1] },
+          y: {
+            range: (_u, _min, max) => [0, Math.max(max, minMax) * 1.1],
+          },
         },
+        ...(selectable
+          ? {
+              cursor: { drag: { x: true, y: false, setScale: false } },
+              hooks: {
+                setSelect: [
+                  (u: uPlot) => {
+                    if (u.select.width < 3) return;
+                    const from = u.posToVal(u.select.left, "x");
+                    const to = u.posToVal(u.select.left + u.select.width, "x");
+                    dragged = true;
+                    u.setSelect(
+                      { left: 0, top: 0, width: 0, height: 0 },
+                      false,
+                    );
+                    latest.current.onRange?.(from, to);
+                  },
+                ],
+                ready: [
+                  (u: uPlot) => {
+                    u.over.style.cursor = "crosshair";
+                    u.over.addEventListener("click", () => {
+                      // A drag ends with a click on the same element: it was already reported.
+                      if (dragged) {
+                        dragged = false;
+                        return;
+                      }
+                      const idx = u.cursor.idx;
+                      const x =
+                        idx === null || idx === undefined
+                          ? undefined
+                          : u.data[0][idx];
+                      if (x !== undefined) latest.current.onRange?.(x, x);
+                    });
+                  },
+                ],
+              },
+            }
+          : {}),
         series: [
           {},
           ...s0.map((s) => ({
@@ -128,7 +182,7 @@ export function Chart({
       plot.destroy();
       plotRef.current = null;
     };
-  }, [shape, scheme, height]);
+  }, [shape, scheme, height, minMax, selectable]);
 
   useEffect(() => {
     plotRef.current?.setData([xs, ...series.map((s) => s.values)]);
