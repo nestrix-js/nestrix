@@ -169,6 +169,7 @@ overrides:
   minimatch@>=7.0.0 <11.0.1: ^11.0.1
   esbuild@<0.25.0: ^0.25.0
   vite@<6.4.4: ^6.4.4
+  fastify@>=5.0.0 <5.12.6: ^5.12.6
 
 packageExtensionsChecksum: sha256-yQXDKx8JEp3A/Q2wXaF2jZa/u8CL4uHekj9ig9XprnI=
 
@@ -2161,7 +2162,7 @@ packages:
   '@fastify/compress@9.3.0':
     resolution: {integrity: sha512-vvm+933zsfsnw7nKsy2GWyix54k7aq3j+9EkwfH6ncngt+DUt5tgVQ/uH07/JrbOWXt1mjADjZ5MbKKwu1xhmA==}
     peerDependencies:
-      fastify: ^5.0.0
+      fastify: ^5.12.6
 
   '@fastify/cors@11.3.0':
     resolution: {integrity: sha512-ggQGua+xHv1MvePbPr0v//xLYEsCXbWspquXCJS9Ot5YoRXq8J8ZWzHnxDBVnbtXosvistXo6LtNzOJswf64Fw==}
@@ -2193,7 +2194,7 @@ packages:
   '@fastify/helmet@13.2.0':
     resolution: {integrity: sha512-2u41U5hR9o1u3HUHLT3Njp7vWuWw+XXw8qCBwVY17pRQAN179YYKiU9f7/qEn1ITabgNTkq/Yk6gmrYPSraagA==}
     peerDependencies:
-      fastify: ^5.0.0
+      fastify: ^5.12.6
 
   '@fastify/merge-json-schemas@0.2.2':
     resolution: {integrity: sha512-d/gx9sRbUCVgGRGzma46wLcwiY8noTqO2Nmjg/vbTARxHRE5bdh5PIL8s97Lt1X7ScRWRW52eVYxwIoPwIdVUA==}
@@ -2845,7 +2846,7 @@ packages:
       '@nestjs/core': ^12.0.0
       '@nestjs/platform-node': ^12.3.1
       express: ^5.0.1
-      fastify: ^5.2.1
+      fastify: ^5.12.6
     peerDependenciesMeta:
       '@fastify/static':
         optional: true
@@ -5026,9 +5027,6 @@ packages:
 
   fastify-plugin@6.0.1:
     resolution: {integrity: sha512-4wW4RxSmvPXLrh5mgQEiu43qU3bw44N2ss4FTkTkQIbprUhE+/s43QX0j/ttcztdWK7PEkHqVthdc5GdEGDvjA==}
-
-  fastify@5.12.5:
-    resolution: {integrity: sha512-OB2k1dlxs5/NAABqeKV2FUHkSD2BbENsCak8yULVcymn3fHIPDVa9TI3SDnJSWYSllZmSYuZXy2gTnsT+Sut1A==}
 
   fastify@5.12.7:
     resolution: {integrity: sha512-v4pEPsTRPuqlDIYiQFB+BHjVN4SdHX9u0ABk0ZDUKbbdY1vsNryUd1j4Z+jQEZajvYIVk047Kimva9/AJ79GYw==}
@@ -8344,7 +8342,7 @@ snapshots:
       '@nestjs/common': 12.0.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
       '@nestjs/core': 12.0.0(@nestjs/common@12.0.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/microservices@12.0.4)(@nestjs/platform-express@12.0.0)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       fast-querystring: 1.1.2
-      fastify: 5.12.5
+      fastify: 5.12.8
       find-my-way: 9.9.0
       light-my-request: 6.6.0
       path-to-regexp: 8.4.2
@@ -10374,24 +10372,6 @@ snapshots:
       fast-string-width: 3.0.2
 
   fastify-plugin@6.0.1: {}
-
-  fastify@5.12.5:
-    dependencies:
-      '@fastify/ajv-compiler': 4.0.7
-      '@fastify/error': 4.2.1
-      '@fastify/fast-json-stringify-compiler': 5.1.1
-      '@fastify/proxy-addr': 5.1.2
-      abstract-logging: 2.0.1
-      avvio: 9.3.1
-      fast-json-stringify: 7.3.4
-      find-my-way: 9.9.0
-      light-my-request: 6.6.0
-      pino: 10.4.0
-      process-warning: 5.1.1
-      rfdc: 1.4.1
-      secure-json-parse: 4.1.1
-      semver: 7.8.6
-      toad-cache: 3.7.4
 
   fastify@5.12.7:
     dependencies:
