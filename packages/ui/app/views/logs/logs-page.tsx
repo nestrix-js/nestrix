@@ -171,7 +171,7 @@ export function LogsPage() {
           onChange={(e) => setDraft({ ...draft, traceId: e.target.value })}
           className={cn(
             FIELD,
-            "w-72 font-mono",
+            "w-full font-mono sm:w-72",
             !traceOk && "border-destructive",
           )}
         />
@@ -193,7 +193,7 @@ export function LogsPage() {
               : "storing lines with a trace id only"}
           </Chip>
           {dropped && (
-            <Chip data-testid="logs-dropped" tone="warn">
+            <Chip data-testid="logs-dropped" tone="warn" wrap>
               {dropped}
             </Chip>
           )}
@@ -266,7 +266,7 @@ function LogRow({ line }: { line: LogSearchRecord }) {
       </span>
       <span
         data-testid="log-message"
-        className="min-w-0 flex-1 whitespace-pre-wrap break-words"
+        className="min-w-0 basis-full whitespace-pre-wrap break-words sm:flex-1 sm:basis-0"
       >
         {line.message}
       </span>

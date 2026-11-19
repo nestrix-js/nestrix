@@ -294,13 +294,16 @@ export function Waterfall({
             className="overflow-auto border-t border-border outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
             style={{ height: viewport }}
           >
-            <div className="min-w-[640px]">
+            <div className="min-w-[420px] sm:min-w-[640px]">
               <div
                 role="row"
                 data-testid="waterfall-scale"
                 className="sticky top-0 z-10 flex h-7 border-b border-border bg-muted text-xs text-muted-foreground"
               >
-                <div role="columnheader" className="w-72 shrink-0 px-2 py-1.5">
+                <div
+                  role="columnheader"
+                  className="w-40 shrink-0 sm:w-72 px-2 py-1.5"
+                >
                   Span
                 </div>
                 <div role="columnheader" className="relative flex-1">
@@ -340,7 +343,7 @@ export function Waterfall({
                       >
                         <div
                           role="gridcell"
-                          className="w-72 shrink-0 truncate px-2"
+                          className="w-40 shrink-0 sm:w-72 truncate px-2"
                           style={{
                             paddingLeft:
                               8 +
@@ -475,7 +478,7 @@ function WaterfallRow({
     >
       <div
         role="gridcell"
-        className="relative flex w-72 shrink-0 items-center gap-1 overflow-hidden px-2"
+        className="relative flex w-40 shrink-0 sm:w-72 items-center gap-1 overflow-hidden px-2"
         style={{ paddingLeft: 8 + indent }}
       >
         {Array.from({ length: levels }, (_, level) => (

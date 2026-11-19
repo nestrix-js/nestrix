@@ -157,8 +157,8 @@ function FindingRow({
         )}
         {worse ? "Worse" : "Better"}
       </span>
-      <div className="min-w-0 flex-1 space-y-1">
-        <p className="text-sm" data-testid="finding-title">
+      <div className="min-w-0 basis-full space-y-1 sm:flex-1 sm:basis-0">
+        <p className="break-words text-sm" data-testid="finding-title">
           {f.title}
         </p>
         {f.shareOfChange !== null && (
