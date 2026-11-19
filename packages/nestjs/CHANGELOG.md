@@ -1,5 +1,13 @@
 # @nestrix-js/nestjs
 
+## 0.9.2
+
+### Patch Changes
+
+- [#84](https://github.com/nestrix-js/nestrix/pull/84) [`47913e2`](https://github.com/nestrix-js/nestrix/commit/47913e26c505cf65b152df311737f33bfaea79b9) Thanks [@lamberto15](https://github.com/lamberto15)! - Standalone server: the ingest memory budget now also charges the joined copy of a body that arrived in several chunks, and the strings a body decodes into, so peak memory stays closer to the budget under bursts of large exports. A join that cannot be allocated answers 503 instead of escaping as an uncaught exception.
+- Updated dependencies [[`fa28fff`](https://github.com/nestrix-js/nestrix/commit/fa28fffd7d0c788f61b34e6637664419a37c9593)]:
+  - @nestrix-js/ui@0.9.2
+
 ## 0.9.1
 
 ### Patch Changes
