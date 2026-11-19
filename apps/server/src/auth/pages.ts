@@ -16,14 +16,14 @@ export const OIDC_START_PATH = "/login/oidc";
 export const PASSWORD_NOT_SET_MESSAGE =
   "The Nestrix dashboard and query API are disabled because NESTRIX_ADMIN_PASSWORD is not set. Set it (at least 12 characters), or configure single sign-on (NESTRIX_OIDC_ISSUER), and restart the server. Trace ingest at /v1/traces is not affected.";
 
-export const LOGIN_CSS = `:root{color-scheme:light dark;--background:oklch(1 0 0);--foreground:oklch(.145 0 0);--card:oklch(1 0 0);--muted:oklch(.97 0 0);--muted-foreground:oklch(.45 0 0);--border:oklch(.922 0 0);--primary:oklch(.205 0 0);--primary-foreground:oklch(.985 0 0);--destructive:oklch(.577 .245 27.325);--destructive-text:oklch(.5 .21 27);--warning:oklch(.7 .16 70);--warning-text:oklch(.5 .12 65);--focus:oklch(.55 .2 260);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-@media (prefers-color-scheme:dark){:root{--background:oklch(.145 0 0);--foreground:oklch(.985 0 0);--card:oklch(.18 0 0);--muted:oklch(.269 0 0);--muted-foreground:oklch(.708 0 0);--border:oklch(1 0 0 / 10%);--primary:oklch(.922 0 0);--primary-foreground:oklch(.205 0 0);--destructive-text:oklch(.7 .19 25);--warning:oklch(.8 .15 80);--warning-text:oklch(.8 .15 80);--focus:oklch(.72 .15 255)}}
+export const LOGIN_CSS = `:root{color-scheme:light dark;--background:oklch(1 0 0);--foreground:oklch(.145 0 0);--card:oklch(1 0 0);--muted:oklch(.97 0 0);--muted-foreground:oklch(.45 0 0);--border:oklch(.922 0 0);--primary:oklch(.205 0 0);--primary-foreground:oklch(.985 0 0);--destructive:oklch(.577 .245 27.325);--destructive-text:oklch(.5 .21 27);--warning:oklch(.7 .16 70);--warning-text:oklch(.5 .12 65);--focus:oklch(.55 .2 260);--info:oklch(.5 .17 260);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+@media (prefers-color-scheme:dark){:root{--background:oklch(.145 0 0);--foreground:oklch(.985 0 0);--card:oklch(.18 0 0);--muted:oklch(.269 0 0);--muted-foreground:oklch(.708 0 0);--border:oklch(1 0 0 / 10%);--primary:oklch(.922 0 0);--primary-foreground:oklch(.205 0 0);--destructive-text:oklch(.7 .19 25);--warning:oklch(.8 .15 80);--warning-text:oklch(.8 .15 80);--focus:oklch(.72 .15 255);--info:oklch(.76 .12 255)}}
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1rem;background:var(--background);color:var(--foreground);-webkit-font-smoothing:antialiased}
 main{width:min(24rem,100%);background:var(--card);border:1px solid var(--border);border-radius:.75rem;padding:2rem 1.75rem;box-shadow:0 1px 2px oklch(0 0 0 / 6%),0 8px 24px oklch(0 0 0 / 6%)}
-.brand{display:flex;align-items:center;gap:.625rem;margin:0 0 1.5rem}
-.mark{width:2rem;height:2rem;flex:none;padding:.4rem;border-radius:.5rem;background:var(--primary);color:var(--primary-foreground)}
-h1{font-size:1.125rem;font-weight:600;letter-spacing:-.01em;margin:0}
+.brand{display:flex;align-items:center;gap:.5rem;margin:0 0 1.5rem}
+.mark{width:1.25rem;height:1.25rem;flex:none;color:var(--info)}
+h1{font-size:1rem;font-weight:600;letter-spacing:-.01em;margin:0}
 h2{font-size:1.25rem;font-weight:600;letter-spacing:-.01em;margin:0 0 .25rem}
 .lead{margin:0 0 1.25rem;color:var(--muted-foreground)}
 form{display:flex;flex-direction:column;gap:.75rem}
@@ -40,12 +40,14 @@ a.button:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 p{font-size:.875rem;line-height:1.5;margin:0}
 .notice{display:flex;gap:.5rem;align-items:flex-start;padding:.625rem .75rem;border-radius:.5rem;border:1px solid var(--destructive);background:oklch(.577 .245 27.325 / 8%);color:var(--destructive-text)}
 .notice.caution{border-color:var(--warning);background:oklch(.7 .16 70 / 10%);color:var(--foreground)}
+.notice+a.button,.notice+.or{margin-top:.75rem}
 .notice svg{width:1rem;height:1rem;flex:none;margin-top:.15rem}
 .notice.caution svg{color:var(--warning-text)}
 .hint{margin-top:1.25rem;font-size:.75rem;color:var(--muted-foreground)}
 `;
 
-const MARK = `<svg class="mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="2" y="4" width="14" height="4" rx="1.5" fill="currentColor"/><rect x="7" y="10" width="15" height="4" rx="1.5" fill="currentColor" opacity=".75"/><rect x="4" y="16" width="9" height="4" rx="1.5" fill="currentColor" opacity=".5"/></svg>`;
+// The dashboard header's mark: lucide's Activity icon, drawn the same way, inline because the CSP allows no images.
+const MARK = `<svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>`;
 
 const ALERT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`;
 

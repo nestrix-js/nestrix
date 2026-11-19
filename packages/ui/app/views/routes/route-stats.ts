@@ -1,4 +1,5 @@
 import type { RouteStats } from "@nestrix-js/protocol";
+import { formatFraction } from "@/components/kit/format";
 
 import type { ChartSeries } from "@/components/kit/line-chart";
 import { PERCENTILE_COLOR } from "@/components/kit/series-colors";
@@ -42,9 +43,7 @@ export function sortByCount(routes: readonly RouteStats[]): RouteStats[] {
 /** "3.4%", "0%"; "-" for a route with no requests. */
 export function formatErrorRate(errors: number, count: number): string {
   if (count <= 0) return "-";
-  const percent = (errors / count) * 100;
-  if (percent === 0) return "0%";
-  return `${percent < 10 ? percent.toFixed(1) : percent.toFixed(0)}%`;
+  return formatFraction(errors / count);
 }
 
 export interface RouteCharts {

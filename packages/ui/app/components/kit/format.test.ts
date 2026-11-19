@@ -8,12 +8,18 @@ import {
   compactNumber,
   cumulativeSeries,
   donutSlices,
+  formatDuration,
+  formatFraction,
+  formatPercent,
   heatLevel,
   heatOpacity,
   linePath,
+  MINUS,
   niceMax,
   ringDasharray,
   stackHeights,
+  twoDigits,
+  withSign,
 } from "@/components/kit/format";
 
 describe("barPercent", () => {
@@ -142,5 +148,92 @@ describe("donutSlices and ringDasharray", () => {
       `${(circumference / 2).toFixed(2)} ${(circumference / 2).toFixed(2)}`,
     );
     expect(ringDasharray(2, 10)).toBe(`${circumference.toFixed(2)} 0.00`);
+  });
+});
+
+describe("twoDigits", () => {
+  it("is one decimal below 10 and whole from 10, without the sign", () => {
+    expect(twoDigits(0)).toBe("0.0");
+    expect(twoDigits(4.24)).toBe("4.2");
+    expect(twoDigits(9.94)).toBe("9.9");
+    expect(twoDigits(12.6)).toBe("13");
+    expect(twoDigits(-3.45)).toBe("3.5");
+  });
+  it("never writes 10.0: a rounding that reaches 10 is whole", () => {
+    expect(twoDigits(9.96)).toBe("10");
+    expect(twoDigits(99.6)).toBe("100");
+  });
+});
+
+describe("formatDuration", () => {
+  it("writes zero as 0 ms and a sliver as under a tenth", () => {
+    expect(formatDuration(0)).toBe("0 ms");
+    expect(formatDuration(0.04)).toBe("<0.1 ms");
+    expect(formatDuration(0.05)).toBe("0.1 ms");
+  });
+  it("has two significant digits in every unit", () => {
+    expect(formatDuration(0.46)).toBe("0.5 ms");
+    expect(formatDuration(4.2)).toBe("4.2 ms");
+    expect(formatDuration(48)).toBe("48 ms");
+    expect(formatDuration(96)).toBe("96 ms");
+    expect(formatDuration(680)).toBe("680 ms");
+    expect(formatDuration(1000)).toBe("1.0 s");
+    expect(formatDuration(1080)).toBe("1.1 s");
+    expect(formatDuration(12_400)).toBe("12 s");
+    expect(formatDuration(90_000)).toBe("1.5 min");
+    expect(formatDuration(720_000)).toBe("12 min");
+  });
+  it("takes the unit of the rounded value, so no 1000 ms and no 60 s", () => {
+    expect(formatDuration(999.7)).toBe("1.0 s");
+    expect(formatDuration(9.96)).toBe("10 ms");
+    expect(formatDuration(59_700)).toBe("1.0 min");
+  });
+  it("gives a difference a true minus and an unknown value a dash", () => {
+    expect(formatDuration(-3.4)).toBe(`${MINUS}3.4 ms`);
+    expect(formatDuration(Number.NaN)).toBe("-");
+    expect(formatDuration(Number.POSITIVE_INFINITY)).toBe("-");
+  });
+});
+
+describe("formatPercent", () => {
+  it("has no space before the sign and two significant digits", () => {
+    expect(formatPercent(0)).toBe("0%");
+    expect(formatPercent(1.94)).toBe("1.9%");
+    expect(formatPercent(7.8)).toBe("7.8%");
+    expect(formatPercent(12.4)).toBe("12%");
+    expect(formatPercent(100)).toBe("100%");
+    expect(formatPercent(1.94)).not.toContain(" ");
+  });
+  it("marks a sliver instead of writing 0.0%", () => {
+    expect(formatPercent(0.04)).toBe("<0.1%");
+    expect(formatPercent(0.05)).toBe("0.1%");
+  });
+  it("never rounds a share below 100 up to 100", () => {
+    expect(formatPercent(99.6)).toBe("99.6%");
+    expect(formatPercent(99.94)).toBe("99.9%");
+    expect(formatPercent(99.96)).toBe("100%");
+  });
+  it("gives a negative value (an overspent budget) a true minus", () => {
+    expect(formatPercent(-150)).toBe(`${MINUS}150%`);
+    expect(formatPercent(-2.5)).toBe(`${MINUS}2.5%`);
+  });
+  it("is a dash when not finite, and formatFraction scales a fraction", () => {
+    expect(formatPercent(Number.NaN)).toBe("-");
+    expect(formatFraction(0.078)).toBe("7.8%");
+    expect(formatFraction(1)).toBe("100%");
+  });
+});
+
+describe("withSign", () => {
+  const ms = (m: number) => formatDuration(m);
+  it("writes a plus for a rise and a true minus for a fall", () => {
+    expect(withSign(12, ms, "0 ms")).toBe("+12 ms");
+    expect(withSign(-28, formatPercent, "0%")).toBe("−28%");
+    expect(withSign(-28, formatPercent, "0%")).not.toContain("-");
+  });
+  it("has no sign when the value rounds to zero", () => {
+    expect(withSign(0, ms, "0 ms")).toBe("0 ms");
+    expect(withSign(0.03, ms, "0 ms")).toBe("0 ms");
+    expect(withSign(-0.03, formatPercent, "0%")).toBe("0%");
   });
 });

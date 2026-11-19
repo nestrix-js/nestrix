@@ -24,6 +24,11 @@ import {
   DonutLegend,
   Swatch,
 } from "@/components/kit/donut";
+import { PageHeader } from "@/components/kit/page-header";
+import {
+  usePageSourceKind,
+  withoutPageSource,
+} from "@/components/kit/page-source";
 import { ScoreRing } from "@/components/kit/score-ring";
 import { Section } from "@/components/kit/section";
 import { SegmentedControl } from "@/components/kit/segmented-control";
@@ -144,8 +149,7 @@ function HealthCard({ data }: { data: OverviewResponse }) {
           {health.summary}
         </p>
         <p className="text-xs text-muted-foreground">
-          Score from route statistics ({SOURCE_STATS}) and what changed in
-          sampled traces.
+          Score from route statistics and what changed in sampled traces.
         </p>
       </div>
       {top && (
@@ -170,6 +174,10 @@ function InsightRow({
 }) {
   const worse = insight.direction === "worse";
   const tone: Tone = worse ? "worse" : "better";
+  const page = usePageSourceKind();
+  const own = showSource
+    ? withoutPageSource(SOURCE_LABEL[insight.source], page)
+    : "";
   return (
     <li data-testid="insight" data-kind={insight.kind}>
       <Link
@@ -199,7 +207,7 @@ function InsightRow({
           <span className="block text-sm font-medium">{insight.title}</span>
           <span className="block text-xs text-muted-foreground">
             {insight.detail}
-            {showSource && ` · ${SOURCE_LABEL[insight.source]}`}
+            {own !== "" && ` · ${own}`}
           </span>
         </span>
         <span className="hidden sm:contents">
@@ -238,13 +246,13 @@ function InsightsCard({
   note: string | null;
   emptyText: string;
 }) {
+  // The page says "before sampling" once. A card names its source only when every row has the
+  // same other one; when rows differ, each row that differs from the page says so.
   const sources = new Set(items.map((i) => i.source));
   const source =
-    sources.size === 0
-      ? `${SOURCE_STATS} and ${SOURCE_TRACES}`
-      : sources.size === 2
-        ? `${SOURCE_STATS} and ${SOURCE_TRACES}, labelled per row`
-        : SOURCE_LABEL[[...sources][0] as Insight["source"]];
+    sources.size === 1
+      ? SOURCE_LABEL[[...sources][0] as Insight["source"]]
+      : "";
   return (
     <Section
       title={title}
@@ -350,7 +358,7 @@ function LatencyCard({ data }: { data: OverviewResponse }) {
     <Section
       title="Latency percentiles"
       testId="card-latency"
-      source={`All routes · route statistics (${SOURCE_STATS})`}
+      source={`All routes · ${SOURCE_STATS}`}
       className="lg:col-span-2"
       actions={
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
@@ -440,7 +448,8 @@ function StatusCard({ data }: { data: OverviewResponse }) {
           rowTestId="status-row"
           items={STATUS_PARTS.map((p) => ({
             key: p.key,
-            label: p.label,
+            label: p.short,
+            title: p.label,
             color: p.color,
             value: total > 0 ? formatShare(data.status[p.key] / total) : "—",
           }))}
@@ -495,7 +504,7 @@ function TimeCard({
                 : ""}
             </span>
           </Donut>
-          <ul className="min-w-44 flex-1 space-y-2 text-sm">
+          <ul className="grid min-w-56 flex-1 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-2 text-sm">
             {parts.map((t) => {
               const change =
                 t.previousShare === null ? null : t.share - t.previousShare;
@@ -504,12 +513,19 @@ function TimeCard({
                   key={t.key}
                   data-testid="time-row"
                   data-key={t.key}
-                  className="flex items-center gap-2"
+                  className="col-span-4 grid grid-cols-subgrid items-center"
                 >
                   <Swatch color={TIME_KINDS[t.key].color} />
-                  <span className="flex-1">{TIME_KINDS[t.key].label}</span>
-                  <span className="font-mono">{formatShare(t.share)}</span>
-                  <span className="w-20 text-right">
+                  <span
+                    className="min-w-0 truncate"
+                    title={TIME_KINDS[t.key].label}
+                  >
+                    {TIME_KINDS[t.key].short}
+                  </span>
+                  <span className="text-right font-mono">
+                    {formatShare(t.share)}
+                  </span>
+                  <span className="min-w-16 whitespace-nowrap text-right">
                     <Delta
                       text={
                         covered
@@ -806,14 +822,16 @@ function SlosCard() {
     <Section
       title="Error budgets"
       testId="card-slos"
-      source={`SLOs of the standalone server · ${SOURCE_TRACES}`}
+      // SLOs are computed from the route rollups (apps/server/src/slos/compute.ts), so they
+      // share the page's "counted before sampling" and need no source of their own.
+      source="SLOs of the standalone server"
       actions={
         <Link to="/slos" className="text-xs underline">
           All SLOs
         </Link>
       }
     >
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-3">
         {list.map((slo) => {
           const left = slo.status.errorBudget.remainingFraction;
           return (
@@ -946,19 +964,23 @@ export function OverviewPage() {
 
   return (
     <section className="space-y-4" aria-label="Overview">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">Overview</h2>
-        <SegmentedControl
-          label="Time window"
-          options={windowChoices(meta.data?.statistics.windowMinutesOptions)}
-          value={windowMinutes}
-          onChange={(minutes) =>
-            void setQuery({
-              windowMinutes: minutes === DEFAULT_WINDOW ? null : minutes,
-            })
-          }
-        />
-      </div>
+      <PageHeader
+        title="Overview"
+        description="How the service is doing against the previous window"
+        source="stats"
+        controls={
+          <SegmentedControl
+            label="Time window"
+            options={windowChoices(meta.data?.statistics.windowMinutesOptions)}
+            value={windowMinutes}
+            onChange={(minutes) =>
+              void setQuery({
+                windowMinutes: minutes === DEFAULT_WINDOW ? null : minutes,
+              })
+            }
+          />
+        }
+      />
 
       {overview.isError && !data && (
         <ErrorState
@@ -1037,10 +1059,10 @@ export function OverviewPage() {
             windowMinutes={windowMinutes}
             covered={data.previousCovered}
           />
-          {(standalone || runtimeOn) && (
+          {standalone && <SlosCard />}
+          {!standalone && runtimeOn && (
             <div className="grid gap-4 lg:grid-cols-2">
-              {standalone && <SlosCard />}
-              {!standalone && runtimeOn && <RuntimeCard />}
+              <RuntimeCard />
             </div>
           )}
         </>

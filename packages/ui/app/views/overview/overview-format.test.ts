@@ -75,12 +75,13 @@ describe("formatPoints and formatApdexDelta", () => {
 });
 
 describe("formatShare and formatShareChange", () => {
-  it("shows one decimal and never rounds up to 100% early", () => {
-    expect(formatShare(0.964)).toBe("96.4%");
+  it("keeps two significant digits and never rounds up to 100% early", () => {
+    expect(formatShare(0.964)).toBe("96%");
+    expect(formatShare(0.064)).toBe("6.4%");
     expect(formatShare(0.009)).toBe("0.9%");
     expect(formatShare(0.9999)).toBe("100%");
     expect(formatShare(0.9951)).toBe("99.5%");
-    expect(formatShareChange(0.41, 0.29)).toBe("+12.0 pt");
+    expect(formatShareChange(0.41, 0.29)).toBe("+12 pt");
     expect(formatShareChange(0.41, null)).toBe("—");
   });
 });
@@ -170,7 +171,7 @@ describe("buildKpis", () => {
         previousTotals: null,
       }),
     );
-    expect(p95).toMatchObject({ value: "1.10", unit: "s" });
+    expect(p95).toMatchObject({ value: "1.1", unit: "s" });
     expect(apdex?.value).toBe("—");
   });
 });

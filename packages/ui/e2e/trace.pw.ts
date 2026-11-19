@@ -112,7 +112,7 @@ test("rows: names, nesting, kinds and error marks of the protocol fixture", asyn
   await expect(page.getByTestId("trace-id")).toHaveText(trace.traceId);
   // Scale header: five marks from 0 to the axis end.
   await expect(page.getByTestId("scale-tick")).toHaveCount(5);
-  await expect(page.getByTestId("scale-tick").first()).toHaveText("0.00 ms");
+  await expect(page.getByTestId("scale-tick").first()).toHaveText("0 ms");
   expect(await violations(page)).toEqual([]);
   expect(problems).toEqual([]);
 });

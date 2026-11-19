@@ -159,7 +159,7 @@ for (const scheme of SCHEMES) {
     await expect(page.getByTestId("flame-legend")).toContainText("V8");
     await expect(page.getByTestId("origin-row")).toHaveCount(4);
     // The donut is computed from the profile: your code is 910 of 2650 samples.
-    await expect(page.getByTestId("origin-donut")).toContainText("34.3%");
+    await expect(page.getByTestId("origin-donut")).toContainText("34%");
     await expect(page.getByTestId("profile-download")).toHaveCount(1);
     await page.screenshot({
       path: `${SHOTS}/p14-profiler-${scheme}.png`,

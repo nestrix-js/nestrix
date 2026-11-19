@@ -70,7 +70,7 @@ test("shows the histogram with percentiles, and a bucket opens the request list 
     panel.getByTestId("chart-histogram").locator("canvas"),
   ).toBeVisible();
   await expect(panel).toContainText("45 requests counted before sampling");
-  await expect(panel.getByTestId("histogram-p50")).toHaveText("12.0 ms");
+  await expect(panel.getByTestId("histogram-p50")).toHaveText("12 ms");
   await expect(panel.getByTestId("histogram-p95")).toHaveText("180 ms");
   await expect(panel.getByTestId("histogram-p99")).toHaveText("900 ms");
   // Only buckets that hold requests are offered, with their counts.
@@ -230,9 +230,11 @@ test("Compare tab: window against the previous one, regressions highlighted, sor
   await page.getByRole("tab", { name: "Compare" }).click();
   await expect(page).toHaveURL(/view=compare/);
   await expect(compareRows(page)).toHaveCount(5);
+  // The Routes header says "counted before sampling"; the note does not repeat it.
   await expect(page.getByTestId("compare-note")).toContainText(
-    "counted before sampling",
+    "against the 15 minutes before",
   );
+  await expect(page.getByTestId("compare-note")).not.toContainText("sampling");
   const asked = mock.requests.find((r) => r.startsWith("routes/compare?"));
   const params = new URLSearchParams(asked?.split("?")[1]);
   expect(params.get("windowMinutes")).toBe("15");

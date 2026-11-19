@@ -11,6 +11,7 @@ import {
   SourceLabel,
 } from "@/components/kit";
 import { ApiRequestError, getMeta, getTrace, getTraceLogs } from "@/lib/api";
+import { formatClockTime, formatZone } from "@/lib/clock-time";
 import { useEnvironment } from "@/lib/environment";
 import { formatDuration } from "@/lib/format";
 import { useService } from "@/lib/service";
@@ -219,7 +220,10 @@ export function TracePage({ traceId }: { traceId: string }) {
                 dateTime={new Date(summary.startMs).toISOString()}
                 title={new Date(summary.startMs).toISOString()}
               >
-                {new Date(summary.startMs).toLocaleString()}
+                {formatClockTime(summary.startMs)}{" "}
+                <span className="text-muted-foreground">
+                  ({formatZone(summary.startMs)})
+                </span>
               </time>
             </Fact>
             <Fact label="Service" testId="trace-service">

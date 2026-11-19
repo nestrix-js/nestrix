@@ -119,7 +119,7 @@ test("a capture goes pending, running, done, and its detail renders", async ({
   // The newest finished capture opens by itself: the shared flame graph and table.
   const top = page.getByTestId("top-functions").locator("tbody tr");
   await expect(top.first()).toContainText("hotRouteWork");
-  await expect(top.first()).toContainText("83.0%");
+  await expect(top.first()).toContainText("83%");
   const graph = page.getByTestId("flame-graph");
   const hot = graph.locator(
     '[data-testid="flame-bar"][data-name="hotRouteWork"]',

@@ -132,10 +132,10 @@ describe("compare verdicts and sorting", () => {
   });
 
   it("formats deltas with a sign", () => {
-    expect(formatDeltaMs(12)).toBe("+12.0 ms");
-    expect(formatDeltaMs(-3.4)).toBe("-3.4 ms");
+    expect(formatDeltaMs(12)).toBe("+12 ms");
+    expect(formatDeltaMs(-3.4)).toBe("−3.4 ms");
     expect(formatDeltaMs(null)).toBe("-");
     expect(formatDeltaRate(0.02)).toBe("+2.0 pt");
-    expect(formatDeltaRate(-0.005)).toBe("-0.5 pt");
+    expect(formatDeltaRate(-0.005)).toBe("−0.5 pt");
   });
 });

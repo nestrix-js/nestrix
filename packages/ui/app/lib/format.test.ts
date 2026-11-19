@@ -49,10 +49,10 @@ describe("where the sampling notice shows", () => {
 
 describe("formatDuration", () => {
   it("picks a unit by magnitude", () => {
-    expect(formatDuration(0.456)).toBe("0.46 ms");
-    expect(formatDuration(12.34)).toBe("12.3 ms");
+    expect(formatDuration(0.456)).toBe("0.5 ms");
+    expect(formatDuration(12.34)).toBe("12 ms");
     expect(formatDuration(245)).toBe("245 ms");
-    expect(formatDuration(2250.1)).toBe("2.25 s");
+    expect(formatDuration(2250.1)).toBe("2.3 s");
     expect(formatDuration(90_000)).toBe("1.5 min");
     expect(formatDuration(Number.NaN)).toBe("-");
   });

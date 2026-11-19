@@ -78,8 +78,12 @@ export function StatTile({
       <div className="flex items-baseline gap-1.5">
         <span data-testid="kpi-value" className="text-2xl font-semibold">
           {value}
+          {/* A percent sign belongs to the number ("1.9%"); a unit of its own ("286 ms") does not. */}
+          {unit === "%" ? "%" : null}
         </span>
-        {unit && <span className="text-xs text-muted-foreground">{unit}</span>}
+        {unit && unit !== "%" && (
+          <span className="text-xs text-muted-foreground">{unit}</span>
+        )}
       </div>
       {series && series.length > 0 && (
         <TrendLine

@@ -1,6 +1,6 @@
 import type { Server } from "node:http";
 import type { Slo } from "@nestrix-js/protocol";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 import { recordViolations, requestRows, violations, watch } from "./helpers.ts";
 import type { MockApi } from "./mock-api.ts";
@@ -34,9 +34,6 @@ test.beforeEach(() => {
     routes.compare(Number(q.get("windowMinutes") ?? 15));
 });
 
-const text = (page: Page, testId: string) =>
-  page.getByTestId(testId).textContent();
-
 test("degraded: the verdict, both lists, the KPI changes and the donuts", async ({
   page,
 }) => {
@@ -63,7 +60,8 @@ test("degraded: the verdict, both lists, the KPI changes and the donuts", async 
   await expect(rows.nth(0)).toContainText("POST /orders p95 412 ms → 680 ms");
   await expect(rows.nth(0).getByTestId("severity")).toHaveText("High");
   await expect(rows.nth(0).getByTestId("insight-change")).toHaveText("+65%");
-  await expect(rows.nth(0)).toContainText("before sampling");
+  // The page header says "before sampling"; a row repeats it only when it differs.
+  await expect(rows.nth(0)).not.toContainText("sampling");
   await expect(rows.nth(1).getByTestId("insight-change")).toHaveText("new");
   await expect(rows.nth(1)).toContainText("from sampled traces");
   await expect(rows.nth(2).getByTestId("severity")).toHaveText("Medium");
@@ -81,7 +79,7 @@ test("degraded: the verdict, both lists, the KPI changes and the donuts", async 
   const delta = (id: string) =>
     page.getByTestId(`kpi-${id}`).getByTestId("delta");
   await expect(page.getByTestId("kpi-throughput")).toContainText("1,284");
-  await expect(delta("throughput")).toHaveText("+7%");
+  await expect(delta("throughput")).toHaveText("+7.0%");
   await expect(page.getByTestId("kpi-errors")).toContainText("1.9");
   await expect(delta("errors")).toHaveText("+1.2 pt");
   await expect(delta("errors")).toHaveAttribute("data-tone", "worse");
@@ -106,17 +104,17 @@ test("degraded: the verdict, both lists, the KPI changes and the donuts", async 
   await expect(
     page.locator("[data-testid=donut-status-slice][data-slice=ok]"),
   ).toHaveAttribute("data-fraction", "0.9400");
-  await expect(page.getByTestId("donut-status")).toContainText("94.0%");
+  await expect(page.getByTestId("donut-status")).toContainText("94%");
   // A kind without time (messaging) has no slice; the others show their share change.
   await expect(page.getByTestId("donut-time-slice")).toHaveCount(5);
   const db = page.locator("[data-testid=time-row][data-key=db]");
-  await expect(db).toContainText("41.0%");
-  await expect(db.getByTestId("delta")).toHaveText("+12.0 pt");
+  await expect(db).toContainText("41%");
+  await expect(db.getByTestId("delta")).toHaveText("+12 pt");
   await expect(db.getByTestId("delta")).toHaveAttribute("data-tone", "worse");
 
   // Apdex bar: 16,564 / 1,926 / 770 of 19,260.
-  await expect(page.getByTestId("apdex-satisfied")).toContainText("86.0%");
-  await expect(page.getByTestId("apdex-tolerating")).toContainText("10.0%");
+  await expect(page.getByTestId("apdex-satisfied")).toContainText("86%");
+  await expect(page.getByTestId("apdex-tolerating")).toContainText("10%");
   await expect(page.getByTestId("apdex-frustrated")).toContainText("4.0%");
   await expect(page.getByTestId("card-apdex")).toContainText("Target 300 ms");
 
@@ -131,27 +129,25 @@ test("degraded: the verdict, both lists, the KPI changes and the donuts", async 
     page.getByTestId("overview-route").first().getByTestId("delta"),
   ).toHaveText("+65%");
 
-  // Every card names its source.
+  // The source is stated once, in the page header; cards say it only where they differ.
+  await expect(page.getByTestId("page-header")).toContainText(
+    "counted before sampling",
+  );
+  const body = page.getByRole("main");
+  await expect(body.getByText(/before sampling/)).toHaveCount(1);
+  for (const id of ["card-status", "card-time"]) {
+    await expect(page.getByTestId(id).getByTestId("source")).toContainText(
+      "from sampled traces",
+    );
+  }
   for (const id of [
     "card-latency",
-    "card-status",
-    "card-time",
     "card-throughput",
     "card-apdex",
     "card-routes",
-    "card-attention",
-    "card-better",
   ]) {
-    expect(await text(page, id), id).toMatch(
-      /before sampling|from sampled traces/,
-    );
+    await expect(page.getByTestId(id)).not.toContainText("before sampling");
   }
-  await expect(page.getByTestId("card-status")).toContainText(
-    "from sampled traces",
-  );
-  await expect(page.getByTestId("card-latency")).toContainText(
-    "before sampling",
-  );
 
   expect(await violations(page)).toEqual([]);
   expect(problems).toEqual([]);

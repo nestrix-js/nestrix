@@ -4,7 +4,12 @@ import type {
   RouteStats,
 } from "@nestrix-js/protocol";
 
-import type { Tone } from "@/components/kit/format";
+import {
+  formatPercent,
+  type Tone,
+  twoDigits,
+  withSign,
+} from "@/components/kit/format";
 import {
   formatDeltaMs,
   formatDeltaRate,
@@ -77,20 +82,16 @@ export function topByP95(
 /** "0.4", "12.6" becomes "13": one decimal under 10, none above. */
 export function formatPerMinute(value: number): string {
   if (!Number.isFinite(value)) return "-";
-  return value < 10 ? value.toFixed(1) : String(Math.round(value));
+  return twoDigits(value);
 }
 
-/** "+12%", "-3.5%"; null when the earlier figure is 0 (no base to compare with). */
+/** "+12%", "−3.5%"; null when the earlier figure is 0 (no base to compare with). */
 export function formatChangePercent(
   before: number,
   after: number,
 ): string | null {
   if (before <= 0) return null;
-  const percent = ((after - before) / before) * 100;
-  if (percent === 0) return "0%";
-  const shown =
-    Math.abs(percent) < 10 ? percent.toFixed(1) : percent.toFixed(0);
-  return `${percent > 0 ? "+" : ""}${shown}%`;
+  return withSign(((after - before) / before) * 100, formatPercent, "0%");
 }
 
 export interface Change {

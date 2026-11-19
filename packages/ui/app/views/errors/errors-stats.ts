@@ -6,6 +6,7 @@ import type {
   ErrorGroupTriageState,
   ErrorReleaseStat,
 } from "@nestrix-js/protocol";
+import { formatFraction, twoDigits } from "@/components/kit/format";
 
 /** A group's state; the backend computes it (`ErrorGroup.state`), see `ErrorGroupState`. */
 export type GroupState = ErrorGroupState;
@@ -175,9 +176,7 @@ export function releaseBars(releases: readonly ErrorReleaseStat[]): {
       return {
         release: r.release,
         value: rated ? rate : r.events,
-        valueLabel: rated
-          ? `${rate < 10 ? rate.toFixed(1) : Math.round(rate)}/1k`
-          : events,
+        valueLabel: rated ? `${twoDigits(rate)}/1k` : events,
         title: `${r.release}: ${events}${requests}`,
       };
     }),
@@ -315,8 +314,7 @@ export function routeBreakdown(
 /** Percentage of `total`, one decimal below 10: "42%", "3.4%"; "—" for no total. */
 export function percentOf(part: number, total: number): string {
   if (!(total > 0)) return "—";
-  const p = (part / total) * 100;
-  return `${p < 10 ? p.toFixed(1).replace(/\.0$/, "") : Math.round(p)}%`;
+  return formatFraction(part / total);
 }
 
 export interface TypeCount {

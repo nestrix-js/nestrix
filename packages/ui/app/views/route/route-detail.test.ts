@@ -180,7 +180,7 @@ describe("number formats", () => {
     expect(formatCallsDelta(4, 2)).toBe("−2");
     expect(formatCallsDelta(2, 2.01)).toBe("0");
     expect(formatMsDelta(96, 318)).toBe("+222 ms");
-    expect(formatMsDelta(24, 6)).toBe("−18.0 ms");
+    expect(formatMsDelta(24, 6)).toBe("−18 ms");
     expect(formatMsDelta(5, 5.01)).toBe("0 ms");
   });
   it("says how much of the change a finding explains", () => {
@@ -338,7 +338,7 @@ describe("KPI tiles", () => {
       tone: "worse",
       was: "412 ms",
     });
-    expect(by.p99).toMatchObject({ value: "1.90 s", delta: "—" });
+    expect(by.p99).toMatchObject({ value: "1.9 s", delta: "—" });
     expect(by.errors).toMatchObject({ value: "2.8%", tone: "worse" });
     expect(by.errors?.delta).toBe("+1.9 pt");
     expect(by.queries).toMatchObject({

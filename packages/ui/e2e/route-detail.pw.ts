@@ -154,7 +154,7 @@ test("a slower route: summary, ranked findings, KPIs and every card", async ({
   expect(Number.parseFloat(dbWidth)).toBeCloseTo((318 / 436) * 100, 1);
   await expect(
     page.getByTestId("kind-legend").locator('[data-kind="db"]'),
-  ).toContainText("96.0 ms → 318 ms");
+  ).toContainText("96 ms → 318 ms");
 
   // Statements: the new one first, its calls and time before and after.
   const statements = page.getByTestId("statement-row");
@@ -162,10 +162,12 @@ test("a slower route: summary, ranked findings, KPIs and every card", async ({
   await expect(statements.nth(0)).toContainText(ORDERS_STATEMENT);
   await expect(statements.nth(0)).toContainText("0 → 6.4");
   await expect(statements.nth(0)).toContainText("+6.4");
-  await expect(statements.nth(0)).toContainText("0.00 ms → 214 ms");
+  await expect(statements.nth(0)).toContainText("0 ms → 214 ms");
+  // The page header says "from sampled traces"; the cards do not repeat it.
+  await expect(page.getByRole("main")).toContainText("from sampled traces");
   await expect(
     page.getByTestId("card-statements").getByTestId("source"),
-  ).toContainText("from sampled traces");
+  ).not.toContainText("sampled");
   await expect(page.getByTestId("method-row")).toHaveCount(2);
   await expect(page.getByTestId("method-row").first()).toContainText(
     "OrderItemsRepository.findByOrder",
@@ -182,7 +184,7 @@ test("a slower route: summary, ranked findings, KPIs and every card", async ({
   // Slowest traces link to the trace page.
   const slow = page.getByTestId("slow-trace");
   await expect(slow).toHaveCount(3);
-  await expect(slow.first()).toContainText("4.80 s");
+  await expect(slow.first()).toContainText("4.8 s");
   await expect(slow.first().locator("a")).toHaveAttribute(
     "href",
     /#\/traces\/a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1$/,
@@ -236,9 +238,8 @@ test("release against release: the newest two, named sides, sampled KPIs, a pick
   await expect(page.getByTestId("after-release")).toHaveValue("v1.8.2");
   await expect(page.getByTestId("kind-bar").nth(0)).toContainText("v1.8.1");
   await expect(page.getByTestId("kind-bar").nth(1)).toContainText("v1.8.2");
-  await expect(page.getByTestId("kpi-source")).toHaveText(
-    "Every figure is from sampled traces of the two releases.",
-  );
+  // Every figure is a sampled trace: the page's own line covers them, no extra note.
+  await expect(page.getByTestId("kpi-source")).toHaveCount(0);
   await expect(page.locator('[data-kpi="p95"]')).toHaveAttribute(
     "data-source",
     "traces",
@@ -433,3 +434,53 @@ for (const scheme of ["dark", "light"] as const) {
     });
   });
 }
+
+test("KPI tiles are the kit's: no dash beside the p99, a 'was' footer", async ({
+  page,
+}) => {
+  await page.goto(url(ORDERS));
+  await expect(page.getByTestId("kpi")).toHaveCount(5);
+  const p99 = page.locator('[data-kpi="p99"]');
+  await expect(p99.getByTestId("kpi-value")).toHaveText("1.4 s");
+  await expect(p99.getByTestId("delta")).toHaveCount(0);
+  await expect(p99).toContainText("no previous p99");
+  await expect(page.locator('[data-kpi="p95"]')).toContainText("was 412 ms");
+  // The page says "from sampled traces" once; the counted KPIs are the labelled exception.
+  await expect(page.getByTestId("kpi-source")).toContainText(
+    "counted before sampling",
+  );
+  await expect(
+    page.getByRole("main").getByText("from sampled traces", { exact: true }),
+  ).toHaveCount(1);
+});
+
+test("at 390 px the tables keep their name and main figure; the rest sits under the name", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(url(ORDERS));
+  await expect(page.getByTestId("statement-row").first()).toBeVisible();
+  for (const [id, hidden] of [
+    ["statements", "Calls per request"],
+    ["methods", "Calls per request"],
+    ["dependencies", "Failed calls"],
+  ] as const) {
+    const table = page.getByTestId(id);
+    await expect(
+      table.getByRole("columnheader", { name: hidden }),
+    ).toBeHidden();
+    // No sideways scroll inside the table's box.
+    const box = await table
+      .locator("xpath=..")
+      .evaluate((el) => el.scrollWidth <= el.clientWidth);
+    expect(box, id).toBe(true);
+  }
+  await expect(page.getByTestId("statement-row").first()).toContainText(
+    /Calls\s*0 → 6\.4/,
+  );
+  const widths = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth,
+    inner: window.innerWidth,
+  }));
+  expect(widths.scroll).toBeLessThanOrEqual(widths.inner);
+});

@@ -122,7 +122,7 @@ export function formatCallsDelta(before: number, after: number): string {
 export function formatMsDelta(before: number, after: number): string {
   const delta = after - before;
   if (Math.abs(delta) < 0.05) return "0 ms";
-  return formatDeltaMs(delta).replace("-", "−");
+  return formatDeltaMs(delta);
 }
 
 /** More time is worse; a change under half a millisecond is not news. */
@@ -182,7 +182,7 @@ function queriesKpi(data: RouteExplainResponse): RouteKpi {
   const has = data.statements.length > 0;
   return {
     id: "queries",
-    label: "Queries per request",
+    label: "Queries / req",
     value: has ? formatCalls(q.after) : "—",
     delta: has ? formatCallsDelta(q.before, q.after) : "—",
     tone: has ? callsTone(q.before, q.after) : "neutral",
@@ -212,7 +212,7 @@ export function windowKpis(
   return [
     {
       id: "throughput",
-      label: "Requests per minute",
+      label: "Req / min",
       value: rate === null ? "—" : formatRate(rate),
       delta:
         compare && row

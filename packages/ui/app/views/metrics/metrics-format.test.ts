@@ -53,7 +53,7 @@ describe("units", () => {
     expect(valueFormatter("By")(512_000_000)).toBe("512 MB");
     expect(valueFormatter("By")(1_500_000)).toBe("1.5 MB");
     expect(valueFormatter("s")(0.0025)).toBe("2.5 ms");
-    expect(valueFormatter("s")(1.5)).toBe("1.50 s");
+    expect(valueFormatter("s")(1.5)).toBe("1.5 s");
     expect(valueFormatter("s/s")(0.042)).toBe("4.2%");
     expect(valueFormatter("s/s")(1.5)).toBe("150%");
     expect(valueFormatter("1")(0.5)).toBe("50%");

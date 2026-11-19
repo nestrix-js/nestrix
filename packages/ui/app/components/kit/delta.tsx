@@ -38,8 +38,8 @@ export function Delta({
   title?: string;
 }) {
   if (isUnknownDelta(text)) return null;
-  // The arrow shows which way the number moved; the colour says whether that is good or bad
-  // (Apdex falling is worse and points down).
+  // The arrow shows which way the number moved, for every tone; the colour says whether that is
+  // good or bad (Apdex falling is worse and points down, a change that is not news is grey).
   const rising = /^\+/.test(text);
   const falling = /^[−-]/.test(text);
   return (
@@ -52,12 +52,8 @@ export function Delta({
         toneText[tone],
       )}
     >
-      {tone !== "neutral" && rising && (
-        <ArrowUp className="size-3" aria-hidden />
-      )}
-      {tone !== "neutral" && falling && (
-        <ArrowDown className="size-3" aria-hidden />
-      )}
+      {rising && <ArrowUp className="size-3" aria-hidden />}
+      {falling && <ArrowDown className="size-3" aria-hidden />}
       {text}
     </span>
   );

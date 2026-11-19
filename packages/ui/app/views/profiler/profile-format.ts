@@ -1,4 +1,8 @@
 import type { FlameNode } from "@nestrix-js/protocol";
+import {
+  formatFraction,
+  formatDuration as formatMs,
+} from "@/components/kit/format";
 
 /**
  * Where a frame's code lives; the flame graph's colour. `v8` is V8's own entries (`(program)`,
@@ -172,11 +176,7 @@ export function layoutFlame(
 }
 
 /** `0.4 ms`, `38 ms`, `1.2 s`. */
-export function formatMs(ms: number): string {
-  if (ms < 10) return `${ms.toFixed(1)} ms`;
-  if (ms < 1000) return `${Math.round(ms)} ms`;
-  return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`;
-}
+export { formatMs };
 
 /** `950 B`, `117 KB`, `1.2 MB` (decimal units, as npm and browsers print sizes). */
 export function formatBytes(bytes: number): string {
@@ -187,7 +187,7 @@ export function formatBytes(bytes: number): string {
 
 /** Share of `part` in `whole` as `42.0%`. */
 export function formatShare(part: number, whole: number): string {
-  return whole > 0 ? `${((part / whole) * 100).toFixed(1)}%` : "-";
+  return whole > 0 ? formatFraction(part / whole) : "-";
 }
 
 /**

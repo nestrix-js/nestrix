@@ -92,7 +92,7 @@ for (const scheme of ["dark", "light"] as const) {
     ).toHaveAttribute("data-tone", "better");
     await expect(
       page.getByTestId("kpi-worst-p95").getByTestId("delta"),
-    ).toContainText("-60");
+    ).toContainText("−60");
     await expect(page.getByTestId("route-detail")).toBeVisible();
     await expect(
       page.getByTestId("chart-latency").locator("canvas"),
