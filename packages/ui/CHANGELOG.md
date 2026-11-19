@@ -1,5 +1,11 @@
 # @nestrix-js/ui
 
+## 0.9.2
+
+### Patch Changes
+
+- [#82](https://github.com/nestrix-js/nestrix/pull/82) [`fa28fff`](https://github.com/nestrix-js/nestrix/commit/fa28fffd7d0c788f61b34e6637664419a37c9593) Thanks [@lamberto15](https://github.com/lamberto15)! - Dashboard forms, popovers and confirmations: the SLO, alert rule and token forms mark required fields, show each validation message under its field (announced, with the field marked invalid and focused), submit on Enter, cancel on Esc and give focus back; deletes and revokes ask in place with focus on Keep and name their target; one select style everywhere; filter popovers fit a phone, mark the selection and close on choosing; clearer saved-view, triage and profiler capture controls.
+
 ## 0.9.1
 
 ### Patch Changes
