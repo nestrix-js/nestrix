@@ -158,3 +158,33 @@ test("keyboard focus is visible on the section menu", async ({ page }) => {
   );
   expect(outline).toBe("solid");
 });
+
+for (const scheme of ["dark", "light"] as const) {
+  test(`the section menu marks the current page with a visible underline (${scheme})`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(url("classes"));
+    const menu = page.getByTestId("section-menu");
+    const active = menu.getByRole("link", { name: "Classes" });
+    const other = menu.getByRole("link", { name: "Requests" });
+    await expect(active).toHaveAttribute("data-status", "active");
+    const look = (el: Element) => {
+      const s = getComputedStyle(el);
+      return {
+        border: s.borderBottomColor,
+        color: s.color,
+        weight: s.fontWeight,
+      };
+    };
+    const a = await active.evaluate(look);
+    const o = await other.evaluate(look);
+    // An underline is drawn (not transparent) only on the current page.
+    expect(a.border).not.toBe("rgba(0, 0, 0, 0)");
+    expect(o.border).toBe("rgba(0, 0, 0, 0)");
+    expect(a.color).not.toBe(o.color);
+    expect(Number(a.weight)).toBeGreaterThan(Number(o.weight));
+    await menu.screenshot({ path: `${SHOTS}/section-menu-${scheme}.png` });
+  });
+}

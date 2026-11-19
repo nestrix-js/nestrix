@@ -245,15 +245,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               key={item.to}
               to={`${item.to}${keep}` as typeof item.to}
               activeOptions={{ exact: item.to === "/" }}
+              // The active look keys on the router's data-status="active". It used to be added
+              // through activeProps beside `border-transparent`, and the stylesheet's order made
+              // the transparent border win, so the current page had no underline.
               className={cn(
-                "shrink-0 border-b-2 border-transparent px-3 py-2.5 text-sm whitespace-nowrap text-muted-foreground hover:text-foreground",
+                "shrink-0 border-b-2 border-transparent px-3 py-2.5 text-sm whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground",
+                "data-[status=active]:border-foreground data-[status=active]:font-medium data-[status=active]:text-foreground",
                 item.to === "/routes" &&
                   onRouteDetail &&
-                  "border-primary font-medium text-foreground",
+                  "border-foreground font-medium text-foreground",
               )}
-              activeProps={{
-                className: "border-primary text-foreground font-medium",
-              }}
             >
               {item.label}
             </Link>
