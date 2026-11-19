@@ -4,7 +4,7 @@
 //   "a Playwright test opens a trace and checks the waterfall rows" -> inside every flow
 //   "NODE_ENV=production and no auth: unreachable, app starts"       -> production test
 //   "host catch-all on Express: reported as shadowed"                -> catch-all test
-//   "sample rate 0.1: counts match, UI shows lists are sampled"     -> sampling test
+//   "sample rate 0.1: counts match, UI shows traces sampled at 10%"     -> sampling test
 //   "without the startup token cookie: no data; the logged link sets the cookie and it loads"
 //                                                                    -> checked in every flow
 // The non-loopback, forwarding-header and cross-site rules are packages/nestjs/test's.
@@ -189,7 +189,7 @@ test.describe("express, CommonJS", () => {
 });
 
 test.describe("express, once", () => {
-  test("sampleRate 0.1: route counts equal the requests sent, and the UI says lists are sampled", async ({
+  test("sampleRate 0.1: route counts equal the requests sent, and the UI says traces are sampled at 10%", async ({
     page,
     boot,
   }) => {
@@ -199,7 +199,7 @@ test.describe("express, once", () => {
     await send(app, "/hello", sent);
     await page.goto(app.link);
     await expect(page.getByTestId("sampling-notice")).toHaveText(
-      "lists are sampled",
+      "traces sampled at 10%",
     );
     await page
       .getByRole("navigation", { name: "Sections" })
