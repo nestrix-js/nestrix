@@ -41,7 +41,7 @@ Until a full previous window has been kept, changes show "—" and the lists say
 
 **Dependencies.** One row per host, database or Redis the app called, with calls, p95, errors and a trend line, and links to example traces.
 
-**Runtime.** Event loop delay (p50, p99, max), heap used and total, RSS and CPU over the last hour, sampled every 10 seconds by a small timer that runs only while the dashboard is on. It needs no metrics setup. The standalone server has no such tab: it does not see your processes. With `NESTRIX_METRICS=on` it has a **Metrics** tab instead, with the history of CPU, memory and event-loop delay across all instances ([how it works](/guide/logs-and-metrics#charts-in-the-standalone-server)).
+**Runtime.** Event loop delay (p50, p99, max), heap used and total, RSS and CPU over the last hour, sampled every 10 seconds by a small timer that runs only while the dashboard is on. It needs no metrics setup. The standalone server has no such tab: it does not see your processes. With `NESTRIX_METRICS=on` it has a **Metrics** tab instead, with the history of CPU, memory and event-loop delay across all instances (and with `NESTRIX_METRICS=all` the application's own metrics) ([how it works](/guide/logs-and-metrics#charts-in-the-standalone-server)).
 
 **Profiler.** An on-demand [CPU profile](#profiler), when the dashboard is authenticated. On the standalone server the same tab profiles any instance that opted in: see [remote CPU profiling](/guide/standalone-server#remote-cpu-profiling).
 

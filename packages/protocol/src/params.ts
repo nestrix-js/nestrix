@@ -359,6 +359,27 @@ export const metricSeriesParams = {
 } as const;
 export type MetricSeriesParamsSpec = typeof metricSeriesParams;
 
+/**
+ * Issue #87 (D-118): `series` with `NESTRIX_METRICS=all`. The spec above, with a `metric` of any
+ * stored name (up to 255 characters) and `by=attr.<key>` beside `by=instance`: one series per value
+ * of that attribute, at most {@link MAX_METRIC_GROUPS}, most data first. It also takes
+ * `attr.<key>=<value>` filters ({@link ATTRIBUTE_FILTER_PREFIX}, keys matching
+ * {@link ATTRIBUTE_FILTER_KEY_PATTERN}, at most {@link MAX_ATTRIBUTE_FILTERS}). With `on` the spec
+ * above applies as is.
+ */
+export const metricSeriesAllParams = {
+  ...metricSeriesParams,
+  metric: { kind: "string", maxLength: 255 },
+  by: {
+    kind: "string",
+    maxLength: 133,
+    pattern: "^(instance|attr\\.[A-Za-z][A-Za-z0-9_.-]{0,127})$",
+  },
+} as const;
+export type MetricSeriesAllParamsSpec = typeof metricSeriesAllParams;
+/** `by=instance` and `by=attr.<key>` return at most this many series. */
+export const MAX_METRIC_GROUPS = 20;
+
 /** `GET <path>/api/v1/metrics/catalog`: the range defaults to the last hour. */
 export const metricCatalogParams = {
   service: { kind: "string", maxLength: 256 },

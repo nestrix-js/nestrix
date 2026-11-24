@@ -7,6 +7,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 import { recordViolations, violations } from "./helpers.ts";
 import type { MockApi } from "./mock-api.ts";
+import { appMetricDefinitions } from "./mock-metrics.ts";
 import { BASE_PATH, startServer } from "./serve.ts";
 
 let server: Server;
@@ -405,4 +406,70 @@ test("a trace page has no metrics link when the server stores none", async ({
   await page.goto(url(`traces/${(1).toString(16).padStart(32, "0")}`));
   await expect(page.getByTestId("trace-header")).toBeVisible();
   await expect(page.getByTestId("trace-metrics-link")).toHaveCount(0);
+});
+
+// Issue #87 (D-118): NESTRIX_METRICS=all lists the application's own metrics after the runtime ones.
+test("lists application metrics with their type and unit, and groups one by an attribute", async ({
+  page,
+}) => {
+  mock.metrics = { ...mock.metrics, appMetrics: appMetricDefinitions() };
+  await recordViolations(page);
+  await page.goto(url("metrics"));
+  const app = page.getByTestId("metrics-app");
+  await expect(app).toBeVisible();
+  // Three are few: no search.
+  await expect(page.getByTestId("metrics-app-search")).toHaveCount(0);
+  await expect(chart(page, "orders.created")).toBeVisible();
+  await expect(panel(page, "orders.created")).toContainText(
+    "Counter, shown as a rate per second, in order.",
+  );
+  await expect(panel(page, "queue.depth")).toContainText(
+    "Gauge, shown as its level",
+  );
+  await expect(panel(page, "db.client.connection.wait_time")).toContainText(
+    "p50, p95 and p99",
+  );
+  // A histogram cannot be grouped.
+  await expect(
+    page.getByTestId("metric-group-db.client.connection.wait_time"),
+  ).toHaveCount(0);
+  expect(lastSeries("orders.created")?.get("by")).toBeNull();
+
+  await page.getByTestId("metric-group-queue.depth").selectOption("queue");
+  await expect
+    .poll(() => lastSeries("queue.depth")?.get("by"))
+    .toBe("attr.queue");
+  await expect(
+    panel(page, "queue.depth").getByTestId("metric-meaning"),
+  ).toContainText("one line per queue");
+  // The runtime panels are unchanged.
+  await expect(chart(page, "process.cpu.time")).toBeVisible();
+  expect(lastSeries("process.cpu.time")?.get("by")).toBeNull();
+  expect(await violations(page)).toEqual([]);
+});
+
+test("many application metrics get a search, and at most 12 panels at once", async ({
+  page,
+}) => {
+  mock.metrics = { ...mock.metrics, appMetrics: appMetricDefinitions(20) };
+  await page.goto(url("metrics"));
+  await expect(page.getByTestId("metrics-app-shown")).toContainText(
+    "showing 12 of 23; search to narrow",
+  );
+  await page.getByTestId("metrics-app-search").fill("QUEUE");
+  await expect(chart(page, "queue.depth")).toBeVisible();
+  await expect(page.getByTestId("metrics-app-shown")).toContainText(
+    "showing 1 of 1 matching (23 in all)",
+  );
+  await expect(page).toHaveURL(/search=QUEUE/);
+  await page.getByTestId("metrics-app-search").fill("nothing.like.this");
+  await expect(page.getByTestId("metrics-app-none")).toBeVisible();
+});
+
+test("with only the runtime catalog the page has no application section", async ({
+  page,
+}) => {
+  await page.goto(url("metrics"));
+  await expect(chart(page, "process.cpu.time")).toBeVisible();
+  await expect(page.getByTestId("metrics-app")).toHaveCount(0);
 });

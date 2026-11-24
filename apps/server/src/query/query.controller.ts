@@ -28,6 +28,7 @@ import { OverviewService } from "./overview.service.js";
 import {
   type AttributeKeyCheck,
   appMapSpec,
+  attributeFiltersOf,
   classStatsSpec,
   dependencySpec,
   errorGroupSpec,
@@ -36,6 +37,7 @@ import {
   logSearchSpec,
   metaSpec,
   metricCatalogSpec,
+  metricSeriesAllSpec,
   metricSeriesSpec,
   overviewSpec,
   type Parsed,
@@ -388,7 +390,10 @@ export class QueryController {
   @Headers()
   async metricSeries(@Req() req: RequestLike) {
     requireMetrics(this.metricsService);
-    const v = parse(req, metricSeriesSpec);
+    // Issue #87 (D-118): `all` also takes `attr.<key>=` filters and `by=attr.<key>`; `on` is unchanged.
+    const v = this.config.metrics.all
+      ? parse(req, metricSeriesAllSpec, metricAttributeKey)
+      : parse(req, metricSeriesSpec);
     if (typeof v.metric !== "string") {
       const body: ApiError = {
         error: {
@@ -408,11 +413,17 @@ export class QueryController {
         toUnixMs: v.toUnixMs as number | undefined,
         stepMs: v.stepMs as number | undefined,
         aggregation: v.aggregation as MetricAggregation | undefined,
-        by: v.by as "instance" | undefined,
+        by: v.by as string | undefined,
+        attributes: attributeFiltersOf(v),
       }),
     );
   }
 }
+
+/** D-118: an attribute key a metric series can be filtered by (the D-102 key form). */
+const METRIC_ATTRIBUTE_KEY = /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/;
+const metricAttributeKey: AttributeKeyCheck = (key) =>
+  METRIC_ATTRIBUTE_KEY.test(key) ? undefined : "is not a valid attribute key";
 
 function requireMetrics(service: MetricsService): void {
   if (!service.enabled) {

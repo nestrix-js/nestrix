@@ -125,6 +125,12 @@ export interface IngestMetricPoint {
   sum?: number | null;
   bounds?: number[];
   bucketCounts?: number[];
+  /**
+   * Issue #87 (D-118): set only for an application metric (a name outside the catalog, with
+   * `NESTRIX_METRICS=all`): the unit it declared (`""` when none). The catalog's metrics leave it
+   * unset, as before.
+   */
+  unit?: string;
 }
 
 /** One OTLP `ResourceMetrics`: who sent it, and its stored points. */
@@ -159,6 +165,8 @@ export interface IngestMetricBatch {
   rejectedDataPoints: number;
   errorMessage?: string;
   dropped: MetricDropCounts;
+  /** Issue #87 (D-118): attributes of application metrics dropped by the per-point bounds. */
+  droppedAttributes?: number;
 }
 
 /** What a sink reports about a stored metric batch. */
@@ -167,6 +175,8 @@ export interface IngestMetricWriteResult {
   overSeriesCap: number;
   /** Points older than retention or more than two days ahead. */
   outOfRange: number;
+  /** Issue #87 (D-118): points of an application metric name over the per-service name cap. */
+  overNameCap?: number;
 }
 
 /** What a sink reports about a stored batch. */

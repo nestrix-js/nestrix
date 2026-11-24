@@ -160,7 +160,15 @@ What the server accepts and keeps, so you can decide before turning it on:
 - **Cardinality limits:** at most 2,000 active series per service and 20,000 in all (`NESTRIX_METRICS_MAX_SERIES_PER_SERVICE`, `NESTRIX_METRICS_MAX_SERIES`). Further points are dropped and counted, and the Metrics page shows the count.
 - **Backpressure:** at most 50,000 points are written at once; beyond that the export gets `503` with `Retry-After` and retries, as for spans.
 
-It is off by default, so a tracing-only install changes nothing. It is not a general metrics backend: use a Collector for anything beyond this catalog. The [server README](https://github.com/nestrix-js/nestrix/blob/main/apps/server/README.md#historical-metrics-optional) has the details, and `examples/standalone` runs it with Docker Compose.
+It is off by default, so a tracing-only install changes nothing.
+
+**Your application's own metrics.** `NESTRIX_METRICS=all` keeps, beside the runtime catalog, the metrics your services record on the OpenTelemetry API (`orders.created`, `queue.depth`, `db.client.connection.wait_time`): any name, as a Gauge, a Sum or an explicit-bucket Histogram, with the unit it declares. Nothing changes in the app: what its meter provider already exports to the server is kept. They are listed on the Metrics page after the runtime charts, with a search when there are many; a counter is drawn as a rate per second, a gauge as its level and a histogram as p50, p95 and p99, and a chart can be split by one of the metric's attributes. The limits:
+
+- **Attributes:** at most 16 per point (the first 16 keys in sorted order), keys up to 128 characters, string, bool or number values cut to 256 characters; other attributes are dropped and counted.
+- **Names:** at most 200 application metric names per service (`NESTRIX_METRICS_MAX_NAMES_PER_SERVICE`), names up to 255 characters, units up to 63; the series caps above count every attribute set as a series.
+- **Not included:** exponential histograms and summaries (counted and discarded), alerts on metrics.
+
+`NESTRIX_METRICS=on` keeps only the runtime catalog, as before. Neither mode is a full metrics backend: no query language, no recording rules, no alerting on these series. The [server README](https://github.com/nestrix-js/nestrix/blob/main/apps/server/README.md#historical-metrics-optional) has the details, and `examples/standalone` runs it with Docker Compose.
 
 An endpoint that answers 404, 405 or 501 on its metrics URL does not accept metrics (the [standalone server](/guide/standalone-server) ingests traces and logs only unless started with `NESTRIX_METRICS=on`, and Jaeger never takes metrics). Nestrix then logs one line and stops exporting metrics until the app restarts; traces and logs carry on.
 

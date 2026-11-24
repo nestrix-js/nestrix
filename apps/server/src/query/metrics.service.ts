@@ -10,6 +10,11 @@
  *   `MAX_HISTOGRAM_ROWS` rows are read, more is a `400` asking for a narrower range.
  * - a counter or histogram row whose predecessor is more than `MAX_GAP_SECONDS` older is not used:
  *   a gap is `null`, never an average over the silence. A delta row counts as one minute.
+ * - application metrics (issue #87, D-118, `NESTRIX_METRICS=all`): rows with a `unit` (the catalog's
+ *   have none). A name is served with the type and unit of its newest row in the scope; rows of that
+ *   name stored with another type or unit are left out. The series of one instance are added.
+ * - grouping: every statement carries a group column `g` (`''`, the instance, or an attribute's
+ *   value), so `by=instance` and `by=attr.<key>` are the same arithmetic per group.
  */
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import type {
@@ -25,6 +30,7 @@ import type { ServerConfig } from "../config.js";
 import { SERVER_CONFIG } from "../config.module.js";
 import {
   type CatalogEntry,
+  type CatalogKind,
   catalogEntry,
   METRIC_CATALOG,
 } from "../metrics/catalog.js";
@@ -54,7 +60,10 @@ export interface SeriesQuery {
   toUnixMs?: number;
   stepMs?: number;
   aggregation?: MetricAggregation;
-  by?: "instance";
+  /** `instance`, or (D-118) `attr.<key>`. */
+  by?: string;
+  /** D-118: `attr.<key>=<value>` filters, every one must match. */
+  attributes?: ReadonlyArray<readonly [string, string]>;
 }
 
 export interface CatalogQuery {
@@ -70,10 +79,32 @@ function definition(e: CatalogEntry): MetricDefinition {
     name: e.name,
     kind: e.kind,
     unit: e.unit,
-    valueUnit: e.kind === "counter" ? `${e.unit}/s` : e.unit,
+    valueUnit: e.kind === "counter" ? counterUnit(e.unit) : e.unit,
     description: e.description,
     defaultAggregation: e.kind === "counter" ? "sum" : "avg",
   };
+}
+
+/** At most this many application metrics are listed (D-118), most recently seen first. */
+const MAX_APP_METRICS_LISTED = 1_000;
+/** Attribute keys listed per application metric (D-118). */
+const MAX_APP_ATTRIBUTE_KEYS_LISTED = 64;
+
+/** D-118: an application metric as stored. Its series of one instance add up (`merge: "sum"`). */
+function appEntry(name: string, kind: CatalogKind, unit: string): CatalogEntry {
+  return {
+    name,
+    kind,
+    unit,
+    description: "",
+    attributes: [],
+    merge: "sum",
+  };
+}
+
+/** D-118: per second of a counter; a dimensionless count (`""`, `1`) is `1/s`. */
+function counterUnit(unit: string): string {
+  return unit === "" || unit === "1" ? "1/s" : `${unit}/s`;
 }
 
 /** Quantile `q` of per-bucket counts by linear interpolation inside the bucket. */
@@ -170,10 +201,13 @@ export class MetricsService {
         lastSeenUnixMs: Number(BigInt(r.last_ns) / 1_000_000n),
       }));
     const stats = this.sink?.metrics.stats();
+    const app = this.config.metrics.all
+      ? await this.appMetrics(params, svc)
+      : undefined;
     return {
       retentionDays: this.config.retentionDays,
       minStepMs: MINUTE_MS,
-      metrics: METRIC_CATALOG.map(definition),
+      metrics: [...METRIC_CATALOG.map(definition), ...(app?.metrics ?? [])],
       services: services.rows.map((r) => r.service_name),
       instances: listed,
       instancesTruncated: instances.rows.length > MAX_INSTANCES_LISTED,
@@ -191,8 +225,82 @@ export class MetricsService {
         activeSeries: stats?.activeSeries ?? 0,
         maxSeriesPerService: this.config.metrics.maxSeriesPerService,
         maxSeries: this.config.metrics.maxSeries,
+        ...(app === undefined
+          ? {}
+          : {
+              overNameCap: stats?.overNameCap ?? 0,
+              droppedAttributes: stats?.droppedAttributes ?? 0,
+              maxNamesPerService: this.config.metrics.maxNamesPerService,
+            }),
       },
+      ...(app === undefined ? {} : { appMetricsTruncated: app.truncated }),
     };
+  }
+
+  /**
+   * D-118: the application metrics with rows in the range and scope (`params`, `svc` as built by
+   * `catalog`), each with the type and unit of its newest row and the attribute keys of its series.
+   */
+  private async appMetrics(
+    params: unknown[],
+    svc: string,
+  ): Promise<{ metrics: MetricDefinition[]; truncated: boolean }> {
+    const r = await this.pool.query<{
+      metric_name: string;
+      kind: CatalogKind;
+      unit: string;
+      keys: string[];
+    }>(
+      `WITH s AS (
+         SELECT DISTINCT ON (metric_name, kind, unit, series_key) metric_name, kind, unit, attributes, time_ns
+           FROM metric_minutes
+          WHERE minute >= $1 AND minute < $2 ${svc} AND unit IS NOT NULL
+          ORDER BY metric_name, kind, unit, series_key, minute DESC),
+       m AS (SELECT metric_name, kind, unit, max(time_ns) AS t FROM s GROUP BY metric_name, kind, unit),
+       k AS (SELECT DISTINCT metric_name, kind, unit, jsonb_object_keys(attributes) AS key FROM s)
+       SELECT m.metric_name, m.kind, m.unit,
+              coalesce((SELECT array_agg(k.key ORDER BY k.key) FROM k
+                         WHERE k.metric_name = m.metric_name AND k.kind = m.kind AND k.unit = m.unit),
+                       '{}') AS keys
+         FROM m ORDER BY m.t DESC, m.metric_name, m.kind, m.unit
+        LIMIT ${MAX_APP_METRICS_LISTED + 1}`,
+      params,
+    );
+    const seen = new Set<string>();
+    const metrics: MetricDefinition[] = [];
+    for (const row of r.rows.slice(0, MAX_APP_METRICS_LISTED)) {
+      // The newest type and unit of a name, as `series` serves it.
+      if (seen.has(row.metric_name)) continue;
+      seen.add(row.metric_name);
+      metrics.push({
+        ...definition(appEntry(row.metric_name, row.kind, row.unit)),
+        app: true,
+        attributeKeys: row.keys.slice(0, MAX_APP_ATTRIBUTE_KEYS_LISTED),
+      });
+    }
+    metrics.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    return { metrics, truncated: r.rows.length > MAX_APP_METRICS_LISTED };
+  }
+
+  /** D-118: the type and unit of an application metric's newest row in the scope, or `undefined`. */
+  private async appMetric(q: SeriesQuery): Promise<CatalogEntry | undefined> {
+    const params: unknown[] = [q.metric];
+    const scope = scopeSql(
+      { service: q.service, environment: q.environment },
+      adder(params),
+    )
+      .map((c) => `AND ${c}`)
+      .join(" ");
+    const r = await this.pool.query<{ kind: CatalogKind; unit: string }>(
+      `SELECT kind, unit FROM metric_minutes
+        WHERE metric_name = $1 AND unit IS NOT NULL ${scope}
+        ORDER BY minute DESC, time_ns DESC LIMIT 1`,
+      params,
+    );
+    const row = r.rows[0];
+    return row === undefined
+      ? undefined
+      : appEntry(q.metric, row.kind, row.unit);
   }
 
   private window(q: SeriesQuery): Window {
@@ -221,13 +329,16 @@ export class MetricsService {
   }
 
   async series(q: SeriesQuery): Promise<MetricSeriesResponse> {
-    const entry = catalogEntry(q.metric);
+    const catalogued = catalogEntry(q.metric);
+    const entry =
+      catalogued ??
+      (this.config.metrics.all ? await this.appMetric(q) : undefined);
     if (entry === undefined) {
       throw new MetricsParamError(
         'Query parameter "metric" is not a stored metric; see api/v1/metrics/catalog.',
       );
     }
-    if (entry.kind === "histogram" && q.by === "instance") {
+    if (entry.kind === "histogram" && q.by !== undefined) {
       throw new MetricsParamError(
         'Query parameter "by" is not supported for a histogram metric.',
       );
@@ -246,19 +357,30 @@ export class MetricsService {
       toUnixMs: win.toMs,
       timestamps: win.timestamps,
     };
-    const filter = new Filter(entry.name, q, win);
+    const filter = new Filter(
+      entry.name,
+      q,
+      win,
+      catalogued === undefined ? entry : undefined,
+    );
     const instances = await this.contributingInstances(filter);
     let series: MetricSeries[];
+    let groupInfo: { by: string; groupCount: number } | undefined;
     if (entry.kind === "histogram") {
       series = await this.histogramSeries(filter, win);
+    } else if (q.by === undefined) {
+      series = await this.scalarSeries(entry, filter, win, aggregation);
     } else {
-      let only: string[] | undefined;
-      if (q.by === "instance") {
-        only = await this.topInstances(filter);
+      const top = await this.topGroups(filter, q.by);
+      series = await this.scalarSeries(entry, filter, win, aggregation, {
+        by: q.by,
+        values: top.values,
+      });
+      if (q.by !== "instance") {
+        groupInfo = { by: q.by, groupCount: top.total };
       }
-      series = await this.scalarSeries(entry, filter, win, aggregation, only);
     }
-    return { ...base, series, instances };
+    return { ...base, series, instances, ...groupInfo };
   }
 
   private async contributingInstances(f: Filter): Promise<string[]> {
@@ -271,14 +393,23 @@ export class MetricsService {
     return r.rows.map((x) => x.instance_id);
   }
 
-  private async topInstances(f: Filter): Promise<string[]> {
+  /** The groups with the most rows (at most `MAX_INSTANCE_SERIES`), and how many there are. */
+  private async topGroups(
+    f: Filter,
+    by: string,
+  ): Promise<{ values: string[]; total: number }> {
     const { sql, params } = f.where(1);
-    const r = await this.pool.query<{ instance_id: string }>(
-      `SELECT instance_id FROM metric_minutes WHERE ${sql}
-        GROUP BY instance_id ORDER BY count(*) DESC, instance_id LIMIT ${MAX_INSTANCE_SERIES}`,
+    const g = groupExpr(by, params);
+    const r = await this.pool.query<{ g: string; total: string }>(
+      `SELECT g, count(*) OVER () AS total FROM (
+         SELECT ${g} AS g, count(*) AS c FROM metric_minutes WHERE ${sql} GROUP BY 1) x
+        ORDER BY c DESC, g LIMIT ${MAX_INSTANCE_SERIES}`,
       params,
     );
-    return r.rows.map((x) => x.instance_id);
+    return {
+      values: r.rows.map((x) => x.g),
+      total: Number(r.rows[0]?.total ?? 0),
+    };
   }
 
   /** Counters and gauges: one SQL statement per request. */
@@ -287,13 +418,15 @@ export class MetricsService {
     f: Filter,
     win: Window,
     aggregation: MetricAggregation,
-    only: string[] | undefined,
+    groups?: { by: string; values: string[] },
   ): Promise<MetricSeries[]> {
     const { sql, params } = f.where(1, true);
     let instanceFilter = "";
-    if (only !== undefined) {
-      params.push(only);
-      instanceFilter = `AND instance_id = ANY($${params.length}::text[])`;
+    let g = "''::text";
+    if (groups !== undefined) {
+      g = groupExpr(groups.by, params);
+      params.push(groups.values);
+      instanceFilter = `AND ${g} = ANY($${params.length}::text[])`;
     }
     params.push(win.stepMs);
     const step = `$${params.length}::bigint`;
@@ -308,14 +441,14 @@ export class MetricsService {
       entry.kind === "counter"
         ? `
       r AS (
-        SELECT minute, service_name, environment, instance_id, series_key, temporality, last_value,
-               sum_value, start_ns, time_ns,
+        SELECT minute, service_name, environment, instance_id, series_key, ${g} AS g, temporality,
+               last_value, sum_value, start_ns, time_ns,
                lag(last_value) OVER w AS pl, lag(start_ns) OVER w AS ps, lag(time_ns) OVER w AS pt
           FROM metric_minutes
          WHERE ${sql} ${instanceFilter}
         WINDOW w AS (PARTITION BY service_name, environment, instance_id, series_key ORDER BY minute)),
       inc AS (
-        SELECT ${bucket} AS bucket, service_name, environment, instance_id, series_key,
+        SELECT ${bucket} AS bucket, service_name, environment, instance_id, series_key, g,
                CASE WHEN temporality = 'delta' THEN sum_value
                     WHEN pl IS NULL THEN NULL
                     WHEN last_value < pl OR start_ns <> ps THEN last_value
@@ -324,39 +457,37 @@ export class MetricsService {
                     ELSE (time_ns - pt)::float8 / 1e9 END AS dt
           FROM r WHERE minute >= ${real}),
       s AS (
-        SELECT bucket, service_name, environment, instance_id, series_key, sum(inc) / sum(dt) AS v
+        SELECT bucket, service_name, environment, instance_id, series_key, g, sum(inc) / sum(dt) AS v
           FROM inc WHERE inc IS NOT NULL AND dt > 0 AND dt <= ${MAX_GAP_SECONDS}
-         GROUP BY bucket, service_name, environment, instance_id, series_key),
+         GROUP BY bucket, service_name, environment, instance_id, series_key, g),
       i AS (
-        SELECT bucket, service_name, environment, instance_id, sum(v) AS v FROM s
-         GROUP BY bucket, service_name, environment, instance_id)`
+        SELECT bucket, service_name, environment, instance_id, g, sum(v) AS v FROM s
+         GROUP BY bucket, service_name, environment, instance_id, g)`
         : `
       r AS (
-        SELECT ${bucket} AS bucket, service_name, environment, instance_id, series_key,
+        SELECT ${bucket} AS bucket, service_name, environment, instance_id, series_key, ${g} AS g,
                CASE WHEN '${aggregation}' = 'max' THEN max(max_value)
                     WHEN '${aggregation}' = 'min' THEN min(min_value)
                     ELSE sum(sum_value) / NULLIF(sum(count_value), 0) END AS v
           FROM metric_minutes
          WHERE ${sql} ${instanceFilter} AND minute >= ${real}
-         GROUP BY bucket, service_name, environment, instance_id, series_key),
+         GROUP BY bucket, service_name, environment, instance_id, series_key, g),
       i AS (
-        SELECT bucket, service_name, environment, instance_id, ${entry.merge === "max" ? "max" : "sum"}(v) AS v
-          FROM r GROUP BY bucket, service_name, environment, instance_id)`;
-    const group = only !== undefined ? "bucket, instance_id" : "bucket";
-    const select = only !== undefined ? "bucket, instance_id, " : "bucket, ";
+        SELECT bucket, service_name, environment, instance_id, g, ${entry.merge === "max" ? "max" : "sum"}(v) AS v
+          FROM r GROUP BY bucket, service_name, environment, instance_id, g)`;
     const result = await this.pool.query<{
       bucket: string;
-      instance_id?: string;
+      g: string;
       v: number | null;
     }>(
       `WITH${perSeries}
-       SELECT ${select}${across}(v) AS v FROM i GROUP BY ${group}`,
+       SELECT bucket, g, ${across}(v) AS v FROM i GROUP BY bucket, g`,
       params,
     );
     const index = new Map(win.timestamps.map((t, k) => [t, k]));
     const fresh = (): (number | null)[] =>
       new Array<number | null>(win.timestamps.length).fill(null);
-    if (only === undefined) {
+    if (groups === undefined) {
       const values = fresh();
       for (const row of result.rows) {
         const k = index.get(Number(row.bucket));
@@ -365,18 +496,25 @@ export class MetricsService {
       return [{ label: "all instances", values }];
     }
     const per = new Map<string, (number | null)[]>(
-      only.map((id) => [id, fresh()]),
+      groups.values.map((id) => [id, fresh()]),
     );
     for (const row of result.rows) {
       const k = index.get(Number(row.bucket));
-      const values = per.get(row.instance_id ?? "");
+      const values = per.get(row.g);
       if (k !== undefined && values !== undefined && row.v !== null)
         values[k] = row.v;
     }
-    return only.map((id) => ({
-      label: id === "" ? "(no instance id)" : id,
-      instanceId: id,
-      values: per.get(id) as (number | null)[],
+    if (groups.by === "instance") {
+      return groups.values.map((id) => ({
+        label: id === "" ? "(no instance id)" : id,
+        instanceId: id,
+        values: per.get(id) as (number | null)[],
+      }));
+    }
+    return groups.values.map((value) => ({
+      label: value === "" ? "(none)" : value,
+      group: value,
+      values: per.get(value) as (number | null)[],
     }));
   }
 
@@ -499,6 +637,8 @@ class Filter {
     private readonly metric: string,
     private readonly q: SeriesQuery,
     private readonly win: Window,
+    /** D-118: an application metric's served type and unit; other rows of the name are left out. */
+    private readonly app?: CatalogEntry,
   ) {}
 
   /**
@@ -528,6 +668,22 @@ class Filter {
       params.push(this.q.instance);
       sql += ` AND instance_id = $${start + params.length - 1}`;
     }
+    if (this.app !== undefined) {
+      sql += ` AND kind = ${add(this.app.kind)} AND unit = ${add(this.app.unit)}`;
+    }
+    for (const [key, value] of this.q.attributes ?? []) {
+      sql += ` AND attributes ->> ${add(key)}::text = ${add(value)}`;
+    }
     return { sql, params };
   }
+}
+
+/**
+ * The group column of `by` (D-118): the instance, or the value of attribute `attr.<key>` (`''` when a
+ * row has none), the key passed as a parameter appended to `params`.
+ */
+function groupExpr(by: string, params: unknown[]): string {
+  if (by === "instance") return "instance_id";
+  params.push(by.slice("attr.".length));
+  return `coalesce(attributes ->> $${params.length}::text, '')`;
 }

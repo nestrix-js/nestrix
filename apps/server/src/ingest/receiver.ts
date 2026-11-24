@@ -154,7 +154,11 @@ export class IngestReceiver implements OnApplicationBootstrap {
   private readonly metrics: Signal<IngestMetricBatch> = {
     shape: METRIC_SHAPE,
     decode: (body, format, limits) =>
-      toIngestMetricBatch(decodeMetricsRequest(body, format, limits)),
+      toIngestMetricBatch(
+        decodeMetricsRequest(body, format, limits),
+        undefined,
+        this.config.metrics.all,
+      ),
     bind: bindMetricBatch,
     store: (batch, format) => this.storeMetrics(batch, format),
   };
@@ -187,7 +191,11 @@ export class IngestReceiver implements OnApplicationBootstrap {
     } catch {
       // A log line must not stop the server.
     }
-    if (this.config.metrics.enabled) {
+    if (this.config.metrics.all) {
+      this.logger.log(
+        `NESTRIX_METRICS=all: POST /v1/metrics stores the runtime metrics and the application's own (at most ${this.config.metrics.maxNamesPerService} metric names and ${this.config.metrics.maxSeriesPerService} series per service, ${this.config.metrics.maxSeries} series in all).`,
+      );
+    } else if (this.config.metrics.enabled) {
       this.logger.log(
         `NESTRIX_METRICS=on: POST /v1/metrics stores Nestrix's runtime metrics (at most ${this.config.metrics.maxSeriesPerService} series per service, ${this.config.metrics.maxSeries} in all); other metrics are counted and dropped.`,
       );
@@ -534,11 +542,14 @@ export class IngestReceiver implements OnApplicationBootstrap {
   ): Promise<Outcome> {
     const writeMetrics = this.sink.writeMetrics?.bind(this.sink);
     let overCap = 0;
+    let overNames = 0;
     if (writeMetrics !== undefined) {
       try {
         const written = await writeMetrics(batch);
         const n = written?.overSeriesCap;
         if (typeof n === "number" && n > 0) overCap = n;
+        const names = written?.overNameCap;
+        if (typeof names === "number" && names > 0) overNames = names;
       } catch (error) {
         if (error instanceof IngestBusyError) {
           return {
@@ -559,13 +570,21 @@ export class IngestReceiver implements OnApplicationBootstrap {
     const notes = [
       batch.errorMessage ?? "",
       d.notStored > 0
-        ? `${d.notStored} data points of metrics this server does not store were dropped (it keeps Nestrix's runtime metrics only).`
+        ? this.config.metrics.all
+          ? `${d.notStored} data points of metrics with an empty or overlong name or unit were dropped.`
+          : `${d.notStored} data points of metrics this server does not store were dropped (it keeps Nestrix's runtime metrics only).`
         : "",
       d.unsupportedType + d.typeMismatch > 0
         ? `${d.unsupportedType + d.typeMismatch} data points of an unsupported type or unit were dropped.`
         : "",
       overCap > 0
         ? `${overCap} data points were dropped: the service is over its series limit (NESTRIX_METRICS_MAX_SERIES_PER_SERVICE).`
+        : "",
+      overNames > 0
+        ? `${overNames} data points were dropped: the service is over its metric name limit (NESTRIX_METRICS_MAX_NAMES_PER_SERVICE).`
+        : "",
+      (batch.droppedAttributes ?? 0) > 0
+        ? `${batch.droppedAttributes} attributes were dropped (more than 16 per point, a key over 128 characters, or a value that is not a string, bool or number).`
         : "",
     ].filter((m) => m !== "");
     const message = notes.join(" ");

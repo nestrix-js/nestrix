@@ -69,12 +69,25 @@ export function valueFormatter(valueUnit: string): (value: number) => string {
       return (v) => formatShare(v);
     case "1":
       return (v) => formatShare(v);
-    default:
+    default: {
+      const unit = unitText(valueUnit);
+      // `1/s` (a count per second) reads as "3/s", any other unit after a space.
+      const sep = unit.startsWith("/") ? "" : " ";
       return (v) =>
         Number.isFinite(v)
-          ? `${Number(v.toPrecision(3))} ${valueUnit}`.trim()
+          ? `${Number(v.toPrecision(3))}${sep}${unit}`.trim()
           : "-";
+    }
   }
+}
+
+/**
+ * A UCUM unit as text (issue #87, D-118): annotations lose their braces (`{order}/s` is
+ * `order/s`), a dimensionless `1` before a slash goes (`1/s` is `/s`).
+ */
+export function unitText(unit: string): string {
+  const plain = unit.replace(/\{([^}]*)\}/g, "$1");
+  return plain.startsWith("1/") ? plain.slice(1) : plain;
 }
 
 /** 0.4 as "40%", 1.5 as "150%"; one decimal below 10%. */
@@ -95,9 +108,36 @@ export function unitLabel(valueUnit: string): string {
       return "share of one core (100% = one core)";
     case "1":
       return "ratio";
+    case "":
+      return "no unit";
     default:
-      return valueUnit;
+      return unitText(valueUnit).startsWith("/")
+        ? `per ${unitText(valueUnit).slice(1)}`
+        : unitText(valueUnit);
   }
+}
+
+/** Issue #87 (D-118): what an application metric's chart shows, from its type. */
+export function kindLabel(kind: MetricDefinition["kind"]): string {
+  switch (kind) {
+    case "counter":
+      return "Counter, shown as a rate per second";
+    case "gauge":
+      return "Gauge, shown as its level";
+    case "histogram":
+      return "Histogram, shown as p50, p95 and p99";
+  }
+}
+
+/** The application metrics whose name contains `search` (case-insensitive), in catalog order. */
+export function filterMetrics(
+  metrics: readonly MetricDefinition[],
+  search: string,
+): MetricDefinition[] {
+  const needle = search.trim().toLowerCase();
+  return needle === ""
+    ? [...metrics]
+    : metrics.filter((m) => m.name.toLowerCase().includes(needle));
 }
 
 /** The smallest y axis maximum for a unit, so small values are not drawn flat. */
@@ -131,9 +171,11 @@ export function aggregationLabel(
   aggregation: MetricAggregation,
   splitByInstance: boolean,
   instance: string | undefined,
+  groupBy?: string,
 ): string {
   if (instance !== undefined) return `instance ${instance}`;
   if (kind === "histogram") return HISTOGRAM_NOTE;
+  if (groupBy !== undefined) return `one line per ${groupBy}`;
   if (splitByInstance) return "one line per instance";
   return (
     AGGREGATIONS.find((a) => a.value === aggregation)?.label.toLowerCase() ??
@@ -151,7 +193,7 @@ export interface ShapedSeries {
   gapBuckets: number;
   /** Minutes since the last bucket with data, when that is long ago; otherwise null. */
   staleMinutes: number | null;
-  /** The series cut at 20 instances: how many instances there are, when more. */
+  /** The series cut at 20 instances (or attribute values, D-118): how many there are, when more. */
   cappedAt: { shown: number; total: number } | null;
 }
 
@@ -180,10 +222,12 @@ export function shapeSeries(response: MetricSeriesResponse): ShapedSeries {
       staleMinutes = Math.round(behind / MINUTE_MS);
     }
   }
+  // D-118: with `by=attr.<key>` the server says how many values the key had.
+  const total = response.groupCount ?? response.instances.length;
   const cappedAt =
     response.series.length >= MAX_INSTANCE_SERIES &&
-    response.instances.length > response.series.length
-      ? { shown: response.series.length, total: response.instances.length }
+    total > response.series.length
+      ? { shown: response.series.length, total }
       : null;
   return { xs, series, hasData, gapBuckets, staleMinutes, cappedAt };
 }

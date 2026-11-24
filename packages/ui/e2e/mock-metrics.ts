@@ -73,6 +73,35 @@ export interface MetricsFixture {
   overSeriesCap: number;
   /** Nothing stored at all. */
   empty: boolean;
+  /** Issue #87 (D-118): application metrics (`NESTRIX_METRICS=all`); none by default. */
+  appMetrics?: MetricDefinition[];
+}
+
+/** Application metrics of the kind `NESTRIX_METRICS=all` lists (D-118). */
+export function appMetricDefinitions(extra = 0): MetricDefinition[] {
+  const base = (
+    name: string,
+    kind: MetricDefinition["kind"],
+    unit: string,
+    attributeKeys: string[],
+  ): MetricDefinition => ({
+    name,
+    kind,
+    unit,
+    valueUnit: kind === "counter" ? `${unit}/s` : unit,
+    description: "",
+    defaultAggregation: kind === "counter" ? "sum" : "avg",
+    app: true,
+    attributeKeys,
+  });
+  return [
+    base("db.client.connection.wait_time", "histogram", "s", ["pool"]),
+    base("orders.created", "counter", "{order}", ["channel"]),
+    base("queue.depth", "gauge", "{job}", ["queue"]),
+    ...Array.from({ length: extra }, (_, i) =>
+      base(`jobs.batch${String(i).padStart(2, "0")}.size`, "gauge", "1", []),
+    ),
+  ];
 }
 
 export const defaultMetrics = (): MetricsFixture => ({
@@ -111,7 +140,7 @@ export function catalogAnswer(
   return {
     retentionDays: 7,
     minStepMs: MIN,
-    metrics: METRIC_DEFINITIONS,
+    metrics: [...METRIC_DEFINITIONS, ...(fixture.appMetrics ?? [])],
     services: fixture.empty ? [] : [fixture.service],
     instances,
     instancesTruncated: false,
@@ -161,7 +190,10 @@ export function seriesAnswer(
   fixture: MetricsFixture,
 ): { status: number; body: unknown } {
   const name = q.get("metric") ?? "";
-  const definition = METRIC_DEFINITIONS.find((d) => d.name === name);
+  const definition = [
+    ...METRIC_DEFINITIONS,
+    ...(fixture.appMetrics ?? []),
+  ].find((d) => d.name === name);
   if (definition === undefined) {
     return {
       status: 400,
@@ -217,11 +249,23 @@ export function seriesAnswer(
     };
   }
   const column = (instanceIndex: number) =>
-    timestamps.map((_, i) => valueAt(name, i, instanceIndex));
+    timestamps.map((_, i) =>
+      definition.app
+        ? 5 + Math.sin(i / 4 + instanceIndex)
+        : valueAt(name, i, instanceIndex),
+    );
+  const by = q.get("by");
   let series: MetricSeriesResponse["series"];
   if (pool.length === 0) {
     series = [{ label: "all instances", values: timestamps.map(() => null) }];
-  } else if (q.get("by") === "instance") {
+  } else if (by?.startsWith("attr.")) {
+    // D-118: one series per value of the attribute.
+    series = ["first", "second"].map((group, k) => ({
+      label: group,
+      group,
+      values: column(k),
+    }));
+  } else if (by === "instance") {
     series = pool.slice(0, 20).map((instanceId) => ({
       label: instanceId,
       instanceId,
@@ -261,6 +305,7 @@ export function seriesAnswer(
       timestamps,
       series,
       instances: [...pool].sort(),
+      ...(by?.startsWith("attr.") ? { by, groupCount: 2 } : {}),
     } satisfies MetricSeriesResponse,
   };
 }

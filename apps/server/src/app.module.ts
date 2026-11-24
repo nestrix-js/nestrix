@@ -80,6 +80,7 @@ export class AppModule {
                   metrics: {
                     maxSeriesPerService: config.metrics.maxSeriesPerService,
                     maxSeries: config.metrics.maxSeries,
+                    maxNamesPerService: config.metrics.maxNamesPerService,
                   },
                   // Issue #27, D-102: stored per trace for the `attr.<key>=` filters.
                   indexedAttributes: config.indexedAttributes,

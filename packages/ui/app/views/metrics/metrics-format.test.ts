@@ -9,7 +9,9 @@ import {
   axisFloor,
   decodeInstance,
   encodeInstance,
+  filterMetrics,
   formatShare,
+  kindLabel,
   metricsHrefAroundTrace,
   metricTitle,
   orderMetrics,
@@ -18,6 +20,7 @@ import {
   selectedRange,
   shapeSeries,
   unitLabel,
+  unitText,
   valueFormatter,
 } from "@/views/metrics/metrics-format";
 
@@ -60,7 +63,7 @@ describe("units", () => {
   });
 
   it("shows an unknown unit as the number and the unit, and never throws on a bad number", () => {
-    expect(valueFormatter("{request}")(12.3456)).toBe("12.3 {request}");
+    expect(valueFormatter("{request}")(12.3456)).toBe("12.3 request");
     expect(valueFormatter("{request}")(Number.NaN)).toBe("-");
     expect(formatShare(Number.POSITIVE_INFINITY)).toBe("-");
   });
@@ -338,5 +341,51 @@ describe("instance choice", () => {
     );
     expect(resolveInstance(listed, "pod-z", null, undefined)).toBeUndefined();
     expect(resolveInstance(listed, null, null, undefined)).toBeUndefined();
+  });
+});
+
+// Issue #87 (D-118): application metrics.
+describe("application metrics", () => {
+  it("formats any declared unit, without UCUM braces", () => {
+    expect(unitText("{order}/s")).toBe("order/s");
+    expect(unitText("1/s")).toBe("/s");
+    expect(valueFormatter("{order}/s")(3)).toBe("3 order/s");
+    expect(valueFormatter("1/s")(2.5)).toBe("2.5/s");
+    expect(valueFormatter("{job}")(14)).toBe("14 job");
+    expect(valueFormatter("")(7)).toBe("7");
+    expect(unitLabel("1/s")).toBe("per s");
+    expect(unitLabel("")).toBe("no unit");
+  });
+
+  it("says how each type is drawn", () => {
+    expect(kindLabel("counter")).toMatch(/rate per second/);
+    expect(kindLabel("gauge")).toMatch(/level/);
+    expect(kindLabel("histogram")).toMatch(/p50, p95 and p99/);
+  });
+
+  it("filters by name, case-insensitively", () => {
+    const defs = ["orders.created", "queue.depth", "Queue.age"].map(
+      (name) => ({ name }) as MetricDefinition,
+    );
+    expect(filterMetrics(defs, " queue ").map((m) => m.name)).toEqual([
+      "queue.depth",
+      "Queue.age",
+    ]);
+    expect(filterMetrics(defs, "")).toHaveLength(3);
+  });
+
+  it("names the group count when by=attr.<key> was cut", () => {
+    const series = Array.from({ length: 20 }, (_, i) => ({
+      label: `t${i}`,
+      group: `t${i}`,
+      values: [1, 1, 1, 1, 1, 1],
+    }));
+    const cut = shapeSeries(
+      response({ series, instances: ["a"], by: "attr.tenant", groupCount: 35 }),
+    );
+    expect(cut.cappedAt).toEqual({ shown: 20, total: 35 });
+    expect(aggregationLabel("gauge", "avg", false, undefined, "tenant")).toBe(
+      "one line per tenant",
+    );
   });
 });

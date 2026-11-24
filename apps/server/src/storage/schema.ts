@@ -245,6 +245,8 @@ export const metricMinutes = pgTable("metric_minutes", {
   buckets: doublePrecision("buckets").array(),
   histCount: doublePrecision("hist_count"),
   histSum: doublePrecision("hist_sum"),
+  /** Issue #87 (D-118, migration 0025): an application metric's unit; NULL for the catalog's. */
+  unit: text("unit"),
 });
 
 /** Alerting (migrations/0002_alerts.sql, src/alerts/). */

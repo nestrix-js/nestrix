@@ -113,8 +113,13 @@ export interface LogStoreConfig {
  * `404` with `google.rpc.Status` as before (D-82 (7)).
  */
 export interface MetricsConfig {
-  /** `NESTRIX_METRICS=on`. */
+  /** `NESTRIX_METRICS=on` or `all`. */
   readonly enabled: boolean;
+  /**
+   * Issue #87 (D-118): `NESTRIX_METRICS=all` also stores the application's own metrics (any name),
+   * not only the runtime catalog. `false` with `on`, which then behaves as before.
+   */
+  readonly all: boolean;
   /**
    * `NESTRIX_METRICS_MAX_SERIES_PER_SERVICE`: series (instance x metric x attribute set) a service
    * may have active at once in this server process; points of further series are dropped and counted.
@@ -122,6 +127,11 @@ export interface MetricsConfig {
   readonly maxSeriesPerService: number;
   /** `NESTRIX_METRICS_MAX_SERIES`: the same, over every service together. */
   readonly maxSeries: number;
+  /**
+   * `NESTRIX_METRICS_MAX_NAMES_PER_SERVICE` (issue #87, D-118, `all` only): application metric
+   * names a service may have active at once in this process; points of further names are dropped.
+   */
+  readonly maxNamesPerService: number;
 }
 
 /**
@@ -260,6 +270,7 @@ export function parseIndexedAttributes(
 
 export const DEFAULT_METRICS_MAX_SERIES_PER_SERVICE = 2_000;
 export const DEFAULT_METRICS_MAX_SERIES = 20_000;
+export const DEFAULT_METRICS_MAX_NAMES_PER_SERVICE = 200;
 export const DEFAULT_INGEST: Omit<
   IngestConfig,
   "auth" | "keys" | "keyEnvironments"
@@ -626,10 +637,17 @@ export function loadConfig(
     errors,
   );
 
-  // Issue #18 (D-105): `on` or `off` (default), nothing else.
+  // Issue #18 (D-105): `on` or `off` (default); issue #87 (D-118): `all`. Nothing else.
   const metricsRaw = present(env, "NESTRIX_METRICS")?.trim().toLowerCase();
-  if (metricsRaw !== undefined && metricsRaw !== "on" && metricsRaw !== "off") {
-    errors.push(`NESTRIX_METRICS accepts "on" or "off" (got "${metricsRaw}").`);
+  if (
+    metricsRaw !== undefined &&
+    metricsRaw !== "on" &&
+    metricsRaw !== "off" &&
+    metricsRaw !== "all"
+  ) {
+    errors.push(
+      `NESTRIX_METRICS accepts "on", "all" or "off" (got "${metricsRaw}").`,
+    );
   }
   const maxSeriesPerService = integer(
     env,
@@ -645,6 +663,14 @@ export function loadConfig(
     DEFAULT_METRICS_MAX_SERIES,
     10,
     10_000_000,
+    errors,
+  );
+  const maxNamesPerService = integer(
+    env,
+    "NESTRIX_METRICS_MAX_NAMES_PER_SERVICE",
+    DEFAULT_METRICS_MAX_NAMES_PER_SERVICE,
+    1,
+    100_000,
     errors,
   );
   const ingestLimits = loadIngestBudget(env, errors);
@@ -706,9 +732,11 @@ export function loadConfig(
       }),
       trustedProxies,
       metrics: Object.freeze({
-        enabled: metricsRaw === "on",
+        enabled: metricsRaw === "on" || metricsRaw === "all",
+        all: metricsRaw === "all",
         maxSeriesPerService,
         maxSeries,
+        maxNamesPerService,
       }),
       oidc,
       passwordLogin,

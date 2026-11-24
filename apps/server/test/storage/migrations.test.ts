@@ -59,6 +59,7 @@ describe.skipIf(noDatabase)(`migrations ${skipReason}`, () => {
       "0022_logs_search_indexes.sql",
       "0023_spans_ingest_seq.sql",
       "0024_spans_ingest_seq_index.sql",
+      "0025_metric_minutes_unit.sql",
     ];
     const applied = [...a.applied, ...b.applied];
     expect(applied).toEqual(all);
@@ -170,6 +171,7 @@ describe.skipIf(noDatabase)(
       // And the later files, so the run stops at 0021 as the upgrade note's install would.
       await rm(join(dir, "0023_spans_ingest_seq.sql"));
       await rm(join(dir, "0024_spans_ingest_seq_index.sql"));
+      await rm(join(dir, "0025_metric_minutes_unit.sql"));
       expect((await runMigrations(db.pool, dir)).applied.at(-1)).toBe(
         "0021_logs_search.sql",
       );
@@ -214,6 +216,7 @@ describe.skipIf(noDatabase)(
         "0022_logs_search_indexes.sql",
         "0023_spans_ingest_seq.sql",
         "0024_spans_ingest_seq_index.sql",
+        "0025_metric_minutes_unit.sql",
       ]);
       const after = await db.pool.query(
         "SELECT indexname FROM pg_indexes WHERE tablename = $1 ORDER BY 1",
@@ -259,6 +262,7 @@ describe.skipIf(noDatabase)(
       await cp(DEFAULT_MIGRATIONS_DIR, dir, { recursive: true });
       await rm(join(dir, "0023_spans_ingest_seq.sql"));
       await rm(join(dir, "0024_spans_ingest_seq_index.sql"));
+      await rm(join(dir, "0025_metric_minutes_unit.sql"));
       expect((await runMigrations(db.pool, dir)).applied.at(-1)).toBe(
         "0022_logs_search_indexes.sql",
       );
@@ -301,6 +305,7 @@ describe.skipIf(noDatabase)(
       expect(res.applied).toEqual([
         "0023_spans_ingest_seq.sql",
         "0024_spans_ingest_seq_index.sql",
+        "0025_metric_minutes_unit.sql",
       ]);
       expect(await indexes()).toEqual(before);
       const parent = await db.pool.query<{ indisvalid: boolean }>(
@@ -331,6 +336,7 @@ describe.skipIf(noDatabase)(
         await cp(DEFAULT_MIGRATIONS_DIR, dir, { recursive: true });
         await rm(join(dir, "0023_spans_ingest_seq.sql"));
         await rm(join(dir, "0024_spans_ingest_seq_index.sql"));
+        await rm(join(dir, "0025_metric_minutes_unit.sql"));
         await runMigrations(db2.pool, dir);
         const day = utcDay(Date.now());
         await ensurePartitions(db2.pool, [day]);

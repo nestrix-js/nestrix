@@ -18,6 +18,9 @@
  *   dropped and counted (`overSeriesCap`). Restarted instances get a new `service.instance.id`, so
  *   their old series stop counting an hour after their last point. The bound is per server process:
  *   with several server instances, a service can hold up to that many series on each.
+ * - names (issue #87, D-118, application metrics only): at most `maxNamesPerService` application
+ *   metric names per service are active at once (seen within the same window); a point of a further
+ *   name is dropped and counted (`overNameCap`). The catalog's names do not count.
  * - age: a point older than two hours is dropped (`outOfRange`), so a row exists only for a recent
  *   minute; rows are therefore bounded by the series cap x retention minutes;
  * - days: a point older than retention, or more than two days ahead, is dropped (`outOfRange`); a
@@ -55,6 +58,8 @@ export interface MetricWriterOptions {
   maxSeriesPerService?: number;
   /** Active series in all. Default 20 000 (`NESTRIX_METRICS_MAX_SERIES`). */
   maxSeries?: number;
+  /** Application metric names per service (D-118). Default 200 (`NESTRIX_METRICS_MAX_NAMES_PER_SERVICE`). */
+  maxNamesPerService?: number;
   /** A series not seen for this long stops counting against the caps. Default one hour. */
   activeWindowMs?: number;
   /** Clock, for tests. */
@@ -69,6 +74,10 @@ export interface MetricWriterStats {
   overSeriesCap: number;
   /** Points outside the stored days. */
   outOfRange: number;
+  /** Points of an application metric name over the per-service name cap (D-118). */
+  overNameCap: number;
+  /** Attributes of application metrics dropped by the per-point bounds (D-118). */
+  droppedAttributes: number;
   /** Points rejected as invalid by the receiver (partial success). */
   rejectedPoints: number;
   /** Points the receiver discarded, by reason (`IngestMetricBatch.dropped`). */
@@ -149,6 +158,65 @@ export class SeriesLimiter {
   }
 }
 
+/**
+ * Issue #87 (D-118): the application metric names per service, with the time each was last seen. A
+ * name is added only once a point of it was admitted by `SeriesLimiter`, so the services held here
+ * are bounded as the series are. Expired names are freed when a cap is reached (at most once every
+ * 10 s per service) and in a sweep of every service at most once per window.
+ */
+export class NameLimiter {
+  private readonly services = new Map<string, Map<string, number>>();
+  private readonly lastPrune = new Map<string, number>();
+  private lastSweep: number;
+
+  constructor(
+    private readonly perService: number,
+    private readonly windowMs: number,
+    nowMs = 0,
+  ) {
+    this.lastSweep = nowMs;
+  }
+
+  /** Whether a point of `name` in `service` may be stored at `nowMs` (known, or there is room). */
+  allows(service: string, name: string, nowMs: number): boolean {
+    const known = this.services.get(service);
+    if (known === undefined || known.has(name)) return true;
+    if (known.size < this.perService) return true;
+    const last = this.lastPrune.get(service) ?? Number.NEGATIVE_INFINITY;
+    if (nowMs - last >= 10_000) {
+      this.lastPrune.set(service, nowMs);
+      this.prune(known, nowMs);
+    }
+    return known.size < this.perService;
+  }
+
+  /** Records a stored point of `name`. */
+  touch(service: string, name: string, nowMs: number): void {
+    if (nowMs - this.lastSweep >= this.windowMs) {
+      this.lastSweep = nowMs;
+      for (const [s, map] of this.services) {
+        this.prune(map, nowMs);
+        if (map.size === 0) {
+          this.services.delete(s);
+          this.lastPrune.delete(s);
+        }
+      }
+    }
+    let known = this.services.get(service);
+    if (known === undefined) {
+      known = new Map();
+      this.services.set(service, known);
+    }
+    known.set(name, nowMs);
+  }
+
+  private prune(map: Map<string, number>, nowMs: number): void {
+    for (const [name, seen] of map) {
+      if (nowMs - seen > this.windowMs) map.delete(name);
+    }
+  }
+}
+
 /** One `metric_minutes` row being written. */
 interface Row {
   minute: number;
@@ -173,17 +241,20 @@ interface Row {
   buckets: number[] | null;
   histCount: number | null;
   histSum: number | null;
+  /** D-118: an application metric's unit; `null` for the catalog's (their unit is the catalog's). */
+  unit: string | null;
 }
 
 function seriesKey(point: IngestMetricPoint): string {
+  const parts: unknown[] = [
+    point.attributesKey,
+    point.temporality,
+    point.bounds ?? null,
+  ];
+  // D-118: an application metric that changes its type or unit starts a new series.
+  if (point.unit !== undefined) parts.push(point.kind, point.unit);
   return createHash("sha256")
-    .update(
-      JSON.stringify([
-        point.attributesKey,
-        point.temporality,
-        point.bounds ?? null,
-      ]),
-    )
+    .update(JSON.stringify(parts))
     .digest("hex")
     .slice(0, 32);
 }
@@ -220,6 +291,7 @@ function rowOf(
     buckets: null,
     histCount: null,
     histSum: null,
+    unit: point.unit ?? null,
   };
   if (point.kind === "gauge") {
     row.last = point.value;
@@ -297,16 +369,16 @@ const UPSERT = `
 INSERT INTO metric_minutes AS m (
   minute, service_name, environment, instance_id, metric_name, series_key, attributes, kind, temporality,
   time_ns, start_ns, last_value, sum_value, count_value, min_value, max_value, bounds, buckets,
-  hist_count, hist_sum)
+  hist_count, hist_sum, unit)
 SELECT u.minute, u.service, u.env, u.instance, u.metric, u.series, u.attrs::jsonb, u.kind, u.temp,
        u.time_ns, u.start_ns, u.last, u.sum, u.count, u.min, u.max, u.bounds::float8[],
-       u.buckets::float8[], u.hcount, u.hsum
+       u.buckets::float8[], u.hcount, u.hsum, u.unit
   FROM unnest($1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[],
               $7::text[], $8::text[], $9::bigint[], $10::bigint[], $11::float8[], $12::float8[],
               $13::bigint[], $14::float8[], $15::float8[], $16::text[], $17::text[],
-              $18::float8[], $19::float8[], $20::text[])
+              $18::float8[], $19::float8[], $20::text[], $21::text[])
     AS u(minute, service, instance, metric, series, attrs, kind, temp, time_ns, start_ns, last,
-         sum, count, min, max, bounds, buckets, hcount, hsum, env)
+         sum, count, min, max, bounds, buckets, hcount, hsum, env, unit)
 ON CONFLICT (service_name, environment, metric_name, instance_id, series_key, minute) DO UPDATE SET
   last_value = CASE WHEN EXCLUDED.time_ns >= m.time_ns THEN EXCLUDED.last_value ELSE m.last_value END,
   sum_value = CASE WHEN m.kind = 'gauge' OR (m.kind = 'counter' AND m.temporality = 'delta')
@@ -343,12 +415,15 @@ export class PostgresMetricWriter {
   private readonly retryAfterSeconds: number;
   private readonly now: () => number;
   private readonly limiter: SeriesLimiter;
+  private readonly names: NameLimiter;
   private inflight = 0;
   private closed = false;
   private readonly counters = {
     storedPoints: 0,
     overSeriesCap: 0,
     outOfRange: 0,
+    overNameCap: 0,
+    droppedAttributes: 0,
     rejectedPoints: 0,
     busyRejections: 0,
   };
@@ -372,6 +447,11 @@ export class PostgresMetricWriter {
       options.maxSeriesPerService ?? 2_000,
       options.maxSeries ?? 20_000,
       options.activeWindowMs ?? 3_600_000,
+    );
+    this.names = new NameLimiter(
+      options.maxNamesPerService ?? 200,
+      options.activeWindowMs ?? 3_600_000,
+      this.now(),
     );
   }
 
@@ -404,6 +484,7 @@ export class PostgresMetricWriter {
     }
     // Counted once the batch is accepted (a busy batch will be sent again).
     this.counters.rejectedPoints += batch.rejectedDataPoints;
+    this.counters.droppedAttributes += batch.droppedAttributes ?? 0;
     for (const k of Object.keys(this.dropped) as (keyof MetricDropCounts)[]) {
       this.dropped[k] += batch.dropped[k] ?? 0;
     }
@@ -428,6 +509,7 @@ export class PostgresMetricWriter {
     const nowMs = this.now();
     let outOfRange = 0;
     let overCap = 0;
+    let overNames = 0;
     const candidates: { row: Row; series: string }[] = [];
     for (const rm of batch.resourceMetrics) {
       for (const point of rm.points) {
@@ -463,10 +545,16 @@ export class PostgresMetricWriter {
         outOfRange++;
         continue;
       }
+      const app = row.unit !== null;
+      if (app && !this.names.allows(row.service, row.metric, nowMs)) {
+        overNames++;
+        continue;
+      }
       if (!this.limiter.admit(row.service, series, nowMs)) {
         overCap++;
         continue;
       }
+      if (app) this.names.touch(row.service, row.metric, nowMs);
       stored++;
       const key = rowKey(row);
       const existing = rows.get(key);
@@ -475,6 +563,7 @@ export class PostgresMetricWriter {
     }
     this.counters.outOfRange += outOfRange;
     this.counters.overSeriesCap += overCap;
+    this.counters.overNameCap += overNames;
     if (rows.size > 0) {
       await this.upsert(
         [...rows.entries()]
@@ -490,7 +579,9 @@ export class PostgresMetricWriter {
       );
     }
     this.counters.storedPoints += stored;
-    return { overSeriesCap: overCap, outOfRange };
+    return overNames > 0
+      ? { overSeriesCap: overCap, outOfRange, overNameCap: overNames }
+      : { overSeriesCap: overCap, outOfRange };
   }
 
   private async upsert(rows: Row[]): Promise<void> {
@@ -516,6 +607,7 @@ export class PostgresMetricWriter {
       col((r) => r.histCount),
       col((r) => r.histSum),
       col((r) => r.environment),
+      col((r) => r.unit),
     ]);
   }
 }
