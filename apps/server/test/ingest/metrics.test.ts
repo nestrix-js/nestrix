@@ -557,3 +557,234 @@ describe("metrics config and limits", () => {
     expect(histogramQuantile([1, 2], [0, 0, 10], 0.99)).toBe(2);
   });
 });
+
+// Issue #87 (D-118): NESTRIX_METRICS=all stores the application's own metrics within bounds.
+describe("application metrics (NESTRIX_METRICS=all)", () => {
+  const limits = {
+    maxSpans: 1000,
+    maxMessages: 100_000,
+    maxJsonTokens: 100_000,
+    maxDepth: 32,
+  };
+  const T = "1700000000000000000";
+  const S = "1699999940000000000";
+  const map = (metrics: unknown[], all = true) =>
+    toIngestMetricBatch(
+      decodeMetricsRequest(
+        Buffer.from(JSON.stringify(metricsJson(metrics))),
+        "json",
+        limits,
+      ),
+      1_700_000_000_000_000_000n,
+      all,
+    );
+  const counter = (name: string, unit: string, attributes: unknown[] = []) => ({
+    name,
+    unit,
+    sum: {
+      isMonotonic: true,
+      aggregationTemporality: 2,
+      dataPoints: [
+        { startTimeUnixNano: S, timeUnixNano: T, asInt: "7", attributes },
+      ],
+    },
+  });
+
+  it("stores any name with its declared type and unit; on keeps dropping it", () => {
+    const metrics = [
+      counter("orders.created", "{order}", [attr("channel", "web")]),
+      {
+        name: "queue.depth",
+        unit: "{job}",
+        gauge: { dataPoints: [{ timeUnixNano: T, asDouble: 4 }] },
+      },
+      {
+        name: "pool.connections.active",
+        unit: "",
+        sum: {
+          isMonotonic: false,
+          aggregationTemporality: 2,
+          dataPoints: [{ startTimeUnixNano: S, timeUnixNano: T, asInt: "3" }],
+        },
+      },
+      {
+        name: "db.client.connection.wait_time",
+        unit: "s",
+        histogram: {
+          aggregationTemporality: 1,
+          dataPoints: [
+            {
+              startTimeUnixNano: S,
+              timeUnixNano: T,
+              count: "3",
+              explicitBounds: [0.01, 0.1],
+              bucketCounts: ["1", "1", "1"],
+            },
+          ],
+        },
+      },
+      {
+        name: "payload.size",
+        unit: "By",
+        exponentialHistogram: {
+          aggregationTemporality: 2,
+          dataPoints: [{ timeUnixNano: T, count: "1" }],
+        },
+      },
+    ];
+    const batch = map(metrics);
+    const points = batch.resourceMetrics[0]?.points ?? [];
+    expect(
+      points.map((p) => [p.metric, p.kind, p.temporality, p.unit]),
+    ).toEqual([
+      ["orders.created", "counter", "cumulative", "{order}"],
+      ["queue.depth", "gauge", "cumulative", "{job}"],
+      ["pool.connections.active", "gauge", "cumulative", ""],
+      ["db.client.connection.wait_time", "histogram", "delta", "s"],
+    ]);
+    expect(points[0]?.attributes).toEqual({ channel: "web" });
+    expect(batch.dropped).toMatchObject({ unsupportedType: 1, notStored: 0 });
+
+    const on = map(metrics, false);
+    expect(on.resourceMetrics).toHaveLength(0);
+    expect(on.dropped).toMatchObject({ notStored: 4, unsupportedType: 1 });
+  });
+
+  it("keeps the runtime catalog's checks: a catalog name with another unit is still a type mismatch", () => {
+    const batch = map([
+      {
+        name: "process.memory.usage",
+        unit: "MiBy",
+        gauge: { dataPoints: [{ timeUnixNano: T, asDouble: 1 }] },
+      },
+    ]);
+    expect(batch.resourceMetrics).toHaveLength(0);
+    expect(batch.dropped.typeMismatch).toBe(1);
+  });
+
+  it("bounds attributes: 16 keys (sorted), 128-character keys, scalar values, 256-character values", () => {
+    const many = Array.from({ length: 20 }, (_, i) =>
+      attr(`k${String(i).padStart(2, "0")}`, "v"),
+    );
+    const batch = map([
+      counter("orders.created", "{order}", [
+        ...many,
+        attr("x".repeat(129), "too long a key"),
+        { key: "list", value: { arrayValue: { values: [] } } },
+        { key: "ok", value: { boolValue: true } },
+        { key: "a.n", value: { intValue: "5" } },
+        attr("a.long", "y".repeat(300)),
+      ]),
+    ]);
+    const kept = batch.resourceMetrics[0]?.points[0]?.attributes ?? {};
+    expect(Object.getPrototypeOf(kept)).toBeNull();
+    expect(Object.keys(kept)).toHaveLength(16);
+    // Sorted: a.long, a.n, k00..k13; k14..k19 and ok are past the first 16.
+    expect(Object.keys(kept)).toContain("k13");
+    expect(Object.keys(kept)).not.toContain("k14");
+    expect(kept["a.long"]).toHaveLength(256);
+    expect(kept["a.n"]).toBe("5");
+    // Dropped: the long key, the array, and 23 - 16 = 7 past the limit.
+    expect(batch.droppedAttributes).toBe(9);
+  });
+
+  it("does not store an empty or overlong name or unit, and counts it", () => {
+    const batch = map([
+      counter("", "1"),
+      counter("n".repeat(256), "1"),
+      counter("orders.created", "u".repeat(64)),
+      counter("n".repeat(255), "u".repeat(63)),
+    ]);
+    expect(batch.dropped.notStored).toBe(3);
+    expect(batch.resourceMetrics[0]?.points).toHaveLength(1);
+  });
+
+  it("keeps one name sent with two units as two points (they become two series)", () => {
+    const batch = map([
+      counter("orders.created", "1"),
+      counter("orders.created", "{order}"),
+    ]);
+    expect(batch.resourceMetrics[0]?.points.map((p) => p.unit)).toEqual([
+      "1",
+      "{order}",
+    ]);
+  });
+
+  it("NESTRIX_METRICS=all and the name cap are configured", () => {
+    const all = testConfig({ NESTRIX_METRICS: "all" }).metrics;
+    expect(all).toMatchObject({
+      enabled: true,
+      all: true,
+      maxNamesPerService: 200,
+    });
+    expect(testConfig({ NESTRIX_METRICS: "on" }).metrics.all).toBe(false);
+    expect(
+      testConfig({ NESTRIX_METRICS_MAX_NAMES_PER_SERVICE: "5" }).metrics
+        .maxNamesPerService,
+    ).toBe(5);
+    expect(() =>
+      testConfig({ NESTRIX_METRICS_MAX_NAMES_PER_SERVICE: "0" }),
+    ).toThrow(/MAX_NAMES_PER_SERVICE/);
+  });
+
+  it("NameLimiter admits known names, refuses new ones over the cap and frees expired ones", async () => {
+    const { NameLimiter } = await import("../../src/storage/metrics.js");
+    const l = new NameLimiter(2, 1000);
+    expect(l.allows("s", "a", 0)).toBe(true);
+    l.touch("s", "a", 0);
+    l.touch("s", "b", 0);
+    expect(l.allows("s", "c", 0)).toBe(false);
+    expect(l.allows("s", "a", 0)).toBe(true);
+    expect(l.allows("t", "c", 0)).toBe(true);
+    expect(l.allows("s", "c", 20_000)).toBe(true);
+  });
+});
+
+describe("POST /v1/metrics all", () => {
+  let server: TestServer;
+  beforeAll(async () => {
+    server = await startServer(testConfig({ NESTRIX_METRICS: "all" }));
+  });
+  afterAll(async () => server.close());
+
+  it("stores an application metric and names dropped attributes in the partial success", async () => {
+    const res = await post(
+      `${server.baseUrl}/v1/metrics`,
+      JSON.stringify(
+        metricsJson([
+          {
+            name: "orders.created",
+            unit: "{order}",
+            sum: {
+              isMonotonic: true,
+              aggregationTemporality: 2,
+              dataPoints: [
+                {
+                  startTimeUnixNano: START,
+                  timeUnixNano: nowNs(),
+                  asInt: "1",
+                  attributes: [
+                    attr("channel", "web"),
+                    { key: "tags", value: { arrayValue: { values: [] } } },
+                  ],
+                },
+              ],
+            },
+          },
+        ]),
+      ),
+      { "content-type": JSON_TYPE, ...auth() },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      partialSuccess?: { errorMessage?: string; rejectedDataPoints?: string };
+    };
+    expect(body.partialSuccess?.errorMessage).toMatch(
+      /1 attributes were dropped/,
+    );
+    expect(body.partialSuccess?.rejectedDataPoints ?? "0").toBe("0");
+    const point =
+      server.sink.metricBatches.at(-1)?.resourceMetrics[0]?.points[0];
+    expect(point).toMatchObject({ metric: "orders.created", unit: "{order}" });
+  });
+});

@@ -1,4 +1,5 @@
 import {
+  ATTRIBUTE_FILTER_KEY_PATTERN,
   type MetricAggregation,
   type MetricCatalogResponse,
   type MetricDefinition,
@@ -8,7 +9,7 @@ import {
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { parseAsStringLiteral, useQueryStates } from "nuqs";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Chip } from "@/components/kit/chip";
 import { Checkbox } from "@/components/kit/form";
 import { Chart } from "@/components/kit/line-chart";
@@ -18,6 +19,7 @@ import { SegmentedControl } from "@/components/kit/segmented-control";
 import { SkeletonChart } from "@/components/kit/skeletons";
 import { EmptyState, ErrorState } from "@/components/kit/states";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { getMeta, getMetricCatalog, getMetricSeries } from "@/lib/api";
 import { useEnvironment } from "@/lib/environment";
@@ -31,6 +33,8 @@ import {
   axisFloor,
   decodeInstance,
   encodeInstance,
+  filterMetrics,
+  kindLabel,
   metricTitle,
   orderMetrics,
   requestsHref,
@@ -38,6 +42,7 @@ import {
   selectedRange,
   shapeSeries,
   unitLabel,
+  unitText,
   valueFormatter,
 } from "@/views/metrics/metrics-format";
 import { formatClock } from "@/views/requests/timeline-range";
@@ -47,6 +52,13 @@ const DEFAULT_WINDOW = 60;
 /** Stored metrics have one point per minute: a faster refresh would only repeat the answer. */
 const REFRESH_MS = 30_000;
 const SOURCE = "stored runtime metrics, one point per minute";
+const APP_SOURCE = "stored application metrics, one point per minute";
+/** Issue #87 (D-118): above this many application metrics the page offers a search. */
+const APP_SEARCH_FROM = 6;
+/** Application metric panels drawn at once (each is one series request). */
+const MAX_APP_PANELS = 12;
+/** Keys the series route can group by (`by=attr.<key>`). */
+const GROUP_KEY = new RegExp(ATTRIBUTE_FILTER_KEY_PATTERN);
 
 const urlParsers = {
   windowMinutes: numberParser({
@@ -62,6 +74,8 @@ const urlParsers = {
   instanceService: stringParser(metricSeriesParams.service),
   aggregation: parseAsStringLiteral(metricSeriesParams.aggregation.values),
   by: parseAsStringLiteral(metricSeriesParams.by.values),
+  // D-118: the application metrics search.
+  search: stringParser({ maxLength: 255 }),
 };
 
 const minuteNow = () => Math.floor(Date.now() / MINUTE_MS) * MINUTE_MS;
@@ -83,7 +97,9 @@ function formatRange(fromUnixMs: number, toUnixMs: number): string {
  * `metrics-range` and `metrics-reset-range` (an exact range), `metrics-instance`,
  * `metrics-aggregation`, `metrics-split`, `metrics-capped`, `metrics-no-data`, `metrics-hint`,
  * `metric-panel-<name>` with `metric-chart-<name>`, `metric-empty`, `metric-gaps`, `metric-stale`,
- * `metric-capped`, `metric-meaning`.
+ * `metric-capped`, `metric-meaning`. Application metrics (issue #87, D-118, `NESTRIX_METRICS=all`):
+ * `metrics-app`, `metrics-app-search`, `metrics-app-shown`, `metrics-app-none`, and per panel
+ * `metric-group-<name>` (the attribute to group by).
  */
 export function MetricsPage() {
   const meta = useQuery({ queryKey: ["meta"], queryFn: getMeta });
@@ -133,7 +149,7 @@ export function MetricsPage() {
         />
         <EmptyState testId="metrics-off" title="Historical metrics are off">
           {meta.data.mode === "standalone"
-            ? "Start the server with NESTRIX_METRICS=on to store and chart the runtime metrics your services export."
+            ? "Start the server with NESTRIX_METRICS=on to store and chart the runtime metrics your services export, or NESTRIX_METRICS=all to keep their own metrics too."
             : "The embedded dashboard has a Runtime page for this process. Stored metrics need the standalone server."}
         </EmptyState>
       </div>
@@ -159,7 +175,7 @@ export function MetricsPage() {
     <div data-testid="metrics-page" className="space-y-4">
       <PageHeader
         title="Metrics"
-        description="Runtime metrics over time, across replicas. Click a chart, or drag across it, to open the requests from that time."
+        description={`${data?.metrics.some((m) => m.app) ? "Runtime and application" : "Runtime"} metrics over time, across replicas. Click a chart, or drag across it, to open the requests from that time.`}
         source={SOURCE}
         controls={
           custom ? (
@@ -276,21 +292,106 @@ export function MetricsPage() {
             : "No instance reported metrics between these times for this service and environment. Try a longer window."}
         </EmptyState>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {orderMetrics(data.metrics).map((definition) => (
-            <MetricPanel
-              key={definition.name}
-              definition={definition}
-              range={range}
-              service={chosen?.service ?? service}
-              instance={instanceChosen}
-              aggregation={aggregation}
-              splitByInstance={splitByInstance}
-              refetchInterval={refetchInterval}
-              onSelect={goToRequests}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {orderMetrics(data.metrics.filter((m) => !m.app)).map(
+              (definition) => (
+                <MetricPanel
+                  key={definition.name}
+                  definition={definition}
+                  range={range}
+                  service={chosen?.service ?? service}
+                  instance={instanceChosen}
+                  aggregation={aggregation}
+                  splitByInstance={splitByInstance}
+                  refetchInterval={refetchInterval}
+                  onSelect={goToRequests}
+                />
+              ),
+            )}
+          </div>
+          <AppMetrics
+            metrics={data.metrics.filter((m) => m.app)}
+            truncated={data.appMetricsTruncated === true}
+            search={url.search ?? ""}
+            onSearch={(text) =>
+              void setUrl({ search: text === "" ? null : text })
+            }
+            panel={(definition) => (
+              <MetricPanel
+                key={`${definition.kind}/${definition.unit}/${definition.name}`}
+                definition={definition}
+                range={range}
+                service={chosen?.service ?? service}
+                instance={instanceChosen}
+                aggregation={aggregation}
+                splitByInstance={splitByInstance}
+                refetchInterval={refetchInterval}
+                onSelect={goToRequests}
+              />
+            )}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Issue #87 (D-118): the application's own metrics, after the runtime panels. With more than a few,
+ * a search narrows them by name; at most `MAX_APP_PANELS` are drawn at once.
+ */
+function AppMetrics({
+  metrics,
+  truncated,
+  search,
+  onSearch,
+  panel,
+}: {
+  metrics: MetricDefinition[];
+  truncated: boolean;
+  search: string;
+  onSearch: (text: string) => void;
+  panel: (definition: MetricDefinition) => ReactNode;
+}) {
+  if (metrics.length === 0) return null;
+  const matching = filterMetrics(metrics, search);
+  const shown = matching.slice(0, MAX_APP_PANELS);
+  return (
+    <div data-testid="metrics-app" className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="text-sm font-medium">Application metrics</h2>
+        {(metrics.length > APP_SEARCH_FROM || search !== "") && (
+          <Input
+            data-testid="metrics-app-search"
+            aria-label="Search application metrics"
+            placeholder="Search by name"
+            className="w-64"
+            value={search}
+            maxLength={255}
+            onChange={(e) => onSearch(e.target.value)}
+          />
+        )}
+        {(matching.length > shown.length || search !== "") && (
+          <Chip data-testid="metrics-app-shown" tone="neutral">
+            showing {shown.length} of {matching.length}
+            {search === "" ? "" : ` matching (${metrics.length} in all)`}
+            {matching.length > shown.length ? "; search to narrow" : ""}
+          </Chip>
+        )}
+        {truncated && (
+          <Chip data-testid="metrics-app-truncated" tone="neutral">
+            list cut at 1,000 names
+          </Chip>
+        )}
+      </div>
+      {shown.length === 0 ? (
+        <EmptyState testId="metrics-app-none" title="No metric matches">
+          No application metric name contains "{search}". Clear the search to
+          see them all.
+        </EmptyState>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">{shown.map(panel)}</div>
       )}
     </div>
   );
@@ -337,6 +438,17 @@ function MetricPanel({
   onSelect: (range: { fromUnixMs: number; toUnixMs: number }) => void;
 }) {
   const histogram = definition.kind === "histogram";
+  // D-118: an application metric can be split by one of its attributes (not a histogram).
+  const [groupBy, setGroupBy] = useState<string | undefined>(undefined);
+  const groupKeys = histogram
+    ? []
+    : (definition.attributeKeys ?? []).filter((k) => GROUP_KEY.test(k));
+  const grouped = groupBy !== undefined && groupKeys.includes(groupBy);
+  const by = grouped
+    ? `attr.${groupBy}`
+    : splitByInstance && !histogram
+      ? "instance"
+      : undefined;
   const query = useQuery({
     queryKey: [
       "metrics",
@@ -345,7 +457,7 @@ function MetricPanel({
       service,
       instance,
       histogram ? undefined : aggregation,
-      splitByInstance && !histogram,
+      by,
       range,
     ],
     queryFn: () =>
@@ -354,7 +466,7 @@ function MetricPanel({
         service,
         instance,
         aggregation: histogram ? undefined : aggregation,
-        by: splitByInstance && !histogram ? "instance" : undefined,
+        by,
         ...range,
       }),
     refetchInterval,
@@ -365,13 +477,33 @@ function MetricPanel({
   const shaped = useMemo(() => (data ? shapeSeries(data) : null), [data]);
   const title = metricTitle(definition.name);
   const format = valueFormatter(data?.valueUnit ?? definition.valueUnit);
+  const description = definition.app
+    ? `${kindLabel(definition.kind)}${definition.unit === "" ? "" : `, in ${unitText(definition.unit)}`}.`
+    : definition.description;
 
   return (
     <Section
       testId={`metric-panel-${definition.name}`}
       title={title}
-      description={definition.description}
-      source={SOURCE}
+      description={description}
+      source={definition.app ? APP_SOURCE : SOURCE}
+      actions={
+        groupKeys.length > 0 ? (
+          <Select
+            data-testid={`metric-group-${definition.name}`}
+            aria-label={`Group ${title} by`}
+            value={grouped ? groupBy : ""}
+            onChange={(e) => setGroupBy(e.target.value || undefined)}
+          >
+            <option value="">No grouping</option>
+            {groupKeys.map((k) => (
+              <option key={k} value={k}>
+                By {k}
+              </option>
+            ))}
+          </Select>
+        ) : undefined
+      }
     >
       {query.isError && !data ? (
         <ErrorState
@@ -417,6 +549,7 @@ function MetricPanel({
               data.aggregation,
               splitByInstance,
               instance,
+              grouped ? groupBy : undefined,
             )}{" "}
             · one point per {Math.round(data.stepMs / MINUTE_MS)} min
           </p>
@@ -435,7 +568,8 @@ function MetricPanel({
             {shaped.cappedAt && (
               <Chip data-testid="metric-capped" tone="warn">
                 showing {shaped.cappedAt.shown} of {shaped.cappedAt.total}{" "}
-                instances (most data first)
+                {grouped ? `values of ${groupBy}` : "instances"} (most data
+                first)
               </Chip>
             )}
           </div>

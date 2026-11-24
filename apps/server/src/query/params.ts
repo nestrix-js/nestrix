@@ -16,6 +16,7 @@ import type {
   LogSearchParamsSpec,
   MetaParamsSpec,
   MetricCatalogParamsSpec,
+  MetricSeriesAllParamsSpec,
   MetricSeriesParamsSpec,
   OverviewParamsSpec,
   ParamSpec,
@@ -206,6 +207,17 @@ export const metricSeriesSpec: MetricSeriesParamsSpec = {
   stepMs: { kind: "int", min: 60_000, max: 86_400_000 },
   aggregation: { kind: "enum", values: ["sum", "avg", "max", "min"] },
   by: { kind: "enum", values: ["instance"] },
+};
+
+/** Issue #87 (D-118): `series` with `NESTRIX_METRICS=all`. */
+export const metricSeriesAllSpec: MetricSeriesAllParamsSpec = {
+  ...metricSeriesSpec,
+  metric: { kind: "string", maxLength: 255 },
+  by: {
+    kind: "string",
+    maxLength: 133,
+    pattern: "^(instance|attr\\.[A-Za-z][A-Za-z0-9_.-]{0,127})$",
+  },
 };
 
 export const metricCatalogSpec: MetricCatalogParamsSpec = {

@@ -24,6 +24,9 @@ describe("package entry", () => {
         "ATTRIBUTE_FILTER_PREFIX",
         "MAX_ATTRIBUTE_FILTERS",
         "MAX_ATTRIBUTE_FILTER_VALUE_LENGTH",
+        // D-118: application metrics.
+        "MAX_METRIC_GROUPS",
+        "metricSeriesAllParams",
         "appMapParams",
         "classStatsParams",
         "errorGroupParams",

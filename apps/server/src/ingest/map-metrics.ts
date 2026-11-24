@@ -19,6 +19,13 @@
  * Attributes: only the catalog's keys are read, into null-prototype objects (a `__proto__` key is an
  * ordinary key), values as strings cut to `MAX_METRIC_ATTRIBUTE_LENGTH`. Points of one metric that
  * end up with the same attributes, time and bounds are merged (`CatalogEntry.merge`).
+ *
+ * Application metrics (issue #87, D-118), with `all` only: a name outside the catalog is stored with
+ * whatever type (of the four above) and unit it declares, the unit carried on each point. Its
+ * attributes are kept within the bounds of `catalog.ts` (`MAX_APP_*`): string, bool and number
+ * values, as strings; others, overlong keys and keys past the first 16 (sorted) are dropped and
+ * counted (`droppedAttributes`). Points that then collapse merge as the catalog's do (counters and
+ * histograms add up, gauges keep the largest). A catalog name keeps the catalog's checks.
  */
 
 import { createHash } from "node:crypto";
@@ -26,6 +33,11 @@ import {
   type CatalogEntry,
   type CatalogKind,
   catalogEntry,
+  MAX_APP_ATTRIBUTE_KEY_LENGTH,
+  MAX_APP_ATTRIBUTE_VALUE_LENGTH,
+  MAX_APP_ATTRIBUTES,
+  MAX_APP_METRIC_NAME_LENGTH,
+  MAX_APP_METRIC_UNIT_LENGTH,
   MAX_HISTOGRAM_BOUNDS,
   MAX_METRIC_ATTRIBUTE_LENGTH,
 } from "../metrics/catalog.js";
@@ -74,7 +86,13 @@ interface Context {
   rejected: Map<RejectReason, number>;
   dropped: MetricDropCounts;
   total: number;
+  /** Issue #87 (D-118): store names outside the catalog too. */
+  all: boolean;
+  droppedAttributes: number;
 }
+
+/** A catalog entry, or (D-118) one made for an application metric from what it declared. */
+type Entry = CatalogEntry & { readonly app?: true };
 
 function reject(ctx: Context, reason: RejectReason): void {
   ctx.rejected.set(reason, (ctx.rejected.get(reason) ?? 0) + 1);
@@ -113,8 +131,11 @@ function resourceString(value: unknown, max: number): string | undefined {
 export function toIngestMetricBatch(
   request: ExportMetricsServiceRequest,
   nowUnixNano: bigint = BigInt(Date.now()) * 1_000_000n,
+  all = false,
 ): IngestMetricBatch {
   const ctx: Context = {
+    all,
+    droppedAttributes: 0,
     latest: nowUnixNano + MAX_FUTURE_NS,
     rejected: new Map(),
     dropped: {
@@ -156,6 +177,9 @@ export function toIngestMetricBatch(
     rejectedDataPoints,
     dropped: ctx.dropped,
   };
+  if (ctx.droppedAttributes > 0) {
+    batch.droppedAttributes = ctx.droppedAttributes;
+  }
   if (rejectedDataPoints > 0) {
     const reasons = [...ctx.rejected]
       .map(([reason, n]) => `${reason} (${n})`)
@@ -202,12 +226,15 @@ function mapMetric(
     ctx.dropped.unsupportedType += n;
     return;
   }
-  const entry = catalogEntry(metric.name);
+  let entry: Entry | undefined = catalogEntry(metric.name);
+  if (entry === undefined && ctx.all) {
+    entry = appEntry(metric, kind);
+  }
   if (entry === undefined) {
     ctx.dropped.notStored += n;
     return;
   }
-  if (entry.kind !== kind || metric.unit !== entry.unit) {
+  if (!entry.app && (entry.kind !== kind || metric.unit !== entry.unit)) {
     ctx.dropped.typeMismatch += n;
     return;
   }
@@ -240,6 +267,30 @@ function mapMetric(
       }
     }
   }
+}
+
+/**
+ * Issue #87 (D-118): an application metric as declared, or `undefined` (not stored) for an empty or
+ * overlong name or an overlong unit.
+ */
+function appEntry(metric: Metric, kind: CatalogKind): Entry | undefined {
+  const name = metric.name;
+  if (
+    name === "" ||
+    name.length > MAX_APP_METRIC_NAME_LENGTH ||
+    metric.unit.length > MAX_APP_METRIC_UNIT_LENGTH
+  ) {
+    return undefined;
+  }
+  return {
+    name: text(name),
+    kind,
+    unit: text(metric.unit),
+    description: "",
+    attributes: [],
+    merge: "max",
+    app: true,
+  };
 }
 
 /** Shared checks of a point's flags and times; `false` when it is dropped or rejected. */
@@ -290,13 +341,35 @@ function attributeText(value: AnyValue | undefined): string | undefined {
   }
 }
 
-/** The catalog's attribute keys only, as strings; and their canonical JSON. */
+/** The catalog's attribute keys only (D-118: an application metric's within bounds), as strings; and their canonical JSON. */
 function keptAttributes(
   input: { key: string; value?: AnyValue }[],
-  entry: CatalogEntry,
+  entry: Entry,
+  ctx: Context,
 ): { attributes: Record<string, string>; key: string } {
   const out: Record<string, string> = Object.create(null);
-  if (entry.attributes.length > 0) {
+  if (entry.app) {
+    const kept: Record<string, string> = Object.create(null);
+    for (const kv of input) {
+      const raw = attributeText(kv.value);
+      if (raw === undefined || kv.key.length > MAX_APP_ATTRIBUTE_KEY_LENGTH) {
+        ctx.droppedAttributes++;
+        continue;
+      }
+      if (Object.hasOwn(kept, kv.key)) ctx.droppedAttributes++;
+      kept[kv.key] = raw;
+    }
+    const sorted = Object.keys(kept).sort();
+    for (const k of sorted.slice(0, MAX_APP_ATTRIBUTES)) {
+      const raw = kept[k] as string;
+      out[text(k)] = text(
+        raw.length > MAX_APP_ATTRIBUTE_VALUE_LENGTH
+          ? raw.slice(0, MAX_APP_ATTRIBUTE_VALUE_LENGTH)
+          : raw,
+      );
+    }
+    ctx.droppedAttributes += Math.max(0, sorted.length - MAX_APP_ATTRIBUTES);
+  } else if (entry.attributes.length > 0) {
     for (const kv of input) {
       if (!entry.attributes.includes(kv.key)) continue;
       const raw = attributeText(kv.value);
@@ -324,7 +397,7 @@ function numberValue(p: NumberDataPoint): number | undefined {
 
 function numberPoint(
   p: NumberDataPoint,
-  entry: CatalogEntry,
+  entry: Entry,
   temporality: "cumulative" | "delta",
   ctx: Context,
   merged: Map<string, IngestMetricPoint>,
@@ -343,9 +416,9 @@ function numberPoint(
     reject(ctx, "value out of range");
     return;
   }
-  const { attributes: attrs, key } = keptAttributes(p.attributes, entry);
+  const { attributes: attrs, key } = keptAttributes(p.attributes, entry, ctx);
   const mergeKey = `${temporality}\u0000${key}\u0000${p.timeUnixNano}`;
-  const fullKey = `${entry.name}\u0000${mergeKey}`;
+  const fullKey = `${entry.name}\u0000${entry.kind}\u0000${entry.unit}\u0000${mergeKey}`;
   const existing = merged.get(fullKey);
   if (existing !== undefined) {
     existing.value = clampValue(
@@ -368,6 +441,7 @@ function numberPoint(
     timeUnixNano: p.timeUnixNano,
     startTimeUnixNano: p.startTimeUnixNano,
     value,
+    ...(entry.app ? { unit: entry.unit } : {}),
   });
 }
 
@@ -394,7 +468,7 @@ function validBounds(bounds: number[]): boolean {
 
 function histogramPoint(
   p: HistogramDataPoint,
-  entry: CatalogEntry,
+  entry: Entry,
   temporality: "cumulative" | "delta",
   ctx: Context,
   merged: Map<string, IngestMetricPoint>,
@@ -423,8 +497,8 @@ function histogramPoint(
     reject(ctx, "value out of range");
     return;
   }
-  const { attributes: attrs, key } = keptAttributes(p.attributes, entry);
-  const fullKey = `${entry.name}\u0000${temporality}\u0000${key}\u0000${p.timeUnixNano}\u0000${bounds.join(",")}`;
+  const { attributes: attrs, key } = keptAttributes(p.attributes, entry, ctx);
+  const fullKey = `${entry.name}\u0000${entry.unit}\u0000${temporality}\u0000${key}\u0000${p.timeUnixNano}\u0000${bounds.join(",")}`;
   const existing = merged.get(fullKey);
   if (existing !== undefined) {
     const into = existing.bucketCounts as number[];
@@ -454,5 +528,6 @@ function histogramPoint(
     sum,
     bounds: [...bounds],
     bucketCounts: buckets,
+    ...(entry.app ? { unit: entry.unit } : {}),
   });
 }

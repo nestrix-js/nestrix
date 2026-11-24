@@ -116,3 +116,15 @@ export function catalogEntry(name: string): CatalogEntry | undefined {
 export const MAX_HISTOGRAM_BOUNDS = 128;
 /** A kept attribute value is cut to this many characters. */
 export const MAX_METRIC_ATTRIBUTE_LENGTH = 128;
+
+/**
+ * Issue #87 (D-118): the bounds on an application metric (`NESTRIX_METRICS=all`), any name outside
+ * the catalog. A name or unit over its length is not stored (`notStored`); an attribute whose key is
+ * longer, whose value is not a string, bool or number, or past the first `MAX_APP_ATTRIBUTES` keys
+ * (in sorted order) is dropped and counted (`droppedAttributes`); a longer value is cut.
+ */
+export const MAX_APP_METRIC_NAME_LENGTH = 255;
+export const MAX_APP_METRIC_UNIT_LENGTH = 63;
+export const MAX_APP_ATTRIBUTES = 16;
+export const MAX_APP_ATTRIBUTE_KEY_LENGTH = 128;
+export const MAX_APP_ATTRIBUTE_VALUE_LENGTH = 256;
