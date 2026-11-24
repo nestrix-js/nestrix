@@ -1,5 +1,11 @@
 # @nestrix-js/ui
 
+## 0.11.0
+
+### Minor Changes
+
+- [#88](https://github.com/nestrix-js/nestrix/pull/88) [`f76a4e3`](https://github.com/nestrix-js/nestrix/commit/f76a4e396b6ade9c79f62191577c13e8f7be1257) Thanks [@lamberto15](https://github.com/lamberto15)! - Application metrics in the standalone server ([#87](https://github.com/nestrix-js/nestrix/issues/87), D-118). With the new opt-in `NESTRIX_METRICS=all`, `POST /v1/metrics` also stores an application's own OpenTelemetry metrics of any name (Gauge, Sum and explicit-bucket Histogram, with their unit and up to 16 attributes per point), bounded by the existing series caps and a new `NESTRIX_METRICS_MAX_NAMES_PER_SERVICE` (200). The Metrics page lists them after the runtime charts, with a search when there are many: a counter as a rate, a gauge as its level, a histogram as p50/p95/p99, each optionally split by one of its attributes. `NESTRIX_METRICS=on` and `off` behave as before.
+
 ## 0.10.0
 
 No changes in this release.
